@@ -26,6 +26,7 @@ import type { AgentExecutorConfig, SerializableSessionConfig, SerializedSecurity
 import { getSecurityProfile } from '../ai/security/security-profile';
 import { createOrGetWorktree } from '../ai/worktree';
 import { findTaskWorktree } from '../worktree-paths';
+import { landsThroughPullRequestsOnly } from '../../shared/utils/landing-policy';
 import { readSettingsFile } from '../settings-utils';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
@@ -491,6 +492,14 @@ export class AgentManager extends EventEmitter {
         console.warn(`[AgentManager] Task ${taskId} will run in worktree: ${worktreePath}`);
       } catch (err) {
         console.error(`[AgentManager] Failed to create worktree for ${taskId}:`, err);
+        // zeenha fork: with PR-only landing the fallback is refused. Running in
+        // the project root means the agent commits on the base branch itself,
+        // and the task then reaches review with no worktree and no Create PR.
+        if (landsThroughPullRequestsOnly(project?.settings)) {
+          const reason = err instanceof Error ? err.message : String(err);
+          this.emit('error', taskId, `Could not create the task's git worktree, so the task was not started (this project lands changes through pull requests only). ${reason}`);
+          return;
+        }
         // Fall back to running in project root (non-fatal)
         console.warn(`[AgentManager] Falling back to project root for ${taskId}`);
       }
@@ -593,6 +602,11 @@ export class AgentManager extends EventEmitter {
 
     // Find existing worktree for QA (created during task execution)
     const worktreePath = findTaskWorktree(projectPath, specId);
+    // zeenha fork: QA fixes commit too; never in the project root under PR-only landing.
+    if (!worktreePath && landsThroughPullRequestsOnly(project?.settings)) {
+      this.emit('error', taskId, "QA was not started: the task has no git worktree, and this project lands changes through pull requests only.");
+      return;
+    }
     const effectiveCwd = worktreePath ?? projectPath;
     const effectiveProjectDir = worktreePath ?? projectPath;
     const effectiveSpecDir = worktreePath

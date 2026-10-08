@@ -323,7 +323,7 @@ export function Worktrees({ projectId }: WorktreesProps) {
     try {
       const result = await window.electronAPI.createWorktreePR(prTask.id, options);
       if (result.success && result.data) {
-        if (result.data.success && result.data.prUrl && !result.data.alreadyExists) {
+        if (result.data.success && result.data.prUrl) {
           // Update task in store
           useTaskStore.getState().updateTask(prTask.id, {
             status: 'done',

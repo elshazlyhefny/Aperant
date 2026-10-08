@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useProjectStore } from "../../../stores/project-store";
+import { landsThroughPullRequestsOnly, PR_ONLY_LANDING_MESSAGE } from "../../../../shared/utils/landing-policy";
 import type {
   PRData,
   PRReviewResult,
@@ -642,11 +644,22 @@ export function useGitHubPRs(
     ): Promise<boolean> => {
       if (!projectId) return false;
 
+      // zeenha fork: the main process refuses in-app merges under PR-only
+      // landing and answers a bare false; say why instead of a spinner that
+      // just stops.
+      const project = useProjectStore.getState().projects.find((p) => p.id === projectId);
+      if (landsThroughPullRequestsOnly(project?.settings)) {
+        setError(PR_ONLY_LANDING_MESSAGE);
+        return false;
+      }
+
       try {
         const success = await window.electronAPI.github.mergePR(projectId, prNumber, mergeMethod);
         if (success) {
           // Refresh PR list after merge
           await fetchPRs();
+        } else {
+          setError("The pull request was not merged.");
         }
         return success;
       } catch (err) {

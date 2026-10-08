@@ -11,7 +11,7 @@
 
 import { stepCountIs } from 'ai';
 import { streamText } from '../claude-code/sdk';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createSimpleClient } from '../client/factory';
@@ -29,8 +29,27 @@ import { tryLoadPrompt } from '../prompts/prompt-loader';
 
 const MAX_RETRIES = 3;
 
-/** Maximum agentic steps per phase */
-const MAX_STEPS_PER_PHASE = 30;
+/**
+ * Maximum agentic steps per phase. zeenha fork: 30 was the budget that left
+ * the ideation agents stopped before writing anything on a large repository.
+ */
+export const MAX_STEPS_PER_PHASE = 60;
+
+/** Tell the agent its budget, so it writes the output file before running out. */
+const STEP_BUDGET_NOTE = ` You have at most ${MAX_STEPS_PER_PHASE} tool-using steps: keep exploration focused and write the output file well before you run out.`;
+
+/**
+ * Whether `file` was written during this attempt. On a refresh the previous
+ * run's file is still on disk, and validating it reported success for an
+ * agent that wrote nothing (stopped by its step limit, or failed).
+ */
+export function writtenSince(file: string, startedAt: number): boolean {
+  try {
+    return statSync(file).mtimeMs >= startedAt - 1000;
+  } catch {
+    return false;
+  }
+}
 
 // =============================================================================
 // Types
@@ -143,8 +162,9 @@ The JSON must contain at minimum: project_name, target_audience, product_vision,
 
 Do NOT ask questions. Make educated inferences and create the file.`;
 
-    const discoveryUserPrompt = 'Analyze the project and create the discovery document. Use the available tools to explore the codebase, then write your findings as JSON to the output file specified in the context above.';
+    const discoveryUserPrompt = `Analyze the project and create the discovery document. Use the available tools to explore the codebase, then write your findings as JSON to the output file specified in the context above.${STEP_BUDGET_NOTE}`;
 
+    const attemptStartedAt = Date.now();
     try {
       const result = streamText({
         model: client.model,
@@ -179,8 +199,10 @@ Do NOT ask questions. Make educated inferences and create the file.`;
         }
       }
 
-      // Validate output
-      if (existsSync(discoveryFile)) {
+      // Validate output (only a file written by this attempt counts)
+      if (existsSync(discoveryFile) && !writtenSince(discoveryFile, attemptStartedAt)) {
+        errors.push(`Attempt ${attempt + 1}: Discovery file was not updated (the agent may have run out of steps)`);
+      } else if (existsSync(discoveryFile)) {
         const data = safeParseJson<Record<string, unknown>>(readFileSync(discoveryFile, 'utf-8'));
         if (data) {
           const required = ['project_name', 'target_audience', 'product_vision'];
@@ -275,8 +297,9 @@ Based on the discovery data:
 Output the complete roadmap as valid JSON to ${roadmapFile}.
 The JSON must contain: vision, target_audience (object with "primary" key), phases (array), and features (array with at least 3 items each with id, title, description, priority, complexity, impact, phase_id, status, acceptance_criteria, and user_stories).`;
 
-    const featuresUserPrompt = 'Read the discovery data and generate a complete roadmap with prioritized features. Write the roadmap JSON to the output file specified in the context above.';
+    const featuresUserPrompt = `Read the discovery data and generate a complete roadmap with prioritized features. Write the roadmap JSON to the output file specified in the context above.${STEP_BUDGET_NOTE}`;
 
+    const attemptStartedAt = Date.now();
     try {
       const result = streamText({
         model: client.model,
@@ -318,7 +341,9 @@ The JSON must contain: vision, target_audience (object with "primary" key), phas
       } catch (err: unknown) {
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       }
-      if (roadmapRaw !== null) {
+      if (roadmapRaw !== null && !writtenSince(roadmapFile, attemptStartedAt)) {
+        errors.push(`Attempt ${attempt + 1}: Roadmap file was not updated (the agent may have run out of steps)`);
+      } else if (roadmapRaw !== null) {
         const data = safeParseJson<Record<string, unknown>>(roadmapRaw);
         if (data) {
           const required = ['phases', 'features', 'vision', 'target_audience'];

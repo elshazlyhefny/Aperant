@@ -196,7 +196,7 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
       const result = await window.electronAPI.createWorktreePR(task.id, options);
       if (result.success && result.data) {
         // Update single task in store with new status and prUrl (more efficient than reloading all tasks)
-        if (result.data.success && result.data.prUrl && !result.data.alreadyExists) {
+        if (result.data.success && result.data.prUrl) {
           useTaskStore.getState().updateTask(task.id, {
             status: 'done',
             metadata: { ...task.metadata, prUrl: result.data.prUrl }

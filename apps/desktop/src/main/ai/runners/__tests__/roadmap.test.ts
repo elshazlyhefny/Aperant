@@ -23,6 +23,7 @@ const mockReadFileSync = vi.fn();
 const mockWriteFileSync = vi.fn();
 const mockMkdirSync = vi.fn();
 const mockRenameSync = vi.fn();
+const mockStatSync = vi.fn();
 
 vi.mock('node:fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
@@ -30,6 +31,7 @@ vi.mock('node:fs', () => ({
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   renameSync: (...args: unknown[]) => mockRenameSync(...args),
+  statSync: (...args: unknown[]) => mockStatSync(...args),
 }));
 
 // Tool registry mock
@@ -141,6 +143,48 @@ describe('runRoadmapGeneration', () => {
     mockExistsSync.mockReturnValue(false);
     mockMkdirSync.mockReturnValue(undefined);
     mockStreamText.mockReturnValue(makeStream([]));
+    // Files count as written during the run unless a test says otherwise.
+    mockStatSync.mockImplementation(() => ({ mtimeMs: Date.now() + 60_000 }));
+  });
+
+  // ---------------------------------------------------------------------------
+  // Refresh must not succeed on the previous run's files (zeenha fork)
+  // ---------------------------------------------------------------------------
+
+  describe('refresh', () => {
+    function existingFiles() {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockImplementation((p: string) =>
+        p.endsWith('roadmap_discovery.json') ? VALID_DISCOVERY_JSON : p.endsWith('roadmap.json') ? VALID_ROADMAP_JSON : '{}',
+      );
+    }
+
+    it('fails when the agent wrote nothing and only the old files are on disk', async () => {
+      existingFiles();
+      mockStatSync.mockImplementation(() => ({ mtimeMs: Date.now() - 3_600_000 }));
+
+      const result = await runRoadmapGeneration(baseConfig({ refresh: true }));
+
+      expect(result.success).toBe(false);
+      expect(result.phases[0].errors.join(' ')).toContain('Discovery file was not updated');
+      expect(mockStreamText).toHaveBeenCalledTimes(3); // retried, never accepted the stale file
+    });
+
+    it('succeeds when the agent rewrote both files', async () => {
+      existingFiles();
+
+      const result = await runRoadmapGeneration(baseConfig({ refresh: true }));
+
+      expect(result.success).toBe(true);
+      expect(mockStreamText).toHaveBeenCalledTimes(2);
+    });
+
+    it('gives each phase the raised step budget and tells the agent', async () => {
+      existingFiles();
+      await runRoadmapGeneration(baseConfig({ refresh: true }));
+      expect(mockCreateSimpleClient.mock.calls[0][0].maxSteps).toBe(60);
+      expect(mockStreamText.mock.calls[0][0].prompt).toContain('at most 60 tool-using steps');
+    });
   });
 
   // ---------------------------------------------------------------------------

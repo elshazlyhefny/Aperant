@@ -74,11 +74,11 @@ vi.mock('../../main/ai/providers/factory', () => ({
 // =============================================================================
 
 vi.mock('../../main/ai/worktree', () => ({
-  createOrGetWorktree: vi.fn().mockResolvedValue({ worktreePath: null }),
+  createOrGetWorktree: vi.fn().mockResolvedValue({ worktreePath: '/project/.auto-claude/worktrees/tasks/spec-001' }),
 }));
 
 vi.mock('../../main/worktree-paths', () => ({
-  findTaskWorktree: vi.fn().mockReturnValue(null),
+  findTaskWorktree: vi.fn().mockReturnValue('/project/.auto-claude/worktrees/tasks/spec-001'),
 }));
 
 // =============================================================================
@@ -193,6 +193,63 @@ describe('WorkerBridge Spawn Integration', () => {
   afterEach(() => {
     vi.clearAllMocks();
     createdBridges.length = 0;
+  });
+
+  describe('git worktree is required under PR-only landing (zeenha fork)', () => {
+    async function setup(projectSettings?: Record<string, unknown>) {
+      const worktree = await import('../../main/ai/worktree');
+      const paths = await import('../../main/worktree-paths');
+      const store = await import('../../main/project-store');
+      vi.mocked(store.projectStore.getProjects).mockReturnValue(
+        projectSettings ? ([{ id: 'p1', path: '/project', settings: projectSettings }] as never) : [],
+      );
+      const { AgentManager } = await import('../../main/agent');
+      const manager = new AgentManager();
+      const errors: string[] = [];
+      manager.on('error', (_taskId: string, message: string) => errors.push(message));
+      return { manager, errors, worktree, paths };
+    }
+
+    afterEach(async () => {
+      const worktree = await import('../../main/ai/worktree');
+      const paths = await import('../../main/worktree-paths');
+      const store = await import('../../main/project-store');
+      vi.mocked(worktree.createOrGetWorktree).mockResolvedValue({ worktreePath: '/project/.auto-claude/worktrees/tasks/spec-001' } as never);
+      vi.mocked(paths.findTaskWorktree).mockReturnValue('/project/.auto-claude/worktrees/tasks/spec-001');
+      vi.mocked(store.projectStore.getProjects).mockReturnValue([]);
+    });
+
+    it('does not start a task in the project root when its worktree cannot be created', async () => {
+      const { manager, errors, worktree } = await setup();
+      vi.mocked(worktree.createOrGetWorktree).mockRejectedValueOnce(new Error('git worktree add failed'));
+
+      await manager.startTaskExecution('task-1', '/project', 'spec-001');
+
+      expect(createdBridges).toHaveLength(0);
+      expect(errors[0]).toContain('Could not create the task');
+      expect(errors[0]).toContain('git worktree add failed');
+    }, 15000);
+
+    it('does not run QA in the project root when the task has no worktree', async () => {
+      const { manager, errors, paths } = await setup();
+      vi.mocked(paths.findTaskWorktree).mockReturnValueOnce(null);
+
+      await manager.startQAProcess('task-1', '/project', 'spec-001');
+
+      expect(createdBridges).toHaveLength(0);
+      expect(errors[0]).toContain('QA was not started');
+    }, 15000);
+
+    it('keeps the old fallback when the project has PR-only landing switched off', async () => {
+      const { manager, errors, worktree } = await setup({ prOnlyLanding: false });
+      vi.mocked(worktree.createOrGetWorktree).mockRejectedValueOnce(new Error('git worktree add failed'));
+
+      await manager.startTaskExecution('task-1', '/project', 'spec-001');
+
+      expect(errors).toEqual([]);
+      expect(createdBridges).toHaveLength(1);
+      expect(createdBridges[0].spawn.mock.calls[0][0].session.toolContext.cwd).toBe('/project');
+    }, 15000);
   });
 
   describe('AgentManager', () => {

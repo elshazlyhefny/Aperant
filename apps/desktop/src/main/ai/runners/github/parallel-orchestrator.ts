@@ -398,6 +398,10 @@ export class ParallelOrchestratorReviewer {
     const settledResults = await Promise.allSettled(specialistPromises);
     const agentsInvoked: string[] = [];
     const specialistResults: Array<{ name: string; findings: PRReviewFinding[] }> = [];
+    // zeenha fork: a reviewer that failed found nothing because it looked at
+    // nothing. Counting it as "no findings" made a provider outage or a rate
+    // limit produce "Ready to merge" (an approval) for an unreviewed PR.
+    const failedSpecialists: Array<{ name: string; reason: string }> = [];
 
     for (let i = 0; i < settledResults.length; i++) {
       const result = settledResults[i];
@@ -405,10 +409,26 @@ export class ParallelOrchestratorReviewer {
       agentsInvoked.push(specName);
 
       if (result.status === 'fulfilled') {
-        specialistResults.push(result.value);
+        if (result.value.failed) {
+          failedSpecialists.push({ name: specName, reason: result.value.failed });
+        } else {
+          specialistResults.push({ name: result.value.name, findings: result.value.findings });
+        }
       } else {
-        specialistResults.push({ name: specName, findings: [] });
+        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        failedSpecialists.push({ name: specName, reason });
       }
+    }
+
+    if (abortSignal?.aborted) {
+      const error = new Error('Review cancelled');
+      error.name = 'AbortError';
+      throw error;
+    }
+    if (failedSpecialists.length === settledResults.length) {
+      throw new Error(
+        `PR review could not run: all ${failedSpecialists.length} reviewers failed (${failedSpecialists[0].reason.slice(0, 200)})`,
+      );
     }
 
     // 2. Cross-validate findings across specialists
@@ -445,6 +465,14 @@ export class ParallelOrchestratorReviewer {
       thinkingLevel,
       abortSignal,
     );
+    if (failedSpecialists.length > 0) {
+      // An incomplete review never approves.
+      const names = failedSpecialists.map((f) => f.name).join(', ');
+      if (synthesisResult.verdict === MergeVerdict.READY_TO_MERGE) {
+        synthesisResult.verdict = MergeVerdict.MERGE_WITH_CHANGES;
+      }
+      synthesisResult.verdictReasoning = `Incomplete review: the ${names} reviewer(s) failed, so this PR was not fully checked. ${synthesisResult.verdictReasoning}`;
+    }
 
     // 4. Run finding validator on kept findings
     const validatedFindings = await this.runFindingValidator(
@@ -505,7 +533,7 @@ export class ParallelOrchestratorReviewer {
     modelShorthand: ModelShorthand,
     thinkingLevel: ThinkingLevel,
     abortSignal?: AbortSignal,
-  ): Promise<{ name: string; findings: PRReviewFinding[] }> {
+  ): Promise<{ name: string; findings: PRReviewFinding[]; failed?: string }> {
     this.reportProgress({
       phase: config.name,
       progress: 35,
@@ -610,7 +638,7 @@ export class ParallelOrchestratorReviewer {
       return { name: config.name, findings };
     } catch (error) {
       if (abortSignal?.aborted) {
-        return { name: config.name, findings: [] };
+        return { name: config.name, findings: [], failed: 'cancelled' };
       }
       // Extract detailed error info for debugging
       const err = error as Record<string, unknown>;
@@ -625,7 +653,7 @@ export class ParallelOrchestratorReviewer {
         message: `[Specialist:${config.name}] Failed${detail}: ${message.slice(0, 150)}${bodySnippet}`,
         prNumber: context.prNumber,
       });
-      return { name: config.name, findings: [] };
+      return { name: config.name, findings: [], failed: `${message.slice(0, 300)}${detail}` };
     }
   }
 

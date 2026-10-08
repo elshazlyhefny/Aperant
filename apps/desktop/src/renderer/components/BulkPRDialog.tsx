@@ -157,7 +157,7 @@ export function BulkPRDialog({
           ));
 
           // Update task state in store with new status and prUrl (more efficient than reloading all tasks)
-          if (data.success && data.prUrl && !data.alreadyExists) {
+          if (data.success && data.prUrl) {
             const currentTask = tasks[i];
             useTaskStore.getState().updateTask(currentTask.id, {
               status: 'done',

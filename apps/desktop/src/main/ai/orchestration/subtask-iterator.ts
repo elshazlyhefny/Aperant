@@ -233,7 +233,14 @@ export async function iterateSubtasks(
     // subtask is marked as completed. The coder agent is instructed to update
     // implementation_plan.json itself, but it doesn't always do so reliably.
     if (result.outcome === 'completed' || result.outcome === 'max_steps' || result.outcome === 'context_window') {
-      await ensureSubtaskMarkedCompleted(config.specDir, subtask.id);
+      // zeenha fork: only a session that COMPLETED is taken as having finished
+      // the subtask. One stopped by its step limit or context window was cut
+      // off mid-work; forcing "completed" let half-done subtasks through. Left
+      // as it is, the subtask is retried (a session that did finish marks it
+      // itself) and is marked stuck after maxRetries.
+      if (result.outcome === 'completed') {
+        await ensureSubtaskMarkedCompleted(config.specDir, subtask.id);
+      }
 
       // Re-stamp executionPhase on the worktree plan after the coder session.
       // The coder model's Edit/Write calls can overwrite executionPhase with a

@@ -3040,7 +3040,7 @@ export function registerWorktreeHandlers(
 
         // Determine base branch and branch name
         const taskBaseBranch = getTaskBaseBranch(specDir);
-        const baseBranch = options?.targetBranch || taskBaseBranch || 'main';
+        const baseBranch = options?.targetBranch || taskBaseBranch || project.settings?.mainBranch || 'main';
         const branchName = `auto-claude/${task.specId}`;
         const prTitle = options?.title || `auto-claude: ${task.specId}`;
 
@@ -3069,7 +3069,11 @@ export function registerWorktreeHandlers(
 
         debug('PR creation result:', result);
 
-        if (result.success && result.prUrl && !result.alreadyExists) {
+        // zeenha fork: an existing PR for this task's own branch is still this
+        // task's PR (a lost reply on the first attempt, or Create PR again after
+        // the merge queue sent it back). Record it, or the task stays in Human
+        // Review with no link and every later click only says "already exists".
+        if (result.success && result.prUrl) {
           // Update task status after successful PR creation
           await updateTaskStatusAfterPRCreation(
             specDir,
@@ -3088,7 +3092,7 @@ export function registerWorktreeHandlers(
             });
           }
         } else if (result.alreadyExists) {
-          debug('PR already exists, not updating task status');
+          debug('PR already exists but its URL could not be read; task status unchanged');
         }
 
         if (result.success) {
