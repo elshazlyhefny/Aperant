@@ -31,6 +31,8 @@ const NO_MCP_SERVERS = '{"mcpServers":{}}';
 const KILL_GRACE_MS = 3000;
 /** Keep the end of stderr for error messages. */
 const STDERR_TAIL_BYTES = 4000;
+/** While a bridged tool runs the CLI prints nothing; report liveness this often. */
+export const TOOL_KEEPALIVE_MS = 15_000;
 
 export type SpawnFn = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
 
@@ -50,6 +52,13 @@ export interface ClaudeCodeRunOptions {
    */
   shouldStop?: (steps: readonly CliStep[]) => boolean | PromiseLike<boolean>;
   onPart: (part: ClaudeCodePart) => void;
+  /**
+   * OAuth token of the Claude account Aperant selected. The CLI then runs as
+   * that account (CLAUDE_CODE_OAUTH_TOKEN) instead of whatever `~/.claude` is
+   * signed into, so profile choice and account switching apply. Passed in the
+   * environment only, never on the command line.
+   */
+  oauthToken?: string;
   /** Test seams. */
   spawn?: SpawnFn;
   binaryPath?: string;
@@ -89,6 +98,11 @@ export async function runClaudeCode(options: ClaudeCodeRunOptions): Promise<Clau
   let killTimer: ReturnType<typeof setTimeout> | null = null;
   let stoppedEarly = false;
   let aborted = false;
+  let stopError: unknown = null;
+  // Nothing is reported, and no tool runs, once the run has been stopped.
+  const onPart = (part: ClaudeCodePart) => {
+    if (!stoppedEarly && !aborted) options.onPart(part);
+  };
 
   const kill = () => {
     if (!child || child.exitCode !== null || child.signalCode !== null) return;
@@ -104,18 +118,22 @@ export async function runClaudeCode(options: ClaudeCodeRunOptions): Promise<Clau
     aborted = true;
     kill();
   };
+  // Registered before any await: an abort during setup must not be missed.
+  options.abortSignal?.addEventListener('abort', onAbort, { once: true });
 
   try {
     const hasTools = options.tools != null && Object.keys(options.tools).length > 0;
     if (hasTools && options.tools) {
       bridge = await startToolBridge(options.tools, {
         abortSignal: options.abortSignal,
-        onCall: (toolCallId, toolName, input) =>
-          options.onPart({ type: 'tool-call', toolCallId, toolName, input }),
+        keepaliveMs: TOOL_KEEPALIVE_MS,
+        isClosed: () => stoppedEarly || aborted,
+        onBusy: () => onPart({ type: 'keepalive' }),
+        onCall: (toolCallId, toolName, input) => onPart({ type: 'tool-call', toolCallId, toolName, input }),
         onResult: (toolCallId, toolName, input, output) =>
-          options.onPart({ type: 'tool-result', toolCallId, toolName, input, output }),
+          onPart({ type: 'tool-result', toolCallId, toolName, input, output }),
         onError: (toolCallId, toolName, input, error) =>
-          options.onPart({ type: 'tool-error', toolCallId, toolName, input, error }),
+          onPart({ type: 'tool-error', toolCallId, toolName, input, error }),
       });
     }
 
@@ -140,33 +158,58 @@ export async function runClaudeCode(options: ClaudeCodeRunOptions): Promise<Clau
       jsonSchema: options.jsonSchema,
     });
 
+    // The signal itself is the authority: an abort before the listener existed set no flag.
+    if (aborted || options.abortSignal?.aborted) throw abortError();
+    const env = buildClaudeEnv(options.env);
+    if (options.oauthToken) env.CLAUDE_CODE_OAUTH_TOKEN = options.oauthToken;
     const spawnFn = options.spawn ?? (nodeSpawn as SpawnFn);
     child = spawnFn(binary, args, {
       cwd: options.cwd,
-      env: buildClaudeEnv(options.env),
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const proc = child;
-    options.abortSignal?.addEventListener('abort', onAbort, { once: true });
 
     let stderrTail = '';
     proc.stderr?.on('data', (chunk: Buffer) => {
       stderrTail = (stderrTail + chunk.toString()).slice(-STDERR_TAIL_BYTES);
     });
 
-    // A stop check that needs a promise is awaited in order; nothing else waits on it.
+    const stop = () => {
+      stoppedEarly = true;
+      kill();
+    };
+    // A synchronous stop condition (stepCountIs) decides at once, before any
+    // part of the next step is reported or any of its tools can run. One that
+    // returns a promise is awaited in order; if it throws, the run stops and
+    // the error is raised after the CLI has exited.
     let stopCheck: Promise<void> = Promise.resolve();
     const parser = createCliEventParser({
-      onPart: options.onPart,
+      onPart,
       aliases: bridge?.aliases,
       onStepStart: (steps) => {
         if (!options.shouldStop || steps.length === 0 || stoppedEarly) return;
         const finished = [...steps];
+        let answer: boolean | PromiseLike<boolean>;
+        try {
+          answer = options.shouldStop(finished);
+        } catch (error) {
+          stopError = error;
+          stop();
+          return;
+        }
+        if (typeof answer === 'boolean') {
+          if (answer) stop();
+          return;
+        }
+        const pending = answer;
         stopCheck = stopCheck.then(async () => {
           if (stoppedEarly) return;
-          if (await options.shouldStop?.(finished)) {
-            stoppedEarly = true;
-            kill();
+          try {
+            if (await pending) stop();
+          } catch (error) {
+            stopError = error;
+            stop();
           }
         });
       },
@@ -200,6 +243,7 @@ export async function runClaudeCode(options: ClaudeCodeRunOptions): Promise<Clau
     await stopCheck;
 
     if (aborted || options.abortSignal?.aborted) throw abortError();
+    if (stopError) throw stopError;
     if (spawnError) throw new Error(`Could not start Claude Code CLI (${binary}): ${spawnError.message}`);
 
     const steps = [...parser.steps];

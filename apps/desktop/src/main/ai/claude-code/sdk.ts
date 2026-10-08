@@ -150,10 +150,13 @@ async function execute(
     abortSignal: options.abortSignal,
     shouldStop:
       prepared.stopConditions.length > 0
-        ? async (steps) => {
+        ? (steps) => {
+            // Synchronous when every condition is (stepCountIs is), so the
+            // engine can stop before the next step reports or runs anything.
             const asSteps = steps.map(toStepResult);
-            const answers = await Promise.all(prepared.stopConditions.map((c) => c({ steps: asSteps })));
-            return answers.some(Boolean);
+            const answers = prepared.stopConditions.map((c) => c({ steps: asSteps }));
+            if (answers.every((a) => typeof a === 'boolean')) return answers.some(Boolean);
+            return Promise.all(answers).then((all) => all.some(Boolean));
           }
         : undefined,
     onPart: (part) => {
@@ -294,7 +297,7 @@ function toStepResult(step: CliStep): StepResultLike {
 }
 
 function stepFromPart(part: Extract<ClaudeCodePart, { type: 'finish-step' }>): StepResultLike {
-  return toStepResult({ text: '', toolCalls: part.toolCalls, finishReason: part.finishReason, usage: part.usage });
+  return toStepResult({ text: part.text, toolCalls: part.toolCalls, finishReason: part.finishReason, usage: part.usage });
 }
 
 function aiUsage(usage: CliUsage) {

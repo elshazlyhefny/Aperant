@@ -110,6 +110,46 @@ describe('tool bridge', () => {
     await client.close();
   });
 
+  it('refuses tool calls once the session is stopped, without running them', async () => {
+    const log: string[] = [];
+    let closed = false;
+    const bridge = await startToolBridge(makeTools(log), {
+      onCall: () => undefined, onResult: () => undefined, onError: () => undefined,
+      isClosed: () => closed,
+    });
+    bridges.push(bridge);
+    const client = await connect(bridge);
+    closed = true;
+    const result = await client.callTool({ name: 'Read', arguments: { file_path: 'a' } });
+    expect(result.isError).toBe(true);
+    expect(log).toEqual([]);
+    await client.close();
+  });
+
+  it('reports liveness while a long tool runs, and stops when it ends', async () => {
+    let busy = 0;
+    const slow = tool({
+      description: 'slow',
+      inputSchema: z.object({}),
+      execute: async () => {
+        await new Promise((r) => setTimeout(r, 120));
+        return 'done';
+      },
+    });
+    const bridge = await startToolBridge({ Slow: slow }, {
+      onCall: () => undefined, onResult: () => undefined, onError: () => undefined,
+      onBusy: () => { busy++; }, keepaliveMs: 20,
+    });
+    bridges.push(bridge);
+    const client = await connect(bridge);
+    await client.callTool({ name: 'Slow', arguments: {} });
+    const during = busy;
+    expect(during).toBeGreaterThanOrEqual(3);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(busy).toBe(during);
+    await client.close();
+  });
+
   it('gives over-long or invalid names a short alias and maps it back', async () => {
     const long = `mcp__linear__${'x'.repeat(60)}`;
     const names = assignBridgeNames(['Read', long, 'with space']);

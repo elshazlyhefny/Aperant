@@ -49,12 +49,13 @@ describe('drop-in streamText with a Claude Code model and tools', () => {
         { type: 'reasoning-delta', id: 'm1', delta: 'hmm' },
         { type: 'tool-call', toolCallId: 't1', toolName: 'Read', input: { file_path: 'a' } },
         { type: 'tool-result', toolCallId: 't1', toolName: 'Read', input: { file_path: 'a' }, output: 'x' },
-        { type: 'finish-step', finishReason: 'tool-calls', usage: stepDone.usage, toolCalls: stepDone.toolCalls },
+        { type: 'finish-step', finishReason: 'tool-calls', usage: stepDone.usage, toolCalls: stepDone.toolCalls, text: 'working' },
       ],
       result: { text: 'All done', usage: { ...emptyUsage(), inputTokens: 10, outputTokens: 2, totalTokens: 12 }, steps: [stepDone] },
     });
     const model = new ClaudeCodeLanguageModel('claude-opus-5-5', run);
     const stepCalls: string[][] = [];
+    const stepTexts: string[] = [];
 
     const result = streamText({
       model,
@@ -63,7 +64,7 @@ describe('drop-in streamText with a Claude Code model and tools', () => {
       tools: { Read: readTool([]) },
       stopWhen: stepCountIs(5),
       providerOptions: { anthropic: { thinking: { type: 'enabled', budgetTokens: 16384 } }, 'claude-code': { cwd: '/work/tree' } },
-      onStepFinish: ({ toolCalls }) => { stepCalls.push(toolCalls.map((c) => c.toolName)); },
+      onStepFinish: ({ toolCalls, text }) => { stepCalls.push(toolCalls.map((c) => c.toolName)); stepTexts.push(text); },
     });
 
     const parts: Array<Record<string, unknown>> = [];
@@ -78,6 +79,7 @@ describe('drop-in streamText with a Claude Code model and tools', () => {
     expect(await result.text).toBe('All done');
     expect(await result.totalUsage).toMatchObject({ inputTokens: 10, outputTokens: 2 });
     expect(stepCalls).toEqual([['Read']]);
+    expect(stepTexts).toEqual(['working']);
 
     const options = calls[0];
     expect(options.system).toBe('SYS');
@@ -95,8 +97,9 @@ describe('drop-in streamText with a Claude Code model and tools', () => {
     for await (const _ of result.fullStream) { /* drain */ }
     const shouldStop = calls[0].shouldStop;
     expect(shouldStop).toBeTypeOf('function');
-    expect(await shouldStop?.([step('a'), step('b')])).toBe(false);
-    expect(await shouldStop?.([step('a'), step('b'), step('c')])).toBe(true);
+    // stepCountIs is synchronous, so the answer must be too (not a promise).
+    expect(shouldStop?.([step('a'), step('b')])).toBe(false);
+    expect(shouldStop?.([step('a'), step('b'), step('c')])).toBe(true);
   });
 
   it('throws the engine error from fullStream so callers can classify it', async () => {
@@ -198,6 +201,17 @@ describe('ClaudeCodeLanguageModel', () => {
 
     const streamed = aiStreamText({ model, prompt: 'Capital?', output: Output.object({ schema: z.object({ city: z.string() }) }) });
     expect(await streamed.output).toEqual({ city: 'Paris' });
+  });
+});
+
+describe('the selected Claude account', () => {
+  it('is handed to the engine on every call, and never exposed on the model', async () => {
+    const { run, calls } = fakeEngine({ result: { text: 'ok' } });
+    const model = new ClaudeCodeLanguageModel('m', run, 'sk-ant-oat01-secret');
+    await aiGenerateText({ model, prompt: 'Hi' });
+    expect(calls[0].oauthToken).toBe('sk-ant-oat01-secret');
+    expect(JSON.stringify(model)).not.toContain('secret');
+    expect(Object.values(model)).not.toContain('sk-ant-oat01-secret');
   });
 });
 

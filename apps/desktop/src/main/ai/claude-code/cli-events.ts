@@ -48,7 +48,7 @@ export type ClaudeCodePart =
   | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }
   | { type: 'tool-result'; toolCallId: string; toolName: string; input: unknown; output: unknown }
   | { type: 'tool-error'; toolCallId: string; toolName: string; input: unknown; error: unknown }
-  | { type: 'finish-step'; finishReason: string; usage: CliUsage; toolCalls: CliToolCallRef[] };
+  | { type: 'finish-step'; finishReason: string; usage: CliUsage; toolCalls: CliToolCallRef[]; text: string };
 
 export interface CliFinalResult {
   isError: boolean;
@@ -154,7 +154,7 @@ export function createCliEventParser(hooks: CliEventParserHooks): CliEventParser
     total.completionTokens += usage.completionTokens;
     const finishReason = mapStopReason(stopReason);
     steps.push({ text: stepText, toolCalls: stepTools, finishReason, usage });
-    hooks.onPart({ type: 'finish-step', finishReason, usage, toolCalls: stepTools });
+    hooks.onPart({ type: 'finish-step', finishReason, usage, toolCalls: stepTools, text: stepText });
   }
 
   function handleStreamEvent(event: Record<string, unknown>): void {

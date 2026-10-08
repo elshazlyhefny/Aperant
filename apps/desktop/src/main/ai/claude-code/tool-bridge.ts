@@ -34,6 +34,11 @@ export interface ToolBridgeHooks {
   onResult(toolCallId: string, toolName: string, input: unknown, output: unknown): void;
   onError(toolCallId: string, toolName: string, input: unknown, error: unknown): void;
   abortSignal?: AbortSignal;
+  /** Called every `keepaliveMs` while a tool is still running (the CLI prints nothing meanwhile). */
+  onBusy?: () => void;
+  keepaliveMs?: number;
+  /** When true (the run was stopped or cancelled) tool calls are refused without running. */
+  isClosed?: () => boolean;
 }
 
 export interface ToolBridge {
@@ -95,8 +100,12 @@ async function toJsonSchema(tool: AITool): Promise<Record<string, unknown>> {
 async function runTool(entry: BridgedTool, toolCallId: string, rawInput: unknown, hooks: ToolBridgeHooks) {
   const { name, tool } = entry;
   let input: unknown = rawInput ?? {};
+  if (hooks.isClosed?.()) {
+    return { isError: true, content: [{ type: 'text' as const, text: 'The session has been stopped; this tool was not run.' }] };
+  }
   hooks.onCall(toolCallId, name, input);
 
+  const busy = hooks.onBusy && hooks.keepaliveMs ? setInterval(hooks.onBusy, hooks.keepaliveMs) : null;
   try {
     const schema = asSchema(tool.inputSchema);
     if (schema.validate) {
@@ -126,6 +135,8 @@ async function runTool(entry: BridgedTool, toolCallId: string, rawInput: unknown
     hooks.onError(toolCallId, name, input, error);
     const message = error instanceof Error ? error.message : String(error);
     return { isError: true, content: [{ type: 'text' as const, text: message }] };
+  } finally {
+    if (busy) clearInterval(busy);
   }
 }
 

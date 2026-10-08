@@ -9,6 +9,9 @@ import { z } from 'zod/v3';
 import { classifyError } from '../../session/error-classifier';
 import type { ClaudeCodePart } from '../cli-events';
 import { runClaudeCode } from '../engine';
+import { createProvider } from '../../providers/factory';
+import { SupportedProvider } from '../../providers/types';
+import type { ClaudeCodeLanguageModel } from '../model';
 
 /**
  * A fake `claude`: records what it was given, then plays back a scenario.
@@ -30,6 +33,7 @@ process.stdin.on('end', () => {
   const record = {
     args, stdin, cwd: process.cwd(),
     apiKey: process.env.ANTHROPIC_API_KEY ?? null,
+    oauthToken: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? null,
     sysFile, system: sysFile ? fs.readFileSync(sysFile, 'utf8') : null,
     sysMode: sysFile ? (fs.statSync(sysFile).mode & 0o777) : null,
     mcp, mcpBody: mcp && mcp.startsWith('/') ? fs.readFileSync(mcp, 'utf8') : mcp,
@@ -60,6 +64,7 @@ process.stdin.on('end', () => {
       step('m1', 'one', 'tool_use');
       step('m2', 'two', 'tool_use');
       out({ type: 'stream_event', event: { type: 'message_start', message: { id: 'm3', usage: {} } } });
+      out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'LEAKED' } } });
       setInterval(() => undefined, 1000);
       break;
     case 'hang':
@@ -171,6 +176,59 @@ describe('runClaudeCode', () => {
     const run = runClaudeCode({ modelId: 'm', prompt: 'p', binaryPath: fake, env, abortSignal: controller.signal, onPart: () => undefined });
     setTimeout(() => controller.abort(), 300);
     await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+  }, 15_000);
+
+  it('runs the CLI as the selected account: the token goes in the environment, never the arguments', async () => {
+    const { env, read } = scenario('ok');
+    await runClaudeCode({ modelId: 'm', prompt: 'p', binaryPath: fake, env, oauthToken: 'sk-ant-oat01-chosen', onPart: () => undefined });
+    const rec = read();
+    expect(rec.oauthToken).toBe('sk-ant-oat01-chosen');
+    expect(JSON.stringify(rec.args)).not.toContain('sk-ant-oat01-chosen');
+  });
+
+  it('a subscription model from the provider factory carries its account to the CLI', async () => {
+    const { env, read } = scenario('ok');
+    const model = createProvider({
+      config: { provider: SupportedProvider.Anthropic, apiKey: 'sk-ant-oat01-profile-b' },
+      modelId: 'claude-opus-5-5',
+    }) as ClaudeCodeLanguageModel;
+    await model.run({ modelId: model.modelId, prompt: 'p', binaryPath: fake, env, onPart: () => undefined });
+    expect(read().oauthToken).toBe('sk-ant-oat01-profile-b');
+  });
+
+  it('never starts the CLI when cancelled during setup', async () => {
+    const { env } = scenario('ok');
+    const record = env.FAKE_RECORD as string;
+    const controller = new AbortController();
+    const tools = { Read: tool({ description: 'r', inputSchema: z.object({}), execute: async () => 'x' }) };
+    const run = runClaudeCode({ modelId: 'm', prompt: 'p', tools, binaryPath: fake, env, abortSignal: controller.signal, onPart: () => undefined });
+    controller.abort(); // while the tool bridge is still starting
+    await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+    expect(existsSync(record)).toBe(false);
+  });
+
+  it('stops at once on a synchronous stop condition: nothing from the stopped step is reported', async () => {
+    const { env } = scenario('loop');
+    const parts: ClaudeCodePart[] = [];
+    const result = await runClaudeCode({
+      modelId: 'm', prompt: 'p', binaryPath: fake, env,
+      shouldStop: (steps) => steps.length >= 2,
+      onPart: (p) => parts.push(p),
+    });
+    expect(result.stoppedEarly).toBe(true);
+    expect(parts.filter((p) => p.type === 'start-step')).toHaveLength(2);
+    expect(parts.some((p) => p.type === 'text-delta' && p.text === 'LEAKED')).toBe(false);
+  }, 15_000);
+
+  it('ends the run with the error when a stop condition fails', async () => {
+    const { env } = scenario('loop');
+    await expect(
+      runClaudeCode({
+        modelId: 'm', prompt: 'p', binaryPath: fake, env,
+        shouldStop: async () => { throw new Error('stop check broke'); },
+        onPart: () => undefined,
+      }),
+    ).rejects.toThrow('stop check broke');
   }, 15_000);
 
   it('says how to fix a missing CLI', async () => {

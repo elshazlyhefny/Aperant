@@ -221,7 +221,8 @@ export interface CreateProviderOptions {
 export function createProvider(options: CreateProviderOptions): LanguageModel {
   const { config, modelId } = options;
   if (usesClaudeCodeEngine(config)) {
-    return createClaudeCodeModel(modelId);
+    // The CLI runs as the account Aperant selected, not whatever ~/.claude holds.
+    return createClaudeCodeModel(modelId, config.apiKey);
   }
   const instance = createProviderInstance(config);
 
