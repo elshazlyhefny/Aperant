@@ -21,7 +21,10 @@ import {
 
 describe('MODEL_ID_MAP', () => {
   it('should map all model shorthands', () => {
-    expect(MODEL_ID_MAP.opus).toBe('claude-opus-4-6');
+    // zeenha fork: 'opus'/'sonnet' are the 5.5 models; 'opus-1m' stays on Opus 4.6
+    // because its 1M-context beta header is a 4.6 feature.
+    expect(MODEL_ID_MAP.opus).toBe('claude-opus-5-5');
+    expect(MODEL_ID_MAP.sonnet).toBe('claude-sonnet-5-5');
     expect(MODEL_ID_MAP['opus-1m']).toBe('claude-opus-4-6');
     expect(MODEL_ID_MAP['opus-4.5']).toBeDefined();
     expect(MODEL_ID_MAP.sonnet).toBeDefined();
@@ -96,7 +99,7 @@ describe('resolveModelId', () => {
   });
 
   it('should resolve shorthands to model IDs', () => {
-    expect(resolveModelId('opus')).toBe('claude-opus-4-6');
+    expect(resolveModelId('opus')).toBe('claude-opus-5-5');
     expect(resolveModelId('sonnet')).toMatch(/^claude-sonnet/);
     expect(resolveModelId('haiku')).toMatch(/^claude-haiku/);
   });
@@ -158,6 +161,7 @@ describe('getThinkingBudget', () => {
 describe('isAdaptiveModel', () => {
   it('should return true for adaptive models', () => {
     expect(isAdaptiveModel('claude-opus-4-6')).toBe(true);
+    expect(isAdaptiveModel('claude-opus-5-5')).toBe(true);
   });
 
   it('should return false for non-adaptive models', () => {

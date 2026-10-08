@@ -11,10 +11,10 @@ import type { BuiltinProvider } from '../types/provider-account';
 // ============================================
 
 export const AVAILABLE_MODELS = [
-  { value: 'opus', label: 'Claude Opus 4.6' },
+  { value: 'opus', label: 'Claude Opus 5.5' },
   { value: 'opus-1m', label: 'Claude Opus 4.6 (1M)' },
   { value: 'opus-4.5', label: 'Claude Opus 4.5' },
-  { value: 'sonnet', label: 'Claude Sonnet 4.6' },
+  { value: 'sonnet', label: 'Claude Sonnet 5.5' },
   { value: 'haiku', label: 'Claude Haiku 4.5' }
 ] as const;
 
@@ -38,9 +38,9 @@ export interface ModelOption {
 
 export const ALL_AVAILABLE_MODELS: ModelOption[] = [
   // Anthropic
-  { value: 'opus', label: 'Claude Opus 4.6', provider: 'anthropic', description: 'Most capable', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
+  { value: 'opus', label: 'Claude Opus 5.5', provider: 'anthropic', description: 'Most capable', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
   { value: 'opus-1m', label: 'Claude Opus 4.6 (1M)', provider: 'anthropic', description: '1M context', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 1000000 } },
-  { value: 'sonnet', label: 'Claude Sonnet 4.6', provider: 'anthropic', description: 'Balanced', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
+  { value: 'sonnet', label: 'Claude Sonnet 5.5', provider: 'anthropic', description: 'Balanced', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
   { value: 'opus-4.5', label: 'Claude Opus 4.5', provider: 'anthropic', description: 'Legacy', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
   { value: 'haiku', label: 'Claude Haiku 4.5', provider: 'anthropic', description: 'Fast', capabilities: { thinking: false, tools: true, vision: true, contextWindow: 200000 } },
   // OpenAI
@@ -76,10 +76,10 @@ export const ALL_AVAILABLE_MODELS: ModelOption[] = [
 // Maps model shorthand to actual Claude model IDs
 // Values must match apps/desktop/src/main/ai/config/types.ts MODEL_ID_MAP
 export const MODEL_ID_MAP: Record<string, string> = {
-  opus: 'claude-opus-4-6',
+  opus: 'claude-opus-5-5',
   'opus-1m': 'claude-opus-4-6',
   'opus-4.5': 'claude-opus-4-5-20251101',
-  sonnet: 'claude-sonnet-4-6',
+  sonnet: 'claude-sonnet-5-5',
   haiku: 'claude-haiku-4-5-20251001'
 } as const;
 
@@ -407,7 +407,7 @@ export interface ProviderModelSpec {
 export const DEFAULT_MODEL_EQUIVALENCES: Record<string, Partial<Record<BuiltinProvider, ProviderModelSpec>>> = {
   // ── Anthropic shorthands ──────────────────────────────────────────────────
   'opus': {
-    anthropic: { modelId: 'claude-opus-4-6', reasoning: { type: 'adaptive_effort', level: 'high' } },
+    anthropic: { modelId: 'claude-opus-5-5', reasoning: { type: 'adaptive_effort', level: 'high' } },
     openai: { modelId: 'gpt-5.3-codex', reasoning: { type: 'reasoning_effort', level: 'high' } },
     google: { modelId: 'gemini-2.5-pro', reasoning: { type: 'thinking_toggle', level: 'high' } },
     xai: { modelId: 'grok-4-0709', reasoning: { type: 'reasoning_effort', level: 'high' } },
@@ -417,12 +417,12 @@ export const DEFAULT_MODEL_EQUIVALENCES: Record<string, Partial<Record<BuiltinPr
   },
   'glm-5': {
     zai: { modelId: 'glm-5', reasoning: { type: 'none' } },
-    anthropic: { modelId: 'claude-opus-4-6', reasoning: { type: 'adaptive_effort', level: 'high' } },
+    anthropic: { modelId: 'claude-opus-5-5', reasoning: { type: 'adaptive_effort', level: 'high' } },
     openai: { modelId: 'gpt-5.3-codex', reasoning: { type: 'reasoning_effort', level: 'high' } },
   },
   'glm-4.7': {
     zai: { modelId: 'glm-4.7', reasoning: { type: 'none' } },
-    anthropic: { modelId: 'claude-sonnet-4-6', reasoning: { type: 'thinking_tokens', level: 'medium' } },
+    anthropic: { modelId: 'claude-sonnet-5-5', reasoning: { type: 'thinking_tokens', level: 'medium' } },
     openai: { modelId: 'gpt-5.2', reasoning: { type: 'reasoning_effort', level: 'medium' } },
   },
   'opus-1m': {
@@ -436,7 +436,7 @@ export const DEFAULT_MODEL_EQUIVALENCES: Record<string, Partial<Record<BuiltinPr
     google: { modelId: 'gemini-2.5-pro', reasoning: { type: 'thinking_toggle', level: 'high' } },
   },
   'sonnet': {
-    anthropic: { modelId: 'claude-sonnet-4-6', reasoning: { type: 'thinking_tokens', level: 'medium' } },
+    anthropic: { modelId: 'claude-sonnet-5-5', reasoning: { type: 'thinking_tokens', level: 'medium' } },
     openai: { modelId: 'gpt-5.2-codex', reasoning: { type: 'reasoning_effort', level: 'medium' } },
     google: { modelId: 'gemini-2.5-flash', reasoning: { type: 'thinking_toggle', level: 'medium' } },
     mistral: { modelId: 'mistral-large-latest', reasoning: { type: 'none' } },
@@ -455,17 +455,17 @@ export const DEFAULT_MODEL_EQUIVALENCES: Record<string, Partial<Record<BuiltinPr
   // ── OpenAI models ─────────────────────────────────────────────────────────
   'gpt-5.3-codex': {
     openai: { modelId: 'gpt-5.3-codex', reasoning: { type: 'reasoning_effort', level: 'high' } },
-    anthropic: { modelId: 'claude-opus-4-6', reasoning: { type: 'adaptive_effort', level: 'high' } },
+    anthropic: { modelId: 'claude-opus-5-5', reasoning: { type: 'adaptive_effort', level: 'high' } },
     google: { modelId: 'gemini-2.5-pro', reasoning: { type: 'thinking_toggle', level: 'high' } },
   },
   'gpt-5.2': {
     openai: { modelId: 'gpt-5.2', reasoning: { type: 'reasoning_effort', level: 'high' } },
-    anthropic: { modelId: 'claude-sonnet-4-6', reasoning: { type: 'thinking_tokens', level: 'high' } },
+    anthropic: { modelId: 'claude-sonnet-5-5', reasoning: { type: 'thinking_tokens', level: 'high' } },
     google: { modelId: 'gemini-2.5-pro', reasoning: { type: 'thinking_toggle', level: 'high' } },
   },
   'gpt-5.2-codex': {
     openai: { modelId: 'gpt-5.2-codex', reasoning: { type: 'reasoning_effort', level: 'high' } },
-    anthropic: { modelId: 'claude-opus-4-6', reasoning: { type: 'adaptive_effort', level: 'high' } },
+    anthropic: { modelId: 'claude-opus-5-5', reasoning: { type: 'adaptive_effort', level: 'high' } },
     google: { modelId: 'gemini-2.5-pro', reasoning: { type: 'thinking_toggle', level: 'high' } },
   },
   'gpt-5.1-codex-mini': {
@@ -480,34 +480,34 @@ export const DEFAULT_MODEL_EQUIVALENCES: Record<string, Partial<Record<BuiltinPr
   },
   'o3': {
     openai: { modelId: 'o3', reasoning: { type: 'reasoning_effort', level: 'high' } },
-    anthropic: { modelId: 'claude-opus-4-6', reasoning: { type: 'adaptive_effort', level: 'high' } },
+    anthropic: { modelId: 'claude-opus-5-5', reasoning: { type: 'adaptive_effort', level: 'high' } },
     google: { modelId: 'gemini-2.5-pro', reasoning: { type: 'thinking_toggle', level: 'high' } },
   },
   'o4-mini': {
     openai: { modelId: 'o4-mini', reasoning: { type: 'reasoning_effort', level: 'medium' } },
-    anthropic: { modelId: 'claude-sonnet-4-6', reasoning: { type: 'thinking_tokens', level: 'medium' } },
+    anthropic: { modelId: 'claude-sonnet-5-5', reasoning: { type: 'thinking_tokens', level: 'medium' } },
     google: { modelId: 'gemini-2.5-flash', reasoning: { type: 'thinking_toggle', level: 'medium' } },
   },
   // ── Google models ─────────────────────────────────────────────────────────
   'gemini-2.5-pro': {
     google: { modelId: 'gemini-2.5-pro', reasoning: { type: 'thinking_toggle', level: 'high' } },
-    anthropic: { modelId: 'claude-opus-4-6', reasoning: { type: 'adaptive_effort', level: 'high' } },
+    anthropic: { modelId: 'claude-opus-5-5', reasoning: { type: 'adaptive_effort', level: 'high' } },
     openai: { modelId: 'gpt-5.3-codex', reasoning: { type: 'reasoning_effort', level: 'high' } },
   },
   'gemini-2.5-flash': {
     google: { modelId: 'gemini-2.5-flash', reasoning: { type: 'thinking_toggle', level: 'medium' } },
-    anthropic: { modelId: 'claude-sonnet-4-6', reasoning: { type: 'thinking_tokens', level: 'medium' } },
+    anthropic: { modelId: 'claude-sonnet-5-5', reasoning: { type: 'thinking_tokens', level: 'medium' } },
     openai: { modelId: 'gpt-5.2', reasoning: { type: 'reasoning_effort', level: 'medium' } },
   },
   // ── xAI models ────────────────────────────────────────────────────────────
   'grok-4-0709': {
     xai: { modelId: 'grok-4-0709', reasoning: { type: 'reasoning_effort', level: 'high' } },
-    anthropic: { modelId: 'claude-opus-4-6', reasoning: { type: 'adaptive_effort', level: 'high' } },
+    anthropic: { modelId: 'claude-opus-5-5', reasoning: { type: 'adaptive_effort', level: 'high' } },
     openai: { modelId: 'gpt-5.3-codex', reasoning: { type: 'reasoning_effort', level: 'high' } },
   },
   'grok-3-mini': {
     xai: { modelId: 'grok-3-mini', reasoning: { type: 'reasoning_effort', level: 'medium' } },
-    anthropic: { modelId: 'claude-sonnet-4-6', reasoning: { type: 'thinking_tokens', level: 'medium' } },
+    anthropic: { modelId: 'claude-sonnet-5-5', reasoning: { type: 'thinking_tokens', level: 'medium' } },
     openai: { modelId: 'o4-mini', reasoning: { type: 'reasoning_effort', level: 'medium' } },
   },
 };
@@ -572,7 +572,7 @@ export function resolveModelEquivalent(
   const direct = DEFAULT_MODEL_EQUIVALENCES[modelValue]?.[targetProvider];
   if (direct) return direct;
 
-  // Reverse lookup: if modelValue is a full model ID (e.g. 'claude-opus-4-6'),
+  // Reverse lookup: if modelValue is a full model ID (e.g. 'claude-opus-5-5'),
   // find which equivalence entry resolves to that ID and use the target provider mapping
   for (const [_key, providerMap] of Object.entries(DEFAULT_MODEL_EQUIVALENCES)) {
     for (const spec of Object.values(providerMap)) {
@@ -589,7 +589,7 @@ export function resolveModelEquivalent(
 /**
  * Look up the context window size for a model shorthand or full model ID.
  * Searches ALL_AVAILABLE_MODELS by value first, then searches
- * DEFAULT_MODEL_EQUIVALENCES for full model IDs (e.g., 'claude-opus-4-6').
+ * DEFAULT_MODEL_EQUIVALENCES for full model IDs (e.g., 'claude-opus-5-5').
  * Falls back to 200,000 (conservative default) if not found.
  */
 export function getModelContextWindow(modelIdOrShorthand: string): number {
@@ -599,7 +599,7 @@ export function getModelContextWindow(modelIdOrShorthand: string): number {
     return directMatch.capabilities.contextWindow;
   }
 
-  // Search equivalences for full model IDs (e.g., 'claude-opus-4-6' → find 'opus' entry)
+  // Search equivalences for full model IDs (e.g., 'claude-opus-5-5' → find 'opus' entry)
   for (const [shorthand, providerMap] of Object.entries(DEFAULT_MODEL_EQUIVALENCES)) {
     for (const spec of Object.values(providerMap)) {
       if (spec?.modelId === modelIdOrShorthand) {

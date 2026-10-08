@@ -114,6 +114,10 @@ export class TokenBucket {
 const AI_PRICING: Record<string, { input: number; output: number }> = {
   'claude-sonnet-4-6': { input: 3.0, output: 15.0 },
   'claude-opus-4-6': { input: 15.0, output: 75.0 },
+  // zeenha fork: newer models priced at their predecessor's tier. ESTIMATES for
+  // the cost display only; nothing is billed here (subscription sign-in).
+  'claude-sonnet-5-5': { input: 3.0, output: 15.0 },
+  'claude-opus-5-5': { input: 15.0, output: 75.0 },
   'claude-haiku-4-5-20251001': { input: 0.8, output: 4.0 },
   default: { input: 3.0, output: 15.0 },
 };
