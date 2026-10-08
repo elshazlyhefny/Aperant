@@ -20,11 +20,21 @@ vi.mock('../../client/factory', () => ({
 // Mock filesystem: prompt files exist by default
 const mockExistsSync = vi.fn();
 const mockReadFileSync = vi.fn();
+const mockReaddirSync = vi.fn();
+const mockStatSync = vi.fn();
 
 vi.mock('node:fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+  readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
+  statSync: (...args: unknown[]) => mockStatSync(...args),
 }));
+
+/** The agent's output file: what a successful run leaves behind. */
+let ideasFile: { name: string; mtimeMs: number; content: string } | null;
+function agentWrote(type: string, name = `${type}_ideas.json`, mtimeMs = Date.now() + 60_000) {
+  ideasFile = { name, mtimeMs, content: JSON.stringify({ [type]: [{ id: 'x-001', type, title: 'An idea' }] }) };
+}
 
 // Mock the tool registry so we don't need real tool initialization
 vi.mock('../../tools/build-registry', () => ({
@@ -37,7 +47,7 @@ vi.mock('../../tools/build-registry', () => ({
 // Import after mocking
 // =============================================================================
 
-import { runIdeation, IDEATION_TYPES, IDEATION_TYPE_LABELS } from '../ideation';
+import { runIdeation, IDEATION_MAX_STEPS, IDEATION_TYPES, IDEATION_TYPE_LABELS } from '../ideation';
 import type { IdeationConfig, IdeationStreamEvent } from '../ideation';
 
 // =============================================================================
@@ -88,7 +98,52 @@ describe('runIdeation', () => {
     mockCreateSimpleClient.mockResolvedValue(makeMockClient());
     // Prompt file exists and has content by default
     mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue('Analyze the codebase for improvements.');
+    agentWrote('code_improvements');
+    mockReadFileSync.mockImplementation((file: string) =>
+      ideasFile && String(file).endsWith(ideasFile.name) ? ideasFile.content : 'Analyze the codebase for improvements.',
+    );
+    mockReaddirSync.mockImplementation(() => (ideasFile ? [ideasFile.name, 'ideation.json'] : ['ideation.json']));
+    mockStatSync.mockImplementation(() => ({ mtimeMs: ideasFile?.mtimeMs ?? 0 }));
+  });
+
+  // ---------------------------------------------------------------------------
+  // A finished stream is not success without the ideas file (zeenha fork)
+  // ---------------------------------------------------------------------------
+
+  it('fails when the agent finished without writing its ideas file', async () => {
+    ideasFile = null;
+    mockStreamText.mockReturnValue(makeStream([{ type: 'text-delta', text: 'Still exploring...' }]));
+    const events: IdeationStreamEvent[] = [];
+
+    const result = await runIdeation(baseConfig({ ideationType: 'performance_optimizations' }), (e) => events.push(e));
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Performance Optimizations agent finished without writing any ideas');
+    expect(events.some((e) => e.type === 'error')).toBe(true);
+  });
+
+  it('fails when only an older file or another category was written', async () => {
+    mockStreamText.mockReturnValue(makeStream([]));
+    agentWrote('performance_optimizations', 'performance_optimizations_ideas.json', Date.now() - 3_600_000);
+    expect((await runIdeation(baseConfig({ ideationType: 'performance_optimizations' }))).success).toBe(false);
+
+    mockStreamText.mockReturnValue(makeStream([]));
+    agentWrote('code_quality');
+    expect((await runIdeation(baseConfig({ ideationType: 'performance_optimizations' }))).success).toBe(false);
+  });
+
+  it('accepts a file whose name differs from the type it holds', async () => {
+    mockStreamText.mockReturnValue(makeStream([]));
+    agentWrote('ui_ux_improvements', 'ui_ux_ideas.json');
+    expect((await runIdeation(baseConfig({ ideationType: 'ui_ux_improvements' }))).success).toBe(true);
+  });
+
+  it('gives the agent the raised step budget and tells it so', async () => {
+    mockCreateSimpleClient.mockResolvedValue({ ...makeMockClient(), maxSteps: IDEATION_MAX_STEPS });
+    mockStreamText.mockReturnValue(makeStream([]));
+    await runIdeation(baseConfig());
+    expect(mockCreateSimpleClient.mock.calls[0][0].maxSteps).toBe(60);
+    expect(mockStreamText.mock.calls[0][0].prompt).toContain('at most 60 tool-using steps');
   });
 
   // ---------------------------------------------------------------------------

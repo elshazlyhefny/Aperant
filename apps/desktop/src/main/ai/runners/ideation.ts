@@ -12,7 +12,7 @@
 
 import { stepCountIs } from 'ai';
 import { streamText } from '../claude-code/sdk';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createSimpleClient } from '../client/factory';
@@ -100,6 +100,41 @@ export type IdeationStreamEvent =
   | { type: 'tool-use'; name: string }
   | { type: 'error'; error: string };
 
+/**
+ * Tool-using steps an ideation agent may take. zeenha fork: upstream allowed 30,
+ * and on a large repository the performance agent spent all of them reading
+ * files and was stopped before writing anything.
+ */
+export const IDEATION_MAX_STEPS = 60;
+
+/**
+ * Whether a `*_ideas.json` file written since `since` holds ideas of `ideationType`.
+ * File names are chosen by the prompts (`ui_ux_ideas.json` holds
+ * `ui_ux_improvements`), so the ideas' own `type` is what counts.
+ */
+export function wroteIdeasFor(outputDir: string, ideationType: string, since: number): boolean {
+  if (!existsSync(outputDir)) return false;
+  for (const name of readdirSync(outputDir)) {
+    if (!name.endsWith('_ideas.json')) continue;
+    const file = join(outputDir, name);
+    if (statSync(file).mtimeMs < since) continue;
+    try {
+      const data = JSON.parse(readFileSync(file, 'utf-8')) as Record<string, unknown>;
+      for (const value of Object.values(data)) {
+        if (
+          Array.isArray(value) &&
+          value.some((idea) => typeof idea === 'object' && idea !== null && (idea as { type?: unknown }).type === ideationType)
+        ) {
+          return true;
+        }
+      }
+    } catch {
+      // half-written or invalid: does not count
+    }
+  }
+  return false;
+}
+
 // =============================================================================
 // Ideation Runner
 // =============================================================================
@@ -175,7 +210,7 @@ export async function runIdeation(
     systemPrompt: '',
     modelShorthand,
     thinkingLevel,
-    maxSteps: 30,
+    maxSteps: IDEATION_MAX_STEPS,
     tools,
   });
 
@@ -184,8 +219,9 @@ export async function runIdeation(
   // Detect Codex models — they require instructions via providerOptions, not system
   const modelId = typeof client.model === 'string' ? client.model : client.model.modelId;
   const isCodex = modelId?.includes('codex') ?? false;
-  const userPrompt = `Analyze the project at ${projectDir} and generate up to ${maxIdeasPerType} ${ideationType.replace(/_/g, ' ')} ideas. Use the available tools to explore the codebase, then write your findings as a JSON file to the output directory.`;
+  const userPrompt = `Analyze the project at ${projectDir} and generate up to ${maxIdeasPerType} ${ideationType.replace(/_/g, ' ')} ideas. Use the available tools to explore the codebase, then write your findings as a JSON file to the output directory. You have at most ${client.maxSteps} tool-using steps: keep the exploration focused and write the JSON file well before you run out, because ideas that are not written to the file are lost.`;
 
+  const startedAt = Date.now();
   try {
     const result = streamText({
       model: client.model,
@@ -222,6 +258,15 @@ export async function runIdeation(
           break;
         }
       }
+    }
+
+    // zeenha fork: finishing the stream is not success. A run stopped by the
+    // step limit writes nothing and used to be reported as done, so the
+    // category silently stayed empty.
+    if (!wroteIdeasFor(outputDir, ideationType, startedAt - 1000)) {
+      const error = `The ${IDEATION_TYPE_LABELS[ideationType]} agent finished without writing any ideas (it may have run out of steps). Try generating this category again.`;
+      onStream?.({ type: 'error', error });
+      return { success: false, text: responseText, error };
     }
 
     return {
