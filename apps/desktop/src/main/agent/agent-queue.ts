@@ -12,6 +12,7 @@ import { debugLog, debugError } from '../../shared/utils/debug-logger';
 import { transformIdeaFromSnakeCase, transformSessionFromSnakeCase } from '../ipc-handlers/ideation/transformers';
 import { transformRoadmapFromSnakeCase } from '../ipc-handlers/roadmap/transformers';
 import type { RawIdea } from '../ipc-handlers/ideation/types';
+import { readIdeasByType, syncIdeationFile } from '../ipc-handlers/ideation/file-utils';
 import { debounce } from '../utils/debounce';
 import { writeFileWithRetry } from '../utils/atomic-file';
 import { runIdeation, IDEATION_TYPES } from '../ai/runners/ideation';
@@ -274,12 +275,11 @@ export class AgentQueueManager {
           completedTypes.add(ideationType);
           debugLog('[Agent Queue] Ideation type completed:', { projectId, ideationType });
 
-          // Load and emit type-specific ideas
-          const typeFilePath = path.join(outputDir, `${ideationType}_ideas.json`);
+          // Load and emit type-specific ideas. The prompts name the files
+          // (`ui_ux_ideas.json` holds `ui_ux_improvements`), so read by the
+          // ideas' own type rather than by file name.
           try {
-            const content = await fsPromises.readFile(typeFilePath, 'utf-8');
-            const data: Record<string, RawIdea[]> = JSON.parse(content);
-            const rawIdeas: RawIdea[] = data[ideationType] || [];
+            const rawIdeas: RawIdea[] = readIdeasByType(outputDir).get(ideationType) ?? [];
             const ideas: Idea[] = rawIdeas.map(transformIdeaFromSnakeCase);
             this.emitter.emit('ideation-type-complete', projectId, ideationType, ideas);
           } catch (err) {
@@ -328,6 +328,10 @@ export class AgentQueueManager {
 
     // Load and emit the complete ideation session
     try {
+      // zeenha fork: the runner writes only per-category files; combine them
+      // into ideation.json, which every idea operation (convert, dismiss,
+      // archive, delete) reads. Only the categories generated now are replaced.
+      syncIdeationFile(outputDir, Array.from(completedTypes));
       const ideationFilePath = path.join(outputDir, 'ideation.json');
       if (existsSync(ideationFilePath)) {
         const content = await fsPromises.readFile(ideationFilePath, 'utf-8');
