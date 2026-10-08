@@ -105,7 +105,7 @@
       "sonnetLabel": "Modèle Sonnet (optionnel)",
       "opusLabel": "Modèle Opus (optionnel)",
       "defaultPlaceholder": "ex. : claude-sonnet-4-6",
-      "haikuPlaceholder": "ex. : claude-haiku-4-5-20251001",
+      "haikuPlaceholder": "ex. : claude-haiku-5-5",
       "sonnetPlaceholder": "ex. : claude-sonnet-4-6",
       "opusPlaceholder": "ex. : claude-opus-4-6",
       "opus1mPlaceholder": "ex. : claude-opus-4-6 (contexte 1M)"

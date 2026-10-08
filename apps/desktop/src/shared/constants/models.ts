@@ -15,7 +15,7 @@ export const AVAILABLE_MODELS = [
   { value: 'opus-1m', label: 'Claude Opus 4.6 (1M)' },
   { value: 'opus-4.5', label: 'Claude Opus 4.5' },
   { value: 'sonnet', label: 'Claude Sonnet 5.5' },
-  { value: 'haiku', label: 'Claude Haiku 4.5' }
+  { value: 'haiku', label: 'Claude Haiku 5.5' }
 ] as const;
 
 // ============================================
@@ -42,7 +42,7 @@ export const ALL_AVAILABLE_MODELS: ModelOption[] = [
   { value: 'opus-1m', label: 'Claude Opus 4.6 (1M)', provider: 'anthropic', description: '1M context', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 1000000 } },
   { value: 'sonnet', label: 'Claude Sonnet 5.5', provider: 'anthropic', description: 'Balanced', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
   { value: 'opus-4.5', label: 'Claude Opus 4.5', provider: 'anthropic', description: 'Legacy', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
-  { value: 'haiku', label: 'Claude Haiku 4.5', provider: 'anthropic', description: 'Fast', capabilities: { thinking: false, tools: true, vision: true, contextWindow: 200000 } },
+  { value: 'haiku', label: 'Claude Haiku 5.5', provider: 'anthropic', description: 'Fast', capabilities: { thinking: false, tools: true, vision: true, contextWindow: 200000 } },
   // OpenAI
   { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', provider: 'openai', description: 'Agentic coding', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 1047576 } },
   { value: 'gpt-5.2', label: 'GPT-5.2', provider: 'openai', description: 'Flagship', apiKeyOnly: true, capabilities: { thinking: true, tools: true, vision: true, contextWindow: 400000 } },
@@ -80,7 +80,7 @@ export const MODEL_ID_MAP: Record<string, string> = {
   'opus-1m': 'claude-opus-4-6',
   'opus-4.5': 'claude-opus-4-5-20251101',
   sonnet: 'claude-sonnet-5-5',
-  haiku: 'claude-haiku-4-5-20251001'
+  haiku: 'claude-haiku-5-5'
 } as const;
 
 // Maps thinking levels to budget tokens
@@ -445,7 +445,7 @@ export const DEFAULT_MODEL_EQUIVALENCES: Record<string, Partial<Record<BuiltinPr
     zai: { modelId: 'glm-4.7', reasoning: { type: 'none' } },
   },
   'haiku': {
-    anthropic: { modelId: 'claude-haiku-4-5-20251001', reasoning: { type: 'none' } },
+    anthropic: { modelId: 'claude-haiku-5-5', reasoning: { type: 'none' } },
     openai: { modelId: 'gpt-5.1-codex-mini', reasoning: { type: 'reasoning_effort', level: 'low' } },
     google: { modelId: 'gemini-2.5-flash-lite', reasoning: { type: 'thinking_toggle', level: 'low' } },
     mistral: { modelId: 'mistral-small-latest', reasoning: { type: 'none' } },
@@ -470,12 +470,12 @@ export const DEFAULT_MODEL_EQUIVALENCES: Record<string, Partial<Record<BuiltinPr
   },
   'gpt-5.1-codex-mini': {
     openai: { modelId: 'gpt-5.1-codex-mini', reasoning: { type: 'reasoning_effort', level: 'low' } },
-    anthropic: { modelId: 'claude-haiku-4-5-20251001', reasoning: { type: 'none' } },
+    anthropic: { modelId: 'claude-haiku-5-5', reasoning: { type: 'none' } },
     google: { modelId: 'gemini-2.5-flash-lite', reasoning: { type: 'thinking_toggle', level: 'low' } },
   },
   'gpt-5-nano': {
     openai: { modelId: 'gpt-5-nano', reasoning: { type: 'none' } },
-    anthropic: { modelId: 'claude-haiku-4-5-20251001', reasoning: { type: 'none' } },
+    anthropic: { modelId: 'claude-haiku-5-5', reasoning: { type: 'none' } },
     google: { modelId: 'gemini-2.5-flash-lite', reasoning: { type: 'thinking_toggle', level: 'low' } },
   },
   'o3': {

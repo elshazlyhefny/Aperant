@@ -39,7 +39,7 @@ export const MODEL_ID_MAP: Record<ModelShorthand, string> = {
   'opus-1m': 'claude-opus-4-6',
   'opus-4.5': 'claude-opus-4-5-20251101',
   sonnet: 'claude-sonnet-5-5',
-  haiku: 'claude-haiku-4-5-20251001',
+  haiku: 'claude-haiku-5-5',
 } as const;
 
 /**
