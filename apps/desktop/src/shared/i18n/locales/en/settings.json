@@ -385,6 +385,10 @@
       "pushNewBranches": {
         "label": "Automatically Push New Branches",
         "description": "Push new task and worktree branches to GitHub and set upstream tracking automatically"
+      },
+      "prOnlyLanding": {
+        "label": "Land through pull requests only",
+        "description": "Never merge task work or PRs from inside the app. Work reaches the base branch only through \"Create PR\" and the repository's CI and merge queue."
       }
     },
     "gitlab": {

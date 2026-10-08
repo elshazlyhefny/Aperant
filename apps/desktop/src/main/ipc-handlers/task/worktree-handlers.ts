@@ -25,6 +25,7 @@ import { getIsolatedGitEnv, refreshGitIndex } from '../../utils/git-isolation';
 import { cleanupWorktree } from '../../utils/worktree-cleanup';
 import { killProcessGracefully } from '../../platform';
 import { stripAnsiCodes } from '../../../shared/utils/ansi-sanitizer';
+import { landsThroughPullRequestsOnly, PR_ONLY_LANDING_MESSAGE } from '../../../shared/utils/landing-policy';
 import { taskStateManager } from '../../task-state-manager';
 
 // Regex pattern for validating git branch names
@@ -1986,6 +1987,12 @@ export function registerWorktreeHandlers(
         }
 
         debug('Found task:', task.specId, 'project:', project.path);
+
+        // zeenha fork: refuse before touching anything when the project lands
+        // work through pull requests only (covers the stage-only option too).
+        if (landsThroughPullRequestsOnly(project.settings)) {
+          return { success: false, error: PR_ONLY_LANDING_MESSAGE };
+        }
 
         const specDir = path.join(project.path, project.autoBuildPath || '.auto-claude', 'specs', task.specId);
         const worktreePath = findTaskWorktree(project.path, task.specId);

@@ -413,3 +413,43 @@ describe('GitHub TypeScript runner usage', () => {
     expect(mockBatchProcessorGroupIssues).toHaveBeenCalled();
   });
 });
+
+// zeenha fork: an in-app PR merge would put work on the base branch without the
+// repository's merge queue, so it is refused while PR-only landing is on (the
+// default). The positive control proves the refusal, not a broken handler, is
+// what stops the merge.
+describe('GITHUB_PR_MERGE and PR-only landing (zeenha fork)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIpcMain.reset();
+    projectRef.current = createProject();
+  });
+
+  const ghMergeCalls = async () => {
+    const { execFileSync } = await import('child_process');
+    return vi.mocked(execFileSync).mock.calls.filter(
+      ([cmd, args]) => cmd === 'gh' && Array.isArray(args) && args[0] === 'pr' && args[1] === 'merge',
+    );
+  };
+
+  it('refuses the merge by default and never runs gh pr merge', async () => {
+    const { registerPRHandlers } = await import('../pr-handlers');
+    registerPRHandlers(() => createMockWindow());
+
+    const result = await mockIpcMain.invokeHandler(IPC_CHANNELS.GITHUB_PR_MERGE, projectRef.current?.id, 42, 'squash');
+
+    expect(result).toBe(false);
+    expect(await ghMergeCalls()).toHaveLength(0);
+  });
+
+  it('merges when the project turned PR-only landing off', async () => {
+    projectRef.current = { ...projectRef.current!, settings: { ...projectRef.current!.settings, prOnlyLanding: false } };
+    const { registerPRHandlers } = await import('../pr-handlers');
+    registerPRHandlers(() => createMockWindow());
+
+    const result = await mockIpcMain.invokeHandler(IPC_CHANNELS.GITHUB_PR_MERGE, projectRef.current?.id, 42, 'squash');
+
+    expect(result).toBe(true);
+    expect(await ghMergeCalls()).toHaveLength(1);
+  });
+});

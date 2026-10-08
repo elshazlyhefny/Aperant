@@ -26,6 +26,11 @@ export interface ProjectSettings {
   useClaudeMd?: boolean;
   /** Maximum parallel tasks allowed (default: 3) */
   maxParallelTasks?: number;
+  /**
+   * zeenha fork: land work only through pull requests (default: true).
+   * Blocks local worktree merges and in-app PR merges. See shared/utils/landing-policy.ts.
+   */
+  prOnlyLanding?: boolean;
 }
 
 export interface NotificationSettings {

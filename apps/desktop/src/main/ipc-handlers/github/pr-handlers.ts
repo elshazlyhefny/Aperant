@@ -24,6 +24,7 @@ import { getMemoryService } from "../context/memory-service-factory";
 import type { Project, AppSettings } from "../../../shared/types";
 import { createContextLogger } from "./utils/logger";
 import { withProjectOrNull } from "./utils/project-middleware";
+import { landsThroughPullRequestsOnly } from "../../../shared/utils/landing-policy";
 import { createIPCCommunicators } from "./utils/ipc-communicator";
 import {
   runMultiPassReview,
@@ -2615,6 +2616,12 @@ export function registerPRHandlers(getMainWindow: () => BrowserWindow | null): v
       const mergeResult = await withProjectOrNull(projectId, async (project) => {
         try {
           const { execFileSync } = await import("child_process");
+          // zeenha fork: an in-app merge would put the PR on the base branch
+          // without the merge queue. Refused while PR-only landing is on.
+          if (landsThroughPullRequestsOnly(project.settings)) {
+            debugLog("PR merge refused: project lands through the merge queue only", { prNumber });
+            return false;
+          }
           debugLog("Merging PR", { prNumber, method: mergeMethod });
 
           // Validate prNumber to prevent command injection

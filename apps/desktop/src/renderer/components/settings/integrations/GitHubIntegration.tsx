@@ -224,6 +224,8 @@ export function GitHubIntegration({
   // Selected branch for Combobox value
   const selectedBranch = settings?.mainBranch || envConfig?.defaultBranch || '';
   const pushNewBranches = settings?.pushNewBranches !== false;
+  // zeenha fork: PR-only landing (default on) — see shared/utils/landing-policy.ts
+  const prOnlyLanding = settings?.prOnlyLanding !== false;
 
   return (
     <div className="space-y-4">
@@ -425,6 +427,21 @@ export function GitHubIntegration({
                 <Switch
                   checked={pushNewBranches}
                   onCheckedChange={(checked) => setSettings(prev => ({ ...prev, pushNewBranches: checked }))}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label className="font-normal text-foreground">
+                    {t('settings:projectSections.github.prOnlyLanding.label')}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:projectSections.github.prOnlyLanding.description')}
+                  </p>
+                </div>
+                <Switch
+                  checked={prOnlyLanding}
+                  onCheckedChange={(checked) => setSettings(prev => ({ ...prev, prOnlyLanding: checked }))}
                 />
               </div>
             </>

@@ -385,6 +385,10 @@
       "pushNewBranches": {
         "label": "Pousser automatiquement les nouvelles branches",
         "description": "Pousser automatiquement les nouvelles branches de tâche et de worktree vers GitHub et configurer le suivi"
+      },
+      "prOnlyLanding": {
+        "label": "Intégrer uniquement via des pull requests",
+        "description": "Ne jamais fusionner le travail des tâches ou les PR depuis l'application. Le travail atteint la branche de base uniquement via « Créer une PR », la CI et la file de fusion du dépôt."
       }
     },
     "gitlab": {
