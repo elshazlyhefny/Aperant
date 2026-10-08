@@ -37,7 +37,15 @@ const DEBUG_UPDATER = process.env.DEBUG_UPDATER === 'true' || process.env.NODE_E
 
 // Configure electron-updater
 autoUpdater.autoDownload = false;  // We control downloads manually to prevent downgrades
-autoUpdater.autoInstallOnAppQuit = true;  // Automatically install on app quit
+autoUpdater.autoInstallOnAppQuit = false;  // zeenha fork: never install on quit (see UPDATES_DISABLED)
+
+/**
+ * zeenha fork: this build never checks for, downloads or installs an upstream
+ * release. The upstream build replaced a stable install with a beta overnight;
+ * an update to this fork is a deliberate rebase of the `zeenha` branch onto a
+ * newer upstream tag, then a rebuild. Every entry point below honours this.
+ */
+export const UPDATES_DISABLED = true;
 
 // Update channels: 'latest' for stable, 'beta' for pre-release
 type UpdateChannel = 'latest' | 'beta';
@@ -202,6 +210,10 @@ let intentionalDowngrade = false;
  */
 export function initializeAppUpdater(window: BrowserWindow, betaUpdates = false): void {
   mainWindow = window;
+  if (UPDATES_DISABLED) {
+    console.warn('[app-updater] updates are disabled in this build (zeenha fork)');
+    return;
+  }
 
   // Set update channel based on user preference
   const channel = betaUpdates ? 'beta' : 'latest';
@@ -348,6 +360,7 @@ export function initializeAppUpdater(window: BrowserWindow, betaUpdates = false)
  * Called from IPC handler when user requests manual check
  */
 export async function checkForUpdates(): Promise<AppUpdateInfo | null> {
+  if (UPDATES_DISABLED) return null;
   try {
     console.warn('[app-updater] Manual update check requested');
     const result = await autoUpdater.checkForUpdates();
@@ -385,6 +398,7 @@ export async function checkForUpdates(): Promise<AppUpdateInfo | null> {
  * Called from IPC handler when user requests manual download
  */
 export async function downloadUpdate(): Promise<void> {
+  if (UPDATES_DISABLED) return;
   try {
     console.warn('[app-updater] Manual update download requested');
     await autoUpdater.downloadUpdate();
@@ -430,6 +444,7 @@ function isRunningFromReadOnlyVolume(): boolean {
  * Returns false if running from a read-only volume (update cannot proceed)
  */
 export function quitAndInstall(): boolean {
+  if (UPDATES_DISABLED) return false;
   // Check if running from read-only volume before attempting install
   if (isRunningFromReadOnlyVolume()) {
     console.warn('[app-updater] Cannot install: running from read-only volume');
@@ -597,6 +612,7 @@ async function fetchLatestStableRelease(): Promise<AppUpdateInfo | null> {
  * 2. A stable version exists
  */
 export async function checkForStableDowngrade(): Promise<AppUpdateInfo | null> {
+  if (UPDATES_DISABLED) return null;
   const currentVersion = getCurrentVersion();
 
   // Only check for downgrade if currently on a prerelease
@@ -653,6 +669,7 @@ export async function setUpdateChannelWithDowngradeCheck(
  * Uses electron-updater with allowDowngrade enabled to download older stable versions
  */
 export async function downloadStableVersion(): Promise<void> {
+  if (UPDATES_DISABLED) return;
   // Switch to stable channel (resets allowPrerelease and clears downloadedUpdateInfo)
   setUpdateChannel('latest');
   // Enable downgrade to allow downloading older versions (e.g., stable when on beta)
