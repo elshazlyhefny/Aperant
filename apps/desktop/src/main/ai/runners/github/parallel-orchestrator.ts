@@ -18,7 +18,8 @@
  * - Uses createSimpleClient() for lightweight parallel sessions
  */
 
-import { streamText, stepCountIs, Output } from 'ai';
+import { stepCountIs, Output } from 'ai';
+import { streamText } from '../../claude-code/sdk';
 import type { Tool as AITool } from 'ai';
 import * as crypto from 'node:crypto';
 

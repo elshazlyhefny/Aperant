@@ -20,6 +20,7 @@ import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createXai } from '@ai-sdk/xai';
 import type { LanguageModel } from 'ai';
 
+import { createClaudeCodeModel } from '../claude-code/model';
 import { MODEL_PROVIDER_MAP } from '../config/types';
 import { createOAuthProviderFetch } from './oauth-fetch';
 import { type ProviderConfig, SupportedProvider } from './types';
@@ -36,6 +37,22 @@ import { type ProviderConfig, SupportedProvider } from './types';
 function isOAuthToken(token: string | undefined): boolean {
   if (!token) return false;
   return token.startsWith('sk-ant-oa') || token.startsWith('sk-ant-ort');
+}
+
+/**
+ * A Claude subscription (OAuth token) runs through the installed Claude Code
+ * CLI, never through direct API calls. The Messages API refuses subscription
+ * tokens from any client that is not Claude Code (HTTP 429 "Error"), and
+ * claiming to be Claude Code is not something this app does. API keys keep
+ * the direct path. `APERANT_CLAUDE_ENGINE=api` restores direct calls, for the
+ * day Anthropic accepts them.
+ */
+export function usesClaudeCodeEngine(config: ProviderConfig, env: NodeJS.ProcessEnv = process.env): boolean {
+  return (
+    config.provider === SupportedProvider.Anthropic &&
+    isOAuthToken(config.apiKey) &&
+    env.APERANT_CLAUDE_ENGINE !== 'api'
+  );
 }
 
 // =============================================================================
@@ -203,6 +220,9 @@ export interface CreateProviderOptions {
  */
 export function createProvider(options: CreateProviderOptions): LanguageModel {
   const { config, modelId } = options;
+  if (usesClaudeCodeEngine(config)) {
+    return createClaudeCodeModel(modelId);
+  }
   const instance = createProviderInstance(config);
 
   // Azure uses deployment names, not model IDs

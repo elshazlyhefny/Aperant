@@ -10,7 +10,8 @@
  * performance, and code quality.
  */
 
-import { streamText, stepCountIs } from 'ai';
+import { stepCountIs } from 'ai';
+import { streamText } from '../claude-code/sdk';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 

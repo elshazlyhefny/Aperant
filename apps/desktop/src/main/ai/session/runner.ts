@@ -17,7 +17,9 @@
  * - Memory-aware step limits via calibration factor
  */
 
-import { streamText, stepCountIs, Output } from 'ai';
+import { stepCountIs, Output } from 'ai';
+import { streamText } from '../claude-code/sdk';
+import { isClaudeCodeModel } from '../claude-code/model';
 import type { Tool as AITool } from 'ai';
 import type { WorkerObserverProxy } from '../memory/ipc/worker-observer-proxy';
 import { StepMemoryState } from '../memory/injection/step-memory-state';
@@ -340,6 +342,7 @@ async function executeStream(
   const modelId = typeof config.model === 'string' ? config.model : config.model.modelId;
   const isCodex = modelId?.includes('codex') ?? false;
   const isAnthropicModel = modelId?.startsWith('claude-') ?? false;
+  const isClaudeCode = isClaudeCodeModel(config.model);
 
   // Compute thinking/reasoning provider options from session config
   const thinkingOptions = config.thinkingLevel
@@ -369,8 +372,10 @@ async function executeStream(
     ...(useOutputSchema ? { output: Output.object({ schema: config.outputSchema! }) } : {}),
     stopWhen: stopCondition,
     abortSignal: mergedAbortSignal,
-    ...((thinkingOptions || isCodex || (useOutputSchema && isAnthropicModel)) ? {
+    ...((thinkingOptions || isCodex || (useOutputSchema && isAnthropicModel) || isClaudeCode) ? {
       providerOptions: {
+        // Claude Code engine (subscription): run the CLI in the task worktree.
+        ...(isClaudeCode ? { 'claude-code': { cwd: config.toolContext.cwd } } : {}),
         ...(thinkingOptions ?? {}),
         ...(isCodex ? {
           openai: {

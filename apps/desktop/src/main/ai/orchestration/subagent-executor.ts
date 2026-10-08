@@ -13,7 +13,8 @@
  * - Step budget is capped at SUBAGENT_MAX_STEPS (default 100).
  */
 
-import { generateText, Output, stepCountIs } from 'ai';
+import { Output, stepCountIs } from 'ai';
+import { generateText } from '../claude-code/sdk';
 import type { LanguageModel, Tool as AITool } from 'ai';
 import type { ZodSchema } from 'zod';
 

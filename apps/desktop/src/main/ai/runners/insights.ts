@@ -11,7 +11,8 @@
  * Uses `createSimpleClient()` with read-only tools (Read, Glob, Grep) and streaming.
  */
 
-import { streamText, stepCountIs } from 'ai';
+import { stepCountIs } from 'ai';
+import { streamText } from '../claude-code/sdk';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
