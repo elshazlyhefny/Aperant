@@ -169,27 +169,40 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Pathspec for everything in the worktree except Aperant's own task files. */
-const WORK_PATHSPEC = ['--', '.', ':(exclude).auto-claude'];
+/** Aperant's own task files: never part of a PR. */
+const TASK_FILES_DIR = '.auto-claude';
+
+/** `git status --porcelain` lines for anything but Aperant's own task files. */
+function workChanges(porcelain: string): string[] {
+  return porcelain
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .filter((line) => {
+      const path = line.slice(3).replace(/^"/, '');
+      return path !== TASK_FILES_DIR && !path.startsWith(`${TASK_FILES_DIR}/`);
+    });
+}
 
 /**
  * zeenha fork: commit uncommitted work in the task worktree. Returns an
  * error message, or null when there was nothing to commit or it committed.
+ *
+ * Stage everything, then unstage .auto-claude. An exclude pathspec
+ * (`:(exclude).auto-claude`) cannot be used: when .auto-claude is gitignored,
+ * `git add` fails with "paths are ignored" because the pathspec names it.
  */
 export async function commitPendingWork(
   worktreePath: string,
   gitPath: string,
   message: string,
 ): Promise<string | null> {
-  let status: string;
   try {
-    status = await run(gitPath, ['status', '--porcelain', ...WORK_PATHSPEC], worktreePath, GIT_READ_TIMEOUT_MS);
-  } catch (err) {
-    return describeError(err);
-  }
-  if (status.trim() === '') return null;
-  try {
-    await run(gitPath, ['add', '-A', ...WORK_PATHSPEC], worktreePath, GIT_READ_TIMEOUT_MS);
+    const status = await run(gitPath, ['status', '--porcelain'], worktreePath, GIT_READ_TIMEOUT_MS);
+    if (workChanges(status).length === 0) return null;
+    await run(gitPath, ['add', '-A', '--', '.'], worktreePath, GIT_READ_TIMEOUT_MS);
+    await run(gitPath, ['reset', '-q', '--', TASK_FILES_DIR], worktreePath, GIT_READ_TIMEOUT_MS);
+    const staged = await run(gitPath, ['diff', '--cached', '--name-only'], worktreePath, GIT_READ_TIMEOUT_MS);
+    if (staged.trim() === '') return null;
     await run(gitPath, ['commit', '-m', message], worktreePath, PUSH_TIMEOUT_MS);
     return null;
   } catch (err) {

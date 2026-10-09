@@ -43,6 +43,21 @@ describe('commitPendingWork (real git)', () => {
     expect(git('status', '--porcelain')).toBe('?? .auto-claude/');
   });
 
+  it('works when .auto-claude is gitignored (the case an exclude pathspec broke)', async () => {
+    writeFileSync(join(repo, '.gitignore'), '.auto-claude/\n');
+    git('add', '.gitignore');
+    git('commit', '-q', '-m', 'ignore task files');
+    writeFileSync(join(repo, 'README.md'), 'fixed\n');
+    mkdirSync(join(repo, '.auto-claude', 'specs'), { recursive: true });
+    writeFileSync(join(repo, '.auto-claude', 'specs', 'plan.json'), '{}');
+
+    expect(await commitPendingWork(repo, 'git', 'Restrict the Telescope gate')).toBeNull();
+
+    expect(git('log', '-1', '--format=%s')).toBe('Restrict the Telescope gate');
+    expect(git('show', '--name-only', '--format=', 'HEAD')).toBe('README.md');
+    expect(git('status', '--porcelain')).toBe('');
+  });
+
   it('does nothing when only .auto-claude changed', async () => {
     mkdirSync(join(repo, '.auto-claude'), { recursive: true });
     writeFileSync(join(repo, '.auto-claude', 'x.json'), '{}');
