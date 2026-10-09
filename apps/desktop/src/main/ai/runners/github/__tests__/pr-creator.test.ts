@@ -56,7 +56,7 @@ vi.mock('../../../client/factory', () => ({
 }));
 vi.mock('ai', () => ({ generateText: vi.fn(async () => ({ text: '## Summary\n- body' })) }));
 
-import { createPR, GH_TIMEOUT_MS, PUSH_TIMEOUT_MS } from '../pr-creator';
+import { createPR, GH_TIMEOUT_MS, NO_CHANGES_MESSAGE, PUSH_TIMEOUT_MS } from '../pr-creator';
 
 const PR_URL = 'https://github.com/o/r/pull/7';
 
@@ -188,3 +188,35 @@ describe('createPR gh pr create', () => {
     expect(createCalls()).toHaveLength(1);
   });
 });
+
+describe('createPR for a task that changed no code (zeenha fork)', () => {
+  const revList = (answer: Outcome) => {
+    const base = state.respond;
+    state.respond = (call) => (call.command === 'git' && call.args[0] === 'rev-list' ? answer : base(call));
+  };
+
+  it('stops before pushing and says there is nothing to propose', async () => {
+    revList({ stdout: '0\n' });
+    const result = await createPR(config());
+    expect(result).toEqual({ success: false, noChanges: true, error: NO_CHANGES_MESSAGE });
+    expect(pushCalls()).toHaveLength(0);
+    expect(createCalls()).toHaveLength(0);
+    const check = state.calls.find((c) => c.args[0] === 'rev-list');
+    expect(check?.args).toEqual(['rev-list', '--count', 'origin/main..HEAD']);
+  });
+
+  it('pushes and opens the PR when the branch has commits', async () => {
+    revList({ stdout: '2\n' });
+    const result = await createPR(config());
+    expect(result.success).toBe(true);
+    expect(pushCalls()).toHaveLength(1);
+  });
+
+  it('proceeds as before when the count cannot be read', async () => {
+    revList({ error: { message: 'unknown revision' } });
+    const result = await createPR(config());
+    expect(result.success).toBe(true);
+    expect(pushCalls()).toHaveLength(1);
+  });
+});
+

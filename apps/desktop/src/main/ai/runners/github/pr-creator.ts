@@ -92,6 +92,8 @@ export interface CreatePRResult {
   success: boolean;
   prUrl?: string;
   alreadyExists?: boolean;
+  /** zeenha fork: the task branch has no commits beyond its base (nothing to propose). */
+  noChanges?: boolean;
   error?: string;
 }
 
@@ -159,6 +161,33 @@ function run(command: string, args: string[], cwd: string, timeoutMs: number): P
  * Gather diff and commit log context for the PR.
  * Mirrors Python's _gather_pr_context().
  */
+/** zeenha fork: shown when the task branch has no commits beyond its base. */
+export const NO_CHANGES_MESSAGE =
+  'This task made no code changes, so there is nothing to put in a pull request. ' +
+  'If its work was done outside the code (for example, running database migrations), mark the task as done.';
+
+/**
+ * zeenha fork: commits on HEAD that the base branch does not have, or null
+ * when that cannot be determined (then Create PR proceeds as before).
+ */
+export async function commitsAheadOfBase(
+  worktreePath: string,
+  gitPath: string,
+  baseBranch: string,
+): Promise<number | null> {
+  const base = baseBranch.replace(/^origin\//, '');
+  for (const ref of [`origin/${base}`, base]) {
+    try {
+      const out = (await run(gitPath, ['rev-list', '--count', `${ref}..HEAD`], worktreePath, GIT_READ_TIMEOUT_MS)).trim();
+      const count = Number.parseInt(out, 10);
+      if (Number.isInteger(count) && count >= 0) return count;
+    } catch {
+      // try the next ref
+    }
+  }
+  return null;
+}
+
 async function gatherPRContext(
   worktreePath: string,
   gitPath: string,
@@ -375,6 +404,19 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
     return {
       success: false,
       error: `Refusing to push "${branchName}": Create PR only pushes the task's own branch (auto-claude/${specId}).`,
+    };
+  }
+
+  // zeenha fork: a task can legitimately finish without changing code (e.g.
+  // the fix was running database migrations). GitHub then refuses the PR with
+  // "GraphQL: No commits between main and auto-claude/...", which reads like
+  // a failure. Say what happened before pushing anything.
+  const ahead = await commitsAheadOfBase(worktreePath, gitPath, baseBranch);
+  if (ahead === 0) {
+    return {
+      success: false,
+      noChanges: true,
+      error: NO_CHANGES_MESSAGE,
     };
   }
 
