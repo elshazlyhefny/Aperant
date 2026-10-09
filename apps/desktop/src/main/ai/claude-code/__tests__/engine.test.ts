@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { tool } from 'ai';
@@ -34,6 +34,7 @@ process.stdin.on('end', () => {
     args, stdin, cwd: process.cwd(),
     apiKey: process.env.ANTHROPIC_API_KEY ?? null,
     oauthToken: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? null,
+    configDir: process.env.CLAUDE_CONFIG_DIR ?? null,
     sysFile, system: sysFile ? fs.readFileSync(sysFile, 'utf8') : null,
     sysMode: sysFile ? (fs.statSync(sysFile).mode & 0o777) : null,
     mcp, mcpBody: mcp && mcp.startsWith('/') ? fs.readFileSync(mcp, 'utf8') : mcp,
@@ -194,6 +195,37 @@ describe('runClaudeCode', () => {
     }) as ClaudeCodeLanguageModel;
     await model.run({ modelId: model.modelId, prompt: 'p', binaryPath: fake, env, onPart: () => undefined });
     expect(read().oauthToken).toBe('sk-ant-oat01-profile-b');
+  });
+
+  it('runs on the profile config dir when given one, and then passes no static token', async () => {
+    const { env, read } = scenario('ok') as { env: NodeJS.ProcessEnv; read: () => Record<string, unknown> };
+    // An inherited token would override the profile's live credentials.
+    env.CLAUDE_CODE_OAUTH_TOKEN = 'sk-ant-oat01-inherited';
+    await runClaudeCode({
+      modelId: 'm', prompt: 'p', binaryPath: fake, env,
+      oauthToken: 'sk-ant-oat01-stale', configDir: '/profiles/b', onPart: () => undefined,
+    });
+    const rec = read();
+    expect(rec.configDir).toBe('/profiles/b');
+    expect(rec.oauthToken).toBeNull();
+  });
+
+  it('expands ~ in the profile config dir', async () => {
+    const { env, read } = scenario('ok');
+    await runClaudeCode({ modelId: 'm', prompt: 'p', binaryPath: fake, env, configDir: '~/.claude-profiles/b', onPart: () => undefined });
+    expect(read().configDir).toBe(join(homedir(), '.claude-profiles/b'));
+  });
+
+  it('a subscription model from the provider factory carries its profile config dir to the CLI', async () => {
+    const { env, read } = scenario('ok');
+    const model = createProvider({
+      config: { provider: SupportedProvider.Anthropic, apiKey: 'sk-ant-oat01-profile-b', claudeConfigDir: '/profiles/b' },
+      modelId: 'claude-opus-5-5',
+    }) as ClaudeCodeLanguageModel;
+    await model.run({ modelId: model.modelId, prompt: 'p', binaryPath: fake, env, onPart: () => undefined });
+    const rec = read();
+    expect(rec.configDir).toBe('/profiles/b');
+    expect(rec.oauthToken).toBeNull();
   });
 
   it('never starts the CLI when cancelled during setup', async () => {

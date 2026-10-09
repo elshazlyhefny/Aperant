@@ -129,6 +129,19 @@ async function resolveFromProviderAccount(ctx: AuthResolverContext): Promise<Res
   return null;
 }
 
+/**
+ * The CLAUDE_CONFIG_DIR of a Claude profile, or undefined when it has none or
+ * the profile manager is not reachable (e.g. in a worker thread).
+ */
+async function profileConfigDir(profileId: string): Promise<string | undefined> {
+  try {
+    const { getClaudeProfileManager } = await import('../../claude-profile-manager');
+    return getClaudeProfileManager().getProfile(profileId)?.configDir || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ============================================
 // Stage 1: Profile OAuth Token
 // ============================================
@@ -150,6 +163,7 @@ async function resolveFromProfileOAuth(ctx: AuthResolverContext): Promise<Resolv
       const resolved: ResolvedAuth = {
         apiKey: tokenResult.token,
         source: 'profile-oauth',
+        ...(ctx.configDir ? { configDir: ctx.configDir } : {}),
         // OAuth tokens require the beta header for Anthropic API
         headers: { 'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14' },
       };
@@ -527,7 +541,11 @@ async function resolveCredentialsForAccount(
   if (account.authType === 'oauth' && account.provider === 'anthropic') {
     if (account.claudeProfileId) {
       // Delegate to profile OAuth resolution
-      const ctx: AuthResolverContext = { provider, profileId: account.claudeProfileId };
+      const ctx: AuthResolverContext = {
+        provider,
+        profileId: account.claudeProfileId,
+        configDir: await profileConfigDir(account.claudeProfileId),
+      };
       return resolveAuth(ctx);
     }
     return null;

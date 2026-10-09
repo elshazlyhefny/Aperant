@@ -46,10 +46,17 @@ export class ClaudeCodeLanguageModel implements LanguageModelV3 {
   /** The selected account's OAuth token; private so it never reaches a log or a serialised object. */
   readonly #oauthToken: string | undefined;
 
-  constructor(modelId: string, run: ClaudeCodeRunner = runClaudeCode, oauthToken?: string) {
+  readonly #configDir: string | undefined;
+
+  constructor(modelId: string, run: ClaudeCodeRunner = runClaudeCode, oauthToken?: string, configDir?: string) {
     this.modelId = modelId;
     this.#oauthToken = oauthToken;
-    this.run = (options) => run({ ...options, oauthToken: options.oauthToken ?? this.#oauthToken });
+    this.#configDir = configDir;
+    this.run = (options) => run({
+      ...options,
+      oauthToken: options.oauthToken ?? this.#oauthToken,
+      configDir: options.configDir ?? this.#configDir,
+    });
   }
 
   private prepare(options: LanguageModelV3CallOptions) {
@@ -157,8 +164,8 @@ export function isClaudeCodeModel(model: unknown): model is ClaudeCodeLanguageMo
   return typeof model === 'object' && model !== null && (model as { [BRAND]?: boolean })[BRAND] === true;
 }
 
-export function createClaudeCodeModel(modelId: string, oauthToken?: string): ClaudeCodeLanguageModel {
-  return new ClaudeCodeLanguageModel(modelId, runClaudeCode, oauthToken);
+export function createClaudeCodeModel(modelId: string, oauthToken?: string, configDir?: string): ClaudeCodeLanguageModel {
+  return new ClaudeCodeLanguageModel(modelId, runClaudeCode, oauthToken, configDir);
 }
 
 function finalText(result: ClaudeCodeRunResult, jsonSchema: Record<string, unknown> | undefined): string {

@@ -62,6 +62,8 @@ export interface ContinuationConfig {
   baseURL?: string;
   /** OAuth token file path (for token refresh) */
   oauthTokenFilePath?: string;
+  /** CLAUDE_CONFIG_DIR of the Claude profile (Claude Code engine) */
+  claudeConfigDir?: string;
 }
 
 /**
@@ -227,6 +229,7 @@ async function compactSessionMessages(
       apiKey: continuationConfig.apiKey,
       baseURL: continuationConfig.baseURL,
       oauthTokenFilePath: continuationConfig.oauthTokenFilePath,
+      claudeConfigDir: continuationConfig.claudeConfigDir,
     });
 
     const prompt =

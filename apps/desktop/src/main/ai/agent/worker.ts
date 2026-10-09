@@ -271,6 +271,7 @@ async function runSingleSession(
       apiKey: baseSession.apiKey,
       baseURL: baseSession.baseURL,
       oauthTokenFilePath: baseSession.oauthTokenFilePath,
+      claudeConfigDir: baseSession.configDir,
     },
     modelId: phaseModelId,
   });
@@ -339,6 +340,7 @@ async function runSingleSession(
             provider: baseSession.provider as SupportedProvider,
             apiKey: newToken,
             baseURL: baseSession.baseURL,
+            claudeConfigDir: baseSession.configDir,
           },
           modelId: phaseModelId,
         })
@@ -352,6 +354,7 @@ async function runSingleSession(
       apiKey: baseSession.apiKey,
       baseURL: baseSession.baseURL,
       oauthTokenFilePath: baseSession.oauthTokenFilePath,
+      claudeConfigDir: baseSession.configDir,
     });
   } catch (error) {
     // Ensure log cleanup happens on failure
@@ -454,6 +457,7 @@ async function runDefaultSession(
       apiKey: session.apiKey,
       baseURL: session.baseURL,
       oauthTokenFilePath: session.oauthTokenFilePath,
+      claudeConfigDir: session.configDir,
     },
     modelId: session.modelId,
   });
@@ -515,6 +519,7 @@ async function runDefaultSession(
               provider: session.provider as SupportedProvider,
               apiKey: newToken,
               baseURL: session.baseURL,
+              claudeConfigDir: session.configDir,
             },
             modelId: session.modelId,
           })
@@ -524,6 +529,7 @@ async function runDefaultSession(
       apiKey: session.apiKey,
       baseURL: session.baseURL,
       oauthTokenFilePath: session.oauthTokenFilePath,
+      claudeConfigDir: session.configDir,
     });
   } finally {
     if (logWriter) {
@@ -1015,6 +1021,7 @@ async function runAgenticSpecOrchestrator(
       apiKey: session.apiKey,
       baseURL: session.baseURL,
       oauthTokenFilePath: session.oauthTokenFilePath,
+      claudeConfigDir: session.configDir,
     },
     modelId: session.modelId,
   });
@@ -1111,6 +1118,7 @@ async function runAgenticSpecOrchestrator(
               provider: session.provider as SupportedProvider,
               apiKey: newToken,
               baseURL: session.baseURL,
+              claudeConfigDir: session.configDir,
             },
             modelId: session.modelId,
           })
@@ -1120,6 +1128,7 @@ async function runAgenticSpecOrchestrator(
       apiKey: session.apiKey,
       baseURL: session.baseURL,
       oauthTokenFilePath: session.oauthTokenFilePath,
+      claudeConfigDir: session.configDir,
     });
   } finally {
     if (logWriter) {

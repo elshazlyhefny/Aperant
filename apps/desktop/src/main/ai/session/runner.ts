@@ -191,6 +191,7 @@ export async function runAgentSession(
                 baseURL: newAuth.baseURL,
                 headers: newAuth.headers,
                 oauthTokenFilePath: newAuth.oauthTokenFilePath,
+                claudeConfigDir: newAuth.configDir,
               },
               modelId: newAuth.resolvedModelId,
             }),

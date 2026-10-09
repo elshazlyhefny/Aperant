@@ -44,6 +44,8 @@ export interface ProviderConfig {
   headers?: Record<string, string>;
   /** Pre-resolved path to OAuth token file for file-based OAuth providers (e.g., Codex) */
   oauthTokenFilePath?: string;
+  /** CLAUDE_CONFIG_DIR of the Claude profile, for the Claude Code engine. */
+  claudeConfigDir?: string;
 }
 
 /**

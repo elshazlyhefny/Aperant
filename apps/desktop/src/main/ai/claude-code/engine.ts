@@ -9,7 +9,7 @@
 
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -59,6 +59,14 @@ export interface ClaudeCodeRunOptions {
    * environment only, never on the command line.
    */
   oauthToken?: string;
+  /**
+   * CLAUDE_CONFIG_DIR of that account's profile. Preferred over oauthToken:
+   * the CLI then reads and refreshes the profile's own credentials, so a
+   * token rotated while a long task runs does not end it ("oauth token
+   * revoked"). The token is not passed then, because CLAUDE_CODE_OAUTH_TOKEN
+   * would override the profile's live credentials.
+   */
+  configDir?: string;
   /** Test seams. */
   spawn?: SpawnFn;
   binaryPath?: string;
@@ -161,7 +169,12 @@ export async function runClaudeCode(options: ClaudeCodeRunOptions): Promise<Clau
     // The signal itself is the authority: an abort before the listener existed set no flag.
     if (aborted || options.abortSignal?.aborted) throw abortError();
     const env = buildClaudeEnv(options.env);
-    if (options.oauthToken) env.CLAUDE_CODE_OAUTH_TOKEN = options.oauthToken;
+    if (options.configDir) {
+      env.CLAUDE_CONFIG_DIR = options.configDir.replace(/^~(?=$|\/)/, homedir());
+      delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    } else if (options.oauthToken) {
+      env.CLAUDE_CODE_OAUTH_TOKEN = options.oauthToken;
+    }
     const spawnFn = options.spawn ?? (nodeSpawn as SpawnFn);
     child = spawnFn(binary, args, {
       cwd: options.cwd,

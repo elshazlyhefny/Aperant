@@ -43,6 +43,12 @@ export interface ResolvedAuth {
   headers?: Record<string, string>;
   /** Pre-resolved path to OAuth token file for file-based OAuth providers (e.g., Codex) */
   oauthTokenFilePath?: string;
+  /**
+   * CLAUDE_CONFIG_DIR of the Claude profile the token came from. The Claude
+   * Code CLI reads and refreshes its own credentials there, so a long task
+   * survives the token being rotated mid-run (a static token does not).
+   */
+  configDir?: string;
 }
 
 // ============================================

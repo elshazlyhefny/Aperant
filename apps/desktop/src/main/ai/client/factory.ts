@@ -118,6 +118,7 @@ export async function createAgentClient(
         baseURL: queueAuth.baseURL,
         headers: queueAuth.headers,
         oauthTokenFilePath: queueAuth.oauthTokenFilePath,
+        claudeConfigDir: queueAuth.configDir,
       },
       modelId: queueAuth.resolvedModelId,
     });
@@ -142,6 +143,7 @@ export async function createAgentClient(
         baseURL: auth?.baseURL,
         headers: auth?.headers,
         oauthTokenFilePath: auth?.oauthTokenFilePath,
+        claudeConfigDir: auth?.configDir,
       },
       modelId,
     });
@@ -258,6 +260,7 @@ export async function createSimpleClient(
         baseURL: queueAuth.baseURL,
         headers: queueAuth.headers,
         oauthTokenFilePath: queueAuth.oauthTokenFilePath,
+        claudeConfigDir: queueAuth.configDir,
       },
       modelId: resolvedModelId,
     });
@@ -280,6 +283,7 @@ export async function createSimpleClient(
         baseURL: auth?.baseURL,
         headers: auth?.headers,
         oauthTokenFilePath: auth?.oauthTokenFilePath,
+        claudeConfigDir: auth?.configDir,
       },
       modelId: resolvedModelId,
     });

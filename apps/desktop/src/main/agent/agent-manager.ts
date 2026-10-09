@@ -181,7 +181,8 @@ export class AgentManager extends EventEmitter {
           auth: resolved,
           provider: resolved.resolvedProvider,
           modelId: resolved.resolvedModelId,
-          configDir: undefined, // Queue-based auth handles its own token refresh
+          // The Claude profile's own config dir, so the CLI refreshes its credentials itself.
+          configDir: resolved.configDir,
         };
       }
       console.warn('[AgentManager] No available account in provider queue, falling back to legacy profile');

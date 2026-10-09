@@ -19,6 +19,13 @@ vi.mock('../../../claude-profile/token-refresh', () => ({
   reactiveTokenRefresh: vi.fn(),
 }));
 
+// Mock the profile manager: a queue account names a Claude profile by id.
+vi.mock('../../../claude-profile-manager', () => ({
+  getClaudeProfileManager: () => ({
+    getProfile: (id: string) => (id === 'profile-b' ? { id, configDir: '/profiles/b' } : undefined),
+  }),
+}));
+
 // Mock profile-scorer
 vi.mock('../../../claude-profile/profile-scorer', () => ({
   scoreProviderAccount: vi.fn(),
@@ -436,6 +443,27 @@ describe('resolveAuthFromQueue', () => {
     const result = await resolveAuthFromQueue('haiku', [baseAccount]);
 
     expect(result?.resolvedModelId).toBe('claude-haiku-4-5');
+  });
+
+  it('an anthropic OAuth account carries its profile config dir, and reads its token there', async () => {
+    mockEnsureValidToken.mockResolvedValueOnce({ token: 'oauth-b', wasRefreshed: false });
+    const oauthAccount = { ...baseAccount, authType: 'oauth' as const, apiKey: undefined, claudeProfileId: 'profile-b' };
+
+    const result = await resolveAuthFromQueue('sonnet', [oauthAccount]);
+
+    expect(mockEnsureValidToken).toHaveBeenCalledWith('/profiles/b');
+    expect(result?.apiKey).toBe('oauth-b');
+    expect(result?.configDir).toBe('/profiles/b');
+  });
+
+  it('an OAuth account whose profile is unknown carries no config dir', async () => {
+    mockEnsureValidToken.mockResolvedValueOnce({ token: 'oauth-x', wasRefreshed: false });
+    const oauthAccount = { ...baseAccount, authType: 'oauth' as const, apiKey: undefined, claudeProfileId: 'profile-gone' };
+
+    const result = await resolveAuthFromQueue('sonnet', [oauthAccount]);
+
+    expect(result?.apiKey).toBe('oauth-x');
+    expect(result?.configDir).toBeUndefined();
   });
 
   it('falls through to next account when first has no credentials', async () => {
