@@ -220,3 +220,40 @@ describe('createPR for a task that changed no code (zeenha fork)', () => {
   });
 });
 
+describe('createPR commits work the coder left uncommitted (zeenha fork)', () => {
+  const answer = (pick: (call: Call) => Outcome | undefined) => {
+    const base = state.respond;
+    state.respond = (call) => pick(call) ?? base(call);
+  };
+  const gitCalls = (verb: string) => state.calls.filter((c) => c.command === 'git' && c.args[0] === verb);
+
+  it('commits pending changes (excluding .auto-claude) before counting and pushing', async () => {
+    answer((call) => (call.args[0] === 'status' ? { stdout: ' M docs/RUNBOOK.md\n' } : call.args[0] === 'rev-list' ? { stdout: '1\n' } : undefined));
+
+    const result = await createPR(config({ title: 'Fix one typo in docs/RUNBOOK.md' }));
+
+    expect(result.success).toBe(true);
+    expect(gitCalls('add')[0].args).toEqual(['add', '-A', '--', '.', ':(exclude).auto-claude']);
+    expect(gitCalls('commit')[0].args).toEqual(['commit', '-m', 'Fix one typo in docs/RUNBOOK.md']);
+    const order = state.calls.map((c) => c.args[0]);
+    expect(order.indexOf('commit')).toBeLessThan(order.indexOf('rev-list'));
+    expect(order.indexOf('commit')).toBeLessThan(order.indexOf('push'));
+  });
+
+  it('does not commit when the worktree is clean', async () => {
+    answer((call) => (call.args[0] === 'rev-list' ? { stdout: '1\n' } : undefined));
+    await createPR(config());
+    expect(gitCalls('commit')).toHaveLength(0);
+  });
+
+  it('stops without pushing when the commit fails', async () => {
+    answer((call) =>
+      call.args[0] === 'status' ? { stdout: ' M a.ts\n' } : call.args[0] === 'commit' ? { error: { message: 'hook failed' }, stderr: 'lint failed' } : undefined,
+    );
+    const result = await createPR(config());
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Could not commit');
+    expect(pushCalls()).toHaveLength(0);
+  });
+});
+

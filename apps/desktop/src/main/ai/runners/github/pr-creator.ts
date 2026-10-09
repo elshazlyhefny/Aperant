@@ -161,6 +161,42 @@ function run(command: string, args: string[], cwd: string, timeoutMs: number): P
  * Gather diff and commit log context for the PR.
  * Mirrors Python's _gather_pr_context().
  */
+/** A short, readable reason from a failed git call. */
+function describeError(err: unknown): string {
+  if (err instanceof CommandError) {
+    return (err.stderr.trim() || err.stdout.trim() || err.message).slice(0, 400);
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Pathspec for everything in the worktree except Aperant's own task files. */
+const WORK_PATHSPEC = ['--', '.', ':(exclude).auto-claude'];
+
+/**
+ * zeenha fork: commit uncommitted work in the task worktree. Returns an
+ * error message, or null when there was nothing to commit or it committed.
+ */
+export async function commitPendingWork(
+  worktreePath: string,
+  gitPath: string,
+  message: string,
+): Promise<string | null> {
+  let status: string;
+  try {
+    status = await run(gitPath, ['status', '--porcelain', ...WORK_PATHSPEC], worktreePath, GIT_READ_TIMEOUT_MS);
+  } catch (err) {
+    return describeError(err);
+  }
+  if (status.trim() === '') return null;
+  try {
+    await run(gitPath, ['add', '-A', ...WORK_PATHSPEC], worktreePath, GIT_READ_TIMEOUT_MS);
+    await run(gitPath, ['commit', '-m', message], worktreePath, PUSH_TIMEOUT_MS);
+    return null;
+  } catch (err) {
+    return describeError(err);
+  }
+}
+
 /** zeenha fork: shown when the task branch has no commits beyond its base. */
 export const NO_CHANGES_MESSAGE =
   'This task made no code changes, so there is nothing to put in a pull request. ' +
@@ -411,6 +447,15 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
   // the fix was running database migrations). GitHub then refuses the PR with
   // "GraphQL: No commits between main and auto-claude/...", which reads like
   // a failure. Say what happened before pushing anything.
+  // zeenha fork: the coder is told to commit after each subtask but does not
+  // always do it, so finished work can sit uncommitted in the worktree. Commit
+  // it (never Aperant's own .auto-claude files) before anything is counted or
+  // pushed; otherwise the PR would be empty or refused.
+  const commitError = await commitPendingWork(worktreePath, gitPath, title);
+  if (commitError) {
+    return { success: false, error: `Could not commit the task's changes: ${commitError}` };
+  }
+
   const ahead = await commitsAheadOfBase(worktreePath, gitPath, baseBranch);
   if (ahead === 0) {
     return {
