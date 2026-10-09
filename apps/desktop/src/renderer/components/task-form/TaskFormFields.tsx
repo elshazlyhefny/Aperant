@@ -25,7 +25,7 @@ import { createThumbnail } from '../ImageUpload';
 import { ScreenshotCapture } from '../ScreenshotCapture';
 import { ImagePreviewModal } from './ImagePreviewModal';
 import { cn } from '../../lib/utils';
-import { MAX_IMAGES_PER_TASK } from '../../../shared/constants';
+import { ALLOWED_IMAGE_TYPES, MAX_IMAGES_PER_TASK } from '../../../shared/constants';
 import type {
   TaskCategory,
   TaskPriority,
@@ -163,6 +163,8 @@ export function TaskFormFields({
   const [previewImage, setPreviewImage] = useState<ImageAttachment | null>(null);
 
   // Auto-expand reference images section when images are added via paste/drop/capture
+  // zeenha fork: hidden picker opened by the reference images drop zone
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const prevImagesLengthRef = useRef(images.length);
   useEffect(() => {
     if (images.length > 0 && images.length > prevImagesLengthRef.current) {
@@ -242,7 +244,8 @@ export function TaskFormFields({
     handleDragOver,
     handleDragLeave,
     handleDrop,
-    removeImage
+    removeImage,
+    addFiles
   } = useImageUpload({
     images,
     onImagesChange,
@@ -375,8 +378,18 @@ export function TaskFormFields({
         </button>
 
         {/* Reference Images Section */}
+        {/* zeenha fork: the whole section accepts dropped images; the dashed
+            box below used to be a label with no handlers at all, so dropping
+            or pasting there did nothing. */}
         {showReferenceImages && (
-          <div id={`${prefix}reference-images-section`} className="space-y-4 p-4 rounded-lg border border-border bg-muted/30">
+          // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/noNoninteractiveElementInteractions: drop target for image files; the keyboard path is the focusable box below
+          <div
+            id={`${prefix}reference-images-section`}
+            className="space-y-4 p-4 rounded-lg border border-border bg-muted/30"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             <p className="text-xs text-muted-foreground">
               {t('tasks:referenceImages.description')}
             </p>
@@ -440,13 +453,47 @@ export function TaskFormFields({
               </div>
             )}
 
-            {images.length === 0 && (
-              <div className="flex items-center justify-center py-6 border-2 border-dashed border-border rounded-md">
-                <p className="text-sm text-muted-foreground">
-                  {t('tasks:feedback.dragDropHint')}
-                </p>
-              </div>
-            )}
+            {/* Drop zone: drop, paste (once focused) or click to choose files */}
+            {/* biome-ignore lint/a11y/useSemanticElements: a focusable div is the paste target for screenshots (Ctrl+V); it also opens the picker like a button */}
+            <div
+              role="button"
+              tabIndex={disabled ? -1 : 0}
+              aria-disabled={disabled}
+              aria-label={t('tasks:referenceImages.dropZone', { shortcut: navigator.platform.includes('Mac') ? '⌘V' : 'Ctrl+V' })}
+              data-testid="reference-images-dropzone"
+              onClick={() => !disabled && fileInputRef.current?.click()}
+              onKeyDown={(e) => {
+                if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+              onPaste={handlePaste}
+              className={cn(
+                'flex items-center justify-center border-2 border-dashed border-border rounded-md cursor-pointer outline-none',
+                'focus-visible:ring-2 focus-visible:ring-primary/40 hover:bg-muted/50 transition-colors',
+                images.length === 0 ? 'py-6' : 'py-3',
+                isDragOver && !disabled && 'border-primary bg-primary/5',
+                disabled && 'cursor-not-allowed opacity-60'
+              )}
+            >
+              <p className="text-sm text-muted-foreground text-center px-2">
+                {t('tasks:referenceImages.dropZone', { shortcut: navigator.platform.includes('Mac') ? '⌘V' : 'Ctrl+V' })}
+              </p>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ALLOWED_IMAGE_TYPES.join(',')}
+              multiple
+              hidden
+              data-testid="reference-images-file-input"
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                e.target.value = '';
+                void addFiles(files);
+              }}
+            />
           </div>
         )}
 

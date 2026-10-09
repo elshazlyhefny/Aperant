@@ -57,15 +57,17 @@ interface UseImageUploadReturn {
   /** Whether an image was just successfully added */
   pasteSuccess: boolean;
   /** Handle paste event on textarea */
-  handlePaste: (e: ClipboardEvent<HTMLTextAreaElement>) => Promise<void>;
+  handlePaste: (e: ClipboardEvent<HTMLElement>) => Promise<void>;
   /** Handle drag over event on textarea */
-  handleDragOver: (e: DragEvent<HTMLTextAreaElement>) => void;
+  handleDragOver: (e: DragEvent<HTMLElement>) => void;
   /** Handle drag leave event on textarea */
-  handleDragLeave: (e: DragEvent<HTMLTextAreaElement>) => void;
+  handleDragLeave: (e: DragEvent<HTMLElement>) => void;
   /** Handle drop event on textarea */
-  handleDrop: (e: DragEvent<HTMLTextAreaElement>) => Promise<void>;
+  handleDrop: (e: DragEvent<HTMLElement>) => Promise<void>;
   /** Remove an image by ID */
   removeImage: (imageId: string) => void;
+  /** zeenha fork: add image files chosen with a file picker */
+  addFiles: (files: File[]) => Promise<void>;
   /** Whether more images can be added */
   canAddMore: boolean;
   /** Number of remaining image slots */
@@ -206,7 +208,7 @@ export function useImageUpload({
    * Handle paste event for screenshot support
    */
   const handlePaste = useCallback(
-    async (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    async (e: ClipboardEvent<HTMLElement>) => {
       const clipboardItems = e.clipboardData?.items;
       if (!clipboardItems) return;
 
@@ -233,7 +235,7 @@ export function useImageUpload({
   /**
    * Handle drag over textarea
    */
-  const handleDragOver = useCallback((e: DragEvent<HTMLTextAreaElement>) => {
+  const handleDragOver = useCallback((e: DragEvent<HTMLElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(true);
@@ -242,7 +244,7 @@ export function useImageUpload({
   /**
    * Handle drag leave from textarea
    */
-  const handleDragLeave = useCallback((e: DragEvent<HTMLTextAreaElement>) => {
+  const handleDragLeave = useCallback((e: DragEvent<HTMLElement>) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
@@ -288,7 +290,7 @@ export function useImageUpload({
    * via the onFileReferenceDrop callback. Image files are processed as attachments.
    */
   const handleDrop = useCallback(
-    async (e: DragEvent<HTMLTextAreaElement>) => {
+    async (e: DragEvent<HTMLElement>) => {
       // Check disabled state first, before any state changes or preventDefault calls
       // This ensures drops are properly rejected when the component is disabled
       if (disabled) {
@@ -350,6 +352,18 @@ export function useImageUpload({
     [images, onImagesChange]
   );
 
+  /**
+   * zeenha fork: add image files chosen with a file picker (the reference
+   * images drop zone opens one on click). Same validation as drop and paste.
+   */
+  const addFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      await processImageItems(files, { isFromPaste: false });
+    },
+    [processImageItems]
+  );
+
   return {
     isDragOver,
     pasteSuccess,
@@ -358,6 +372,7 @@ export function useImageUpload({
     handleDragLeave,
     handleDrop,
     removeImage,
+    addFiles,
     canAddMore,
     remainingSlots
   };
