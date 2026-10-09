@@ -42,6 +42,16 @@ export function NoWorkspaceMessage({ task, onClose }: NoWorkspaceMessageProps) {
     task?.status === 'human_review' &&
     task.reviewReason === 'plan_review';
 
+  // zeenha fork: a task whose spec or planning failed has no plan steps and no
+  // workspace. Offering only "Mark as Done" left it stuck (nothing was done);
+  // offer a restart instead. TASK_START already routes it back to spec
+  // creation or planning.
+  const failedBeforeWork =
+    !isPlanReview &&
+    task?.status === 'human_review' &&
+    task.reviewReason === 'errors' &&
+    (task.subtasks?.length ?? 0) === 0;
+
   const handleMarkDone = async () => {
     if (!task) return;
 
@@ -82,16 +92,43 @@ export function NoWorkspaceMessage({ task, onClose }: NoWorkspaceMessageProps) {
     <div className="rounded-xl border border-border bg-secondary/30 p-4">
       <h3 className="font-medium text-sm text-foreground mb-2 flex items-center gap-2">
         <AlertCircle className="h-4 w-4 text-muted-foreground" />
-        {isPlanReview ? 'Human Review Required' : 'No Workspace Found'}
+        {isPlanReview
+          ? 'Human Review Required'
+          : failedBeforeWork
+            ? t('tasks:restartFailed.title')
+            : 'No Workspace Found'}
       </h3>
       <p className="text-sm text-muted-foreground mb-3">
         {isPlanReview
           ? 'Human review required prior to coding. Review your spec.md for any necessary changes.'
-          : 'No isolated workspace was found for this task. The changes may have been made directly in your project.'}
+          : failedBeforeWork
+            ? t('tasks:restartFailed.description')
+            : 'No isolated workspace was found for this task. The changes may have been made directly in your project.'}
       </p>
 
       {/* Allow marking as done */}
-      {isPlanReview ? (
+      {failedBeforeWork ? (
+        <Button
+          onClick={handleProceedToCoding}
+          disabled={isProceeding}
+          size="sm"
+          variant="default"
+          className="w-full"
+          data-testid="restart-failed-task"
+        >
+          {isProceeding ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Updating...
+            </>
+          ) : (
+            <>
+              <RotateCcw className="h-4 w-4 mr-2" />
+              {t('tasks:restartFailed.button')}
+            </>
+          )}
+        </Button>
+      ) : isPlanReview ? (
         <Button
           onClick={handleProceedToCoding}
           disabled={isProceeding}

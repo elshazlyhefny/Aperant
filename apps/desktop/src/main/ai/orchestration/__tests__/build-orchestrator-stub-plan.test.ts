@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SessionResult } from '../../session/types';
-import { BuildOrchestrator, hasAnySubtask } from '../build-orchestrator';
+import { BuildOrchestrator, hasAnySubtask, type SessionRunConfig } from '../build-orchestrator';
 
 let specDir: string;
 beforeEach(async () => {
@@ -24,7 +24,7 @@ const failed: SessionResult = {
   messages: [], durationMs: 0, toolCallCount: 0, error: { code: 'x', message: 'planner stopped here', retryable: false },
 };
 
-function orchestrator(runSession = vi.fn(async () => failed)) {
+function orchestrator(runSession = vi.fn(async (_config: SessionRunConfig) => failed)) {
   const o = new BuildOrchestrator({ specDir, projectDir: specDir, generatePrompt: async () => 'prompt', runSession });
   return { o, runSession };
 }

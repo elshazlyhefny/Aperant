@@ -350,6 +350,11 @@
     "deletePermanently": "Supprimer d\u00e9finitivement",
     "deleting": "Suppression..."
   },
+  "restartFailed": {
+    "title": "La tâche s'est arrêtée avant tout travail",
+    "description": "Son étape de spécification ou de planification a échoué : aucun espace de travail n'a été créé et rien n'a été modifié dans votre projet. Relancez la tâche pour l'exécuter à nouveau.",
+    "button": "Relancer la tâche"
+  },
   "referenceImages": {
     "dropZone": "Déposez des images ici, collez-les avec {{shortcut}} ou cliquez pour choisir des fichiers",
     "title": "Images de référence (facultatif)",

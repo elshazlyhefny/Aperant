@@ -350,6 +350,11 @@
     "deletePermanently": "Delete Permanently",
     "deleting": "Deleting..."
   },
+  "restartFailed": {
+    "title": "Task stopped before any work was done",
+    "description": "Its spec or planning step failed, so no workspace was created and nothing in your project was changed. Restart the task to run it again.",
+    "button": "Restart task"
+  },
   "referenceImages": {
     "dropZone": "Drop images here, paste with {{shortcut}}, or click to choose files",
     "title": "Reference Images (optional)",
