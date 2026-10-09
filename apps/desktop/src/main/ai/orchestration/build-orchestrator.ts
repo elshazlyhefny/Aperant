@@ -676,12 +676,19 @@ export class BuildOrchestrator extends EventEmitter {
    */
   private async isFirstRun(): Promise<boolean> {
     const planPath = join(this.config.specDir, 'implementation_plan.json');
+    let raw: string;
     try {
-      await readFile(planPath, 'utf-8');
-      return false;
+      raw = await readFile(planPath, 'utf-8');
     } catch {
       return true;
     }
+    // zeenha fork: tasks created from Ideation, Roadmap, Insights, Linear and
+    // GitHub import write a placeholder plan with `phases: []` and skip the
+    // spec pipeline. Treating "the file exists" as "already planned" skipped
+    // planning, and the empty plan then failed validation within a second
+    // (CODING_FAILED, "phases: array must have at least 1 item"). A plan with
+    // no subtasks has not been planned yet.
+    return !hasAnySubtask(safeParseJson<{ phases?: unknown }>(raw));
   }
 
   /**
@@ -786,3 +793,16 @@ export class BuildOrchestrator extends EventEmitter {
     this.emit(event, ...args);
   }
 }
+
+/** zeenha fork: whether a parsed plan holds at least one subtask (i.e. has been planned). */
+export function hasAnySubtask(plan: { phases?: unknown } | null | undefined): boolean {
+  if (!plan || !Array.isArray(plan.phases)) return false;
+  return plan.phases.some(
+    (phase) =>
+      typeof phase === 'object' &&
+      phase !== null &&
+      Array.isArray((phase as { subtasks?: unknown }).subtasks) &&
+      (phase as { subtasks: unknown[] }).subtasks.length > 0,
+  );
+}
+
