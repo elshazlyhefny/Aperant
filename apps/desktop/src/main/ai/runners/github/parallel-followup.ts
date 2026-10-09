@@ -90,6 +90,17 @@ export interface FollowupReviewerConfig {
   fastMode?: boolean;
 }
 
+/**
+ * zeenha fork: thrown when every scheduled follow-up specialist failed, so no
+ * verdict exists. Escapes `review()` (it is not folded into `success: false`).
+ */
+export class FollowupReviewIncompleteError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FollowupReviewIncompleteError';
+  }
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -363,8 +374,12 @@ export class ParallelFollowupReviewer {
         context.aiBotCommentsSinceReview.length > 0;
 
       const tasks: Array<Promise<{ type: string; result: string }>> = [];
+      // zeenha fork: the name of each scheduled task, in order, so a rejected
+      // task can still be named (a rejection carries no `value.type`).
+      const taskTypes: string[] = [];
 
       if (hasFindings) {
+        taskTypes.push('resolution-verifier');
         tasks.push(
           this.runSpecialist(
             'resolution-verifier',
@@ -377,6 +392,7 @@ export class ParallelFollowupReviewer {
       }
 
       if (hasSubstantialDiff) {
+        taskTypes.push('new-code-reviewer');
         tasks.push(
           this.runSpecialist(
             'new-code-reviewer',
@@ -389,6 +405,7 @@ export class ParallelFollowupReviewer {
       }
 
       if (hasComments) {
+        taskTypes.push('comment-analyzer');
         tasks.push(
           this.runSpecialist(
             'comment-analyzer',
@@ -416,19 +433,34 @@ export class ParallelFollowupReviewer {
       const newFindingIds: string[] = [];
       const findings: PRReviewFinding[] = [];
 
-      for (const s of settled) {
-        if (s.status !== 'fulfilled') continue;
-        const { type, result } = s.value;
+      // zeenha fork: a specialist that failed (rejected, unparseable output, or a
+      // parse error) looked at nothing. These used to be skipped, so previous
+      // findings were neither resolved nor unresolved and the verdict came out
+      // READY_TO_MERGE: an approval for a PR nobody re-checked.
+      const failedSpecialists: Array<{ name: string; reason: string }> = [];
+
+      for (let i = 0; i < settled.length; i++) {
+        const s = settled[i];
+        const type = taskTypes[i];
         agentsInvoked.push(type);
+        if (s.status !== 'fulfilled') {
+          const reason = s.reason instanceof Error ? s.reason.message : String(s.reason);
+          failedSpecialists.push({ name: type, reason });
+          continue;
+        }
+        const { result } = s.value;
 
         try {
           if (type === 'resolution-verifier') {
             // Validate with ResolutionVerificationSchema
             const rawData = parseJsonResponse(result);
             const verification = ResolutionVerificationSchema.safeParse(rawData);
-            const verifications = verification.success
-              ? verification.data.verifications
-              : [];
+            if (!verification.success) {
+              // zeenha fork: unparseable output is a failure, not "nothing to verify".
+              failedSpecialists.push({ name: type, reason: 'unparseable output' });
+              continue;
+            }
+            const verifications = verification.data.verifications;
 
             for (const v of verifications) {
               if (!v.findingId) continue;
@@ -453,12 +485,22 @@ export class ParallelFollowupReviewer {
             // new-code-reviewer or comment-analyzer
             // Validate with ReviewFindingsArraySchema
             const rawData = parseJsonResponse(result);
+            // zeenha fork: ReviewFindingsArraySchema coerces null to [], so
+            // unparseable output used to read as "no findings".
+            if (rawData === null || typeof rawData !== 'object') {
+              failedSpecialists.push({ name: type, reason: 'unparseable output' });
+              continue;
+            }
             // The specialist returns { findings: [...] } — extract findings
             const rawFindings = rawData && typeof rawData === 'object' && 'findings' in rawData
               ? (rawData as Record<string, unknown>).findings
               : rawData;
             const validatedFindings = ReviewFindingsArraySchema.safeParse(rawFindings);
-            const validFindings = validatedFindings.success ? validatedFindings.data : [];
+            if (!validatedFindings.success) {
+              failedSpecialists.push({ name: type, reason: 'unparseable output' });
+              continue;
+            }
+            const validFindings = validatedFindings.data;
 
             const prefix = type === 'comment-analyzer' ? '[FROM COMMENTS] ' : '';
             for (const f of validFindings) {
@@ -478,8 +520,32 @@ export class ParallelFollowupReviewer {
               });
             }
           }
-        } catch {
-          // Failed to parse specialist result
+        } catch (error) {
+          // zeenha fork: a parse error is a failed specialist, not a clean one.
+          const reason = error instanceof Error ? error.message : String(error);
+          failedSpecialists.push({ name: type, reason });
+        }
+      }
+
+      if (failedSpecialists.length > 0 && failedSpecialists.length === settled.length) {
+        throw new FollowupReviewIncompleteError(
+          `Follow-up review could not run: all ${failedSpecialists.length} reviewers failed (${failedSpecialists[0].reason.slice(0, 200)})`,
+        );
+      }
+
+      // zeenha fork: a previous finding the resolution verifier did not return a
+      // verdict for (verifier failed, or omitted it) is carried forward as
+      // UNRESOLVED. Nobody checked it, so it cannot silently disappear.
+      if (hasFindings) {
+        const verified = new Set([...resolvedIds, ...unresolvedIds]);
+        for (const original of context.previousReview.findings) {
+          if (original.id && verified.has(original.id)) continue;
+          if (original.id) unresolvedIds.push(original.id);
+          findings.push({
+            ...original,
+            title: `[UNRESOLVED] ${original.title}`,
+            description: `${original.description}\n\nResolution note: not verified in this follow-up review, so it is carried forward as unresolved.`,
+          });
         }
       }
 
@@ -547,6 +613,15 @@ export class ParallelFollowupReviewer {
         }
       }
 
+      if (failedSpecialists.length > 0) {
+        // zeenha fork: an incomplete review never approves, and says what failed.
+        const names = failedSpecialists.map((f) => f.name).join(', ');
+        if (verdict === MergeVerdict.READY_TO_MERGE) {
+          verdict = MergeVerdict.MERGE_WITH_CHANGES;
+        }
+        verdictReasoning = `Incomplete review: the ${names} reviewer(s) failed, so this PR was not fully checked. ${verdictReasoning}`;
+      }
+
       const overallStatus =
         verdict === MergeVerdict.READY_TO_MERGE
           ? 'approve'
@@ -581,6 +656,9 @@ export class ParallelFollowupReviewer {
         newFindingsSinceLastReview: newFindingIds,
       };
     } catch (error) {
+      // zeenha fork: the caller ignores `success` and saves this as a finished
+      // review, so a review that could not run must reach the caller as an error.
+      if (error instanceof FollowupReviewIncompleteError) throw error;
       const message = error instanceof Error ? error.message : String(error);
       return {
         prNumber: context.prNumber,

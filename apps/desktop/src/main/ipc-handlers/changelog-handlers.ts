@@ -202,6 +202,13 @@ export function registerChangelogHandlers(
             sourceMode: request.sourceMode,
             tasks: changelogTasks.length > 0 ? changelogTasks : undefined,
             commits: commitsText,
+            // zeenha fork: these were silently dropped, so every changelog came out
+            // as an undated Keep a Changelog entry whatever the user picked.
+            date: request.date,
+            format: request.format,
+            audience: request.audience,
+            emojiLevel: request.emojiLevel,
+            customInstructions: request.customInstructions,
           });
 
           if (mainWindow) {

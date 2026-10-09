@@ -202,9 +202,11 @@ describe('QALoop', () => {
       if (path.endsWith('implementation_plan.json')) {
         planReadCount++;
         if (planReadCount === 1) return Promise.resolve(completedPlan()); // isBuildComplete
-        // Reviewer on iteration 1 ran when sessionCallCount >= 1
-        // Serve rejected until fixer has run (sessionCallCount >= 2), then approved
-        if (sessionCallCount < 2) {
+        // zeenha fork: the loop only accepts a verdict the reviewer session wrote,
+        // so model each session's write: no signoff before the first reviewer,
+        // rejected by reviewer 1 (and still after the fixer), approved by reviewer 2.
+        if (sessionCallCount === 0) return Promise.resolve(completedPlan());
+        if (sessionCallCount < 3) {
           return Promise.resolve(completedPlan('rejected'));
         }
         return Promise.resolve(completedPlan('approved'));
@@ -294,9 +296,12 @@ describe('QALoop', () => {
 
   it('escalates when the same issue recurs 3 or more times', async () => {
     const recurringIssue = { title: 'Null pointer exception', type: 'critical' as const };
-    const rejectedPlan = JSON.stringify({
-      phases: [{ subtasks: [{ status: 'completed' }] }],
-      qa_signoff: { status: 'rejected', issues_found: [recurringIssue] },
+    // zeenha fork: each reviewer session writes its own signoff (qa_session differs),
+    // as the loop only accepts a verdict the session actually wrote.
+    let sessions = 0;
+    const runSession = vi.fn().mockImplementation(async () => {
+      sessions++;
+      return makeSessionResult('completed');
     });
 
     let planReadCount = 0;
@@ -305,12 +310,15 @@ describe('QALoop', () => {
       if (path.endsWith('implementation_plan.json')) {
         planReadCount++;
         if (planReadCount === 1) return Promise.resolve(completedPlan()); // build complete
-        return Promise.resolve(rejectedPlan);
+        return Promise.resolve(JSON.stringify({
+          phases: [{ subtasks: [{ status: 'completed' }] }],
+          qa_signoff: { status: 'rejected', qa_session: sessions, issues_found: [recurringIssue] },
+        }));
       }
       return Promise.reject(new Error('ENOENT'));
     });
 
-    const config = makeConfig({ maxIterations: 10 });
+    const config = makeConfig({ runSession, maxIterations: 10 });
     const loop = new QALoop(config);
     const outcome = await loop.run();
 
@@ -353,7 +361,8 @@ describe('QALoop', () => {
       if (path.endsWith('implementation_plan.json')) {
         planReadCount++;
         if (planReadCount === 1) return Promise.resolve(completedPlan());
-        return Promise.resolve(completedPlan('rejected'));
+        // zeenha fork: no signoff until reviewer 1 writes "rejected"
+        return Promise.resolve(completedPlan(runSession.mock.calls.length === 0 ? undefined : 'rejected'));
       }
       return Promise.reject(new Error('ENOENT'));
     });
@@ -401,14 +410,19 @@ describe('QALoop', () => {
   // -------------------------------------------------------------------------
 
   it('processes QA_FIX_REQUEST.md before running the review loop', async () => {
-    // QA_FIX_REQUEST.md exists
+    // QA_FIX_REQUEST.md exists. zeenha fork: the plan holds an approval from an
+    // earlier run; the reviewer (second session) writes a fresh one.
+    const runSession = vi.fn().mockResolvedValue(makeSessionResult('completed'));
     mockReadFile.mockImplementation((path: string) => {
       if (path.endsWith('QA_FIX_REQUEST.md')) return Promise.resolve('Fix this please');
-      if (path.endsWith('implementation_plan.json')) return Promise.resolve(completedPlan('approved'));
+      if (path.endsWith('implementation_plan.json')) {
+        const plan = JSON.parse(completedPlan('approved'));
+        if (runSession.mock.calls.length >= 2) plan.qa_signoff.timestamp = 'after-review';
+        return Promise.resolve(JSON.stringify(plan));
+      }
       return Promise.reject(new Error('ENOENT'));
     });
 
-    const runSession = vi.fn().mockResolvedValue(makeSessionResult('completed'));
     const config = makeConfig({ runSession, maxIterations: 5 });
     const loop = new QALoop(config);
     const outcome = await loop.run();

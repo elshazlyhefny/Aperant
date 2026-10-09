@@ -405,7 +405,13 @@ export class AgentManager extends EventEmitter {
         cwd: projectPath,
         projectDir: projectPath,
         specDir: resolvedSpecDir,
-        securityProfile: this.serializeSecurityProfile(projectPath),
+        // zeenha fork: carry PR-only landing into the worker's Bash validator.
+        securityProfile: this.serializeSecurityProfile(
+          projectPath,
+          landsThroughPullRequestsOnly(
+            projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath)?.settings,
+          ),
+        ),
       },
     };
 
@@ -537,7 +543,8 @@ export class AgentManager extends EventEmitter {
         cwd: effectiveCwd,
         projectDir: effectiveProjectDir,
         specDir: worktreeSpecDir,
-        securityProfile: this.serializeSecurityProfile(effectiveProjectDir),
+        // zeenha fork: carry PR-only landing into the worker's Bash validator.
+        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings)),
       },
     };
 
@@ -645,7 +652,8 @@ export class AgentManager extends EventEmitter {
         cwd: effectiveCwd,
         projectDir: effectiveProjectDir,
         specDir: effectiveSpecDir,
-        securityProfile: this.serializeSecurityProfile(effectiveProjectDir),
+        // zeenha fork: carry PR-only landing into the worker's Bash validator.
+        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings)),
       },
     };
 
@@ -933,9 +941,11 @@ export class AgentManager extends EventEmitter {
    * Serialize a project's SecurityProfile (Sets) into a SerializedSecurityProfile (arrays)
    * for transfer across worker thread boundaries.
    */
-  private serializeSecurityProfile(projectDir: string): SerializedSecurityProfile {
+  private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean): SerializedSecurityProfile {
     const profile = getSecurityProfile(projectDir);
     return {
+      // zeenha fork: the worker cannot read the project store, so the setting travels here.
+      prOnlyLanding,
       baseCommands: [...profile.baseCommands],
       stackCommands: [...profile.stackCommands],
       scriptCommands: [...profile.scriptCommands],

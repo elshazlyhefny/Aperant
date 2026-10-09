@@ -50,6 +50,26 @@ export interface TriageResult {
   comment: string | null;
 }
 
+/**
+ * zeenha fork: an issue the engine could not triage (model/auth/rate-limit
+ * error, or output it could not parse). It used to come back as a default
+ * result (category FEATURE, confidence 0), which the handler saved as a real
+ * triage, so a failed batch looked like a batch of feature requests.
+ */
+export interface TriageFailure {
+  issueNumber: number;
+  repo: string;
+  failed: true;
+  error: string;
+}
+
+/** Outcome of triaging one issue: a result, or an explicit failure. */
+export type TriageOutcome = TriageResult | TriageFailure;
+
+export function isTriageFailure(outcome: TriageOutcome): outcome is TriageFailure {
+  return (outcome as TriageFailure).failed === true;
+}
+
 /** GitHub issue data for triage. */
 export interface GitHubIssue {
   number: number;
@@ -169,26 +189,11 @@ function parseTriageResult(
   issue: GitHubIssue,
   text: string,
   repo: string,
-): TriageResult {
-  const defaults: TriageResult = {
-    issueNumber: issue.number,
-    repo,
-    category: TriageCategory.FEATURE,
-    confidence: 0.0,
-    labelsToAdd: [],
-    labelsToRemove: [],
-    isDuplicate: false,
-    duplicateOf: null,
-    isSpam: false,
-    isFeatureCreep: false,
-    suggestedBreakdown: [],
-    priority: 'medium',
-    comment: null,
-  };
-
+): TriageOutcome {
   const validated = parseLLMJson(text, TriageResultSchema);
   if (!validated) {
-    return defaults;
+    // zeenha fork: unparseable output is a failure, not a FEATURE at confidence 0.
+    return { issueNumber: issue.number, repo, failed: true, error: 'Could not parse the model output' };
   }
 
   return {
@@ -219,17 +224,19 @@ export async function triageSingleIssue(
   issue: GitHubIssue,
   allIssues: GitHubIssue[],
   config: TriageEngineConfig,
-): Promise<TriageResult> {
+): Promise<TriageOutcome> {
   const context = buildTriageContext(issue, allIssues);
   const fullPrompt = `${TRIAGE_PROMPT}\n\n---\n\n${context}`;
 
-  const client = await createSimpleClient({
-    systemPrompt: TRIAGE_SYSTEM_PROMPT,
-    modelShorthand: config.model ?? 'sonnet',
-    thinkingLevel: config.thinkingLevel ?? 'low',
-  });
-
   try {
+    // zeenha fork: inside the try, so a client failure is this issue's failure
+    // rather than an exception that discards the batch's earlier results.
+    const client = await createSimpleClient({
+      systemPrompt: TRIAGE_SYSTEM_PROMPT,
+      modelShorthand: config.model ?? 'sonnet',
+      thinkingLevel: config.thinkingLevel ?? 'low',
+    });
+
     const result = await generateText({
       model: client.model,
       system: client.systemPrompt,
@@ -258,22 +265,10 @@ export async function triageSingleIssue(
 
     // Fallback for providers without constrained decoding
     return parseTriageResult(issue, result.text, config.repo);
-  } catch {
-    return {
-      issueNumber: issue.number,
-      repo: config.repo,
-      category: TriageCategory.FEATURE,
-      confidence: 0.0,
-      labelsToAdd: [],
-      labelsToRemove: [],
-      isDuplicate: false,
-      duplicateOf: null,
-      isSpam: false,
-      isFeatureCreep: false,
-      suggestedBreakdown: [],
-      priority: 'medium',
-      comment: null,
-    };
+  } catch (error) {
+    // zeenha fork: report the failure; never invent a FEATURE result for it.
+    const message = error instanceof Error ? error.message : String(error);
+    return { issueNumber: issue.number, repo: config.repo, failed: true, error: message.slice(0, 300) };
   }
 }
 
@@ -284,8 +279,8 @@ export async function triageBatchIssues(
   issues: GitHubIssue[],
   config: TriageEngineConfig,
   progressCallback?: TriageProgressCallback,
-): Promise<TriageResult[]> {
-  const results: TriageResult[] = [];
+): Promise<TriageOutcome[]> {
+  const results: TriageOutcome[] = [];
 
   for (let i = 0; i < issues.length; i++) {
     progressCallback?.({

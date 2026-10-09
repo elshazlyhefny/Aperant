@@ -20,7 +20,7 @@ import { createContextLogger } from './utils/logger';
 import { withProjectOrNull } from './utils/project-middleware';
 import { createIPCCommunicators } from './utils/ipc-communicator';
 import { AgentManager } from '../../agent/agent-manager';
-import { BatchProcessor } from '../../ai/runners/github/batch-processor';
+import { BatchProcessor, safeBatchId } from '../../ai/runners/github/batch-processor';
 import type { GitHubIssue } from '../../ai/runners/github/duplicate-detector';
 import type { ModelShorthand, ThinkingLevel } from '../../ai/config/types';
 
@@ -841,7 +841,7 @@ export function registerAutoFixHandlers(
 
           for (const b of approvedBatches) {
             const primaryIssue = (b.primaryIssue as number) ?? 0;
-            const batchId = (b.batchId as string) ?? `batch-${String(primaryIssue).padStart(3, '0')}`;
+            const batchId = safeBatchId(b.batchId, primaryIssue);
             const batchData = {
               batch_id: batchId,
               repo: ghConfig.repo,

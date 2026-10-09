@@ -229,3 +229,71 @@ describe('generateChangelog', () => {
     expect(result.error).toBe('No auth available');
   });
 });
+
+// zeenha fork: the request's style options used to be dropped before they reached
+// the prompt, so every changelog was an undated Keep a Changelog entry.
+describe('generateChangelog — style options', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCreateSimpleClient.mockResolvedValue(makeMockClient());
+    mockGenerateText.mockResolvedValue({ text: '## 1.0.0' });
+  });
+
+  async function promptFor(overrides: Partial<ChangelogConfig>): Promise<string> {
+    await generateChangelog(baseConfig(overrides));
+    return mockGenerateText.mock.calls[0][0].prompt as string;
+  }
+
+  it('uses the requested date in the version header', async () => {
+    const prompt = await promptFor({ format: 'keep-a-changelog', date: '2026-03-14' });
+    expect(prompt).toContain('released **2026-03-14**');
+    expect(prompt).toContain('## [1.0.0] - 2026-03-14');
+  });
+
+  it('carries the date even when no format is given', async () => {
+    const prompt = await promptFor({ date: '2026-03-14' });
+    expect(prompt).toContain('Use 2026-03-14 as the release date');
+  });
+
+  it('follows the simple-list format when asked', async () => {
+    const prompt = await promptFor({ format: 'simple-list', date: '2026-03-14' });
+    expect(prompt).toContain('# Release v1.0.0 (2026-03-14)');
+    expect(prompt).not.toContain('## [1.0.0] - 2026-03-14');
+  });
+
+  it('follows the github-release format when asked', async () => {
+    const prompt = await promptFor({ format: 'github-release', date: '2026-03-14' });
+    expect(prompt).toContain("## What's Changed");
+  });
+
+  it('writes for the requested audience', async () => {
+    const technical = await promptFor({ format: 'keep-a-changelog', audience: 'technical' });
+    expect(technical).toContain('changelog for developers');
+    mockGenerateText.mockClear();
+    const marketing = await promptFor({ format: 'keep-a-changelog', audience: 'marketing' });
+    expect(marketing).toContain('marketing specialist');
+    expect(marketing).not.toContain('changelog for developers');
+  });
+
+  it('includes emoji instructions only when an emoji level is set', async () => {
+    const withEmoji = await promptFor({ format: 'keep-a-changelog', emojiLevel: 'high' });
+    expect(withEmoji).toContain('## Emoji Usage');
+    expect(withEmoji).toContain('every line item');
+    mockGenerateText.mockClear();
+    const without = await promptFor({ format: 'keep-a-changelog', emojiLevel: 'none' });
+    expect(without).not.toContain('## Emoji Usage');
+  });
+
+  it('includes the custom instructions', async () => {
+    const prompt = await promptFor({ customInstructions: 'Mention the Arabic locale work first.' });
+    expect(prompt).toContain('## Additional Instructions');
+    expect(prompt).toContain('Mention the Arabic locale work first.');
+  });
+
+  it('adds no style sections when no options are given', async () => {
+    const prompt = await promptFor({});
+    expect(prompt).not.toContain('## Format');
+    expect(prompt).not.toContain('## Audience');
+    expect(prompt).not.toContain('## Additional Instructions');
+  });
+});

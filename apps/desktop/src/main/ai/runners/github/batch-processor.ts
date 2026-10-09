@@ -9,6 +9,8 @@
  * processes each batch with bounded concurrency via a semaphore.
  */
 
+import { randomBytes } from 'node:crypto';
+
 import { generateText } from 'ai';
 
 import { createSimpleClient } from '../../client/factory';
@@ -217,6 +219,42 @@ Respond with JSON only:
 }
 
 // =============================================================================
+// Batch IDs
+// =============================================================================
+
+/** Reasoning attached to a batch made for an issue the model left out. */
+export const UNGROUPED_REASONING =
+  'Not placed in any batch by the grouping model; batched alone so it is not dropped.';
+
+/**
+ * zeenha fork: a run identifier for batch IDs. IDs used to be `batch-001`,
+ * `batch-002`… on every run, and they name the files under `batches/`, so a
+ * second run overwrote the first run's batches (losing spec_id, pr_number and
+ * status) and left its extra files mixed in. A UTC timestamp keeps IDs sortable
+ * by creation time; the random suffix separates two runs in the same
+ * millisecond. Only [0-9a-zA-Z-] so it stays filename-safe.
+ */
+export function createBatchRunId(now: Date = new Date()): string {
+  const stamp = now.toISOString().replace(/[-:.]/g, '');
+  return `${stamp}-${randomBytes(3).toString('hex')}`;
+}
+
+/** A batch id becomes part of a file name (`batch_<id>.json`). */
+const SAFE_BATCH_ID = /^[A-Za-z0-9_-]{1,120}$/;
+
+/**
+ * zeenha fork: the id the renderer sends with an approved batch is used in a
+ * file path. Keep it only when it is filename-safe (no separators, no dots);
+ * otherwise, or when missing, mint a unique one. The old fallback
+ * `batch-<primary issue>` also collided between runs.
+ */
+export function safeBatchId(raw: unknown, primaryIssue: number, runId: string = createBatchRunId()): string {
+  if (typeof raw === 'string' && SAFE_BATCH_ID.test(raw)) return raw;
+  const issue = Number.isInteger(primaryIssue) && primaryIssue > 0 ? primaryIssue : 0;
+  return `batch-${runId}-${String(issue).padStart(3, '0')}`;
+}
+
+// =============================================================================
 // Semaphore for Concurrency Control
 // =============================================================================
 
@@ -292,24 +330,57 @@ export class BatchProcessor {
 
   /**
    * Build IssueBatch objects from a list of issues and batch suggestions.
+   *
+   * zeenha fork: IDs are unique per run (see createBatchRunId). Every issue
+   * lands in exactly one batch: an issue the model repeats stays in its first
+   * batch, an issue the model left out gets a batch of its own carrying
+   * UNGROUPED_REASONING (so it is reported, not silently dropped), and a
+   * suggestion naming no known issue makes no batch.
    */
-  buildBatches(issues: GitHubIssue[], suggestions: BatchSuggestion[]): IssueBatch[] {
+  buildBatches(
+    issues: GitHubIssue[],
+    suggestions: BatchSuggestion[],
+    runId: string = createBatchRunId(),
+  ): IssueBatch[] {
     const issueMap = new Map(issues.map((i) => [i.number, i]));
+    const placed = new Set<number>();
 
-    return suggestions.map((suggestion, idx) => {
-      const batchIssues = suggestion.issueNumbers
-        .map((n) => issueMap.get(n))
-        .filter((i): i is GitHubIssue => i !== undefined);
-
-      return {
-        batchId: `batch-${String(idx + 1).padStart(3, '0')}`,
+    const grouped: Array<Omit<IssueBatch, 'batchId'>> = [];
+    for (const suggestion of suggestions) {
+      const batchIssues: GitHubIssue[] = [];
+      for (const n of suggestion.issueNumbers) {
+        const issue = issueMap.get(n);
+        if (issue && !placed.has(n)) {
+          placed.add(n);
+          batchIssues.push(issue);
+        }
+      }
+      if (batchIssues.length === 0) continue;
+      grouped.push({
         issues: batchIssues,
         theme: suggestion.theme,
         reasoning: suggestion.reasoning,
         confidence: suggestion.confidence,
         status: 'pending' as BatchStatus,
-      };
-    });
+      });
+    }
+
+    for (const issue of issues) {
+      if (placed.has(issue.number)) continue;
+      placed.add(issue.number);
+      grouped.push({
+        issues: [issue],
+        theme: issue.title ?? `Issue #${issue.number}`,
+        reasoning: UNGROUPED_REASONING,
+        confidence: 0,
+        status: 'pending' as BatchStatus,
+      });
+    }
+
+    return grouped.map((batch, idx) => ({
+      batchId: `batch-${runId}-${String(idx + 1).padStart(3, '0')}`,
+      ...batch,
+    }));
   }
 
   /**

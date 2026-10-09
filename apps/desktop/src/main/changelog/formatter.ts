@@ -133,6 +133,34 @@ Use diverse, contextually appropriate emojis for each item.`
   return instructions[emojiLevel] || '';
 }
 
+// zeenha fork: one definition of the audience/format/emoji text, shared by the
+// legacy CLI prompts below and the Vercel AI SDK runner (ai/runners/changelog.ts),
+// which used to hard-code Keep a Changelog and drop the request's options.
+export interface ChangelogStyleOptions {
+  version: string;
+  date: string;
+  format: ChangelogGenerationRequest['format'];
+  audience: ChangelogGenerationRequest['audience'];
+  emojiLevel?: ChangelogGenerationRequest['emojiLevel'];
+}
+
+export interface ChangelogStyleInstructions {
+  audience: string;
+  format: string;
+  emoji: string;
+}
+
+/**
+ * Build the audience, format-template and emoji instructions for a request.
+ */
+export function buildStyleInstructions(options: ChangelogStyleOptions): ChangelogStyleInstructions {
+  return {
+    audience: AUDIENCE_INSTRUCTIONS[options.audience],
+    format: FORMAT_TEMPLATES[options.format](options.version, options.date),
+    emoji: getEmojiInstructions(options.emojiLevel, options.format),
+  };
+}
+
 /**
  * Build changelog prompt from task specs
  */
@@ -140,9 +168,11 @@ export function buildChangelogPrompt(
   request: ChangelogGenerationRequest,
   specs: TaskSpecContent[]
 ): string {
-  const audienceInstruction = AUDIENCE_INSTRUCTIONS[request.audience];
-  const formatInstruction = FORMAT_TEMPLATES[request.format](request.version, request.date);
-  const emojiInstruction = getEmojiInstructions(request.emojiLevel, request.format);
+  const {
+    audience: audienceInstruction,
+    format: formatInstruction,
+    emoji: emojiInstruction,
+  } = buildStyleInstructions(request);
 
   // Build CONCISE task summaries (key to avoiding timeout)
   const taskSummaries = specs.map(spec => {
@@ -208,9 +238,11 @@ export function buildGitPrompt(
   request: ChangelogGenerationRequest,
   commits: GitCommit[]
 ): string {
-  const audienceInstruction = AUDIENCE_INSTRUCTIONS[request.audience];
-  const formatInstruction = FORMAT_TEMPLATES[request.format](request.version, request.date);
-  const emojiInstruction = getEmojiInstructions(request.emojiLevel, request.format);
+  const {
+    audience: audienceInstruction,
+    format: formatInstruction,
+    emoji: emojiInstruction,
+  } = buildStyleInstructions(request);
 
   // Format commits for the prompt
   // Include author info for github-release format

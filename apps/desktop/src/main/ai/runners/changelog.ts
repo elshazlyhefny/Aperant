@@ -13,6 +13,12 @@
 
 import { generateText } from 'ai';
 
+import type {
+  ChangelogAudience,
+  ChangelogEmojiLevel,
+  ChangelogFormat,
+} from '../../../shared/types/changelog';
+import { buildStyleInstructions } from '../../changelog/formatter';
 import { createSimpleClient } from '../client/factory';
 import type { ModelShorthand, ThinkingLevel } from '../config/types';
 
@@ -46,6 +52,17 @@ export interface ChangelogConfig {
   commits?: string;
   /** Previous changelog content for style matching */
   previousChangelog?: string;
+  // zeenha fork: the request's style options, which used to be dropped.
+  /** Release date for the version header (YYYY-MM-DD) */
+  date?: string;
+  /** Changelog format (defaults to Keep a Changelog) */
+  format?: ChangelogFormat;
+  /** Target audience (defaults to user-facing) */
+  audience?: ChangelogAudience;
+  /** Emoji usage level (defaults to none) */
+  emojiLevel?: ChangelogEmojiLevel;
+  /** Free-text instructions from the user */
+  customInstructions?: string;
   /** Model shorthand (defaults to 'sonnet') */
   modelShorthand?: ModelShorthand;
   /** Thinking level (defaults to 'low') */
@@ -69,9 +86,9 @@ export interface ChangelogResult {
 const SYSTEM_PROMPT = `You are a technical writer who creates clear, professional changelogs.
 
 Rules:
-1. Use Keep a Changelog format (https://keepachangelog.com/)
-2. Group changes by type: Added, Changed, Deprecated, Removed, Fixed, Security
-3. Write concise, user-facing descriptions (not implementation details)
+1. Follow the format, audience and emoji instructions given in the prompt; when none are given, use Keep a Changelog format (https://keepachangelog.com/)
+2. Group changes by type (for Keep a Changelog: Added, Changed, Deprecated, Removed, Fixed, Security)
+3. Write concise descriptions suited to the stated audience (user-facing by default, not implementation details)
 4. Use past tense ("Added dark mode" not "Add dark mode")
 5. Reference issue numbers where available
 6. Keep entries actionable and meaningful to end users
@@ -83,7 +100,27 @@ Output ONLY the changelog markdown, nothing else.`;
  */
 function buildChangelogPrompt(config: ChangelogConfig): string {
   const parts: string[] = [];
-  parts.push(`Generate a changelog entry for **${config.projectName}** version **${config.version}**.`);
+  // zeenha fork: the date and the requested format/audience/emoji level reach the
+  // prompt through the same helper the legacy CLI prompts use.
+  const dated = config.date ? `, released **${config.date}**` : '';
+  parts.push(`Generate a changelog entry for **${config.projectName}** version **${config.version}**${dated}.`);
+
+  if (config.format || config.audience || config.emojiLevel) {
+    const style = buildStyleInstructions({
+      version: config.version,
+      date: config.date ?? new Date().toISOString().split('T')[0],
+      format: config.format ?? 'keep-a-changelog',
+      audience: config.audience ?? 'user-facing',
+      emojiLevel: config.emojiLevel,
+    });
+    parts.push(`\n## Audience\n\n${style.audience}`);
+    parts.push(`\n## Format\n\nFollow this structure (replace the placeholders):\n\n${style.format}`);
+    if (style.emoji) {
+      parts.push(`\n## Emoji Usage\n\n${style.emoji}`);
+    }
+  } else if (config.date) {
+    parts.push(`\nUse ${config.date} as the release date in the version header.`);
+  }
 
   if (config.sourceMode === 'tasks' && config.tasks && config.tasks.length > 0) {
     parts.push('\n## Completed Tasks\n');
@@ -104,6 +141,10 @@ function buildChangelogPrompt(config: ChangelogConfig): string {
   if (config.previousChangelog) {
     parts.push('\n## Previous Changelog (for style reference)\n');
     parts.push(config.previousChangelog.slice(0, 2000));
+  }
+
+  if (config.customInstructions?.trim()) {
+    parts.push(`\n## Additional Instructions\n\n${config.customInstructions.trim()}`);
   }
 
   parts.push('\nGenerate ONLY the changelog entry markdown for this version.');

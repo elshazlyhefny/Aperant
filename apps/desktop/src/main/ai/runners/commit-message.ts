@@ -38,7 +38,12 @@ const CATEGORY_TO_COMMIT_TYPE: Record<string, string> = {
   test: 'test',
   performance: 'perf',
   perf: 'perf',
-  security: 'security',
+  // zeenha fork: 'security' is not one of the types the prompt allows; a
+  // security task is a fix. ui_ux and infrastructure are the two TaskCategory
+  // values (shared/types/task.ts) that had no mapping and fell to 'chore'.
+  security: 'fix',
+  ui_ux: 'feat',
+  infrastructure: 'build',
   chore: 'chore',
   style: 'style',
   ci: 'ci',
@@ -74,7 +79,8 @@ interface SpecContext {
   title: string;
   category: string;
   description: string;
-  githubIssue: number | null;
+  // zeenha fork: a list, because a batch task carries githubIssueNumbers.
+  githubIssues: number[];
 }
 
 /** Configuration for commit message generation */
@@ -99,6 +105,12 @@ export interface CommitMessageConfig {
 // Spec Context Extraction
 // =============================================================================
 
+/** Keep only positive integers: these values are written into the prompt. */
+function issueNumbers(value: unknown): number[] {
+  const list = Array.isArray(value) ? value : [value];
+  return list.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0);
+}
+
 /**
  * Extract context from spec files for commit message generation.
  * Mirrors Python's `_get_spec_context()`.
@@ -108,7 +120,7 @@ function getSpecContext(specDir: string): SpecContext {
     title: '',
     category: 'chore',
     description: '',
-    githubIssue: null,
+    githubIssues: [],
   };
 
   // Try to read spec.md for title
@@ -152,11 +164,33 @@ function getSpecContext(specDir: string): SpecContext {
     const planData = safeParseJson<Record<string, unknown>>(readFileSync(planFile, 'utf-8'));
     if (planData) {
       const metadata = (planData.metadata as Record<string, unknown>) ?? {};
-      if (metadata.githubIssueNumber) {
-        context.githubIssue = metadata.githubIssueNumber as number;
+      const fromPlan = issueNumbers(metadata.githubIssueNumber);
+      if (fromPlan.length > 0) {
+        context.githubIssues = fromPlan;
       }
       if (!context.title) {
         context.title = String(planData.feature ?? planData.title ?? '');
+      }
+    }
+  }
+
+  // zeenha fork: task_metadata.json is where the GitHub import
+  // (ipc-handlers/github/spec-utils.ts) actually writes githubIssueNumber(s) and
+  // the label-derived category; nothing writes them to implementation_plan.json,
+  // so commits never got "Fixes #N". It wins over the plan and requirements.json
+  // (whose workflow_type the import always writes as 'feature').
+  const metaFile = join(specDir, 'task_metadata.json');
+  if (existsSync(metaFile)) {
+    const meta = safeParseJson<Record<string, unknown>>(readFileSync(metaFile, 'utf-8'));
+    if (meta) {
+      const issues = issueNumbers(meta.githubIssueNumber);
+      const batch = issueNumbers(meta.githubIssueNumbers);
+      const all = [...new Set([...issues, ...batch])];
+      if (all.length > 0) {
+        context.githubIssues = all;
+      }
+      if (typeof meta.category === 'string' && meta.category.trim()) {
+        context.category = meta.category.trim();
       }
     }
   }
@@ -176,8 +210,10 @@ function buildPrompt(
   const commitType = CATEGORY_TO_COMMIT_TYPE[specContext.category.toLowerCase()] ?? 'chore';
 
   let githubRef = '';
-  if (specContext.githubIssue) {
-    githubRef = `\nGitHub Issue: #${specContext.githubIssue} (include 'Fixes #${specContext.githubIssue}' at the end)`;
+  if (specContext.githubIssues.length > 0) {
+    const refs = specContext.githubIssues.map((n) => `#${n}`).join(', ');
+    const fixes = specContext.githubIssues.map((n) => `'Fixes #${n}'`).join(', ');
+    githubRef = `\nGitHub Issue: ${refs} (include ${fixes} at the end, each on its own line)`;
   }
 
   let filesDisplay: string;
@@ -246,12 +282,12 @@ export async function generateCommitMessage(
     title: '',
     category: 'chore',
     description: '',
-    githubIssue: null,
+    githubIssues: [],
   };
 
   // Override with provided github issue
   if (githubIssue) {
-    specContext.githubIssue = githubIssue;
+    specContext.githubIssues = [githubIssue];
   }
 
   // Build prompt
@@ -283,9 +319,8 @@ export async function generateCommitMessage(
   const title = specContext.title || specName;
   let fallback = `${commitType}: ${title}`;
 
-  const issueNum = githubIssue ?? specContext.githubIssue;
-  if (issueNum) {
-    fallback += `\n\nFixes #${issueNum}`;
+  if (specContext.githubIssues.length > 0) {
+    fallback += `\n\n${specContext.githubIssues.map((n) => `Fixes #${n}`).join('\n')}`;
   }
 
   return fallback;

@@ -27,6 +27,8 @@ import {
   triageBatchIssues,
   type GitHubIssue as TriageGitHubIssue,
   type TriageResult as EngineTriageResult,
+  type TriageFailure as EngineTriageFailure,
+  type TriageOutcome as EngineTriageOutcome,
 } from '../../ai/runners/github/triage-engine';
 import type { ModelShorthand, ThinkingLevel } from '../../ai/config/types';
 
@@ -273,13 +275,28 @@ function convertEngineResult(
 }
 
 /**
+ * zeenha fork: local guard rather than the engine's `isTriageFailure`, so a
+ * module mock of the engine that omits it cannot turn every outcome into a
+ * "result".
+ */
+function isEngineFailure(outcome: EngineTriageOutcome): outcome is EngineTriageFailure {
+  return (outcome as EngineTriageFailure).failed === true;
+}
+
+/** Outcome of a triage run: what was triaged, and which issues failed. */
+interface TriageRunOutcome {
+  results: TriageResult[];
+  failedIssueNumbers: number[];
+}
+
+/**
  * Run the TypeScript triage engine on a set of issues.
  */
 async function runTriage(
   project: Project,
   issueNumbers: number[] | null,
   mainWindow: BrowserWindow,
-): Promise<TriageResult[]> {
+): Promise<TriageRunOutcome> {
   const { sendProgress } = createIPCCommunicators<TriageProgress, TriageResult[]>(
     mainWindow,
     {
@@ -394,16 +411,34 @@ async function runTriage(
     },
   );
 
-  // Convert and save results to disk
+  // Convert and save results to disk.
+  // zeenha fork: a failed issue is never saved (it used to be written as a
+  // FEATURE at confidence 0 and reported as triaged).
   const results: TriageResult[] = [];
-  for (const engineResult of engineResults) {
-    const result = convertEngineResult(engineResult, config.repo);
+  const failures: EngineTriageFailure[] = [];
+  for (const outcome of engineResults) {
+    if (isEngineFailure(outcome)) {
+      failures.push(outcome);
+      continue;
+    }
+    const result = convertEngineResult(outcome, config.repo);
     results.push(result);
     saveTriageResultToDisk(project, result);
   }
 
-  debugLog('Triage completed, results saved', { count: results.length });
-  return results;
+  const failedIssueNumbers = failures.map((f) => f.issueNumber);
+  if (failures.length > 0 && results.length === 0) {
+    throw new Error(
+      `Triage failed for all ${failures.length} issue(s) (${formatIssueNumbers(failedIssueNumbers)}): ${failures[0].error.slice(0, 200)}`,
+    );
+  }
+
+  debugLog('Triage completed, results saved', { count: results.length, failedIssueNumbers });
+  return { results, failedIssueNumbers };
+}
+
+function formatIssueNumbers(numbers: number[]): string {
+  return numbers.map((n) => `#${n}`).join(', ');
 }
 
 /**
@@ -486,13 +521,22 @@ export function registerTriageHandlers(getMainWindow: () => BrowserWindow | null
             processedIssues: 0,
           });
 
-          const results = await runTriage(project, issueNumbers ?? null, mainWindow);
+          const { results, failedIssueNumbers } = await runTriage(
+            project,
+            issueNumbers ?? null,
+            mainWindow,
+          );
 
-          debugLog('Triage completed', { resultsCount: results.length });
+          debugLog('Triage completed', { resultsCount: results.length, failedIssueNumbers });
+          // zeenha fork: name the issues that could not be triaged.
+          const failedNote =
+            failedIssueNumbers.length > 0
+              ? `; could not triage ${failedIssueNumbers.length} issue(s): ${formatIssueNumbers(failedIssueNumbers)}`
+              : '';
           sendProgress({
             phase: 'complete',
             progress: 100,
-            message: `Triaged ${results.length} issues`,
+            message: `Triaged ${results.length} issues${failedNote}`,
             totalIssues: results.length,
             processedIssues: results.length,
           });

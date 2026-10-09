@@ -134,6 +134,8 @@ function buildSecurityProfile(session: SerializableSessionConfig): SecurityProfi
     scriptCommands: new Set(serialized?.scriptCommands ?? []),
     customCommands: new Set(serialized?.customCommands ?? []),
     customScripts: { shellScripts: serialized?.customScripts?.shellScripts ?? [] },
+    // zeenha fork: carried from the main process; left undefined (= ON) when missing.
+    prOnlyLanding: serialized?.prOnlyLanding,
     getAllAllowedCommands() {
       return new Set([
         ...this.baseCommands,

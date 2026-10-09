@@ -169,6 +169,11 @@ export interface SerializedSecurityProfile {
   customScripts: {
     shellScripts: string[];
   };
+  /**
+   * zeenha fork: the project's "Land through pull requests only" setting, read
+   * in the main process. Absent means ON (the validator fails closed).
+   */
+  prOnlyLanding?: boolean;
 }
 
 // =============================================================================

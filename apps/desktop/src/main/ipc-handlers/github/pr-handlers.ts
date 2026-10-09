@@ -3309,6 +3309,14 @@ export function registerPRHandlers(getMainWindow: () => BrowserWindow | null): v
 
             const followupResult = await followupReviewer.review(followupContext, reviewAbortController.signal);
 
+            // zeenha fork: review() folds an internal failure into
+            // success:false; it used to be saved and shown as a completed
+            // review (with whatever status it carried). Report it as an error.
+            if (!followupResult.success) {
+              logCollector.finalize(false);
+              throw new Error(followupResult.summary || 'Follow-up review failed before it could check the PR');
+            }
+
             // Build PRReviewResult from FollowupReviewResult
             const result: PRReviewResult = {
               prNumber,

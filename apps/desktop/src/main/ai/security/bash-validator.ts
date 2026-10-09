@@ -26,6 +26,8 @@ import {
 import { BLOCKED_COMMANDS, isCommandBlocked } from './denylist';
 import { validateRmCommand, validateChmodCommand } from './validators/filesystem-validators';
 import { validateGitCommand } from './validators/git-validators';
+import { validateLandingPolicy } from './validators/landing-validators';
+import { landsThroughPullRequestsOnly } from '../../../shared/utils/landing-policy';
 import { validatePkillCommand, validateKillCommand, validateKillallCommand } from './validators/process-validators';
 import { validateShellCCommand } from './validators/shell-validators';
 import {
@@ -66,6 +68,24 @@ export interface SecurityProfile {
     shellScripts: string[];
   };
   getAllAllowedCommands(): Set<string>;
+  /**
+   * zeenha fork: the project's "Land through pull requests only" setting,
+   * threaded from the main process (the worker cannot read the project
+   * store). Absent means ON: an unknown setting fails closed.
+   */
+  prOnlyLanding?: boolean;
+}
+
+/**
+ * zeenha fork: under PR-only landing, refuse any part of the command that
+ * pushes anywhere but the task branch or merges a pull request. The whole
+ * command string is checked, not one segment per command name.
+ */
+function checkLandingPolicy(command: string, profile?: SecurityProfile | null): ValidationResult {
+  if (!landsThroughPullRequestsOnly({ prOnlyLanding: profile?.prOnlyLanding })) {
+    return [true, ''];
+  }
+  return validateLandingPolicy(command);
 }
 
 /** Hook input data shape (matches Vercel AI SDK tool call metadata) */
@@ -168,7 +188,7 @@ export function isCommandAllowed(
  */
 export function bashSecurityHook(
   inputData: HookInputData,
-  _profile?: SecurityProfile,
+  profile?: SecurityProfile | null,
 ): HookResult {
   if (inputData.toolName !== 'Bash') {
     return {} as Record<string, never>;
@@ -213,6 +233,18 @@ export function bashSecurityHook(
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
         permissionDecisionReason: `Could not parse command for security validation: ${command}`,
+      },
+    };
+  }
+
+  // zeenha fork: PR-only landing (see checkLandingPolicy)
+  const [landingAllowed, landingReason] = checkLandingPolicy(command, profile);
+  if (!landingAllowed) {
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: landingReason,
       },
     };
   }
@@ -268,12 +300,18 @@ export function bashSecurityHook(
  */
 export function validateCommand(
   command: string,
-  _profile?: SecurityProfile,
+  profile?: SecurityProfile | null,
 ): ValidationResult {
   const commands = extractCommands(command);
 
   if (commands.length === 0) {
     return [false, 'Could not parse command'];
+  }
+
+  // zeenha fork: PR-only landing (see checkLandingPolicy)
+  const landing = checkLandingPolicy(command, profile);
+  if (!landing[0]) {
+    return landing;
   }
 
   const segments = splitCommandSegments(command);

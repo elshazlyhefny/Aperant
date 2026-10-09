@@ -16,10 +16,11 @@
  */
 
 import { generateText } from 'ai';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { getAugmentedEnv } from '../../../env-utils';
 import { createSimpleClient } from '../../client/factory';
 import type { ModelShorthand, ThinkingLevel } from '../../config/types';
 
@@ -42,6 +43,19 @@ Format your response in Markdown with these sections:
 
 Keep the description concise but informative. Focus on the business value and technical impact.
 Do not include any preamble — output only the Markdown body.`;
+
+/**
+ * zeenha fork: every git/gh call here runs in the Electron MAIN process. They
+ * used to be execFileSync with no timeout, so a slow push froze the whole UI
+ * and a credential prompt hung the app for good. Now they are async, bounded,
+ * and run with prompts disabled.
+ */
+export const PUSH_TIMEOUT_MS = 120_000;
+export const GH_TIMEOUT_MS = 60_000;
+const GIT_READ_TIMEOUT_MS = 30_000;
+
+/** The only branches Create PR may push (worktree-manager.ts names them). */
+const TASK_BRANCH_RE = /^auto-claude\/[A-Za-z0-9._\-/]+$/;
 
 // =============================================================================
 // Types
@@ -82,6 +96,62 @@ export interface CreatePRResult {
 }
 
 // =============================================================================
+// Process helper
+// =============================================================================
+
+/** Failure of a bounded child process, with its output kept for messages. */
+export class CommandError extends Error {
+  constructor(
+    message: string,
+    readonly stdout: string,
+    readonly stderr: string,
+    readonly timedOut: boolean,
+  ) {
+    super(message);
+    this.name = 'CommandError';
+  }
+}
+
+/**
+ * zeenha fork: environment for git and gh with the augmented PATH (GUI launches
+ * do not inherit the shell's) and every interactive prompt switched off, so a
+ * missing credential fails fast instead of waiting for input nobody can give.
+ */
+export function nonInteractiveEnv(): NodeJS.ProcessEnv {
+  return {
+    ...getAugmentedEnv(),
+    GIT_TERMINAL_PROMPT: '0',
+    GCM_INTERACTIVE: 'never',
+    GH_PROMPT_DISABLED: '1',
+  };
+}
+
+/** Run a command asynchronously with a timeout; stdin is closed at once. */
+function run(command: string, args: string[], cwd: string, timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      command,
+      args,
+      { cwd, encoding: 'utf-8', timeout: timeoutMs, env: nonInteractiveEnv(), maxBuffer: 10 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve(String(stdout));
+          return;
+        }
+        const timedOut = (error as { killed?: boolean }).killed === true;
+        const name = command.split(/[\\/]/).pop() ?? command;
+        const message = timedOut
+          ? `${name} ${args.slice(0, name === 'gh' ? 2 : 1).join(' ')} timed out after ${Math.round(timeoutMs / 1000)}s ` +
+            '(it may be waiting for credentials; interactive prompts are disabled)'
+          : error.message;
+        reject(new CommandError(message, String(stdout ?? ''), String(stderr ?? ''), timedOut));
+      },
+    );
+    child.stdin?.end();
+  });
+}
+
+// =============================================================================
 // Context Gathering
 // =============================================================================
 
@@ -89,27 +159,23 @@ export interface CreatePRResult {
  * Gather diff and commit log context for the PR.
  * Mirrors Python's _gather_pr_context().
  */
-function gatherPRContext(
+async function gatherPRContext(
   worktreePath: string,
   gitPath: string,
   baseBranch: string,
-): { diffSummary: string; commitLog: string } {
+): Promise<{ diffSummary: string; commitLog: string }> {
   let diffSummary = '';
   let commitLog = '';
 
   try {
-    diffSummary = execFileSync(
-      gitPath,
-      ['diff', '--stat', `origin/${baseBranch}...HEAD`],
-      { cwd: worktreePath, encoding: 'utf-8' },
+    diffSummary = (
+      await run(gitPath, ['diff', '--stat', `origin/${baseBranch}...HEAD`], worktreePath, GIT_READ_TIMEOUT_MS)
     ).slice(0, 3000);
   } catch {
     try {
       // Fallback without "origin/" prefix
-      diffSummary = execFileSync(
-        gitPath,
-        ['diff', '--stat', `${baseBranch}...HEAD`],
-        { cwd: worktreePath, encoding: 'utf-8' },
+      diffSummary = (
+        await run(gitPath, ['diff', '--stat', `${baseBranch}...HEAD`], worktreePath, GIT_READ_TIMEOUT_MS)
       ).slice(0, 3000);
     } catch {
       // Not fatal — proceed without diff
@@ -117,17 +183,13 @@ function gatherPRContext(
   }
 
   try {
-    commitLog = execFileSync(
-      gitPath,
-      ['log', '--oneline', `origin/${baseBranch}..HEAD`],
-      { cwd: worktreePath, encoding: 'utf-8' },
+    commitLog = (
+      await run(gitPath, ['log', '--oneline', `origin/${baseBranch}..HEAD`], worktreePath, GIT_READ_TIMEOUT_MS)
     ).slice(0, 2000);
   } catch {
     try {
-      commitLog = execFileSync(
-        gitPath,
-        ['log', '--oneline', `${baseBranch}..HEAD`],
-        { cwd: worktreePath, encoding: 'utf-8' },
+      commitLog = (
+        await run(gitPath, ['log', '--oneline', `${baseBranch}..HEAD`], worktreePath, GIT_READ_TIMEOUT_MS)
       ).slice(0, 2000);
     } catch {
       // Not fatal — proceed without commit log
@@ -215,24 +277,34 @@ Write a professional PR description. Output ONLY the Markdown body — no preamb
 /**
  * Push the worktree branch to origin.
  * Returns an error string on failure, or undefined on success.
+ *
+ * zeenha fork: pushed with --force-with-lease. The merge queue sends a
+ * conflicting PR back to be rebased, and a rebased task branch is not a
+ * fast-forward of what was pushed before, so a plain push was rejected and
+ * Create PR could never succeed again. The lease still refuses to overwrite
+ * remote work this clone has not seen. Only the task's own `auto-claude/*`
+ * branch is ever force-pushed: anything else is refused before git runs.
  */
-function pushBranch(
+async function pushBranch(
   worktreePath: string,
   gitPath: string,
   branchName: string,
-): string | undefined {
+): Promise<string | undefined> {
+  const ref = `refs/heads/${branchName}`;
   try {
-    execFileSync(
+    await run(
       gitPath,
-      ['push', '--set-upstream', 'origin', branchName],
-      { cwd: worktreePath, encoding: 'utf-8', stdio: 'pipe' },
+      ['push', '--force-with-lease', '--set-upstream', 'origin', `${ref}:${ref}`],
+      worktreePath,
+      PUSH_TIMEOUT_MS,
     );
     return undefined;
   } catch (err: unknown) {
-    const stderr = err instanceof Error && 'stderr' in err
-      ? String((err as NodeJS.ErrnoException & { stderr?: string }).stderr)
-      : String(err);
-    return stderr || 'Push failed';
+    if (err instanceof CommandError) {
+      if (err.timedOut) return err.message;
+      return err.stderr || err.message || 'Push failed';
+    }
+    return String(err) || 'Push failed';
   }
 }
 
@@ -243,26 +315,27 @@ function pushBranch(
 /**
  * Try to retrieve the URL of an existing PR for the branch.
  */
-function getExistingPRUrl(
+async function getExistingPRUrl(
   projectDir: string,
   ghPath: string,
   branchName: string,
   baseBranch: string,
-): string | undefined {
+): Promise<string | undefined> {
   try {
-    const output = execFileSync(
-      ghPath,
-      ['pr', 'view', branchName, '--json', 'url', '--jq', '.url'],
-      { cwd: projectDir, encoding: 'utf-8', stdio: 'pipe' },
+    const output = (
+      await run(ghPath, ['pr', 'view', branchName, '--json', 'url', '--jq', '.url'], projectDir, GH_TIMEOUT_MS)
     ).trim();
     return output.startsWith('http') ? output : undefined;
   } catch {
     // Try alternative: list open PRs for this head
     try {
-      const listOutput = execFileSync(
-        ghPath,
-        ['pr', 'list', '--head', branchName, '--base', baseBranch, '--json', 'url', '--jq', '.[0].url'],
-        { cwd: projectDir, encoding: 'utf-8', stdio: 'pipe' },
+      const listOutput = (
+        await run(
+          ghPath,
+          ['pr', 'list', '--head', branchName, '--base', baseBranch, '--json', 'url', '--jq', '.[0].url'],
+          projectDir,
+          GH_TIMEOUT_MS,
+        )
       ).trim();
       return listOutput.startsWith('http') ? listOutput : undefined;
     } catch {
@@ -296,8 +369,17 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
     thinkingLevel = 'low',
   } = config;
 
+  // zeenha fork: Create PR force-pushes (with lease), so it must only ever
+  // touch this task's own branch. Refuse anything else before git runs.
+  if (branchName !== `auto-claude/${specId}` || !TASK_BRANCH_RE.test(branchName) || branchName.includes('..')) {
+    return {
+      success: false,
+      error: `Refusing to push "${branchName}": Create PR only pushes the task's own branch (auto-claude/${specId}).`,
+    };
+  }
+
   // Step 1: Push the branch to origin
-  const pushError = pushBranch(worktreePath, gitPath, branchName);
+  const pushError = await pushBranch(worktreePath, gitPath, branchName);
   if (pushError) {
     // If it looks like the branch is already up-to-date, don't bail
     const isUpToDate = pushError.includes('Everything up-to-date') ||
@@ -308,7 +390,7 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
   }
 
   // Step 2: Gather context for AI description
-  const { diffSummary, commitLog } = gatherPRContext(worktreePath, gitPath, baseBranch);
+  const { diffSummary, commitLog } = await gatherPRContext(worktreePath, gitPath, baseBranch);
 
   // Step 3: Generate AI PR body (falls back to spec summary on failure)
   const aiBody = await generatePRBody(
@@ -345,11 +427,7 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
   // Step 6: Execute gh pr create with retry on network errors
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const output = execFileSync(ghPath, ghArgs, {
-        cwd: projectDir,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-      }).trim();
+      const output = (await run(ghPath, ghArgs, projectDir, GH_TIMEOUT_MS)).trim();
 
       // Extract PR URL from output
       let prUrl: string | undefined;
@@ -362,13 +440,19 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
 
       return { success: true, prUrl, alreadyExists: false };
     } catch (err: unknown) {
-      const spawnErr = err as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
+      const spawnErr = err as Partial<CommandError> & { message?: string };
       const stderr = String(spawnErr.stderr ?? '');
       const stdout = String(spawnErr.stdout ?? '');
 
+      // zeenha fork: a timed-out create is ambiguous (the PR may exist) and
+      // retrying it could hang the same way, so report it plainly.
+      if (spawnErr.timedOut) {
+        return { success: false, error: spawnErr.message ?? 'gh pr create timed out' };
+      }
+
       // Check "already exists" — not a failure
       if (stderr.toLowerCase().includes('already exists') || stdout.toLowerCase().includes('already exists')) {
-        const existingUrl = getExistingPRUrl(projectDir, ghPath, branchName, effectiveBase);
+        const existingUrl = await getExistingPRUrl(projectDir, ghPath, branchName, effectiveBase);
         return { success: true, prUrl: existingUrl, alreadyExists: true };
       }
 

@@ -228,3 +228,102 @@ describe('generateCommitMessage', () => {
     expect(prompt).toContain('and 10 more files');
   });
 });
+
+// zeenha fork: the GitHub import writes githubIssueNumber and category to
+// task_metadata.json, never to implementation_plan.json, so the runner must read it.
+describe('generateCommitMessage — task_metadata.json', () => {
+  function specFiles(files: Record<string, string>) {
+    mockExistsSync.mockImplementation((p: string) => {
+      const normalized = p.replace(/\\/g, '/');
+      if (normalized.endsWith('.auto-claude/specs/001-add-feature')) return true;
+      return Object.keys(files).some((name) => normalized.endsWith(`specs/001-add-feature/${name}`));
+    });
+    mockReadFileSync.mockImplementation((p: string) => {
+      const normalized = p.replace(/\\/g, '/');
+      const name = Object.keys(files).find((n) => normalized.endsWith(`/${n}`));
+      return name ? files[name] : '{}';
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCreateSimpleClient.mockResolvedValue(makeMockClient());
+  });
+
+  it('asks for "Fixes #N" from the issue number in task_metadata.json', async () => {
+    specFiles({ 'task_metadata.json': JSON.stringify({ sourceType: 'github', githubIssueNumber: 77 }) });
+    mockGenerateText.mockResolvedValue({ text: 'fix: x\n\nFixes #77' });
+
+    await generateCommitMessage(baseConfig());
+
+    const prompt = mockGenerateText.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain("include 'Fixes #77'");
+  });
+
+  it('puts every task_metadata.json issue in the fallback', async () => {
+    specFiles({
+      'task_metadata.json': JSON.stringify({ githubIssueNumber: 5, githubIssueNumbers: [5, 9] }),
+    });
+    mockGenerateText.mockRejectedValue(new Error('down'));
+
+    const result = await generateCommitMessage(baseConfig());
+
+    expect(result).toContain('Fixes #5\nFixes #9');
+  });
+
+  it('maps the task_metadata.json category to the commit type, over requirements.json', async () => {
+    specFiles({
+      'requirements.json': JSON.stringify({ workflow_type: 'feature' }),
+      'task_metadata.json': JSON.stringify({ category: 'bug_fix' }),
+    });
+    mockGenerateText.mockResolvedValue({ text: 'fix: x' });
+
+    await generateCommitMessage(baseConfig());
+
+    const prompt = mockGenerateText.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('Type: fix');
+  });
+
+  it.each([
+    ['infrastructure', 'build'],
+    ['ui_ux', 'feat'],
+    ['security', 'fix'],
+    ['testing', 'test'],
+  ])('maps category %s to %s', async (category, type) => {
+    specFiles({ 'task_metadata.json': JSON.stringify({ category }) });
+    mockGenerateText.mockRejectedValue(new Error('down'));
+
+    const result = await generateCommitMessage(baseConfig());
+
+    expect(result.startsWith(`${type}:`)).toBe(true);
+  });
+
+  it('still reads the issue from implementation_plan.json when task_metadata.json has none', async () => {
+    specFiles({ 'implementation_plan.json': JSON.stringify({ metadata: { githubIssueNumber: 12 } }) });
+    mockGenerateText.mockRejectedValue(new Error('down'));
+
+    const result = await generateCommitMessage(baseConfig());
+
+    expect(result).toContain('Fixes #12');
+  });
+
+  it('ignores issue numbers that are not positive integers', async () => {
+    specFiles({ 'task_metadata.json': JSON.stringify({ githubIssueNumber: '42; rm -rf /' }) });
+    mockGenerateText.mockRejectedValue(new Error('down'));
+
+    const result = await generateCommitMessage(baseConfig());
+
+    expect(result).not.toContain('Fixes');
+  });
+
+  it('lets the caller override the spec issue', async () => {
+    specFiles({ 'task_metadata.json': JSON.stringify({ githubIssueNumber: 77 }) });
+    mockGenerateText.mockRejectedValue(new Error('down'));
+
+    const result = await generateCommitMessage(baseConfig({ githubIssue: 3 }));
+
+    expect(result).toContain('Fixes #3');
+    expect(result).not.toContain('Fixes #77');
+  });
+});
+

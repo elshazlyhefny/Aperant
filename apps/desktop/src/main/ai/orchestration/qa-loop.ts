@@ -216,7 +216,21 @@ export class QALoop extends EventEmitter {
 
       // Process human feedback first if present
       if (hasHumanFeedback) {
-        await this.processHumanFeedback();
+        const feedbackResult = await this.processHumanFeedback();
+        // zeenha fork: the fixer's outcome used to be ignored, so a failed fix of a
+        // user's change request went on to a review that could approve the
+        // unchanged build. Only a completed fixer session lets the loop continue;
+        // otherwise QA_FIX_REQUEST.md is kept so the next run retries it.
+        if (feedbackResult.outcome === 'cancelled') {
+          return this.outcome(false, 0, Date.now() - startTime, 'cancelled');
+        }
+        if (feedbackResult.outcome !== 'completed') {
+          const message = `QA Fixer did not complete the requested changes (${feedbackResult.outcome})${
+            feedbackResult.error?.message ? `: ${feedbackResult.error.message}` : ''
+          }`;
+          this.emitTyped('log', message);
+          return this.outcome(false, 0, Date.now() - startTime, 'error', message);
+        }
       }
 
       // Main QA loop
@@ -230,6 +244,12 @@ export class QALoop extends EventEmitter {
 
         const iterationStart = Date.now();
         this.emitTyped('qa-iteration-start', iteration, maxIterations);
+
+        // zeenha fork: snapshot qa_signoff before the reviewer runs. Only a verdict
+        // this session actually wrote counts; a signoff left over from an earlier
+        // run (e.g. "approved" before a human change request) must not be read as
+        // this review's result.
+        const signoffBefore = await this.readRawQASignoff();
 
         // Run QA reviewer
         this.sessionNumber++;
@@ -255,9 +275,29 @@ export class QALoop extends EventEmitter {
           return this.outcome(false, iteration, Date.now() - startTime, 'cancelled');
         }
 
-        // Read QA signoff from implementation_plan.json
-        const signoff = await this.readQASignoff();
+        // Read QA signoff from implementation_plan.json, but only if this session wrote it
+        const freshSignoff = (await this.readRawQASignoff()) !== signoffBefore;
+        const signoff = freshSignoff ? await this.readQASignoff() : null;
         const status = this.resolveQAStatus(signoff);
+
+        // zeenha fork: a reviewer that failed without writing a verdict is an error,
+        // never a pass. error/auth_failure/rate_limited stop the loop the same way a
+        // failed fixer does; a cut-off session (max_steps/context_window) falls
+        // through to the missing-signoff retry below.
+        if (
+          !freshSignoff &&
+          (reviewResult.outcome === 'error' ||
+            reviewResult.outcome === 'auth_failure' ||
+            reviewResult.outcome === 'rate_limited')
+        ) {
+          const message = `QA Reviewer failed (${reviewResult.outcome})${
+            reviewResult.error?.message ? `: ${reviewResult.error.message}` : ''
+          }`;
+          this.emitTyped('log', message);
+          await this.recordIteration(iteration, 'error', [{ title: 'QA error', description: message }], Date.now() - iterationStart);
+          await this.writeReports('max_iterations');
+          return this.outcome(false, iteration, Date.now() - startTime, 'error', message);
+        }
         const issues = signoff?.issues_found ?? [];
         const iterationDuration = Date.now() - iterationStart;
 
@@ -266,6 +306,7 @@ export class QALoop extends EventEmitter {
         if (status === 'approved') {
           await this.recordIteration(iteration, 'approved', [], iterationDuration);
           await this.writeReports('approved');
+          await this.clearReviewerFixRequest();
           return this.outcome(true, iteration, Date.now() - startTime);
         }
 
@@ -331,14 +372,16 @@ export class QALoop extends EventEmitter {
 
         // status === 'unknown' — QA agent didn't update implementation_plan.json
         consecutiveErrors++;
-        const errorMsg = 'QA agent did not update implementation_plan.json with qa_signoff';
+        const errorMsg = freshSignoff
+          ? 'QA agent wrote a qa_signoff without a recognised status'
+          : `QA agent did not write a new qa_signoff to implementation_plan.json (session outcome: ${reviewResult.outcome})`;
         await this.recordIteration(iteration, 'error', [{ title: 'QA error', description: errorMsg }], iterationDuration);
 
         lastErrorContext = {
           errorType: 'missing_implementation_plan_update',
           errorMessage: errorMsg,
           consecutiveErrors,
-          expectedAction: 'You MUST update implementation_plan.json with a qa_signoff object containing status: approved or status: rejected',
+          expectedAction: 'You MUST update implementation_plan.json with a new qa_signoff object (with a current timestamp) containing status: approved or status: rejected',
         };
 
         if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
@@ -376,6 +419,22 @@ export class QALoop extends EventEmitter {
       if (!qa_signoff) return null;
       const result = validateStructuredOutput(qa_signoff, QASignoffSchema);
       return result.valid && result.data ? (result.data as QASignoff) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * zeenha fork: the raw qa_signoff as a JSON string (null when absent or the plan
+   * is unreadable), used to tell a verdict written by the current reviewer
+   * session from one left over by an earlier run.
+   */
+  private async readRawQASignoff(): Promise<string | null> {
+    try {
+      const raw = await readFile(join(this.config.specDir, 'implementation_plan.json'), 'utf-8');
+      const plan = safeParseJson<{ qa_signoff?: unknown }>(raw);
+      if (!plan || plan.qa_signoff === undefined || plan.qa_signoff === null) return null;
+      return JSON.stringify(plan.qa_signoff);
     } catch {
       return null;
     }
@@ -434,7 +493,7 @@ export class QALoop extends EventEmitter {
   /**
    * Process human feedback by running the fixer agent first.
    */
-  private async processHumanFeedback(): Promise<void> {
+  private async processHumanFeedback(): Promise<SessionResult> {
     this.emitTyped('log', 'Human feedback detected — running QA Fixer first');
     this.emitTyped('qa-fix-start', 0);
     this.sessionNumber++;
@@ -457,8 +516,10 @@ export class QALoop extends EventEmitter {
       cliThinking: this.config.cliThinking,
     });
 
-    // Remove fix request file unless transient error
-    if (result.outcome !== 'rate_limited' && result.outcome !== 'auth_failure') {
+    // zeenha fork: remove the fix request only once the fixer completed it. It used
+    // to be deleted on any non-transient outcome, so a failed fix lost the user's
+    // request and the next run short-circuited on the stale "approved" signoff.
+    if (result.outcome === 'completed') {
       try {
         await unlink(join(this.config.specDir, 'QA_FIX_REQUEST.md'));
       } catch {
@@ -467,6 +528,24 @@ export class QALoop extends EventEmitter {
     }
 
     this.emitTyped('qa-fix-complete', 0);
+    return result;
+  }
+
+  /**
+   * zeenha fork: the reviewer writes QA_FIX_REQUEST.md when it rejects
+   * (prompts/qa_reviewer.md), and hasHumanFeedback() reads ANY such file as human
+   * feedback. Once QA approves, a leftover reviewer request describes issues that
+   * are fixed; left in place it made the next run skip the "already approved"
+   * short-circuit and run a fixer against obsolete issues. A human request written
+   * by the review IPC handler exists only before the run starts and has already
+   * been consumed by processHumanFeedback() by the time the loop can approve.
+   */
+  private async clearReviewerFixRequest(): Promise<void> {
+    try {
+      await unlink(join(this.config.specDir, 'QA_FIX_REQUEST.md'));
+    } catch {
+      // Absent or not removable — nothing to clear
+    }
   }
 
   // ===========================================================================
