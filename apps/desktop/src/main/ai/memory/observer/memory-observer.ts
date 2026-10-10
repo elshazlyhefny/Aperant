@@ -97,7 +97,10 @@ export class MemoryObserver {
    * This is called AFTER the session completes. It may be slow (LLM synthesis, etc.)
    * but must complete within a reasonable budget.
    */
-  async finalize(outcome: SessionOutcome): Promise<MemoryCandidate[]> {
+  async finalize(
+    outcome: SessionOutcome,
+    options: { cap?: boolean } = {},
+  ): Promise<MemoryCandidate[]> {
     const candidates: MemoryCandidate[] = [
       ...this.finalizeCoAccess(),
       ...this.finalizeErrorRetry(),
@@ -109,7 +112,13 @@ export class MemoryObserver {
     const gated = candidates.map((c) => applyTrustGate(c, this.externalToolCallStep));
 
     // Apply session-type promotion limit
-    const limit = SESSION_TYPE_PROMOTION_LIMITS[this.scratchpad.sessionType];
+    // zeenha fork: `cap: false` leaves the cap to PromotionPipeline, which
+    // applies per-signal session thresholds FIRST. Capping here first let
+    // high-priority single-session co-access pairs fill the quota and push out
+    // the signals that would actually have been promoted.
+    const limit = options.cap === false
+      ? Number.POSITIVE_INFINITY
+      : SESSION_TYPE_PROMOTION_LIMITS[this.scratchpad.sessionType];
     const filtered = gated.sort((a, b) => b.priority - a.priority).slice(0, limit);
 
     // Optional LLM synthesis for co-access patterns on successful builds

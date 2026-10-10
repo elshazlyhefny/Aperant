@@ -11,22 +11,55 @@ import type { SessionResult } from '../../session/types';
 // Track created workers
 const createdWorkers: EventEmitter[] = [];
 
-vi.mock('worker_threads', () => {
+vi.mock('worker_threads', async () => {
   const { EventEmitter: EE } = require('events') as typeof import('events');
+  const actual = await vi.importActual<typeof import('worker_threads')>('worker_threads');
 
   class MockWorkerImpl extends EE {
     postMessage = vi.fn();
     terminate = vi.fn().mockResolvedValue(0);
     workerData: unknown;
-    constructor(_path: string, opts?: { workerData?: unknown }) {
+    transferList: unknown;
+    constructor(_path: string, opts?: { workerData?: unknown; transferList?: unknown }) {
       super();
       this.workerData = opts?.workerData;
+      this.transferList = opts?.transferList;
       createdWorkers.push(this);
     }
   }
 
-  return { Worker: MockWorkerImpl };
+  return { Worker: MockWorkerImpl, MessageChannel: actual.MessageChannel };
 });
+
+// zeenha fork: memory wiring
+const memoryState = {
+  enabled: true,
+  projects: [{ id: 'proj-456', path: '/project' }] as Array<{ id: string; path: string }>,
+};
+const handlerInstances: Array<{
+  options: { projectId: string; roots: string[]; sessionType: string };
+  attach: ReturnType<typeof vi.fn>;
+  finalize: ReturnType<typeof vi.fn>;
+}> = [];
+
+vi.mock('../../../ipc-handlers/context/memory-service-factory', () => ({
+  getMemoryService: vi.fn(),
+  isAgentMemoryEnabled: () => memoryState.enabled,
+}));
+
+vi.mock('../../../project-store', () => ({
+  projectStore: { getProjects: () => memoryState.projects },
+}));
+
+vi.mock('../../memory/ipc/main-memory-handler', () => ({
+  MainMemoryHandler: class {
+    attach = vi.fn();
+    finalize = vi.fn().mockResolvedValue({ recorded: 0, inferred: 0 });
+    constructor(public options: { projectId: string; roots: string[]; sessionType: string }) {
+      handlerInstances.push(this);
+    }
+  },
+}));
 
 function getWorker(): EventEmitter & { postMessage: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn> } {
   const w = createdWorkers[createdWorkers.length - 1];
@@ -105,6 +138,9 @@ describe('WorkerBridge', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     createdWorkers.length = 0;
+    handlerInstances.length = 0;
+    memoryState.enabled = true;
+    memoryState.projects = [{ id: 'proj-456', path: '/project' }];
     bridge = new WorkerBridge();
   });
 
@@ -330,6 +366,66 @@ describe('WorkerBridge', () => {
       });
 
       await expect(bridge.terminate()).resolves.toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Memory channel (zeenha fork)
+  // ---------------------------------------------------------------------------
+
+  describe('memory channel', () => {
+    type MemWorker = EventEmitter & { workerData: { memoryPort?: unknown }; transferList?: unknown[] };
+
+    it('transfers a dedicated port and scopes the handler to the project', () => {
+      bridge.spawn(createConfig());
+      const w = getWorker() as unknown as MemWorker;
+
+      expect(w.workerData.memoryPort).toBeDefined();
+      expect(w.transferList).toEqual([w.workerData.memoryPort]);
+      expect(handlerInstances).toHaveLength(1);
+      expect(handlerInstances[0].options).toMatchObject({ projectId: 'proj-456', sessionType: 'build' });
+      expect(handlerInstances[0].attach).toHaveBeenCalledTimes(1);
+      (w.workerData.memoryPort as { close: () => void }).close();
+    });
+
+    it('opens no channel when memory is switched off', () => {
+      memoryState.enabled = false;
+      bridge.spawn(createConfig());
+      const w = getWorker() as unknown as MemWorker;
+
+      expect(w.workerData.memoryPort).toBeUndefined();
+      expect(w.transferList).toBeUndefined();
+      expect(handlerInstances).toHaveLength(0);
+    });
+
+    it('opens no channel for a directory outside every known project', () => {
+      bridge.spawn(createConfig({ projectId: undefined, session: { ...createConfig().session, projectDir: '/elsewhere' } }));
+      expect((getWorker() as unknown as MemWorker).workerData.memoryPort).toBeUndefined();
+    });
+
+    it('resolves the project from a task worktree when no id is given', () => {
+      const worktree = '/project/.auto-claude/worktrees/tasks/007-x';
+      bridge.spawn(createConfig({ projectId: undefined, session: { ...createConfig().session, projectDir: worktree } }));
+
+      expect(handlerInstances[0].options.projectId).toBe('proj-456');
+      expect(handlerInstances[0].options.roots).toEqual([worktree, '/project']);
+      ((getWorker() as unknown as MemWorker).workerData.memoryPort as { close: () => void }).close();
+    });
+
+    it('finalizes once with the session outcome', () => {
+      bridge.spawn(createConfig());
+      const w = getWorker();
+      w.emit('message', { type: 'result', taskId: 'task-123', data: createSessionResult({ outcome: 'max_steps' }) });
+      w.emit('exit', 0);
+
+      expect(handlerInstances[0].finalize).toHaveBeenCalledTimes(1);
+      expect(handlerInstances[0].finalize).toHaveBeenCalledWith('partial');
+    });
+
+    it('finalizes as abandoned when terminated', async () => {
+      bridge.spawn(createConfig());
+      await bridge.terminate();
+      expect(handlerInstances[0].finalize).toHaveBeenCalledWith('abandoned');
     });
   });
 });

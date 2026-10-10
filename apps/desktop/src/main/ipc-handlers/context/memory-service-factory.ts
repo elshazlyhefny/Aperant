@@ -68,6 +68,16 @@ export function getEmbeddingProvider(): string | null {
 }
 
 /**
+ * zeenha fork: whether agents (task workers, PR review) read and write memory.
+ * On unless the user switched it off in the memory settings: the store is a
+ * local libSQL file, and embeddings only leave the machine when the user
+ * configured a hosted embedding provider themselves.
+ */
+export function isAgentMemoryEnabled(): boolean {
+  return readSettingsFile()?.memoryEnabled !== false;
+}
+
+/**
  * Reset the singleton (e.g. for tests or after closing the DB).
  */
 export function resetMemoryService(): void {

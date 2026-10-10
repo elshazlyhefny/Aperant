@@ -28,6 +28,11 @@ export interface WorkerConfig {
   processType: ProcessType;
   /** Serializable session config (model resolved in worker from these params) */
   session: SerializableSessionConfig;
+  /**
+   * zeenha fork: the worker's end of a dedicated channel to the main-thread
+   * memory handler. Transferred, not cloned. Absent when memory is off.
+   */
+  memoryPort?: import('worker_threads').MessagePort;
 }
 
 /**

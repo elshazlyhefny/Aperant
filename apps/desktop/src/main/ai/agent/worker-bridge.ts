@@ -10,7 +10,7 @@
  * cannot distinguish between a Python subprocess and a TS worker thread.
  */
 
-import { Worker } from 'worker_threads';
+import { Worker, MessageChannel } from 'worker_threads';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { EventEmitter } from 'events';
@@ -25,6 +25,13 @@ import type {
 } from './types';
 import type { SessionResult } from '../session/types';
 import { ProgressTracker } from '../session/progress-tracker';
+import type { SessionOutcome as MemorySessionOutcome, SessionType as MemorySessionType } from '../memory/types';
+import { MainMemoryHandler } from '../memory/ipc/main-memory-handler';
+import {
+  getMemoryService,
+  isAgentMemoryEnabled,
+} from '../../ipc-handlers/context/memory-service-factory';
+import { projectStore } from '../../project-store';
 
 // ESM-compatible __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -70,6 +77,7 @@ export class WorkerBridge extends EventEmitter {
   private taskId: string = '';
   private projectId: string | undefined;
   private processType: ProcessType = 'task-execution';
+  private memoryHandler: MainMemoryHandler | null = null;
 
   /**
    * Spawn a worker thread with the given configuration.
@@ -96,8 +104,13 @@ export class WorkerBridge extends EventEmitter {
 
     const workerPath = resolveWorkerPath();
 
+    // zeenha fork: give the worker a dedicated port to the main-thread memory
+    // handler, so its record_memory / search_memory tools and the observer work.
+    const memoryPort = this.startMemory(config);
+
     this.worker = new Worker(workerPath, {
-      workerData: workerConfig,
+      workerData: memoryPort ? { ...workerConfig, memoryPort } : workerConfig,
+      transferList: memoryPort ? [memoryPort] : undefined,
     });
 
     this.worker.on('message', (message: WorkerMessage) => {
@@ -105,6 +118,7 @@ export class WorkerBridge extends EventEmitter {
     });
 
     this.worker.on('error', (error: Error) => {
+      this.finalizeMemory('failure');
       this.emitTyped('error', this.taskId, error.message, this.projectId);
       this.cleanup();
     });
@@ -113,6 +127,7 @@ export class WorkerBridge extends EventEmitter {
       // Code 0 = clean exit; non-zero = crash/error
       // Only emit exit if we haven't already emitted from a 'result' message
       if (this.worker) {
+        this.finalizeMemory(code === 0 ? 'partial' : 'failure');
         this.emitTyped('exit', this.taskId, code === 0 ? 0 : code, this.processType, this.projectId);
         this.cleanup();
       }
@@ -125,6 +140,8 @@ export class WorkerBridge extends EventEmitter {
    */
   async terminate(): Promise<void> {
     if (!this.worker) return;
+
+    this.finalizeMemory('abandoned');
 
     // Try graceful abort first
     try {
@@ -225,6 +242,8 @@ export class WorkerBridge extends EventEmitter {
       this.emitTyped('error', taskId, result.error.message, projectId);
     }
 
+    this.finalizeMemory(toMemoryOutcome(result.outcome));
+
     // Emit exit and cleanup
     this.emitTyped('exit', taskId, exitCode, this.processType, projectId);
     this.cleanup();
@@ -246,5 +265,78 @@ export class WorkerBridge extends EventEmitter {
 
   private cleanup(): void {
     this.worker = null;
+  }
+
+  // ===========================================================================
+  // Memory (zeenha fork)
+  // ===========================================================================
+
+  /**
+   * Create the main-thread memory handler and return the worker's end of its
+   * port, or null when memory is off or the project cannot be identified.
+   * Never throws: a memory problem must not stop the agent from running.
+   */
+  private startMemory(config: AgentExecutorConfig): import('worker_threads').MessagePort | null {
+    try {
+      if (!isAgentMemoryEnabled()) return null;
+      const projectDir = config.session.projectDir;
+      const project = resolveProject(config.projectId, projectDir);
+      if (!project) return null;
+
+      const { port1, port2 } = new MessageChannel();
+      const handler = new MainMemoryHandler({
+        sessionId: `${config.taskId}:${Date.now()}`,
+        sessionType: toMemorySessionType(config.processType),
+        projectId: project.id,
+        roots: [projectDir, project.path].filter((r): r is string => !!r),
+        getService: getMemoryService,
+        log: (message) => console.info(`[WorkerBridge:${config.taskId}] ${message}`),
+      });
+      handler.attach(port1);
+      this.memoryHandler = handler;
+      return port2;
+    } catch (error) {
+      console.warn('[WorkerBridge] memory disabled for this worker:', error);
+      return null;
+    }
+  }
+
+  private finalizeMemory(outcome: MemorySessionOutcome): void {
+    const handler = this.memoryHandler;
+    if (!handler) return;
+    this.memoryHandler = null;
+    void handler.finalize(outcome);
+  }
+}
+
+function resolveProject(projectId: string | undefined, projectDir: string): { id: string; path: string } | null {
+  const projects = projectStore.getProjects();
+  const byId = projectId ? projects.find((p) => p.id === projectId) : undefined;
+  if (byId) return byId;
+  // Task workers run in a worktree under the project, so match by prefix.
+  const dir = projectDir.replace(/\\/g, '/');
+  return (
+    projects.find((p) => {
+      const root = p.path.replace(/\\/g, '/').replace(/\/+$/, '');
+      return dir === root || dir.startsWith(`${root}/`);
+    }) ?? null
+  );
+}
+
+function toMemorySessionType(processType: ProcessType): MemorySessionType {
+  return processType === 'spec-creation' ? 'spec_creation' : 'build';
+}
+
+function toMemoryOutcome(outcome: SessionResult['outcome']): MemorySessionOutcome {
+  switch (outcome) {
+    case 'completed':
+      return 'success';
+    case 'max_steps':
+    case 'context_window':
+      return 'partial';
+    case 'cancelled':
+      return 'abandoned';
+    default:
+      return 'failure';
   }
 }

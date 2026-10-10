@@ -48,6 +48,10 @@ import { loadProjectInstructions, injectContext } from '../prompts/prompt-loader
 import { createMcpClientsForAgent, mergeMcpTools, closeAllMcpClients } from '../mcp/client';
 import type { McpClientResult } from '../mcp/types';
 import { runProjectIndexer } from '../project/project-indexer';
+import { WorkerObserverProxy } from '../memory/ipc/worker-observer-proxy';
+import { createRecordMemoryTool } from '../memory/tools/record-memory';
+import { createSearchMemoryTool } from '../memory/tools/search-memory';
+import type { MemorySessionContext } from '../session/runner';
 
 // =============================================================================
 // Validation
@@ -60,6 +64,30 @@ if (!parentPort) {
 const config = workerData as WorkerConfig;
 if (!config?.taskId || !config?.session) {
   throw new Error('worker.ts requires valid WorkerConfig via workerData');
+}
+
+// =============================================================================
+// Memory (zeenha fork)
+// =============================================================================
+
+// Present only when the main thread opened a memory channel for this worker.
+// The main-thread handler owns the real project id; the one passed here is
+// only a label, never trusted for storage.
+const memoryProxy = config.memoryPort ? new WorkerObserverProxy(config.memoryPort) : null;
+
+/** record_memory + search_memory, when this worker has memory. */
+function memoryTools(): Record<string, AITool> {
+  if (!memoryProxy) return {};
+  const projectLabel = config.projectId ?? '';
+  return {
+    record_memory: createRecordMemoryTool(memoryProxy, projectLabel, config.taskId) as AITool,
+    search_memory: createSearchMemoryTool(memoryProxy, projectLabel) as AITool,
+  };
+}
+
+/** Runner option that turns on observation and between-step injection. */
+function memoryContext(): { memoryContext?: MemorySessionContext } {
+  return memoryProxy ? { memoryContext: { proxy: memoryProxy } } : {};
 }
 
 // =============================================================================
@@ -279,6 +307,7 @@ async function runSingleSession(
   const tools: Record<string, AITool> = {
     ...registry.getToolsForAgent(agentType, toolContext),
     ...(mergeMcpTools(mcpClients) as Record<string, AITool>),
+    ...memoryTools(),
   };
 
   // Build initial messages: use provided kickoff message, or fall back to session messages
@@ -318,6 +347,7 @@ async function runSingleSession(
 
   const runnerOptions = {
     tools,
+    ...memoryContext(),
     onEvent: (event: StreamEvent) => {
       // Write stream events to task_logs.json for UI log display
       if (logWriter) {
@@ -465,6 +495,7 @@ async function runDefaultSession(
   const tools: Record<string, AITool> = {
     ...registry.getToolsForAgent(session.agentType, toolContext),
     ...(mergeMcpTools(mcpClients) as Record<string, AITool>),
+    ...memoryTools(),
   };
 
   // Resolve context window limit from model metadata
@@ -498,6 +529,7 @@ async function runDefaultSession(
   try {
     result = await runContinuableSession(sessionConfig, {
       tools,
+      ...memoryContext(),
       onEvent: (event: StreamEvent) => {
         // Write stream events to task_logs.json for UI log display
         if (logWriter) {
@@ -1071,6 +1103,7 @@ async function runAgenticSpecOrchestrator(
   const tools: Record<string, AITool> = {
     ...registry.getToolsForAgent('spec_orchestrator', orchestratorToolContext),
     ...(mergeMcpTools(mcpClients) as Record<string, AITool>),
+    ...memoryTools(),
   };
 
   const sessionConfig: SessionConfig = {
@@ -1098,6 +1131,7 @@ async function runAgenticSpecOrchestrator(
   try {
     result = await runContinuableSession(sessionConfig, {
       tools,
+      ...memoryContext(),
       onEvent: (event: StreamEvent) => {
         if (logWriter) {
           logWriter.processEvent(event, 'spec');

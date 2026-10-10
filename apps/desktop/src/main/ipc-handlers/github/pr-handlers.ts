@@ -20,7 +20,7 @@ import {
 import { getGitHubConfig, githubFetch, normalizeRepoReference } from "./utils";
 import { readSettingsFile } from "../../settings-utils";
 import { getAugmentedEnv } from "../../env-utils";
-import { getMemoryService } from "../context/memory-service-factory";
+import { getMemoryService, isAgentMemoryEnabled } from "../context/memory-service-factory";
 import type { Project, AppSettings } from "../../../shared/types";
 import { createContextLogger } from "./utils/logger";
 import { withProjectOrNull } from "./utils/project-middleware";
@@ -389,14 +389,16 @@ export interface PRReviewMemory {
  * @param result The completed PR review result
  * @param repo Repository name (owner/repo)
  * @param isFollowup Whether this is a follow-up review
+ * @param projectId Aperant project id. zeenha fork: the Context page lists
+ *   memories by this id, so storing under `repo` made them invisible there.
  */
 async function savePRReviewToMemory(
   result: PRReviewResult,
   repo: string,
-  isFollowup: boolean = false
+  isFollowup: boolean,
+  projectId: string
 ): Promise<void> {
-  const settings = readSettingsFile();
-  if (!settings?.memoryEnabled) {
+  if (!isAgentMemoryEnabled()) {
     debugLog("Memory not enabled, skipping PR review memory save");
     return;
   }
@@ -483,7 +485,7 @@ async function savePRReviewToMemory(
       content: contentString,
       source: 'agent_explicit',
       confidence: 0.8,
-      projectId: repo,
+      projectId,
       relatedFiles: keyFindingsToSave.map(f => f.file).filter(Boolean).slice(0, 10),
       relatedModules: [],
       tags: ['pr_review', repo.replace('/', '_'), `pr_${result.prNumber}`],
@@ -1771,7 +1773,7 @@ async function runPRReview(
     });
 
     // Save PR review insights to memory (async, non-blocking)
-    savePRReviewToMemory(result, repo, false).catch((err) => {
+    savePRReviewToMemory(result, repo, false, project.id).catch((err) => {
       debugLog("Failed to save PR review to memory", { error: (err as Error).message });
     });
 
@@ -3349,7 +3351,7 @@ export function registerPRHandlers(getMainWindow: () => BrowserWindow | null): v
             });
 
             // Save follow-up PR review insights to memory (async, non-blocking)
-            savePRReviewToMemory(result, repo, true).catch((err) => {
+            savePRReviewToMemory(result, repo, true, project.id).catch((err) => {
               debugLog("Failed to save follow-up PR review to memory", { error: (err as Error).message });
             });
 
