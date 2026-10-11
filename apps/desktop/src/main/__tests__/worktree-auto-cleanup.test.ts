@@ -46,6 +46,7 @@ function setup(f: Fixture = {}) {
     branchTip: vi.fn(async () => ('branch' in f ? (f.branch ?? null) : HEAD)),
     isInPullRequest: vi.fn(async () => ('inPr' in f ? (f.inPr ?? null) : true)),
     ensureDeletable: vi.fn(async () => f.deletable ?? { ok: true }),
+    deleteBranch: vi.fn(async () => ({ success: true })),
     remove: vi.fn(async () => ({ success: f.removeOk ?? true, warnings: f.removeOk === false ? ['locked'] : [] })),
     invalidate: vi.fn(),
   };
@@ -128,8 +129,27 @@ describe('cleanupMergedWorktrees', () => {
     expect(deps.remove).not.toHaveBeenCalled();
   });
 
-  it('never asks GitHub about a task with no PR or no worktree', async () => {
-    for (const f of [{ prUrl: undefined }, { worktree: null }] as Fixture[]) {
+  it('deletes the left-behind branch when the folder is already gone and the branch is merged', async () => {
+    const { deps, run } = setup({ worktree: null });
+    expect((await run())[0].status).toBe('removed');
+    expect(deps.deleteBranch).toHaveBeenCalledWith('/repo', 'auto-claude/016-keep-focus');
+    expect(deps.remove).not.toHaveBeenCalled();
+  });
+
+  it('keeps a left-behind branch with commits the PR does not have', async () => {
+    const { deps, run } = setup({ worktree: null, inPr: false });
+    expect((await run())[0]).toMatchObject({ status: 'kept', reason: 'commits_after_merge' });
+    expect(deps.deleteBranch).not.toHaveBeenCalled();
+  });
+
+  it('leaves a left-behind branch alone while its PR is open', async () => {
+    const { deps, run } = setup({ worktree: null, pr: { state: 'OPEN', headRefOid: HEAD } });
+    expect(await run()).toEqual([]);
+    expect(deps.deleteBranch).not.toHaveBeenCalled();
+  });
+
+  it('never asks GitHub about a task with no PR, or with neither a worktree nor a branch', async () => {
+    for (const f of [{ prUrl: undefined }, { worktree: null, branch: null }] as Fixture[]) {
       const { deps, run } = setup(f);
       expect(await run()).toEqual([]);
       expect(deps.prState).not.toHaveBeenCalled();

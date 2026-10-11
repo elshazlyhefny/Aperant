@@ -57,6 +57,8 @@ export interface MergedCleanupDeps {
   /** Make every file in the folder deletable BEFORE anything is deleted; false (with why) if that is not possible. */
   ensureDeletable(worktreePath: string, projectPath: string): Promise<{ ok: boolean; detail?: string }>;
   remove(args: { worktreePath: string; projectPath: string; specId: string }): Promise<{ success: boolean; warnings: string[] }>;
+  /** Delete a local task branch whose worktree folder is already gone. */
+  deleteBranch(projectPath: string, branch: string): Promise<{ success: boolean; detail?: string }>;
   invalidate(projectId: string): void;
 }
 
@@ -81,11 +83,38 @@ export async function cleanupMergedWorktrees(
       const prUrl = task.metadata?.prUrl;
       if (!prUrl) continue;
       const worktreePath = deps.findWorktree(project.path, task.specId);
-      if (!worktreePath) continue;
+      const branchName = `auto-claude/${task.specId}`;
 
       const base = { projectId: project.id, taskId: task.id, specId: task.specId, prUrl };
       const keep = (reason: KeptReason, detail?: string) =>
         outcomes.push({ ...base, status: 'kept', reason, ...(detail ? { detail } : {}) });
+
+      // The folder is already gone (removed earlier, or by hand) but the local
+      // branch is left: same PR and "nothing unmerged" checks, then the branch.
+      if (!worktreePath) {
+        const orphanTip = await deps.branchTip(project.path, branchName);
+        if (!orphanTip) continue;
+        try {
+          const pr = await deps.prState(prUrl, project.path);
+          if (!pr || pr.state !== 'MERGED') continue; // nothing to report for a branch alone
+          if (deps.isRunning(task.id)) continue;
+          const merged = await deps.isInPullRequest(project.path, orphanTip, prUrl, pr.headRefOid);
+          if (merged !== true) {
+            if (merged === false) keep('commits_after_merge');
+            continue;
+          }
+          const deleted = await deps.deleteBranch(project.path, branchName);
+          if (deleted.success) {
+            removedAny = true;
+            outcomes.push({ ...base, status: 'removed' });
+          } else {
+            keep('cleanup_failed', deleted.detail);
+          }
+        } catch (error) {
+          keep('cleanup_failed', error instanceof Error ? error.message : String(error));
+        }
+        continue;
+      }
 
       try {
         const pr = await deps.prState(prUrl, project.path);
@@ -278,6 +307,17 @@ export async function commitIsInPullRequest(
   } catch (error) {
     // exit 1 = not an ancestor; anything else = could not tell
     return (error as { code?: number }).code === 1 ? false : null;
+  }
+}
+
+/** Delete a local task branch. Only `auto-claude/*`; anything else is refused. */
+export async function deleteTaskBranch(projectPath: string, branch: string): Promise<{ success: boolean; detail?: string }> {
+  if (!/^auto-claude\/[A-Za-z0-9._-]+$/.test(branch)) return { success: false, detail: `refusing to delete "${branch}"` };
+  try {
+    await gitInWorktree(projectPath, ['branch', '-D', branch]);
+    return { success: true };
+  } catch (error) {
+    return { success: false, detail: error instanceof Error ? error.message : String(error) };
   }
 }
 

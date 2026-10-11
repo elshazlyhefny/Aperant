@@ -15,6 +15,7 @@ vi.mock('../env-utils', () => ({ getAugmentedEnv: () => ({ ...process.env }) }))
 import {
   branchTipInRepo,
   commitIsInPullRequest,
+  deleteTaskBranch,
   ensureWorktreeDeletable,
   readPullRequestState,
   worktreeHasUncommittedChanges,
@@ -180,5 +181,18 @@ describe('ensureWorktreeDeletable', () => {
     expect(statSync(join(wt, 'vendor', 'autoload.php')).uid).toBe(process.getuid?.());
     rmSync(wt, { recursive: true });
     expect(existsSync(wt)).toBe(false);
+  });
+});
+
+describe('deleteTaskBranch', () => {
+  it('deletes an auto-claude branch and refuses anything else', async () => {
+    git('branch', 'auto-claude/016-x');
+    git('branch', 'feature');
+    expect(await deleteTaskBranch(repo, 'auto-claude/016-x')).toEqual({ success: true });
+    expect((await deleteTaskBranch(repo, 'feature')).success).toBe(false);
+    expect((await deleteTaskBranch(repo, 'main')).success).toBe(false);
+    const left = git('branch', '--format=%(refname:short)').split('\n');
+    expect(left).not.toContain('auto-claude/016-x');
+    expect(left).toContain('feature');
   });
 });

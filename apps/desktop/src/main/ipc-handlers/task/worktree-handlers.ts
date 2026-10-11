@@ -3,7 +3,7 @@ import { IPC_CHANNELS, AUTO_BUILD_PATHS, DEFAULT_APP_SETTINGS, DEFAULT_FEATURE_M
 import type { IPCResult, WorktreeStatus, WorktreeDiff, WorktreeDiffFile, WorktreeMergeResult, WorktreeDiscardResult, WorktreeListResult, WorktreeListItem, WorktreeCreatePROptions, WorktreeCreatePRResult, SupportedIDE, SupportedTerminal, SupportedCLI, AppSettings } from '../../../shared/types';
 import path from 'path';
 import { minimatch } from 'minimatch';
-import { existsSync, readdirSync, statSync, readFileSync, promises as fsPromises } from 'fs';
+import { existsSync, readdirSync, statSync, readFileSync, realpathSync, promises as fsPromises } from 'fs';
 import { execFileSync, spawn, spawnSync, exec, execFile } from 'child_process';
 import { homedir } from 'os';
 import { projectStore } from '../../project-store';
@@ -2712,6 +2712,17 @@ export function registerWorktreeHandlers(
         // Helper to process a single worktree entry (async)
         const processWorktreeEntry = async (entry: string, entryPath: string): Promise<WorktreeListItem | null> => {
           try {
+            // zeenha fork: a folder whose .git link is gone is not a worktree; git
+            // inside it would report the PARENT repository (branch "main", its
+            // stats). Send it down the broken-worktree path below instead.
+            const topLevel = await execFileAsync(getToolPath('git'), ['rev-parse', '--show-toplevel'], {
+              cwd: entryPath,
+              encoding: 'utf-8'
+            });
+            if (realpathSync((topLevel.stdout as string).trim()) !== realpathSync(entryPath)) {
+              throw new Error('not a git worktree (leftover folder)');
+            }
+
             // Get branch info (async)
             const branchResult = await execFileAsync(getToolPath('git'), ['rev-parse', '--abbrev-ref', 'HEAD'], {
               cwd: entryPath,

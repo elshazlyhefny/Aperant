@@ -17,7 +17,7 @@
 
 import { execFileSync } from 'child_process';
 import { rm } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, realpathSync } from 'fs';
 import { getToolPath } from '../cli-tool-manager';
 import { getIsolatedGitEnv } from './git-isolation';
 import { getTaskWorktreeDir, getTerminalWorktreeDir, isPathWithinBase } from '../worktree-paths';
@@ -61,28 +61,31 @@ export interface WorktreeCleanupResult {
 /**
  * Gets the worktree branch name based on spec ID
  */
+/** zeenha fork: the only branches cleanupWorktree may delete. */
+export const DELETABLE_BRANCH_RE = /^(auto-claude|terminal)\/[A-Za-z0-9._/-]+$/;
+
 function getWorktreeBranch(worktreePath: string, specId: string, timeout: number, explicitBranchName?: string): string | null {
-  // First try to get branch from the worktree's HEAD
+  // zeenha fork: an explicit name wins. Reading HEAD inside the folder is only
+  // trusted when the folder IS its own git worktree: in a leftover folder whose
+  // .git link is gone, git walks up and answers for the PARENT repository, so
+  // the "branch" came back as main and `git branch -D main` was attempted.
+  if (explicitBranchName) {
+    return explicitBranchName;
+  }
+
   if (existsSync(worktreePath)) {
     try {
-      const branch = execFileSync(getToolPath('git'), ['rev-parse', '--abbrev-ref', 'HEAD'], {
-        cwd: worktreePath,
-        encoding: 'utf-8',
-        env: getIsolatedGitEnv(),
-        timeout
-      }).trim();
+      const run = (args: string[]) =>
+        execFileSync(getToolPath('git'), args, { cwd: worktreePath, encoding: 'utf-8', env: getIsolatedGitEnv(), timeout }).trim();
+      const isOwnTopLevel = realpathSync(run(['rev-parse', '--show-toplevel'])) === realpathSync(worktreePath);
+      const branch = isOwnTopLevel ? run(['rev-parse', '--abbrev-ref', 'HEAD']) : '';
 
       if (branch && branch !== 'HEAD') {
         return branch;
       }
     } catch {
-      // Worktree might be corrupted, fall back to explicit name or naming convention
+      // Worktree might be corrupted, fall back to the naming convention
     }
-  }
-
-  // Use explicit branch name if provided (e.g., terminal worktrees use terminal/{name})
-  if (explicitBranchName) {
-    return explicitBranchName;
   }
 
   // Fall back to the naming convention: auto-claude/{spec-id}
@@ -252,7 +255,12 @@ export async function cleanupWorktree(options: WorktreeCleanupOptions): Promise<
   }
 
   // 4. Delete the branch if requested
-  if (deleteBranch && branch) {
+  // zeenha fork: only ever a task or terminal branch. Whatever went wrong above,
+  // this helper must never be able to delete main or any other branch.
+  if (deleteBranch && branch && !DELETABLE_BRANCH_RE.test(branch)) {
+    console.warn(`${logPrefix} Refusing to delete branch "${branch}": not a task or terminal branch`);
+    warnings.push(`Branch "${branch}" not deleted: only auto-claude/* and terminal/* branches are deleted`);
+  } else if (deleteBranch && branch) {
     try {
       execFileSync(getToolPath('git'), ['branch', '-D', branch], {
         cwd: projectPath,

@@ -19,6 +19,7 @@ import {
   type MergedCleanupDeps,
   branchTipInRepo,
   commitIsInPullRequest,
+  deleteTaskBranch,
   ensureWorktreeDeletable,
   readPullRequestState,
   runMergedWorktreeCleanup,
@@ -50,6 +51,7 @@ export function createMergedCleanupDeps(agentManager: AgentManager): MergedClean
         deleteBranch: true,
         branchName: `auto-claude/${specId}`,
       }),
+    deleteBranch: deleteTaskBranch,
     invalidate: (projectId) => projectStore.invalidateTasksCache(projectId),
   };
 }
