@@ -99,25 +99,6 @@ const PUPPETEER_SERVER: McpServerConfig = {
   },
 };
 
-/**
- * Auto-Claude MCP server - custom build management tools.
- * Used by planner, coder, and QA agents for build progress tracking.
- */
-function createAutoClaudeServer(specDir: string): McpServerConfig {
-  return {
-    id: 'auto-claude',
-    name: 'Aperant',
-    description: 'Build management tools (progress tracking, session context)',
-    enabledByDefault: true,
-    transport: {
-      type: 'stdio',
-      command: 'node',
-      args: ['auto-claude-mcp-server.js'],
-      env: { SPEC_DIR: specDir },
-    },
-  };
-}
-
 // =============================================================================
 // Registry
 // =============================================================================
@@ -175,10 +156,14 @@ export function getMcpServerConfig(
     case 'puppeteer':
       return PUPPETEER_SERVER;
 
-    case 'auto-claude': {
-      const specDir = options.specDir ?? '';
-      return createAutoClaudeServer(specDir);
-    }
+    case 'auto-claude':
+      // zeenha fork: the build-management tools (record_gotcha, update_qa_status,
+      // ...) are built into the tool registry (tools/auto-claude/), so there is
+      // no MCP server to start. createAutoClaudeServer() pointed at
+      // `node auto-claude-mcp-server.js`, a Python-era script that ships nowhere,
+      // so every planner/coder/QA session spawned a node process that died with
+      // MODULE_NOT_FOUND before failing the MCP connection "non-fatally".
+      return null;
 
     default:
       return null;

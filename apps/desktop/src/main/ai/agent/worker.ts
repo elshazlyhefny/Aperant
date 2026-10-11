@@ -43,7 +43,7 @@ import type { AgentType } from '../config/agent-configs';
 import type { Phase } from '../config/types';
 import type { ExecutionPhase } from '../../../shared/constants/phase-protocol';
 import { getPhaseThinking } from '../config/phase-config';
-import { TaskLogWriter } from '../logging/task-log-writer';
+import { TaskLogWriter, phaseEndMessage } from '../logging/task-log-writer';
 import { loadProjectInstructions, injectContext } from '../prompts/prompt-loader';
 import { createMcpClientsForAgent, mergeMcpTools, closeAllMcpClients } from '../mcp/client';
 import type { McpClientResult } from '../mcp/types';
@@ -388,7 +388,9 @@ async function runSingleSession(
     });
   } catch (error) {
     // Ensure log cleanup happens on failure
-    if (logWriter && !skipPhaseLogging) logWriter.endPhase(phase, false);
+    if (logWriter && !skipPhaseLogging) {
+      logWriter.endPhase(phase, false, phaseEndMessage(phase, false, error instanceof Error ? error.message : String(error)));
+    }
     if (logWriter) logWriter.setSubtask(undefined);
     throw error;
   }
@@ -396,7 +398,7 @@ async function runSingleSession(
   // End phase logging — mark as completed or failed based on outcome (skip when orchestrator manages phases)
   if (logWriter && !skipPhaseLogging) {
     const success = sessionResult.outcome === 'completed' || sessionResult.outcome === 'max_steps' || sessionResult.outcome === 'context_window';
-    logWriter.endPhase(phase, success);
+    logWriter.endPhase(phase, success, phaseEndMessage(phase, success, sessionResult.error?.message));
   }
   if (logWriter) {
     logWriter.setSubtask(undefined);
@@ -566,7 +568,7 @@ async function runDefaultSession(
   } finally {
     if (logWriter) {
       const success = result?.outcome === 'completed' || result?.outcome === 'max_steps' || result?.outcome === 'context_window';
-      logWriter.endPhase(defaultPhase, success ?? false);
+      logWriter.endPhase(defaultPhase, success ?? false, phaseEndMessage(defaultPhase, success ?? false, result?.error?.message));
     }
   }
 
@@ -718,16 +720,17 @@ async function runBuildOrchestrator(
   // state that doesn't map to a log phase. In that case, close whichever log phase
   // is still marked 'active' so the UI shows "Complete" instead of "Running".
   if (logWriter) {
+    const endMessage = (phase: string) => phaseEndMessage(phase, outcome.success, outcome.error);
     const finalLogPhase = mapExecutionPhaseToPhase(outcome.finalPhase);
     if (finalLogPhase) {
-      logWriter.endPhase(finalLogPhase, outcome.success);
+      logWriter.endPhase(finalLogPhase, outcome.success, endMessage(finalLogPhase));
     } else {
       // Terminal state (complete/failed) — close any still-active log phase
       const data = logWriter.getData();
       for (const phase of ['validation', 'coding', 'planning'] as const) {
         if (data.phases[phase]?.status === 'active') {
           const mapped = phase === 'validation' ? 'qa' : phase;
-          logWriter.endPhase(mapped as 'qa' | 'coding' | 'planning', outcome.success);
+          logWriter.endPhase(mapped as 'qa' | 'coding' | 'planning', outcome.success, endMessage(phase));
           break;
         }
       }
@@ -827,7 +830,7 @@ async function runQALoop(
 
   // End QA validation phase and flush any remaining accumulated log entries
   if (logWriter) {
-    logWriter.endPhase('qa', outcome.approved);
+    logWriter.endPhase('qa', outcome.approved, phaseEndMessage('qa', outcome.approved, outcome.error ?? outcome.reason));
     logWriter.flush();
   }
 
@@ -989,7 +992,7 @@ async function runSpecOrchestrator(
     const data = logWriter.getData();
     // toLogPhase('spec') maps to 'planning' in the log writer
     if (data.phases.planning?.status === 'active') {
-      logWriter.endPhase('spec', outcome.success);
+      logWriter.endPhase('spec', outcome.success, phaseEndMessage('spec', outcome.success, outcome.error));
     }
     logWriter.flush();
   }
@@ -1167,7 +1170,7 @@ async function runAgenticSpecOrchestrator(
   } finally {
     if (logWriter) {
       const success = result?.outcome === 'completed' || result?.outcome === 'max_steps' || result?.outcome === 'context_window';
-      logWriter.endPhase('spec', success ?? false);
+      logWriter.endPhase('spec', success ?? false, phaseEndMessage('spec', success ?? false, result?.error?.message));
       logWriter.flush();
     }
   }

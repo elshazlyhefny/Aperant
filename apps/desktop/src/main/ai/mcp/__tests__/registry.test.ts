@@ -105,25 +105,11 @@ describe('getMcpServerConfig', () => {
   });
 
   describe('auto-claude', () => {
-    it('returns auto-claude config with empty specDir as default', () => {
-      const config = getMcpServerConfig('auto-claude', {});
-      expect(config).not.toBeNull();
-      expect(config?.id).toBe('auto-claude');
-    });
-
-    it('injects SPEC_DIR into transport env', () => {
-      const config = getMcpServerConfig('auto-claude', { specDir: '/project/.auto-claude/specs/001-feature' });
-      expect(config?.transport.type).toBe('stdio');
-      if (config?.transport.type === 'stdio') {
-        expect(config.transport.env?.SPEC_DIR).toBe('/project/.auto-claude/specs/001-feature');
-      }
-    });
-
-    it('uses node command', () => {
-      const config = getMcpServerConfig('auto-claude', {});
-      if (config?.transport.type === 'stdio') {
-        expect(config.transport.command).toBe('node');
-      }
+    // zeenha fork: its tools are built into the tool registry, so there is no
+    // server to start (the old script never shipped and died MODULE_NOT_FOUND).
+    it('starts no MCP server, whatever the specDir', () => {
+      expect(getMcpServerConfig('auto-claude', {})).toBeNull();
+      expect(getMcpServerConfig('auto-claude', { specDir: '/project/.auto-claude/specs/001-feature' })).toBeNull();
     });
   });
 
@@ -174,12 +160,7 @@ describe('resolveMcpServers', () => {
     expect(configs[0].id).toBe('memory');
   });
 
-  it('passes specDir through to auto-claude config', () => {
-    const specDir = '/my-project/.auto-claude/specs/042-auth';
-    const configs = resolveMcpServers(['auto-claude'], { specDir });
-    expect(configs).toHaveLength(1);
-    if (configs[0].transport.type === 'stdio') {
-      expect(configs[0].transport.env?.SPEC_DIR).toBe(specDir);
-    }
+  it('resolves no server for auto-claude', () => {
+    expect(resolveMcpServers(['auto-claude'], { specDir: '/my-project/.auto-claude/specs/042-auth' })).toHaveLength(0);
   });
 });

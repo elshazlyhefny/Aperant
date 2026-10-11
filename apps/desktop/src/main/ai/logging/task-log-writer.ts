@@ -26,6 +26,21 @@ import type { Phase } from '../config/types';
 // =============================================================================
 
 /** Map execution phase to log phase */
+/**
+ * zeenha fork: the entry for a phase that ended. A failure carries its reason,
+ * so task_logs.json says why ("Failed planning phase: <reason>"). The reason
+ * used to reach only the on-screen log and was gone after a restart, which left
+ * six failed tasks with nothing to go on. Undefined on success, so the writer
+ * keeps its own "Completed ..." wording. Phase names follow the log's phases:
+ * "qa" is logged as "validation", "spec" as "planning".
+ */
+export function phaseEndMessage(phase: string, success: boolean, reason?: string): string | undefined {
+  if (success) return undefined;
+  const name = phase === 'qa' ? 'validation' : phase === 'spec' ? 'planning' : phase;
+  const detail = reason?.trim();
+  return `Failed ${name} phase${detail ? `: ${detail}` : ''}`;
+}
+
 function toLogPhase(phase: Phase | undefined): TaskLogPhase {
   switch (phase) {
     case 'spec':
