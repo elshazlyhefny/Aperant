@@ -19,7 +19,8 @@ import {
   Terminal,
   CheckSquare2,
   CheckSquare,
-  Square
+  Square,
+  Eraser
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -47,7 +48,7 @@ import {
 import { useProjectStore } from '../stores/project-store';
 import { useTaskStore } from '../stores/task-store';
 import { useToast } from '../hooks/use-toast';
-import type { WorktreeListItem, WorktreeMergeResult, TerminalWorktreeConfig, WorktreeStatus, Task, WorktreeCreatePROptions, WorktreeCreatePRResult } from '../../shared/types';
+import type { WorktreeListItem, WorktreeMergeResult, TerminalWorktreeConfig, WorktreeStatus, Task, WorktreeCreatePROptions, WorktreeCreatePRResult, MergedCleanupOutcome } from '../../shared/types';
 import { CreatePRDialog } from './task-detail/task-review/CreatePRDialog';
 
 // Prefix constants for worktree ID parsing
@@ -69,6 +70,9 @@ export function Worktrees({ projectId }: WorktreesProps) {
   const [terminalWorktrees, setTerminalWorktrees] = useState<TerminalWorktreeConfig[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // zeenha fork: removing worktrees whose PR merged (main/worktree-auto-cleanup.ts)
+  const [isCleaningMerged, setIsCleaningMerged] = useState(false);
+  const [cleanupOutcomes, setCleanupOutcomes] = useState<MergedCleanupOutcome[] | null>(null);
 
   // Terminal worktree delete state
   const [terminalWorktreeToDelete, setTerminalWorktreeToDelete] = useState<TerminalWorktreeConfig | null>(null);
@@ -199,10 +203,29 @@ export function Worktrees({ projectId }: WorktreesProps) {
     }
   }, [projectId, selectedProject]);
 
-  // Load on mount and when project changes
+  // zeenha fork: remove worktrees whose PR merged, then refresh the list if any went.
+  // `announce` shows the summary even when nothing changed (the button); the
+  // automatic run on open only speaks up when it removed or kept something.
+  const cleanUpMerged = useCallback(async (announce: boolean) => {
+    if (!projectId || !window.electronAPI?.cleanupMergedWorktrees) return;
+    setIsCleaningMerged(true);
+    try {
+      const result = await window.electronAPI.cleanupMergedWorktrees(projectId);
+      const outcomes = result.success ? result.data ?? [] : [];
+      const relevant = outcomes.filter((o) => o.status !== 'not_merged');
+      if (announce || relevant.length > 0) setCleanupOutcomes(relevant);
+      if (relevant.some((o) => o.status === 'removed')) await loadWorktrees();
+    } finally {
+      setIsCleaningMerged(false);
+    }
+  }, [projectId, loadWorktrees]);
+
+  // Load on mount and when project changes, then clean up merged worktrees
   useEffect(() => {
+    setCleanupOutcomes(null);
     loadWorktrees();
-  }, [loadWorktrees]);
+    cleanUpMerged(false);
+  }, [loadWorktrees, cleanUpMerged]);
 
   // Find task for a worktree
   const findTaskForWorktree = useCallback((specName: string) => {
@@ -508,8 +531,44 @@ export function Worktrees({ projectId }: WorktreesProps) {
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             {t('common:buttons.refresh')}
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => cleanUpMerged(true)}
+            disabled={isCleaningMerged}
+          >
+            <Eraser className={`h-4 w-4 mr-2 ${isCleaningMerged ? 'animate-pulse' : ''}`} />
+            {isCleaningMerged ? t('common:worktrees.autoCleanup.running') : t('common:worktrees.autoCleanup.button')}
+          </Button>
         </div>
       </div>
+
+      {/* zeenha fork: what the merged-worktree cleanup did */}
+      {cleanupOutcomes && (
+        <div className="mb-4 rounded-lg border border-border bg-muted/40 p-3 text-sm" role="status" data-testid="merged-cleanup-summary">
+          {(() => {
+            const removed = cleanupOutcomes.filter((o) => o.status === 'removed').length;
+            const kept = cleanupOutcomes.filter((o) => o.status === 'kept');
+            return (
+              <>
+                <p className="text-foreground">
+                  {removed > 0
+                    ? t('common:worktrees.autoCleanup.removed', { count: removed })
+                    : kept.length === 0 ? t('common:worktrees.autoCleanup.none') : null}
+                </p>
+                {kept.map((o) => (
+                  <p key={o.taskId} className="text-muted-foreground">
+                    {t('common:worktrees.autoCleanup.kept', {
+                      specId: o.specId,
+                      reason: t(`common:worktrees.autoCleanup.reasons.${o.reason ?? 'cleanup_failed'}`),
+                    })}
+                  </p>
+                ))}
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Selection controls bar - visible when selection mode is enabled */}
       {isSelectionMode && totalWorktrees > 0 && (

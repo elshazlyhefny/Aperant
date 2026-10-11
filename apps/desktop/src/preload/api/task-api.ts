@@ -68,6 +68,7 @@ export interface TaskAPI {
   discardOrphanedWorktree: (projectId: string, specName: string) => Promise<IPCResult<import('../../shared/types').WorktreeDiscardResult>>;
   clearStagedState: (taskId: string) => Promise<IPCResult<{ cleared: boolean }>>;
   listWorktrees: (projectId: string, options?: { includeStats?: boolean }) => Promise<IPCResult<import('../../shared/types').WorktreeListResult>>;
+  cleanupMergedWorktrees: (projectId?: string) => Promise<IPCResult<import('../../shared/types').MergedCleanupOutcome[]>>;
   worktreeOpenInIDE: (worktreePath: string, ide: SupportedIDE, customPath?: string) => Promise<IPCResult<{ opened: boolean }>>;
   worktreeOpenInTerminal: (worktreePath: string, terminal: SupportedTerminal, customPath?: string) => Promise<IPCResult<{ opened: boolean }>>;
   worktreeDetectTools: () => Promise<IPCResult<{ ides: Array<{ id: string; name: string; path: string; installed: boolean }>; terminals: Array<{ id: string; name: string; path: string; installed: boolean }> }>>;
@@ -184,6 +185,9 @@ export const createTaskAPI = (): TaskAPI => ({
 
   listWorktrees: (projectId: string, options?: { includeStats?: boolean }): Promise<IPCResult<import('../../shared/types').WorktreeListResult>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_LIST_WORKTREES, projectId, options),
+
+  cleanupMergedWorktrees: (projectId?: string): Promise<IPCResult<import('../../shared/types').MergedCleanupOutcome[]>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_CLEANUP_MERGED_WORKTREES, projectId),
 
   worktreeOpenInIDE: (worktreePath: string, ide: SupportedIDE, customPath?: string): Promise<IPCResult<{ opened: boolean }>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_WORKTREE_OPEN_IN_IDE, worktreePath, ide, customPath),

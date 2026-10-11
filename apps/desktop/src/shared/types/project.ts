@@ -31,6 +31,11 @@ export interface ProjectSettings {
    * Blocks local worktree merges and in-app PR merges. See shared/utils/landing-policy.ts.
    */
   prOnlyLanding?: boolean;
+  /**
+   * zeenha fork: remove a task's worktree once its PR has merged (default: true).
+   * See main/worktree-auto-cleanup.ts for the checks.
+   */
+  autoCleanupMergedWorktrees?: boolean;
 }
 
 export interface NotificationSettings {

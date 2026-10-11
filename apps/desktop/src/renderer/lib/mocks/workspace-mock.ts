@@ -85,6 +85,8 @@ export const workspaceMock = {
     data: { cleared: true }
   }),
 
+  cleanupMergedWorktrees: async () => ({ success: true, data: [] }),
+
   listWorktrees: async () => ({
     success: true,
     data: {

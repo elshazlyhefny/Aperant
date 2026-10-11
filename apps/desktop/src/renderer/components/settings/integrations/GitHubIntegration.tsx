@@ -11,6 +11,7 @@ import { GitHubOAuthFlow } from '../../project-settings/GitHubOAuthFlow';
 import { PasswordInput } from '../../project-settings/PasswordInput';
 import { buildBranchOptions } from '../../../lib/branch-utils';
 import type { ProjectEnvConfig, GitHubSyncStatus, ProjectSettings, GitBranchDetail } from '../../../../shared/types';
+import { cleansUpMergedWorktrees } from '../../../../shared/utils/worktree-cleanup-policy';
 
 // Debug logging
 const DEBUG = process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true';
@@ -226,6 +227,8 @@ export function GitHubIntegration({
   const pushNewBranches = settings?.pushNewBranches !== false;
   // zeenha fork: PR-only landing (default on) — see shared/utils/landing-policy.ts
   const prOnlyLanding = settings?.prOnlyLanding !== false;
+  // zeenha fork: remove worktrees once their PR merged (default on) — main/worktree-auto-cleanup.ts
+  const autoCleanupMerged = cleansUpMergedWorktrees(settings);
 
   return (
     <div className="space-y-4">
@@ -442,6 +445,21 @@ export function GitHubIntegration({
                 <Switch
                   checked={prOnlyLanding}
                   onCheckedChange={(checked) => setSettings(prev => ({ ...prev, prOnlyLanding: checked }))}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label className="font-normal text-foreground">
+                    {t('settings:projectSections.github.autoCleanupMergedWorktrees.label')}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:projectSections.github.autoCleanupMergedWorktrees.description')}
+                  </p>
+                </div>
+                <Switch
+                  checked={autoCleanupMerged}
+                  onCheckedChange={(checked) => setSettings(prev => ({ ...prev, autoCleanupMergedWorktrees: checked }))}
                 />
               </div>
             </>

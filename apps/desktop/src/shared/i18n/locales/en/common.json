@@ -160,7 +160,23 @@
   "worktrees": {
     "deleteSuccess": "Worktree '{{branch}}' deleted successfully",
     "bulkDeleteSuccess": "{{count}} worktree deleted successfully",
-    "bulkDeleteSuccess_plural": "{{count}} worktrees deleted successfully"
+    "bulkDeleteSuccess_plural": "{{count}} worktrees deleted successfully",
+    "autoCleanup": {
+      "button": "Clean up merged",
+      "running": "Cleaning up…",
+      "removed": "Removed {{count}} merged worktree",
+      "removed_plural": "Removed {{count}} merged worktrees",
+      "none": "No merged worktrees to clean up",
+      "kept": "Kept {{specId}}: {{reason}}",
+      "reasons": {
+        "running": "an agent is running on it",
+        "uncommitted_changes": "it has uncommitted changes",
+        "commits_after_merge": "it has commits made after the merge",
+        "pr_unreadable": "the pull request could not be read",
+        "head_unreadable": "its current commit could not be read",
+        "cleanup_failed": "removal failed"
+      }
+    }
   },
   "notification": {
     "accountSwitched": "Account Switched",

@@ -389,6 +389,10 @@
       "prOnlyLanding": {
         "label": "Land through pull requests only",
         "description": "Never merge task work or PRs from inside the app. Work reaches the base branch only through \"Create PR\" and the repository's CI and merge queue."
+      },
+      "autoCleanupMergedWorktrees": {
+        "label": "Clean up worktrees after merge",
+        "description": "Remove a task's worktree and local branch once its pull request has merged. A worktree with uncommitted changes, or commits made after the merge, is kept."
       }
     },
     "gitlab": {

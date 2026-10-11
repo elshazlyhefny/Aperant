@@ -509,6 +509,27 @@ export interface WorktreeListItem {
 /**
  * Result of listing all spec worktrees
  */
+/** zeenha fork: result of removing worktrees whose PR merged (main/worktree-auto-cleanup.ts). */
+export type MergedCleanupStatus = 'removed' | 'kept' | 'not_merged';
+
+export type KeptReason =
+  | 'running'
+  | 'uncommitted_changes'
+  | 'commits_after_merge'
+  | 'pr_unreadable'
+  | 'head_unreadable'
+  | 'cleanup_failed';
+
+export interface MergedCleanupOutcome {
+  projectId: string;
+  taskId: string;
+  specId: string;
+  prUrl: string;
+  status: MergedCleanupStatus;
+  reason?: KeptReason;
+  detail?: string;
+}
+
 export interface WorktreeListResult {
   worktrees: WorktreeListItem[];
 }

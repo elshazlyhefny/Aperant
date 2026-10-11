@@ -49,6 +49,7 @@ export const IPC_CHANNELS = {
   TASK_WORKTREE_OPEN_IN_TERMINAL: 'task:worktreeOpenInTerminal',
   TASK_WORKTREE_DETECT_TOOLS: 'task:worktreeDetectTools',  // Detect installed IDEs/terminals
   TASK_LIST_WORKTREES: 'task:listWorktrees',
+  TASK_CLEANUP_MERGED_WORKTREES: 'task:cleanupMergedWorktrees',  // zeenha fork
   TASK_ARCHIVE: 'task:archive',
   TASK_UNARCHIVE: 'task:unarchive',
   TASK_CLEAR_STAGED_STATE: 'task:clearStagedState',

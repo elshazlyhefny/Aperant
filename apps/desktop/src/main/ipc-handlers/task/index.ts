@@ -15,6 +15,7 @@ import { registerTaskExecutionHandlers } from './execution-handlers';
 import { registerWorktreeHandlers } from './worktree-handlers';
 import { registerTaskLogsHandlers } from './logs-handlers';
 import { registerTaskArchiveHandlers } from './archive-handlers';
+import { registerMergedCleanupHandlers } from './merged-cleanup-handlers';
 
 /**
  * Register all task-related IPC handlers
@@ -37,6 +38,9 @@ export function registerTaskHandlers(
 
   // Register archive handlers (archive, unarchive)
   registerTaskArchiveHandlers();
+
+  // zeenha fork: remove worktrees whose PR merged (IPC + background timer)
+  registerMergedCleanupHandlers(agentManager);
 }
 
 // Export shared utilities for use by other modules if needed
