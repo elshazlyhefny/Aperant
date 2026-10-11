@@ -518,6 +518,7 @@ export type KeptReason =
   | 'commits_after_merge'
   | 'pr_unreadable'
   | 'head_unreadable'
+  | 'foreign_owned_files'
   | 'cleanup_failed';
 
 export interface MergedCleanupOutcome {

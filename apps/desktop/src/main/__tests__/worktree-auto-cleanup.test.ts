@@ -20,8 +20,12 @@ interface Fixture {
   worktree?: string | null;
   pr?: PullRequestState | null;
   running?: boolean[]; // answers to successive isRunning calls
+  real?: boolean;
   dirty?: boolean;
   head?: string | null;
+  branch?: string | null;
+  inPr?: boolean | null;
+  deletable?: { ok: boolean; detail?: string };
   removeOk?: boolean;
   settings?: Project['settings'];
 }
@@ -36,8 +40,12 @@ function setup(f: Fixture = {}) {
     findWorktree: () => ('worktree' in f ? (f.worktree ?? null) : '/repo/.auto-claude/worktrees/tasks/016-keep-focus'),
     isRunning: vi.fn(() => running.shift() ?? false),
     prState: vi.fn(async () => ('pr' in f ? (f.pr ?? null) : { state: 'MERGED', headRefOid: HEAD })),
+    isRealWorktree: vi.fn(async () => f.real ?? true),
     hasUncommittedChanges: vi.fn(async () => f.dirty ?? false),
     headCommit: vi.fn(async () => ('head' in f ? (f.head ?? null) : HEAD)),
+    branchTip: vi.fn(async () => ('branch' in f ? (f.branch ?? null) : HEAD)),
+    isInPullRequest: vi.fn(async () => ('inPr' in f ? (f.inPr ?? null) : true)),
+    ensureDeletable: vi.fn(async () => f.deletable ?? { ok: true }),
     remove: vi.fn(async () => ({ success: f.removeOk ?? true, warnings: f.removeOk === false ? ['locked'] : [] })),
     invalidate: vi.fn(),
   };
@@ -73,7 +81,10 @@ describe('cleanupMergedWorktrees', () => {
     ['an agent is running', { running: [true] }, 'running'],
     ['an agent started during the checks', { running: [false, true] }, 'running'],
     ['there are uncommitted changes', { dirty: true }, 'uncommitted_changes'],
-    ['HEAD moved past the merged commit', { head: 'b'.repeat(40) }, 'commits_after_merge'],
+    ['HEAD has commits the PR does not', { inPr: false }, 'commits_after_merge'],
+    ['the PR head cannot be compared', { inPr: null }, 'pr_unreadable'],
+    ['files are owned by another user and cannot be handed back', { deletable: { ok: false, detail: 'vendor' } }, 'foreign_owned_files'],
+    ['a leftover folder whose branch has unmerged commits', { real: false, inPr: false }, 'commits_after_merge'],
     ['HEAD cannot be read', { head: null }, 'head_unreadable'],
     ['the removal itself fails', { removeOk: false }, 'cleanup_failed'],
   ])('keeps the worktree when %s', async (_name, fixture, reason) => {
@@ -82,6 +93,39 @@ describe('cleanupMergedWorktrees', () => {
     expect(outcome).toMatchObject({ status: 'kept', reason });
     if (reason !== 'cleanup_failed') expect(deps.remove).not.toHaveBeenCalled();
     expect(deps.invalidate).not.toHaveBeenCalled();
+  });
+
+  it('removes a worktree that is BEHIND its PR head (commits were added on GitHub)', async () => {
+    const { deps, run } = setup({ head: 'c'.repeat(40), inPr: true });
+    expect((await run())[0].status).toBe('removed');
+    expect(deps.isInPullRequest).toHaveBeenCalledWith('/repo', 'c'.repeat(40), PR, HEAD);
+  });
+
+  it('checks a leftover folder (no .git) through its branch, never through git inside it', async () => {
+    const { deps, run } = setup({ real: false, branch: 'd'.repeat(40) });
+    expect((await run())[0].status).toBe('removed');
+    expect(deps.hasUncommittedChanges).not.toHaveBeenCalled();
+    expect(deps.headCommit).not.toHaveBeenCalled();
+    expect(deps.branchTip).toHaveBeenCalledWith('/repo', 'auto-claude/016-keep-focus');
+    expect(deps.isInPullRequest).toHaveBeenCalledWith('/repo', 'd'.repeat(40), PR, HEAD);
+  });
+
+  it('removes a leftover folder whose branch is already gone', async () => {
+    const { deps, run } = setup({ real: false, branch: null });
+    expect((await run())[0].status).toBe('removed');
+    expect(deps.isInPullRequest).not.toHaveBeenCalled();
+  });
+
+  it('makes the folder deletable before deleting, and deletes nothing when it cannot', async () => {
+    const order: string[] = [];
+    const { deps, run } = setup({ deletable: { ok: false, detail: 'vendor/autoload.php' } });
+    deps.ensureDeletable = vi.fn(async () => {
+      order.push('ensure');
+      return { ok: false, detail: 'vendor/autoload.php' };
+    });
+    expect((await run())[0]).toMatchObject({ status: 'kept', reason: 'foreign_owned_files', detail: 'vendor/autoload.php' });
+    expect(order).toEqual(['ensure']);
+    expect(deps.remove).not.toHaveBeenCalled();
   });
 
   it('never asks GitHub about a task with no PR or no worktree', async () => {

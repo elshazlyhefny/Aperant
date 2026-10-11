@@ -24,11 +24,14 @@
  */
 
 import { execFile } from 'node:child_process';
+import { lstat, readdir, realpath } from 'node:fs/promises';
+import path from 'node:path';
 import type { KeptReason, MergedCleanupOutcome, Project, Task } from '../shared/types';
 import { cleansUpMergedWorktrees } from '../shared/utils/worktree-cleanup-policy';
 import { getToolPath } from './cli-tool-manager';
 import { getAugmentedEnv } from './env-utils';
 import { getIsolatedGitEnv } from './utils/git-isolation';
+import { getTaskWorktreeDir, isPathWithinBase } from './worktree-paths';
 
 export type { KeptReason, MergedCleanupOutcome };
 
@@ -43,8 +46,16 @@ export interface MergedCleanupDeps {
   findWorktree(projectPath: string, specId: string): string | null;
   isRunning(taskId: string): boolean;
   prState(prUrl: string, projectPath: string): Promise<PullRequestState | null>;
+  /** Is this folder a live git worktree of its own (not a half-deleted leftover)? */
+  isRealWorktree(worktreePath: string): Promise<boolean>;
   hasUncommittedChanges(worktreePath: string): Promise<boolean>;
   headCommit(worktreePath: string): Promise<string | null>;
+  /** Tip of a local branch in the project repository, or null if it does not exist. */
+  branchTip(projectPath: string, branch: string): Promise<string | null>;
+  /** Is `commit` the PR's head or an ancestor of it? Null when it cannot be told. */
+  isInPullRequest(projectPath: string, commit: string, prUrl: string, prHead: string): Promise<boolean | null>;
+  /** Make every file in the folder deletable BEFORE anything is deleted; false (with why) if that is not possible. */
+  ensureDeletable(worktreePath: string, projectPath: string): Promise<{ ok: boolean; detail?: string }>;
   remove(args: { worktreePath: string; projectPath: string; specId: string }): Promise<{ success: boolean; warnings: string[] }>;
   invalidate(projectId: string): void;
 }
@@ -87,24 +98,53 @@ export async function cleanupMergedWorktrees(
           continue;
         }
 
-        // Re-checked right before removal: an agent may have started meanwhile.
         if (deps.isRunning(task.id)) {
           keep('running');
           continue;
         }
-        if (await deps.hasUncommittedChanges(worktreePath)) {
-          keep('uncommitted_changes');
+
+        // A folder whose .git link is gone is a leftover of an earlier, partly
+        // failed removal. git inside it would answer for the PARENT repository,
+        // so its checks run against the task's branch instead.
+        const real = await deps.isRealWorktree(worktreePath);
+        let tip: string | null;
+        if (real) {
+          if (await deps.hasUncommittedChanges(worktreePath)) {
+            keep('uncommitted_changes');
+            continue;
+          }
+          tip = await deps.headCommit(worktreePath);
+          if (!tip) {
+            keep('head_unreadable');
+            continue;
+          }
+        } else {
+          tip = await deps.branchTip(project.path, `auto-claude/${task.specId}`);
+        }
+
+        // Nothing unmerged: the tip is the PR's head or behind it (commits can
+        // be added to a PR on GitHub, by a person or the merge queue).
+        if (tip) {
+          const merged = await deps.isInPullRequest(project.path, tip, prUrl, pr.headRefOid);
+          if (merged === null) {
+            keep('pr_unreadable');
+            continue;
+          }
+          if (!merged) {
+            keep('commits_after_merge');
+            continue;
+          }
+        }
+
+        // Before ANY deletion: files owned by another user (root, from Docker
+        // runs) would stop the delete half-way and leave a broken folder.
+        const deletable = await deps.ensureDeletable(worktreePath, project.path);
+        if (!deletable.ok) {
+          keep('foreign_owned_files', deletable.detail);
           continue;
         }
-        const head = await deps.headCommit(worktreePath);
-        if (!head) {
-          keep('head_unreadable');
-          continue;
-        }
-        if (head !== pr.headRefOid) {
-          keep('commits_after_merge');
-          continue;
-        }
+
+        // Re-checked right before removal: an agent may have started meanwhile.
         if (deps.isRunning(task.id)) {
           keep('running');
           continue;
@@ -183,6 +223,121 @@ export async function worktreeHeadCommit(worktreePath: string): Promise<string |
   } catch {
     return null;
   }
+}
+
+/** True only when git's own top level for the folder IS the folder (a live worktree). */
+export async function worktreeIsReal(worktreePath: string): Promise<boolean> {
+  try {
+    const top = (await gitInWorktree(worktreePath, ['rev-parse', '--show-toplevel'])).trim();
+    const [a, b] = await Promise.all([realpath(top), realpath(worktreePath)]);
+    return a === b;
+  } catch {
+    return false;
+  }
+}
+
+export async function branchTipInRepo(projectPath: string, branch: string): Promise<string | null> {
+  if (!/^auto-claude\/[A-Za-z0-9._-]+$/.test(branch)) return null;
+  try {
+    const out = (await gitInWorktree(projectPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).trim();
+    return /^[0-9a-f]{40}$/.test(out) ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is `commit` the PR's head or an ancestor of it? The PR head is fetched from
+ * GitHub's own pull ref (works for squash merges and for commits added on
+ * GitHub) into a private ref, never FETCH_HEAD, which other git runs share.
+ */
+export async function commitIsInPullRequest(
+  projectPath: string,
+  commit: string,
+  prUrl: string,
+  prHead: string,
+): Promise<boolean | null> {
+  if (commit === prHead) return true;
+  const number = /\/pull\/(\d+)$/.exec(prUrl)?.[1];
+  if (!number || !/^[0-9a-f]{40}$/.test(commit) || !/^[0-9a-f]{40}$/.test(prHead)) return null;
+  const ref = `refs/aperant/merged-cleanup/pr-${number}`;
+  try {
+    await run(
+      getToolPath('git'),
+      ['fetch', '--quiet', '--no-tags', 'origin', `+refs/pull/${number}/head:${ref}`],
+      projectPath,
+      { ...getIsolatedGitEnv(), GIT_TERMINAL_PROMPT: '0' },
+      GH_TIMEOUT_MS,
+    );
+  } catch {
+    return null;
+  }
+  try {
+    await gitInWorktree(projectPath, ['merge-base', '--is-ancestor', commit, ref]);
+    return true;
+  } catch (error) {
+    // exit 1 = not an ancestor; anything else = could not tell
+    return (error as { code?: number }).code === 1 ? false : null;
+  }
+}
+
+/** First path under `dir` not owned by `uid` (symlinks are not followed), or null. */
+async function firstForeignOwned(dir: string, uid: number): Promise<string | null> {
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    const info = await lstat(current);
+    if (info.uid !== uid) return current;
+    if (!info.isDirectory()) continue;
+    for (const name of await readdir(current)) stack.push(path.join(current, name));
+  }
+  return null;
+}
+
+/**
+ * Before anything is deleted, make sure everything CAN be: agents run Docker as
+ * root through the worktree's bind mount, which leaves root-owned vendor/,
+ * .nuxt/ and cache trees that a plain delete cannot remove. Those are handed
+ * back with a throwaway container (the repository runbook's own repair), then
+ * checked again. Never deletes anything itself.
+ */
+export async function ensureWorktreeDeletable(
+  worktreePath: string,
+  projectPath: string,
+): Promise<{ ok: boolean; detail?: string }> {
+  const uid = process.getuid?.();
+  const gid = process.getgid?.();
+  if (uid === undefined || gid === undefined) return { ok: true }; // Windows: no ownership problem to fix
+  if (!isPathWithinBase(path.resolve(worktreePath), getTaskWorktreeDir(projectPath))) {
+    return { ok: false, detail: 'outside the task worktree folder' };
+  }
+
+  let foreign: string | null;
+  try {
+    foreign = await firstForeignOwned(worktreePath, uid);
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+  if (!foreign) return { ok: true };
+
+  try {
+    await run(
+      'docker',
+      ['run', '--rm', '--network', 'none', '-v', `${path.resolve(worktreePath)}:/w`, 'alpine:3.20', 'chown', '-R', `${uid}:${gid}`, '/w'],
+      projectPath,
+      { ...getAugmentedEnv() },
+      120_000,
+    );
+  } catch {
+    return { ok: false, detail: `${path.relative(worktreePath, foreign)} is owned by another user and Docker could not hand it back` };
+  }
+
+  try {
+    foreign = await firstForeignOwned(worktreePath, uid);
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+  return foreign ? { ok: false, detail: `${path.relative(worktreePath, foreign)} is still owned by another user` } : { ok: true };
 }
 
 // One run at a time: the timer, opening the Worktrees page and the button can overlap.

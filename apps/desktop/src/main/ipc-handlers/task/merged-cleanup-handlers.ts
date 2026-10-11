@@ -17,10 +17,14 @@ import {
   MERGED_CLEANUP_FIRST_RUN_MS,
   MERGED_CLEANUP_INTERVAL_MS,
   type MergedCleanupDeps,
+  branchTipInRepo,
+  commitIsInPullRequest,
+  ensureWorktreeDeletable,
   readPullRequestState,
   runMergedWorktreeCleanup,
   worktreeHasUncommittedChanges,
   worktreeHeadCommit,
+  worktreeIsReal,
 } from '../../worktree-auto-cleanup';
 
 export function createMergedCleanupDeps(agentManager: AgentManager): MergedCleanupDeps {
@@ -30,10 +34,22 @@ export function createMergedCleanupDeps(agentManager: AgentManager): MergedClean
     findWorktree: (projectPath, specId) => findTaskWorktree(projectPath, specId),
     isRunning: (taskId) => agentManager.isRunning(taskId),
     prState: readPullRequestState,
+    isRealWorktree: worktreeIsReal,
     hasUncommittedChanges: worktreeHasUncommittedChanges,
     headCommit: worktreeHeadCommit,
+    branchTip: branchTipInRepo,
+    isInPullRequest: commitIsInPullRequest,
+    ensureDeletable: ensureWorktreeDeletable,
+    // The branch is named explicitly: a leftover folder has no .git to read it from.
     remove: ({ worktreePath, projectPath, specId }) =>
-      cleanupWorktree({ worktreePath, projectPath, specId, logPrefix: '[MERGED_CLEANUP]', deleteBranch: true }),
+      cleanupWorktree({
+        worktreePath,
+        projectPath,
+        specId,
+        logPrefix: '[MERGED_CLEANUP]',
+        deleteBranch: true,
+        branchName: `auto-claude/${specId}`,
+      }),
     invalidate: (projectId) => projectStore.invalidateTasksCache(projectId),
   };
 }
