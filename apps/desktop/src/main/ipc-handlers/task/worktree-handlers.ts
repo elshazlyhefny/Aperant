@@ -10,7 +10,7 @@ import { projectStore } from '../../project-store';
 
 import { MergeOrchestrator } from '../../ai/merge/orchestrator';
 import { createMergeResolverFn } from '../../ai/runners/merge-resolver';
-import { createPR } from '../../ai/runners/github/pr-creator';
+import { createPR, suggestPRTitleForWorktree } from '../../ai/runners/github/pr-creator';
 import type { ModelShorthand } from '../../ai/config/types';
 import { findTaskAndProject } from './shared';
 import { updateRoadmapFeatureOutcome } from '../../utils/roadmap-utils';
@@ -2980,6 +2980,42 @@ export function registerWorktreeHandlers(
   );
 
   /**
+   * zeenha fork: suggest a short Conventional Commits PR title for a task, from
+   * its task title, commit log and diff summary. Read-only. Answers null (and
+   * the dialog keeps the task title) when there is no worktree or the model's
+   * answer is not a usable title.
+   */
+  ipcMain.handle(
+    IPC_CHANNELS.TASK_WORKTREE_SUGGEST_PR_TITLE,
+    async (_, taskId: string, targetBranch?: string): Promise<IPCResult<string | null>> => {
+      try {
+        const { task, project } = findTaskAndProject(taskId);
+        if (!task || !project) return { success: false, error: 'Task not found' };
+        if (targetBranch && !GIT_BRANCH_REGEX.test(targetBranch)) {
+          return { success: false, error: 'Invalid target branch name' };
+        }
+
+        const worktreePath = findTaskWorktree(project.path, task.specId);
+        if (!worktreePath) return { success: true, data: null };
+
+        const specDir = path.join(project.path, project.autoBuildPath || '.auto-claude', 'specs', task.specId);
+        const baseBranch = targetBranch || getTaskBaseBranch(specDir) || project.settings?.mainBranch || 'main';
+
+        const title = await suggestPRTitleForWorktree({
+          worktreePath,
+          gitPath: getToolPath('git'),
+          baseBranch,
+          taskTitle: task.title,
+          specId: task.specId,
+        });
+        return { success: true, data: title };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Could not suggest a title' };
+      }
+    }
+  );
+
+  /**
    * Create a Pull Request from the worktree branch
    * Pushes the branch to origin and creates a GitHub PR using gh CLI
    */
@@ -3042,7 +3078,13 @@ export function registerWorktreeHandlers(
         const taskBaseBranch = getTaskBaseBranch(specDir);
         const baseBranch = options?.targetBranch || taskBaseBranch || project.settings?.mainBranch || 'main';
         const branchName = `auto-claude/${task.specId}`;
-        const prTitle = options?.title || `auto-claude: ${task.specId}`;
+        // zeenha fork: no title sent (the bulk dialog) -> the AI suggestion,
+        // then the task title. It used to be `auto-claude: <specId>`.
+        const prTitle =
+          options?.title ||
+          (await suggestPRTitleForWorktree({ worktreePath, gitPath: getToolPath('git'), baseBranch, taskTitle: task.title ?? '', specId: task.specId })) ||
+          (task.title ?? '').slice(0, MAX_PR_TITLE_LENGTH) ||
+          `auto-claude: ${task.specId}`;
 
         if (taskBaseBranch) {
           debug('Using stored base branch:', taskBaseBranch);

@@ -21,6 +21,7 @@ import { insightsService } from "../insights-service";
 import { safeSendToRenderer } from "./utils";
 import { getActiveProviderFeatureSettings } from "./feature-settings-helper";
 import type { ThinkingLevel } from "../../shared/types/settings";
+import { buildSpecId } from "../utils/spec-slug";
 
 /**
  * Read insights feature settings using per-provider resolution
@@ -162,12 +163,7 @@ export function registerInsightsHandlers(getMainWindow: () => BrowserWindow | nu
         }
 
         // Create spec ID with zero-padded number and slugified title
-        const slugifiedTitle = title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "")
-          .substring(0, 50);
-        const specId = `${String(specNumber).padStart(3, "0")}-${slugifiedTitle}`;
+        const specId = buildSpecId(specNumber, title);
 
         // Create spec directory
         const specDir = path.join(specsDir, specId);

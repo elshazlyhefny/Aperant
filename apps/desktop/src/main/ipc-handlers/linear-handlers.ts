@@ -10,6 +10,7 @@ import { sanitizeText, sanitizeUrl } from './shared/sanitize';
 
 
 import { AgentManager } from '../agent';
+import { buildSpecId } from '../utils/spec-slug';
 
 /**
  * Register all linear-related IPC handlers
@@ -486,12 +487,7 @@ ${safeDescription || 'No description provided.'}
             }
 
             // Create spec ID with zero-padded number and slugified title
-            const slugifiedTitle = safeTitle
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, '-')
-              .replace(/^-|-$/g, '')
-              .substring(0, 50);
-            const specId = `${String(specNumber).padStart(3, '0')}-${slugifiedTitle}`;
+            const specId = buildSpecId(specNumber, safeTitle);
 
             // Create spec directory
             const specDir = path.join(specsDir, specId);

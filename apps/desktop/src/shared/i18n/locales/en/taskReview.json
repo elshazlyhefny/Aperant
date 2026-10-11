@@ -89,8 +89,9 @@
     },
     "hints": {
       "targetBranch": "Leave empty to use the default branch",
-      "prTitle": "Leave empty to use the task title"
-    }
+      "prTitle": "Leave empty to use the task title",
+    "suggestingTitle": "Suggesting a short title from the changes…"
+  }
   },
   "mergeProgress": {
     "stages": {

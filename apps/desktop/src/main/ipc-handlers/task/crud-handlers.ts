@@ -16,6 +16,7 @@ import { getToolPath } from '../../cli-tool-manager';
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
 import { taskStateManager } from '../../task-state-manager';
 import { safeBreadcrumb } from '../../sentry';
+import { buildSpecId } from '../../utils/spec-slug';
 
 /**
  * Sanitize thinking levels in task metadata in-place.
@@ -196,12 +197,7 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
       }
 
       // Create spec ID with zero-padded number and slugified title
-      const slugifiedTitle = finalTitle
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .substring(0, 50);
-      const specId = `${String(specNumber).padStart(3, '0')}-${slugifiedTitle}`;
+      const specId = buildSpecId(specNumber, finalTitle);
 
       // Create spec directory
       const specDir = path.join(specsDir, specId);

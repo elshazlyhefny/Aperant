@@ -25,6 +25,7 @@ import { safeSendToRenderer } from "./utils";
 import { writeFileWithRetry, readFileWithRetry } from "../utils/atomic-file";
 import { withFileLock } from "../utils/file-lock";
 import { getActiveProviderFeatureSettings } from "./feature-settings-helper";
+import { buildSpecId } from "../utils/spec-slug";
 
 /**
  * Read roadmap feature settings using per-provider resolution
@@ -539,12 +540,7 @@ ${(feature.acceptance_criteria || []).map((c: string) => `- [ ] ${c}`).join("\n"
         }
 
         // Create spec ID with zero-padded number and slugified title
-        const slugifiedTitle = feature.title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "")
-          .substring(0, 50);
-        const specId = `${String(specNumber).padStart(3, "0")}-${slugifiedTitle}`;
+        const specId = buildSpecId(specNumber, feature.title);
 
         // Create spec directory
         const specDir = path.join(specsDir, specId);

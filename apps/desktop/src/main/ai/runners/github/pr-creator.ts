@@ -349,6 +349,95 @@ Write a professional PR description. Output ONLY the Markdown body — no preamb
 }
 
 // =============================================================================
+// AI PR Title Suggestion (zeenha fork)
+// =============================================================================
+
+/**
+ * zeenha fork: PR titles used to be the raw task title ("Make 'Add to cart'
+ * confirmation actionable: a View cart link in the toast and visible feedback
+ * on the cart badge"). The model that writes the body now also proposes a
+ * short Conventional Commits title, which the Create PR dialog pre-fills and
+ * the person can still edit. Any answer that is not one clean line of the
+ * expected shape is discarded and the task title is used instead.
+ */
+export const MAX_SUGGESTED_PR_TITLE_LENGTH = 72;
+
+const CONVENTIONAL_TITLE_RE =
+  /^(feat|fix|perf|refactor|docs|test|chore|build|ci|style|revert)(\([a-z0-9][a-z0-9._/-]*\))?!?: \S/;
+
+const TITLE_SYSTEM_PROMPT = `You write GitHub pull request titles in the Conventional Commits style.
+Output exactly ONE line and nothing else, shaped: type(scope): summary
+- type is one of: feat, fix, perf, refactor, docs, test, chore, build, ci, style, revert
+- scope is optional: one short lowercase word for the area changed (for example shop, pos, dashboard, auth, billing, booking)
+- summary is imperative ("add", "fix", "keep"), starts lowercase, has no trailing period, and says what changed specifically
+- at most ${MAX_SUGGESTED_PR_TITLE_LENGTH} characters in total
+No quotes, no backticks, no preamble, no explanation.`;
+
+/**
+ * Accept a model answer only if it is a usable title; otherwise null.
+ * Exported for tests.
+ */
+export function normalizeSuggestedPRTitle(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const firstLine = raw.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0) ?? '';
+  const line = firstLine
+    .replace(/^(pr\s+)?title:\s*/i, '')
+    .replace(/^[`"'*]+|[`"'*]+$/g, '')
+    .trim()
+    .replace(/\.+$/, '');
+  if (!line || line.length > MAX_SUGGESTED_PR_TITLE_LENGTH) return null;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
+  if (/[\u0000-\u001f\u007f]/.test(line)) return null;
+  if (!CONVENTIONAL_TITLE_RE.test(line)) return null;
+  return line;
+}
+
+/** Ask the model for a title from the task and its changes. Null when unusable. */
+export async function suggestPRTitle(options: {
+  taskTitle: string;
+  specId: string;
+  diffSummary: string;
+  commitLog: string;
+  modelShorthand?: ModelShorthand;
+  thinkingLevel?: ThinkingLevel;
+}): Promise<string | null> {
+  const { taskTitle, specId, diffSummary, commitLog, modelShorthand = 'haiku', thinkingLevel = 'low' } = options;
+  const prompt = `Task: ${taskTitle}
+Spec ID: ${specId}
+
+Commit log:
+${commitLog || '(no commits listed)'}
+
+Diff summary:
+${diffSummary || '(no diff available)'}
+
+Write the pull request title.`;
+
+  try {
+    const client = await createSimpleClient({ systemPrompt: TITLE_SYSTEM_PROMPT, modelShorthand, thinkingLevel });
+    const result = await generateText({ model: client.model, system: client.systemPrompt, prompt });
+    return normalizeSuggestedPRTitle(result.text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Suggest a title for a task's worktree: gathers the same commit log and diff
+ * summary the body uses, then asks the model. Read-only on the repository.
+ */
+export async function suggestPRTitleForWorktree(options: {
+  worktreePath: string;
+  gitPath: string;
+  baseBranch: string;
+  taskTitle: string;
+  specId: string;
+}): Promise<string | null> {
+  const { diffSummary, commitLog } = await gatherPRContext(options.worktreePath, options.gitPath, options.baseBranch);
+  return suggestPRTitle({ taskTitle: options.taskTitle, specId: options.specId, diffSummary, commitLog });
+}
+
+// =============================================================================
 // Push Branch
 // =============================================================================
 

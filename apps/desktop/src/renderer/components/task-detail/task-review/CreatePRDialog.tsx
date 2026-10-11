@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { GitPullRequest, Loader2, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -41,6 +41,10 @@ export function CreatePRDialog({
   const [isCreating, setIsCreating] = useState(false);
   const [result, setResult] = useState<WorktreeCreatePRResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // zeenha fork: an AI-suggested conventional title replaces the task title
+  // when it arrives, unless the person has already started editing.
+  const [suggestingTitle, setSuggestingTitle] = useState(false);
+  const titleEditedRef = useRef(false);
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -53,6 +57,30 @@ export function CreatePRDialog({
       setError(null);
     }
   }, [open, worktreeStatus?.baseBranch, task.title]);
+
+  useEffect(() => {
+    if (!open) return;
+    titleEditedRef.current = false;
+    const suggest = window.electronAPI?.suggestWorktreePRTitle;
+    if (!suggest) return;
+
+    let cancelled = false;
+    setSuggestingTitle(true);
+    suggest(task.id, worktreeStatus?.baseBranch || undefined)
+      .then((res) => {
+        if (!cancelled && res?.success && res.data && !titleEditedRef.current) {
+          setPrTitle(res.data);
+        }
+      })
+      .catch(() => { /* keep the task title */ })
+      .finally(() => {
+        if (!cancelled) setSuggestingTitle(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, task.id, worktreeStatus?.baseBranch]);
 
   // Frontend validation functions
   const validateBranchName = (branch: string): string | null => {
@@ -228,11 +256,21 @@ export function CreatePRDialog({
               <Input
                 id="prTitle"
                 value={prTitle}
-                onChange={(e) => setPrTitle(e.target.value)}
+                onChange={(e) => {
+                  titleEditedRef.current = true;
+                  setPrTitle(e.target.value);
+                }}
                 placeholder={task.title}
               />
               <p className="text-xs text-muted-foreground">
-                {t('taskReview:pr.hints.prTitle')}
+                {suggestingTitle ? (
+                  <span className="inline-flex items-center gap-1" role="status">
+                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                    {t('taskReview:pr.hints.suggestingTitle')}
+                  </span>
+                ) : (
+                  t('taskReview:pr.hints.prTitle')
+                )}
               </p>
             </div>
 

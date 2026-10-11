@@ -9,6 +9,7 @@ import type { Project } from '../../../shared/types';
 import type { GitLabAPIIssue, GitLabAPINoteBasic, GitLabConfig } from './types';
 import { labelMatchesWholeWord } from '../shared/label-utils';
 import { sanitizeText, sanitizeStringArray } from '../shared/sanitize';
+import { slugifySpecTitle } from '../../utils/spec-slug';
 
 /**
  * Simplified task info returned when creating a spec from a GitLab issue.
@@ -194,11 +195,7 @@ function sanitizeIssueForSpec(issue: IssueLike, instanceUrl: string): SanitizedG
  */
 function generateSpecDirName(issueIid: number, title: string): string {
   // Clean title for directory name
-  const cleanTitle = title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .substring(0, 50);
+  const cleanTitle = slugifySpecTitle(title);
 
   // Format: 001-issue-title (padded issue IID)
   const paddedIid = String(issueIid).padStart(3, '0');

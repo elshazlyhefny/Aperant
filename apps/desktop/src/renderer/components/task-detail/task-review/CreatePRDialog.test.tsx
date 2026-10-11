@@ -6,7 +6,7 @@
  *
  * Tests the Create PR dialog component functionality.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import '../../../../shared/i18n';
@@ -404,6 +404,59 @@ describe('CreatePRDialog', () => {
       expect(screen.getByText(/created/i)).toBeInTheDocument();
       // Should not have any PR link button (no prUrl to display)
       expect(screen.queryByTestId('pr-link-button')).not.toBeInTheDocument();
+    });
+  });
+
+  // zeenha fork: AI-suggested conventional PR title
+  describe('suggested title', () => {
+    const api = window.electronAPI as unknown as Record<string, unknown>;
+
+    afterEach(() => {
+      delete api.suggestWorktreePRTitle;
+    });
+
+    it('replaces the task title with the suggestion and asks for the task and base branch', async () => {
+      const suggest = vi.fn().mockResolvedValue({ success: true, data: 'feat(auth): add login and registration' });
+      api.suggestWorktreePRTitle = suggest;
+
+      render(
+        <CreatePRDialog open={true} task={mockTask} worktreeStatus={mockWorktreeStatus}
+          onOpenChange={mockOnOpenChange} onCreatePR={mockOnCreatePR} />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/pr title/i)).toHaveValue('feat(auth): add login and registration');
+      });
+      expect(suggest).toHaveBeenCalledWith('task-123', 'develop');
+    });
+
+    it('never overwrites a title the person has started typing', async () => {
+      let resolve!: (v: unknown) => void;
+      api.suggestWorktreePRTitle = vi.fn(() => new Promise((r) => { resolve = r; }));
+
+      render(
+        <CreatePRDialog open={true} task={mockTask} worktreeStatus={mockWorktreeStatus}
+          onOpenChange={mockOnOpenChange} onCreatePR={mockOnCreatePR} />
+      );
+
+      const input = await screen.findByLabelText(/pr title/i);
+      fireEvent.change(input, { target: { value: 'My own title' } });
+      resolve({ success: true, data: 'feat(auth): add login and registration' });
+
+      await waitFor(() => expect(screen.queryByText(/suggesting a short title/i)).not.toBeInTheDocument());
+      expect(input).toHaveValue('My own title');
+    });
+
+    it('keeps the task title when no suggestion is available', async () => {
+      api.suggestWorktreePRTitle = vi.fn().mockResolvedValue({ success: true, data: null });
+
+      render(
+        <CreatePRDialog open={true} task={mockTask} worktreeStatus={mockWorktreeStatus}
+          onOpenChange={mockOnOpenChange} onCreatePR={mockOnCreatePR} />
+      );
+
+      await waitFor(() => expect(screen.queryByText(/suggesting a short title/i)).not.toBeInTheDocument());
+      expect(screen.getByLabelText(/pr title/i)).toHaveValue('Implement user authentication');
     });
   });
 });

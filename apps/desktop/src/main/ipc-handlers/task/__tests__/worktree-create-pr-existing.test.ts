@@ -32,7 +32,9 @@ vi.mock('../../../worktree-paths', () => ({
 vi.mock('../../../cli-tool-manager', () => ({ getToolPath: (tool: string) => tool }));
 
 const createPR = vi.hoisted(() => vi.fn());
-vi.mock('../../../ai/runners/github/pr-creator', () => ({ createPR }));
+// zeenha fork: with no title sent (the bulk dialog), the handler asks for an AI title.
+const suggestPRTitleForWorktree = vi.hoisted(() => vi.fn(async () => null as string | null));
+vi.mock('../../../ai/runners/github/pr-creator', () => ({ createPR, suggestPRTitleForWorktree }));
 
 const PR_URL = 'https://github.com/owner/repo/pull/7';
 
@@ -92,5 +94,36 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
 
     expect(JSON.parse(fs.readFileSync(specFile('task_metadata.json'), 'utf-8')).prUrl).toBeUndefined();
     expect(JSON.parse(fs.readFileSync(specFile('implementation_plan.json'), 'utf-8')).status).toBe('human_review');
+  });
+
+  // zeenha fork: PR titles
+  it('uses the AI title when no title is sent (bulk Create PR)', async () => {
+    suggestPRTitleForWorktree.mockResolvedValueOnce('feat(shop): add View cart link');
+    createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+    const handler = await createPrHandler();
+
+    await handler({}, 't1');
+
+    expect(createPR.mock.calls.at(-1)?.[0].title).toBe('feat(shop): add View cart link');
+  });
+
+  it('falls back to the spec id only when there is neither a suggestion nor a task title', async () => {
+    createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+    const handler = await createPrHandler();
+
+    await handler({}, 't1');
+
+    expect(createPR.mock.calls.at(-1)?.[0].title).toBe('auto-claude: 001-x');
+  });
+
+  it('never asks for a suggestion when the person typed a title', async () => {
+    suggestPRTitleForWorktree.mockClear();
+    createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+    const handler = await createPrHandler();
+
+    await handler({}, 't1', { title: 'My own title' });
+
+    expect(suggestPRTitleForWorktree).not.toHaveBeenCalled();
+    expect(createPR.mock.calls.at(-1)?.[0].title).toBe('My own title');
   });
 });

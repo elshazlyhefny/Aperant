@@ -89,8 +89,9 @@
     },
     "hints": {
       "targetBranch": "Laissez vide pour utiliser la branche par défaut",
-      "prTitle": "Laissez vide pour utiliser le titre de la tâche"
-    }
+      "prTitle": "Laissez vide pour utiliser le titre de la tâche",
+    "suggestingTitle": "Suggestion d’un titre court à partir des changements…"
+  }
   },
   "mergeProgress": {
     "stages": {

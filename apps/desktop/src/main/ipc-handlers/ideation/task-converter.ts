@@ -20,16 +20,13 @@ import { projectStore } from '../../project-store';
 import { readIdeationFile, writeIdeationFile, updateIdeationTimestamp } from './file-utils';
 import type { RawIdea } from './types';
 import { withSpecNumberLock } from '../../utils/spec-number-lock';
+import { slugifySpecTitle } from '../../utils/spec-slug';
 
 /**
  * Create a slugified version of a title for use in directory names
  */
 function slugifyTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 50);
+  return slugifySpecTitle(title);
 }
 
 /**

@@ -10,6 +10,7 @@ import { withSpecNumberLock } from '../../utils/spec-number-lock';
 import { debugLog } from './utils/logger';
 import { labelMatchesWholeWord } from '../shared/label-utils';
 import { sanitizeText, sanitizeStringArray, sanitizeUrl } from '../shared/sanitize';
+import { slugifySpecTitle } from '../../utils/spec-slug';
 
 export interface SpecCreationData {
   specId: string;
@@ -22,11 +23,7 @@ export interface SpecCreationData {
  * Create a slug from a title
  */
 function slugifyTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 50);
+  return slugifySpecTitle(title);
 }
 
 /**

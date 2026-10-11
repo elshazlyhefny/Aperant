@@ -54,6 +54,8 @@ export const workspaceMock = {
     }
   }),
 
+  suggestWorktreePRTitle: async () => ({ success: true, data: null }),
+
   createWorktreePR: async () => ({
     success: true,
     data: {
