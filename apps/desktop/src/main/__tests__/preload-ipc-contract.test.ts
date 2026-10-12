@@ -24,15 +24,7 @@ const SRC = path.resolve(__dirname, '../..');
  * Handlers kept although no preload API reaches them yet, each with why.
  * Shrink this list; never grow it to make the test pass.
  */
-const UNEXPOSED_HANDLERS: Record<string, string> = {
-  // GitHub issue triage: a whole feature (engine, these handlers and the
-  // GITHUB_TRIAGE_RUN listener) whose GitLab twin IS exposed. Exposing or
-  // deleting it is a product decision, not dead-code cleanup.
-  'github:triage:getConfig': 'GitHub triage, not exposed yet',
-  'github:triage:saveConfig': 'GitHub triage, not exposed yet',
-  'github:triage:getResults': 'GitHub triage, not exposed yet',
-  'github:triage:applyLabels': 'GitHub triage, not exposed yet',
-};
+const UNEXPOSED_HANDLERS: Record<string, string> = {};
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];

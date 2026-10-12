@@ -433,6 +433,78 @@ export interface GitLabTriageResult {
 }
 
 // ============================================
+// GitHub Triage Types
+// ============================================
+
+export type GitHubTriageCategory =
+  | 'bug'
+  | 'feature'
+  | 'documentation'
+  | 'question'
+  | 'duplicate'
+  | 'spam'
+  | 'feature_creep';
+
+/**
+ * Triage settings stored in `.auto-claude/github/config.json`.
+ *
+ * The three thresholds decide when a result is FLAGGED as a duplicate, spam
+ * or feature creep: a flag the AI raises below its threshold is dropped.
+ * `enabled` and `enableComments` are stored but nothing acts on them yet
+ * (no automatic triage, no comments are posted).
+ */
+export interface GitHubTriageConfig {
+  enabled: boolean;
+  duplicateThreshold: number;
+  spamThreshold: number;
+  featureCreepThreshold: number;
+  enableComments: boolean;
+}
+
+export interface GitHubTriageResult {
+  issueNumber: number;
+  repo: string;
+  category: GitHubTriageCategory;
+  confidence: number;
+  labelsToAdd: string[];
+  labelsToRemove: string[];
+  isDuplicate: boolean;
+  duplicateOf?: number;
+  isSpam: boolean;
+  isFeatureCreep: boolean;
+  suggestedBreakdown: string[];
+  priority: 'high' | 'medium' | 'low';
+  comment?: string;
+  triagedAt: string;
+  /** When the suggested labels were last written to GitHub. */
+  labelsAppliedAt?: string;
+}
+
+export interface GitHubTriageProgress {
+  phase: 'fetching' | 'analyzing' | 'applying' | 'complete';
+  issueNumber?: number;
+  progress: number;
+  message: string;
+  totalIssues: number;
+  processedIssues: number;
+}
+
+/** Outcome of writing triage labels to GitHub, per issue. */
+export interface GitHubTriageApplyResult {
+  /** False only when nothing could be attempted (no project, no GitHub configuration, bad input). */
+  success: boolean;
+  error?: string;
+  applied: Array<{
+    issueNumber: number;
+    added: string[];
+    removed: string[];
+    /** Suggested labels that do not exist in the repository; never created. */
+    skipped: string[];
+  }>;
+  failed: Array<{ issueNumber: number; error: string }>;
+}
+
+// ============================================
 // Roadmap Integration Types (Canny, etc.)
 // ============================================
 
