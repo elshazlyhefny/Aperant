@@ -12,8 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../cli-tool-manager', () => ({ getToolPath: (tool: string) => tool }));
 vi.mock('../env-utils', () => ({ getAugmentedEnv: () => ({ ...process.env }) }));
 
+import { cleanupWorktree } from '../utils/worktree-cleanup';
+import { findTaskWorktree } from '../worktree-paths';
 import {
   branchTipInRepo,
+  cleanupMergedWorktrees,
   commitIsInPullRequest,
   deleteTaskBranch,
   ensureWorktreeDeletable,
@@ -172,6 +175,22 @@ describe('ensureWorktreeDeletable', () => {
     expect(await ensureWorktreeDeletable(repo, repo)).toMatchObject({ ok: false });
   });
 
+  // zeenha fork: findTaskWorktree still returns the legacy .worktrees/<specId>
+  // folder, but this check refused it, so it was kept forever as foreign_owned_files.
+  it('is ok for a task worktree at the legacy .worktrees location', async () => {
+    const wt = join(repo, '.worktrees', '016-x');
+    mkdirSync(join(wt, 'frontend'), { recursive: true });
+    writeFileSync(join(wt, 'frontend', 'f.txt'), 'x');
+    expect(await ensureWorktreeDeletable(wt, repo)).toEqual({ ok: true });
+  });
+
+  it('refuses the worktree folders themselves, current and legacy', async () => {
+    mkdirSync(tasksDir(), { recursive: true });
+    mkdirSync(join(repo, '.worktrees'), { recursive: true });
+    expect(await ensureWorktreeDeletable(tasksDir(), repo)).toMatchObject({ ok: false });
+    expect(await ensureWorktreeDeletable(join(repo, '.worktrees'), repo)).toMatchObject({ ok: false });
+  });
+
   const dockerUsable = (() => {
     try {
       execFileSync('docker', ['image', 'inspect', 'alpine:3.20'], { stdio: 'ignore' });
@@ -204,5 +223,47 @@ describe('deleteTaskBranch', () => {
     const left = git('branch', '--format=%(refname:short)').split('\n');
     expect(left).not.toContain('auto-claude/016-x');
     expect(left).toContain('feature');
+  });
+});
+
+describe('cleanupMergedWorktrees on a legacy .worktrees worktree (real git)', () => {
+  const PR = 'https://github.com/o/r/pull/9';
+  const run = (specId: string) => {
+    const head = git('rev-parse', 'HEAD');
+    return cleanupMergedWorktrees({
+      listProjects: () => [{ id: 'p', path: repo, settings: {} } as never],
+      listTasks: () => [{ id: 't', specId, metadata: { prUrl: PR } } as never],
+      findWorktree: findTaskWorktree,
+      isRunning: () => false,
+      prState: async () => ({ state: 'MERGED', headRefOid: head }),
+      isRealWorktree: worktreeIsReal,
+      hasUncommittedChanges: worktreeHasUncommittedChanges,
+      headCommit: worktreeHeadCommit,
+      branchTip: branchTipInRepo,
+      isInPullRequest: async () => true,
+      ensureDeletable: ensureWorktreeDeletable,
+      remove: ({ worktreePath, projectPath, specId: id }) =>
+        cleanupWorktree({ worktreePath, projectPath, specId: id, deleteBranch: true, branchName: `auto-claude/${id}` }),
+      deleteBranch: deleteTaskBranch,
+      invalidate: () => undefined,
+    });
+  };
+
+  it('removes a clean, merged legacy worktree and its branch', async () => {
+    const wt = join(repo, '.worktrees', '018-z');
+    git('worktree', 'add', '-q', '-b', 'auto-claude/018-z', wt);
+    const outcomes = await run('018-z');
+    expect(outcomes).toMatchObject([{ status: 'removed' }]);
+    expect(existsSync(wt)).toBe(false);
+    expect(git('branch', '--list', 'auto-claude/018-z')).toBe('');
+  });
+
+  it('keeps a legacy worktree with uncommitted work', async () => {
+    const wt = join(repo, '.worktrees', '019-w');
+    git('worktree', 'add', '-q', '-b', 'auto-claude/019-w', wt);
+    writeFileSync(join(wt, 'unsaved.txt'), 'work\n');
+    const outcomes = await run('019-w');
+    expect(outcomes).toMatchObject([{ status: 'kept', reason: 'uncommitted_changes' }]);
+    expect(existsSync(join(wt, 'unsaved.txt'))).toBe(true);
   });
 });

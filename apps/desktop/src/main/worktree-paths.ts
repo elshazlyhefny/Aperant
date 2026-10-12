@@ -55,6 +55,24 @@ export function isPathWithinBase(resolvedPath: string, basePath: string): boolea
 }
 
 /**
+ * zeenha fork: is this one task worktree folder, at the current location
+ * (`.auto-claude/worktrees/tasks/<specId>`) or the legacy one
+ * (`.worktrees/<specId>`, still found by findTaskWorktree)? Strictly inside
+ * the folder: the worktrees folder itself is never a task worktree.
+ *
+ * Cleanup checks this before deleting anything. It used to accept only the
+ * current location, so a merged task whose worktree sat at the legacy path was
+ * kept forever.
+ */
+export function isTaskWorktreeFolder(worktreePath: string, projectPath: string): boolean {
+  if (!worktreePath || !projectPath) return false;
+  const resolved = path.resolve(worktreePath);
+  return [path.join(projectPath, TASK_WORKTREE_DIR), path.join(projectPath, LEGACY_WORKTREE_DIR)].some(
+    (base) => resolved !== path.resolve(base) && isPathWithinBase(resolved, base),
+  );
+}
+
+/**
  * Find a task worktree path, checking new location first then legacy
  * Returns the path if found, null otherwise
  * Includes path traversal protection to ensure paths stay within project
