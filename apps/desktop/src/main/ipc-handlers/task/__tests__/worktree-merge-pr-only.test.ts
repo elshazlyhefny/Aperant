@@ -10,6 +10,11 @@ import path from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '../../../../shared/constants';
 import { PR_ONLY_LANDING_MESSAGE } from '../../../../shared/utils/landing-policy';
+// Imported statically, not inside a test: this module's graph is large, and a
+// cold import inside the first test counted against its 5s timeout, which a
+// loaded full-suite run exceeded ("Test timed out in 5000ms"). vi.mock calls
+// below are hoisted above this import, so the mocks still apply.
+import { registerWorktreeHandlers } from '../worktree-handlers';
 
 const handlers = vi.hoisted(() => new Map<string, Function>());
 vi.mock('electron', () => ({
@@ -34,7 +39,6 @@ describe('TASK_WORKTREE_MERGE and PR-only landing (zeenha fork)', () => {
   });
 
   const merge = async (options: { noCommit?: boolean } = {}) => {
-    const { registerWorktreeHandlers } = await import('../worktree-handlers');
     registerWorktreeHandlers(() => null);
     const fn = handlers.get(IPC_CHANNELS.TASK_WORKTREE_MERGE);
     if (!fn) throw new Error('TASK_WORKTREE_MERGE handler was not registered');
