@@ -137,12 +137,24 @@ export function nonInteractiveEnv(): NodeJS.ProcessEnv {
 }
 
 /** Run a command asynchronously with a timeout; stdin is closed at once. */
-function run(command: string, args: string[], cwd: string, timeoutMs: number): Promise<string> {
+function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  extraEnv?: NodeJS.ProcessEnv,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       command,
       args,
-      { cwd, encoding: 'utf-8', timeout: timeoutMs, env: nonInteractiveEnv(), maxBuffer: 10 * 1024 * 1024 },
+      {
+        cwd,
+        encoding: 'utf-8',
+        timeout: timeoutMs,
+        env: extraEnv ? { ...nonInteractiveEnv(), ...extraEnv } : nonInteractiveEnv(),
+        maxBuffer: 10 * 1024 * 1024,
+      },
       (error, stdout, stderr) => {
         if (!error) {
           resolve(String(stdout));
@@ -286,6 +298,58 @@ async function gatherPRContext(
 }
 
 /**
+ * zeenha fork: work the coder left in the task worktree without committing it,
+ * for the title suggestion. Strictly read-only: nothing is staged or committed
+ * (the person has not confirmed the PR yet), and GIT_OPTIONAL_LOCKS=0 stops
+ * `git status` from rewriting the index. Aperant's own .auto-claude files are
+ * left out, and gitignored files never appear (status does not list them).
+ * Empty strings when there is nothing uncommitted or git cannot answer.
+ */
+export async function gatherUncommittedContext(
+  worktreePath: string,
+  gitPath: string,
+): Promise<{ uncommittedDiff: string; untrackedFiles: string }> {
+  const readOnly = { GIT_OPTIONAL_LOCKS: '0' };
+  let changes: string[];
+  try {
+    const status = await run(
+      gitPath,
+      ['status', '--porcelain', '--untracked-files=all'],
+      worktreePath,
+      GIT_READ_TIMEOUT_MS,
+      readOnly,
+    );
+    changes = workChanges(status);
+  } catch {
+    return { uncommittedDiff: '', untrackedFiles: '' };
+  }
+  if (changes.length === 0) return { uncommittedDiff: '', untrackedFiles: '' };
+
+  const untracked = changes.filter((line) => line.startsWith('?? ')).map((line) => line.slice(3));
+  const untrackedFiles = untracked.join('\n').slice(0, 2000);
+
+  let uncommittedDiff = '';
+  if (untracked.length < changes.length) {
+    try {
+      // The exclude pathspec is safe here: unlike `git add`, `git diff` does
+      // not refuse a pathspec that names an ignored directory.
+      uncommittedDiff = (
+        await run(
+          gitPath,
+          ['diff', '--stat', 'HEAD', '--', '.', `:(exclude)${TASK_FILES_DIR}`],
+          worktreePath,
+          GIT_READ_TIMEOUT_MS,
+          readOnly,
+        )
+      ).slice(0, 3000);
+    } catch {
+      // Not fatal — proceed with the untracked names alone
+    }
+  }
+  return { uncommittedDiff, untrackedFiles };
+}
+
+/**
  * Extract a brief summary from the spec file for fallback PR body.
  */
 function extractSpecSummary(projectDir: string, specId: string): string {
@@ -406,10 +470,26 @@ export async function suggestPRTitle(options: {
   specId: string;
   diffSummary: string;
   commitLog: string;
+  /** zeenha fork: `git diff --stat HEAD` of work not committed yet. */
+  uncommittedDiff?: string;
+  /** zeenha fork: new files not committed yet, one per line. */
+  untrackedFiles?: string;
   modelShorthand?: ModelShorthand;
   thinkingLevel?: ThinkingLevel;
 }): Promise<string | null> {
   const { taskTitle, specId, diffSummary, commitLog, modelShorthand = 'haiku', thinkingLevel = 'low' } = options;
+  const uncommittedDiff = options.uncommittedDiff?.trim() ?? '';
+  const untrackedFiles = options.untrackedFiles?.trim() ?? '';
+  const uncommitted =
+    uncommittedDiff || untrackedFiles
+      ? `
+
+Uncommitted changes (part of this pull request; they are committed when it is created):
+${uncommittedDiff || '(no changes to existing files)'}
+
+New files not committed yet:
+${untrackedFiles || '(none)'}`
+      : '';
   const prompt = `Task: ${taskTitle}
 Spec ID: ${specId}
 
@@ -417,7 +497,7 @@ Commit log:
 ${commitLog || '(no commits listed)'}
 
 Diff summary:
-${diffSummary || '(no diff available)'}
+${diffSummary || '(no diff available)'}${uncommitted}
 
 Write the pull request title.`;
 
@@ -454,7 +534,9 @@ export const PR_TITLE_TIMEOUT_MS = 30_000;
 
 /**
  * Suggest a title for a task's worktree: gathers the same commit log and diff
- * summary the body uses, then asks the model. Read-only on the repository.
+ * summary the body uses, plus the work the coder left uncommitted (Create PR
+ * commits it only once the person confirms), then asks the model. Read-only
+ * on the repository: it never stages or commits.
  */
 export async function suggestPRTitleForWorktree(options: {
   worktreePath: string;
@@ -464,7 +546,15 @@ export async function suggestPRTitleForWorktree(options: {
   specId: string;
 }): Promise<string | null> {
   const { diffSummary, commitLog } = await gatherPRContext(options.worktreePath, options.gitPath, options.baseBranch);
-  return suggestPRTitle({ taskTitle: options.taskTitle, specId: options.specId, diffSummary, commitLog });
+  const { uncommittedDiff, untrackedFiles } = await gatherUncommittedContext(options.worktreePath, options.gitPath);
+  return suggestPRTitle({
+    taskTitle: options.taskTitle,
+    specId: options.specId,
+    diffSummary,
+    commitLog,
+    uncommittedDiff,
+    untrackedFiles,
+  });
 }
 
 // =============================================================================
