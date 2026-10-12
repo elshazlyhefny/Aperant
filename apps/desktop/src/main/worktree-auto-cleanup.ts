@@ -47,7 +47,8 @@ export interface MergedCleanupDeps {
   isRunning(taskId: string): boolean;
   prState(prUrl: string, projectPath: string): Promise<PullRequestState | null>;
   /** Is this folder a live git worktree of its own (not a half-deleted leftover)? */
-  isRealWorktree(worktreePath: string): Promise<boolean>;
+  /** true = live worktree, false = leftover folder, null = git could not tell. */
+  isRealWorktree(worktreePath: string): Promise<boolean | null>;
   hasUncommittedChanges(worktreePath: string): Promise<boolean>;
   headCommit(worktreePath: string): Promise<string | null>;
   /** Tip of a local branch in the project repository, or null if it does not exist. */
@@ -136,6 +137,14 @@ export async function cleanupMergedWorktrees(
         // failed removal. git inside it would answer for the PARENT repository,
         // so its checks run against the task's branch instead.
         const real = await deps.isRealWorktree(worktreePath);
+        // zeenha fork: git failing inside the folder (a .git link to a pruned
+        // admin dir, dubious ownership, a timeout) is NOT proof of a leftover.
+        // Read as one, it skipped the uncommitted-changes check and deleted the
+        // folder. Git errors count as dirty: keep it.
+        if (real === null) {
+          keep('head_unreadable');
+          continue;
+        }
         let tip: string | null;
         if (real) {
           if (await deps.hasUncommittedChanges(worktreePath)) {
@@ -254,14 +263,25 @@ export async function worktreeHeadCommit(worktreePath: string): Promise<string |
   }
 }
 
-/** True only when git's own top level for the folder IS the folder (a live worktree). */
-export async function worktreeIsReal(worktreePath: string): Promise<boolean> {
+/**
+ * True when git's own top level for the folder IS the folder (a live worktree),
+ * false when git answers for another directory (a leftover whose .git is gone,
+ * so git walks up to the parent repository), and null when git fails: that
+ * proves nothing about the folder, so the caller must not treat it as a
+ * leftover.
+ */
+export async function worktreeIsReal(worktreePath: string): Promise<boolean | null> {
+  let top: string;
   try {
-    const top = (await gitInWorktree(worktreePath, ['rev-parse', '--show-toplevel'])).trim();
+    top = (await gitInWorktree(worktreePath, ['rev-parse', '--show-toplevel'])).trim();
+  } catch {
+    return null;
+  }
+  try {
     const [a, b] = await Promise.all([realpath(top), realpath(worktreePath)]);
     return a === b;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -381,17 +401,32 @@ export async function ensureWorktreeDeletable(
 }
 
 // One run at a time: the timer, opening the Worktrees page and the button can overlap.
-let inFlight: Promise<MergedCleanupOutcome[]> | null = null;
+let inFlight: { projectId?: string; promise: Promise<MergedCleanupOutcome[]> } | null = null;
 
 export function runMergedWorktreeCleanup(
   deps: MergedCleanupDeps,
   options: { projectId?: string } = {},
 ): Promise<MergedCleanupOutcome[]> {
-  if (inFlight) return inFlight;
-  inFlight = cleanupMergedWorktrees(deps, options).finally(() => {
-    inFlight = null;
+  const current = inFlight;
+  if (current) {
+    // zeenha fork: the running run answers this request only when it covers
+    // it (all projects, or the same one), and only with this project's
+    // outcomes. Otherwise this run starts once that one is done. It used to
+    // hand back whatever was running: every project's outcomes on one
+    // project's page, or another project's results with this one never cleaned.
+    const covers = !current.projectId || current.projectId === options.projectId;
+    if (covers) {
+      return current.promise.then((outcomes) =>
+        options.projectId ? outcomes.filter((o) => o.projectId === options.projectId) : outcomes,
+      );
+    }
+    return current.promise.catch(() => []).then(() => runMergedWorktreeCleanup(deps, options));
+  }
+  const promise = cleanupMergedWorktrees(deps, options).finally(() => {
+    if (inFlight?.promise === promise) inFlight = null;
   });
-  return inFlight;
+  inFlight = { projectId: options.projectId, promise };
+  return promise;
 }
 
 export const MERGED_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;

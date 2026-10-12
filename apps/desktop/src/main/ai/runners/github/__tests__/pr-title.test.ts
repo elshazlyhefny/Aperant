@@ -7,21 +7,23 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({ text: '', fail: false, prompts: [] as string[] }));
+const state = vi.hoisted(() => ({ text: '', fail: false, hang: false, prompts: [] as string[], signals: [] as Array<AbortSignal | undefined> }));
 
 vi.mock('../../../../env-utils', () => ({ getAugmentedEnv: () => ({}) }));
 vi.mock('../../../client/factory', () => ({
   createSimpleClient: vi.fn(async ({ systemPrompt }: { systemPrompt: string }) => ({ model: 'test-model', systemPrompt })),
 }));
 vi.mock('ai', () => ({
-  generateText: vi.fn(async ({ prompt }: { prompt: string }) => {
+  generateText: vi.fn(async ({ prompt, abortSignal }: { prompt: string; abortSignal?: AbortSignal }) => {
     state.prompts.push(prompt);
+    state.signals.push(abortSignal);
+    if (state.hang) return new Promise<never>(() => undefined);
     if (state.fail) throw new Error('model unavailable');
     return { text: state.text };
   }),
 }));
 
-import { MAX_SUGGESTED_PR_TITLE_LENGTH, normalizeSuggestedPRTitle, suggestPRTitle } from '../pr-creator';
+import { MAX_SUGGESTED_PR_TITLE_LENGTH, normalizeSuggestedPRTitle, PR_TITLE_TIMEOUT_MS, suggestPRTitle } from '../pr-creator';
 
 describe('normalizeSuggestedPRTitle', () => {
   it('accepts a conventional title with and without a scope', () => {
@@ -84,5 +86,30 @@ describe('suggestPRTitle', () => {
     expect(await suggestPRTitle({ taskTitle: 't', specId: '001-t', commitLog: '', diffSummary: '' })).toBeNull();
     state.fail = true;
     expect(await suggestPRTitle({ taskTitle: 't', specId: '001-t', commitLog: '', diffSummary: '' })).toBeNull();
+  });
+});
+
+// zeenha fork: Create PR awaits the suggestion; a stalled model request must
+// fall back to the task title instead of holding the PR forever.
+describe('suggestPRTitle when the model never answers', () => {
+  it('gives up after the timeout, answers null and aborts the request', async () => {
+    vi.useFakeTimers();
+    try {
+      state.hang = true;
+      state.signals.length = 0;
+      let settled = false;
+      const pending = suggestPRTitle({ taskTitle: 'T', specId: '001-x', diffSummary: '', commitLog: '' }).then((v) => {
+        settled = true;
+        return v;
+      });
+      await vi.advanceTimersByTimeAsync(PR_TITLE_TIMEOUT_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await pending).toBeNull();
+      expect(state.signals.at(-1)?.aborted).toBe(true);
+    } finally {
+      state.hang = false;
+      vi.useRealTimers();
+    }
   });
 });

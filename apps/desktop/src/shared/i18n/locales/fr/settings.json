@@ -932,6 +932,11 @@
       "autoClaude": {
         "name": "Outils Aperant",
         "description": "Suivi de la progression du build"
+      },
+      "memory": {
+        "name": "Mémoire",
+        "description": "Permet aux agents de lire et d'écrire la mémoire du projet entre les sessions",
+        "notConfigured": "Nécessite la configuration de la mémoire (voir les paramètres Mémoire)"
       }
     },
     "customServers": "Serveurs personnalisés",

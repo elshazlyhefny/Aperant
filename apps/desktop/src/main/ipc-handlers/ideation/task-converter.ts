@@ -88,37 +88,42 @@ function buildTaskMetadata(idea: RawIdea): TaskMetadata {
   };
   metadata.category = ideaTypeToCategory[idea.type] || 'feature';
 
+  // zeenha fork: four of the six idea types are written in camelCase
+  // (affectedFiles, estimatedEffort, ...). Only the snake_case names were read,
+  // so tasks made from those ideas lost their files, effort and audience.
+  const pick = <T,>(snake: T | undefined, camel: T | undefined): T | undefined => snake ?? camel;
+
   // Extract type-specific metadata with proper type casting
   if (idea.type === 'code_improvements') {
-    const effort = idea.estimated_effort as TaskComplexity | undefined;
+    const effort = pick(idea.estimated_effort, idea.estimatedEffort) as TaskComplexity | undefined;
     metadata.estimatedEffort = effort;
     metadata.complexity = effort;
-    metadata.affectedFiles = idea.affected_files;
+    metadata.affectedFiles = pick(idea.affected_files, idea.affectedFiles);
   } else if (idea.type === 'ui_ux_improvements') {
     metadata.uiuxCategory = idea.category;
-    metadata.affectedFiles = idea.affected_components;
-    metadata.problemSolved = idea.current_state;
+    metadata.affectedFiles = pick(idea.affected_components, idea.affectedComponents);
+    metadata.problemSolved = pick(idea.current_state, idea.currentState);
   } else if (idea.type === 'documentation_gaps') {
-    metadata.estimatedEffort = idea.estimated_effort as TaskComplexity | undefined;
+    metadata.estimatedEffort = pick(idea.estimated_effort, idea.estimatedEffort) as TaskComplexity | undefined;
     metadata.priority = idea.priority as TaskPriority | undefined;
-    metadata.targetAudience = idea.target_audience;
-    metadata.affectedFiles = idea.affected_areas;
+    metadata.targetAudience = pick(idea.target_audience, idea.targetAudience);
+    metadata.affectedFiles = pick(idea.affected_areas, idea.affectedAreas);
   } else if (idea.type === 'security_hardening') {
     const severity = idea.severity as 'low' | 'medium' | 'high' | 'critical' | undefined;
     metadata.securitySeverity = severity;
     metadata.impact = severity as TaskImpact | undefined;
     metadata.priority = severity === 'critical' ? 'urgent' : severity === 'high' ? 'high' : 'medium';
-    metadata.affectedFiles = idea.affected_files;
+    metadata.affectedFiles = pick(idea.affected_files, idea.affectedFiles);
   } else if (idea.type === 'performance_optimizations') {
     metadata.performanceCategory = idea.category;
     metadata.impact = idea.impact as TaskImpact | undefined;
-    metadata.estimatedEffort = idea.estimated_effort as TaskComplexity | undefined;
-    metadata.affectedFiles = idea.affected_areas;
+    metadata.estimatedEffort = pick(idea.estimated_effort, idea.estimatedEffort) as TaskComplexity | undefined;
+    metadata.affectedFiles = pick(idea.affected_areas, idea.affectedAreas);
   } else if (idea.type === 'code_quality') {
     const severity = idea.severity as 'suggestion' | 'minor' | 'major' | 'critical' | undefined;
     metadata.codeQualitySeverity = severity;
-    metadata.estimatedEffort = idea.estimated_effort as TaskComplexity | undefined;
-    metadata.affectedFiles = idea.affected_files;
+    metadata.estimatedEffort = pick(idea.estimated_effort, idea.estimatedEffort) as TaskComplexity | undefined;
+    metadata.affectedFiles = pick(idea.affected_files, idea.affectedFiles);
     metadata.priority = severity === 'critical' ? 'urgent' : severity === 'major' ? 'high' : 'medium';
   }
 
@@ -192,10 +197,8 @@ export async function convertIdeaToTask(
     AUTO_BUILD_PATHS.IDEATION_FILE
   );
 
-  // Quick check that ideation file exists (actual read happens inside lock)
-  if (!existsSync(ideationPath)) {
-    return { success: false, error: 'Ideation not found' };
-  }
+  // zeenha fork: no early "Ideation not found" when ideation.json is missing:
+  // readIdeationFile() (inside the lock) builds it from the per-category files.
 
   // Get specs directory path
   const specsBaseDir = getSpecsDir(project.autoBuildPath);

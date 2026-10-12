@@ -106,7 +106,9 @@
     "save": "Save",
     "apply": "Apply",
     "delete": "Delete",
-    "settings": "Settings"
+    "settings": "Settings",
+    "dismiss": "Dismiss",
+    "success": "Success"
   },
   "os": {
     "windows": "Windows",
@@ -970,5 +972,11 @@
       "blockedTooltip": "This PR cannot be merged due to blocking conditions",
       "conflictTooltip": "This PR has merge conflicts that need to be resolved"
     }
-  }
+  },
+  "add": "Add",
+  "cancel": "Cancel",
+  "close": "Close",
+  "delete": "Delete",
+  "optional": "optional",
+  "save": "Save"
 }

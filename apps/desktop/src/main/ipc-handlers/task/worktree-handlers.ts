@@ -3137,6 +3137,16 @@ export function registerWorktreeHandlers(
             debug
           );
 
+          // zeenha fork: tell the task's state machine too. The plan file now says
+          // `done`, but the in-memory actor stayed in human_review, so it kept
+          // writing xstateState "human_review" next to status "done" and, until the
+          // next restart, still accepted "resume" on a task whose PR was open.
+          try {
+            taskStateManager.handleManualStatusChange(taskId, 'done', task, project);
+          } catch (err) {
+            debug('Failed to move the task state machine to done after PR creation:', err);
+          }
+
           // Update linked roadmap feature
           if (project.path && task.specId) {
             const roadmapFile = path.join(project.path, AUTO_BUILD_PATHS.ROADMAP_DIR, AUTO_BUILD_PATHS.ROADMAP_FILE);

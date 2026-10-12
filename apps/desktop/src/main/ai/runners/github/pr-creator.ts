@@ -413,14 +413,36 @@ ${diffSummary || '(no diff available)'}
 
 Write the pull request title.`;
 
+  // zeenha fork: bounded. Create PR without a typed title (the bulk dialog)
+  // awaits this before opening the PR, and a stalled model request never
+  // throws, so it used to hold the PR forever instead of falling back to the
+  // task title.
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(null);
+    }, PR_TITLE_TIMEOUT_MS);
+  });
+  const ask = (async () => {
+    try {
+      const client = await createSimpleClient({ systemPrompt: TITLE_SYSTEM_PROMPT, modelShorthand, thinkingLevel });
+      const result = await generateText({ model: client.model, system: client.systemPrompt, prompt, abortSignal: controller.signal });
+      return normalizeSuggestedPRTitle(result.text);
+    } catch {
+      return null;
+    }
+  })();
   try {
-    const client = await createSimpleClient({ systemPrompt: TITLE_SYSTEM_PROMPT, modelShorthand, thinkingLevel });
-    const result = await generateText({ model: client.model, system: client.systemPrompt, prompt });
-    return normalizeSuggestedPRTitle(result.text);
-  } catch {
-    return null;
+    return await Promise.race([ask, timedOut]);
+  } finally {
+    clearTimeout(timer);
   }
 }
+
+/** zeenha fork: the longest a PR title suggestion may take before the task title is used. */
+export const PR_TITLE_TIMEOUT_MS = 30_000;
 
 /**
  * Suggest a title for a task's worktree: gathers the same commit log and diff

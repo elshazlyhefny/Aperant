@@ -20,7 +20,7 @@ interface Fixture {
   worktree?: string | null;
   pr?: PullRequestState | null;
   running?: boolean[]; // answers to successive isRunning calls
-  real?: boolean;
+  real?: boolean | null;
   dirty?: boolean;
   head?: string | null;
   branch?: string | null;
@@ -40,7 +40,7 @@ function setup(f: Fixture = {}) {
     findWorktree: () => ('worktree' in f ? (f.worktree ?? null) : '/repo/.auto-claude/worktrees/tasks/016-keep-focus'),
     isRunning: vi.fn(() => running.shift() ?? false),
     prState: vi.fn(async () => ('pr' in f ? (f.pr ?? null) : { state: 'MERGED', headRefOid: HEAD })),
-    isRealWorktree: vi.fn(async () => f.real ?? true),
+    isRealWorktree: vi.fn(async () => ('real' in f ? (f.real as boolean | null) : true)),
     hasUncommittedChanges: vi.fn(async () => f.dirty ?? false),
     headCommit: vi.fn(async () => ('head' in f ? (f.head ?? null) : HEAD)),
     branchTip: vi.fn(async () => ('branch' in f ? (f.branch ?? null) : HEAD)),
@@ -87,6 +87,9 @@ describe('cleanupMergedWorktrees', () => {
     ['files are owned by another user and cannot be handed back', { deletable: { ok: false, detail: 'vendor' } }, 'foreign_owned_files'],
     ['a leftover folder whose branch has unmerged commits', { real: false, inPr: false }, 'commits_after_merge'],
     ['HEAD cannot be read', { head: null }, 'head_unreadable'],
+    // zeenha fork: git failing in the folder used to read as "leftover", which
+    // skipped the uncommitted-changes check and deleted the folder.
+    ['git cannot tell whether it is a worktree', { real: null }, 'head_unreadable'],
     ['the removal itself fails', { removeOk: false }, 'cleanup_failed'],
   ])('keeps the worktree when %s', async (_name, fixture, reason) => {
     const { deps, run } = setup(fixture);
