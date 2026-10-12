@@ -41,7 +41,7 @@ describe('converted ideas', () => {
     const result = await convertIdeaToTask({} as never, 'p1', 'sec-001');
 
     expect(result.success).toBe(true);
-    const specDir = path.join(ref.path, '.auto-claude', 'specs', result.data!.specId);
+    const specDir = path.join(ref.path, '.auto-claude', 'specs', result.data?.specId ?? '');
     const metadata = JSON.parse(readFileSync(path.join(specDir, 'task_metadata.json'), 'utf-8'));
     expect(metadata.affectedFiles).toEqual(['app/Auth.php']);
   });
@@ -52,7 +52,7 @@ describe('converted ideas', () => {
 
     const result = await convertIdeaToTask({} as never, 'p1', 'doc-001');
 
-    const metadata = JSON.parse(readFileSync(path.join(ref.path, '.auto-claude', 'specs', result.data!.specId, 'task_metadata.json'), 'utf-8'));
+    const metadata = JSON.parse(readFileSync(path.join(ref.path, '.auto-claude', 'specs', result.data?.specId ?? '', 'task_metadata.json'), 'utf-8'));
     expect(metadata).toMatchObject({ estimatedEffort: 'small', targetAudience: 'operators', affectedFiles: ['docs/'] });
   });
 

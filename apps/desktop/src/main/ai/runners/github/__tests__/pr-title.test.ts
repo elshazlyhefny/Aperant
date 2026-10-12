@@ -17,7 +17,7 @@ vi.mock('ai', () => ({
   generateText: vi.fn(async ({ prompt, abortSignal }: { prompt: string; abortSignal?: AbortSignal }) => {
     state.prompts.push(prompt);
     state.signals.push(abortSignal);
-    if (state.hang) return new Promise(() => {});
+    if (state.hang) return new Promise<never>(() => undefined);
     if (state.fail) throw new Error('model unavailable');
     return { text: state.text };
   }),

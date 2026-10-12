@@ -31,7 +31,7 @@ function deps(gate: Promise<void>): MergedCleanupDeps {
     ensureDeletable: async () => ({ ok: true }),
     deleteBranch: async () => ({ success: true }),
     remove: async () => ({ success: true, warnings: [] }),
-    invalidate: () => {},
+    invalidate: () => undefined,
   };
 }
 
