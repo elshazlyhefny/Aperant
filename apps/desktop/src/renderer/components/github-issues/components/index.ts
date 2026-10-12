@@ -7,3 +7,4 @@ export { IssueList } from './IssueList';
 export { AutoFixButton } from './AutoFixButton';
 export { BatchReviewWizard } from './BatchReviewWizard';
 export { GitHubErrorDisplay } from './GitHubErrorDisplay';
+export { TriageDialog } from './TriageDialog';

@@ -978,5 +978,69 @@
   "close": "Close",
   "delete": "Delete",
   "optional": "optional",
-  "save": "Save"
+  "save": "Save",
+  "githubTriage": {
+    "button": "Triage Issues",
+    "buttonTooltip": "Let AI categorise the open issues and suggest labels. Nothing changes on GitHub until you apply labels.",
+    "title": "Issue Triage",
+    "description": "AI reviews up to 100 open issues of {{repo}}, categorises them and suggests labels. Labels are written to GitHub only when you apply them.",
+    "settings": {
+      "title": "Flag thresholds",
+      "description": "A duplicate, spam or feature-creep flag is kept only when the AI's confidence reaches this value.",
+      "duplicate": "Duplicate",
+      "spam": "Spam",
+      "featureCreep": "Feature creep",
+      "save": "Save thresholds",
+      "saved": "Thresholds saved",
+      "saveFailed": "Could not save the thresholds",
+      "invalid": "Enter a value from 0 to 100"
+    },
+    "run": {
+      "start": "Triage open issues",
+      "rerun": "Triage again",
+      "running": "Triaging…",
+      "hint": "Uses the GitHub Issues model from your settings.",
+      "errorTitle": "Triage failed"
+    },
+    "results": {
+      "title": "Results ({{count}})",
+      "empty": "No triage results yet. Run triage to categorise the open issues.",
+      "selectAll": "Select all",
+      "selectIssue": "Select issue #{{number}}",
+      "confidence": "{{value}}% confident",
+      "duplicate": "Duplicate",
+      "duplicateOf": "Duplicate of #{{number}}",
+      "spam": "Spam",
+      "featureCreep": "Feature creep",
+      "applied": "Labels applied",
+      "noChanges": "No label changes suggested"
+    },
+    "categories": {
+      "bug": "Bug",
+      "feature": "Feature",
+      "documentation": "Documentation",
+      "question": "Question",
+      "duplicate": "Duplicate",
+      "spam": "Spam",
+      "feature_creep": "Feature creep"
+    },
+    "priority": {
+      "high": "High priority",
+      "medium": "Medium priority",
+      "low": "Low priority"
+    },
+    "apply": {
+      "button": "Apply labels ({{count}})",
+      "applying": "Applying…",
+      "confirmTitle": "Change labels on GitHub?",
+      "confirmDescription_one": "This edits the labels of {{count}} issue in {{repo}}. Only labels that already exist in the repository are added; none are created.",
+      "confirmDescription_other": "This edits the labels of {{count}} issues in {{repo}}. Only labels that already exist in the repository are added; none are created.",
+      "confirm": "Apply labels",
+      "summary_one": "Labels updated on {{count}} issue.",
+      "summary_other": "Labels updated on {{count}} issues.",
+      "skipped": "#{{number}}: not in the repository, skipped: {{labels}}",
+      "failed": "#{{number}} not updated: {{error}}",
+      "error": "Labels were not applied: {{error}}"
+    }
+  }
 }

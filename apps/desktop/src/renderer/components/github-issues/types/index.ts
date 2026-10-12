@@ -105,6 +105,9 @@ export interface IssueListHeaderProps {
   // Analyze & Group (proactive - for existing issues)
   onAnalyzeAndGroup?: () => void;
   isAnalyzing?: boolean;
+  // Issue triage (AI categorisation and label suggestions)
+  onOpenTriage?: () => void;
+  isTriaging?: boolean;
 }
 
 export interface IssueListProps {
