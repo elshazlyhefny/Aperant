@@ -401,17 +401,32 @@ export async function ensureWorktreeDeletable(
 }
 
 // One run at a time: the timer, opening the Worktrees page and the button can overlap.
-let inFlight: Promise<MergedCleanupOutcome[]> | null = null;
+let inFlight: { projectId?: string; promise: Promise<MergedCleanupOutcome[]> } | null = null;
 
 export function runMergedWorktreeCleanup(
   deps: MergedCleanupDeps,
   options: { projectId?: string } = {},
 ): Promise<MergedCleanupOutcome[]> {
-  if (inFlight) return inFlight;
-  inFlight = cleanupMergedWorktrees(deps, options).finally(() => {
-    inFlight = null;
+  const current = inFlight;
+  if (current) {
+    // zeenha fork: the running run answers this request only when it covers
+    // it (all projects, or the same one), and only with this project's
+    // outcomes. Otherwise this run starts once that one is done. It used to
+    // hand back whatever was running: every project's outcomes on one
+    // project's page, or another project's results with this one never cleaned.
+    const covers = !current.projectId || current.projectId === options.projectId;
+    if (covers) {
+      return current.promise.then((outcomes) =>
+        options.projectId ? outcomes.filter((o) => o.projectId === options.projectId) : outcomes,
+      );
+    }
+    return current.promise.catch(() => []).then(() => runMergedWorktreeCleanup(deps, options));
+  }
+  const promise = cleanupMergedWorktrees(deps, options).finally(() => {
+    if (inFlight?.promise === promise) inFlight = null;
   });
-  return inFlight;
+  inFlight = { projectId: options.projectId, promise };
+  return promise;
 }
 
 export const MERGED_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
