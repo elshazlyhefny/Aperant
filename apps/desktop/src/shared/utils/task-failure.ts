@@ -86,3 +86,17 @@ export function reasonFromPhaseEndMessage(content: string | undefined): string |
   const reason = match?.[1]?.trim();
   return reason ? reason : undefined;
 }
+
+/**
+ * Where a task in the Failed column (status `error`) may be moved by hand.
+ * Backlog (park it; the state machine leaves `error` and drops the reason),
+ * Queue and In Progress (run it again, like Retry) and Done (give it up) are
+ * real moves. AI Review and Human Review are refused: the task did no work, so
+ * there is nothing to review, and showing it there is the defect the Failed
+ * column exists to remove.
+ */
+const FAILED_TASK_TARGETS: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['backlog', 'queue', 'in_progress', 'done']);
+
+export function canMoveFailedTaskTo(target: TaskStatus): boolean {
+  return FAILED_TASK_TARGETS.has(target);
+}

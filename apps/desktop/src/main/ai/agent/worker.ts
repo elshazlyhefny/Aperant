@@ -52,6 +52,7 @@ import { WorkerObserverProxy } from '../memory/ipc/worker-observer-proxy';
 import { createRecordMemoryTool } from '../memory/tools/record-memory';
 import { createSearchMemoryTool } from '../memory/tools/search-memory';
 import type { MemorySessionContext } from '../session/runner';
+import { buildOutcomeTaskEvents } from './build-outcome-events';
 
 // =============================================================================
 // Validation
@@ -739,21 +740,10 @@ async function runBuildOrchestrator(
   }
 
   // Emit task events based on orchestration outcome so XState machine
-  // can transition to the correct state (e.g., human_review on success).
-  if (outcome.success) {
-    postTaskEvent('QA_PASSED');
-    postTaskEvent('BUILD_COMPLETE');
-  } else if (outcome.codingCompleted) {
-    // Coding succeeded but QA failed — emit QA-specific event so XState
-    // transitions to 'error' with reviewReason='errors' instead of the
-    // generic CODING_FAILED which would be misleading.
-    postTaskEvent('QA_MAX_ITERATIONS', {
-      iteration: outcome.totalIterations,
-      maxIterations: 3,
-    });
-  } else {
-    // Pre-QA failure (planning or coding phase)
-    postTaskEvent('CODING_FAILED', { error: outcome.error });
+  // can transition to the correct state (e.g., human_review on success,
+  // error via PLANNING_FAILED / CODING_FAILED / QA_MAX_ITERATIONS on failure).
+  for (const event of buildOutcomeTaskEvents(outcome)) {
+    postTaskEvent(event.type, event.extra);
   }
 
   // Map outcome to a SessionResult-compatible result for the bridge

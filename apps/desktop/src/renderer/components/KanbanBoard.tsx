@@ -46,7 +46,7 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import type { Task, TaskStatus, TaskOrderState } from '../../shared/types';
-import { FAILED_COLUMN, getBoardColumns, getVisualColumn, type BoardColumn as BoardColumnKey } from './kanban-columns';
+import { FAILED_COLUMN, canDropTask, getBoardColumns, getVisualColumn, type BoardColumn as BoardColumnKey } from './kanban-columns';
 
 // Type guard for valid drop column targets - preserves literal type from TASK_STATUS_COLUMNS
 const VALID_DROP_COLUMNS = new Set<string>(TASK_STATUS_COLUMNS);
@@ -913,7 +913,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
   };
 
   const handleDragOver = (event: DragOverEvent) => {
-    const { over } = event;
+    const { active, over } = event;
 
     if (!over) {
       setOverColumnId(null);
@@ -921,17 +921,21 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     }
 
     const overId = over.id as string;
+    // zeenha fork: never highlight a column the dragged task cannot be dropped on
+    const draggedStatus = tasks.find((t) => t.id === active.id)?.status;
+    const highlight = (column: TaskStatus) =>
+      setOverColumnId(!draggedStatus || canDropTask(draggedStatus, column) ? column : null);
 
     // Check if over a column
     if (isValidDropColumn(overId)) {
-      setOverColumnId(overId);
+      highlight(overId);
       return;
     }
 
-    // Check if over a task - get its column (never highlight the Failed column: nothing drops there)
+    // Check if over a task - get its column
     const overTask = tasks.find((t) => t.id === overId);
     if (overTask) {
-      setOverColumnId(overTask.status === FAILED_COLUMN ? null : overTask.status);
+      highlight(overTask.status);
     }
   };
 
@@ -1398,8 +1402,9 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
           return;
         }
 
-        // zeenha fork: nothing can be moved into the Failed column
-        if (overTaskVisualColumn === FAILED_COLUMN) return;
+        // zeenha fork: nothing can be moved into the Failed column, and a Failed
+        // task cannot go to AI Review or Human Review (checked before reordering)
+        if (!canDropTask(task.status, overTask.status)) return;
 
         // Different visual column: move to that task's column (status change)
         // Use the visual column key for ordering to ensure consistency
@@ -1414,6 +1419,9 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     }
 
     if (!newStatus || newStatus === oldStatus) return;
+
+    // zeenha fork: a Failed task cannot be dropped on AI Review or Human Review
+    if (!canDropTask(oldStatus, newStatus)) return;
 
     // Persist status change via handleStatusChange which enforces queue capacity,
     // handles worktree cleanup dialogs, and calls processQueue() when a task

@@ -218,6 +218,42 @@ describe('taskMachine', () => {
       expect(snapshot.context.error).toBeUndefined();
     });
 
+    it('should transition to error on PLANNING_FAILED while coding (resumed build whose plan is invalid)', () => {
+      const snapshot = runEvents(
+        [{ type: 'PLANNING_FAILED', error: 'Implementation plan is invalid', recoverable: true }],
+        'coding'
+      );
+      expect(snapshot.value).toBe('error');
+      expect(snapshot.context.reviewReason).toBe('errors');
+      expect(snapshot.context.error).toBe('Implementation plan is invalid');
+    });
+
+    it('should move a failed task to backlog on USER_MOVED_TO_BACKLOG, clearing the error', () => {
+      const snapshot = runEvents([
+        { type: 'PLANNING_STARTED' },
+        { type: 'PLANNING_FAILED', error: 'Test error', recoverable: true },
+        { type: 'USER_MOVED_TO_BACKLOG' }
+      ]);
+      expect(snapshot.value).toBe('backlog');
+      expect(snapshot.context.reviewReason).toBeUndefined();
+      expect(snapshot.context.error).toBeUndefined();
+    });
+
+    it('should stay in error on USER_STOPPED (Stop racing a failure keeps it failed)', () => {
+      const snapshot = runEvents([
+        { type: 'PLANNING_STARTED' },
+        { type: 'PLANNING_FAILED', error: 'Test error', recoverable: true },
+        { type: 'USER_STOPPED', hasPlan: false }
+      ]);
+      expect(snapshot.value).toBe('error');
+      expect(snapshot.context.error).toBe('Test error');
+    });
+
+    it('should ignore USER_MOVED_TO_BACKLOG outside error', () => {
+      const snapshot = runEvents([{ type: 'USER_MOVED_TO_BACKLOG' }], 'human_review');
+      expect(snapshot.value).toBe('human_review');
+    });
+
     it('should allow MARK_DONE from error state', () => {
       const events: TaskEvent[] = [
         { type: 'PLANNING_STARTED' },

@@ -10,6 +10,7 @@
  */
 import { TASK_STATUS_COLUMNS } from '../../shared/constants';
 import type { TaskStatus } from '../../shared/types';
+import { canMoveFailedTaskTo } from '../../shared/utils/task-failure';
 
 export const FAILED_COLUMN = 'error' as const;
 
@@ -29,4 +30,15 @@ export function getBoardColumns(failedTaskCount: number): BoardColumn[] {
     if (column === 'human_review' && failedTaskCount > 0) columns.push(FAILED_COLUMN);
   }
   return columns;
+}
+
+/**
+ * Whether a task in column `from` may be dropped on column `to`. Nothing drops
+ * into the Failed column; a Failed task may go only where
+ * canMoveFailedTaskTo() allows (not AI Review or Human Review).
+ */
+export function canDropTask(from: TaskStatus, to: TaskStatus): boolean {
+  if (getVisualColumn(to) === FAILED_COLUMN) return false;
+  if (getVisualColumn(from) === FAILED_COLUMN) return canMoveFailedTaskTo(to);
+  return true;
 }
