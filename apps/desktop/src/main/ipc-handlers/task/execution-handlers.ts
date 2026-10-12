@@ -23,6 +23,7 @@ import { findTaskWorktree } from '../../worktree-paths';
 import { projectStore } from '../../project-store';
 import { getIsolatedGitEnv, detectWorktreeBranch } from '../../utils/git-isolation';
 import { cancelFallbackTimer } from '../agent-events-handlers';
+import { canMoveFailedTaskTo } from '../../../shared/utils/task-failure';
 import { readSettingsFile } from '../../settings-utils';
 import type { ProviderAccount } from '../../../shared/types/provider-account';
 
@@ -595,6 +596,11 @@ export function registerTaskExecutionHandlers(
 
       if (!task || !project) {
         return { success: false, error: 'Task not found' };
+      }
+
+      // zeenha fork: a Failed task did no work, so it cannot be put up for review.
+      if (task.status === 'error' && status !== 'error' && !canMoveFailedTaskTo(status)) {
+        return { success: false, error: 'A failed task cannot be moved to review: it has no work to review. Retry it, re-plan it, or move it to Backlog.' };
       }
 
       // Validate status transition - 'done' can only be set through merge handler

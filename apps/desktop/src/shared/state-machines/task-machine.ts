@@ -29,6 +29,7 @@ export type TaskEvent =
   | { type: 'QA_AGENT_ERROR'; iteration: number; consecutiveErrors: number }
   | { type: 'PROCESS_EXITED'; exitCode: number; signal?: string; unexpected?: boolean }
   | { type: 'USER_STOPPED'; hasPlan?: boolean }
+  | { type: 'USER_MOVED_TO_BACKLOG' }
   | { type: 'USER_RESUMED' }
   | { type: 'MARK_DONE' }
   | { type: 'CREATE_PR' }
@@ -97,6 +98,9 @@ export const taskMachine = createMachine(
           // Fallback: if QA_PASSED arrives while still in coding (missed QA_STARTED), go to human_review
           QA_PASSED: { target: 'human_review', actions: 'setReviewReasonCompleted' },
           CODING_FAILED: { target: 'error', actions: ['setReviewReasonErrors', 'setError'] },
+          // A resumed build (USER_RESUMED put the machine in coding) can still fail
+          // validating its plan before any coding starts; that is PLANNING_FAILED.
+          PLANNING_FAILED: { target: 'error', actions: ['setReviewReasonErrors', 'setError'] },
           // Fallback: if QA fails while XState is still in coding (missed QA_STARTED), handle gracefully
           QA_MAX_ITERATIONS: { target: 'error', actions: 'setReviewReasonErrors' },
           QA_AGENT_ERROR: { target: 'error', actions: 'setReviewReasonErrors' },
@@ -139,6 +143,10 @@ export const taskMachine = createMachine(
           USER_RESUMED: { target: 'coding', actions: 'clearReviewReason' },
           // Allow restarting from error back to planning (e.g., spec creation crashed)
           PLANNING_STARTED: { target: 'planning', actions: 'clearReviewReason' },
+          // zeenha fork: the user moved a failed task to Backlog. A dedicated event,
+          // not USER_STOPPED: Stop (or the stuck-task fallback) racing a failure
+          // must leave the task failed, not park it.
+          USER_MOVED_TO_BACKLOG: { target: 'backlog', actions: 'clearReviewReason' },
           MARK_DONE: 'done'
         }
       },

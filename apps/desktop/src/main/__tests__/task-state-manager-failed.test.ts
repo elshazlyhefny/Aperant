@@ -31,6 +31,7 @@ vi.mock('../task-failure-facts', () => ({
 }));
 
 import { TaskStateManager } from '../task-state-manager';
+import { buildOutcomeTaskEvents } from '../ai/agent/build-outcome-events';
 
 const task = { id: 't1', specId: '001-x', projectId: 'p1', title: 'x', description: '', status: 'backlog', subtasks: [], logs: [], createdAt: new Date(), updatedAt: new Date() } as Task;
 const project = { id: 'p1', path: '/proj', autoBuildPath: '.auto-claude' } as Project;
@@ -98,5 +99,46 @@ describe('TaskStateManager entering error', () => {
     // leaving error clears the persisted reason (xstateState coding, no reason)
     expect(lastPersist()?.[4]).toBe('coding');
     expect(lastPersist()?.[6]).toBeUndefined();
+  });
+
+  it('moving a failed task to Backlog leaves error and drops the reason', () => {
+    const manager = new TaskStateManager();
+    manager.configure(() => ({}) as never);
+    fail(manager);
+    expect(manager.getCurrentState('t1')).toBe('error');
+
+    expect(manager.handleManualStatusChange('t1', 'backlog', { ...task, status: 'error' } as Task, project)).toBe(true);
+
+    expect(manager.getCurrentState('t1')).toBe('backlog');
+    expect(lastSend()).toEqual(['task:statusChange', 't1', 'backlog', 'p1', undefined]);
+    // [planPath, status, reviewReason, projectId, xstateState, executionPhase, failureReason]
+    expect(lastPersist()).toEqual(['/p/implementation_plan.json', 'backlog', undefined, 'p1', 'backlog', 'idle', undefined]);
+  });
+
+  it('moves a Failed task read from disk (no actor yet) to Backlog', () => {
+    const manager = new TaskStateManager();
+    manager.configure(() => ({}) as never);
+    const failed = { ...task, status: 'error', failureReason: 'x' } as Task;
+    manager.handleManualStatusChange('t1', 'backlog', failed, project);
+    expect(manager.getCurrentState('t1')).toBe('backlog');
+    expect(lastSend()?.[2]).toBe('backlog');
+  });
+
+  it('Stop racing a failure leaves the task failed', () => {
+    const manager = new TaskStateManager();
+    manager.configure(() => ({}) as never);
+    fail(manager);
+    manager.handleUiEvent('t1', { type: 'USER_STOPPED', hasPlan: false }, task, project);
+    expect(manager.getCurrentState('t1')).toBe('error');
+  });
+
+  it('a planning-phase build failure reaches error from planning (PLANNING_FAILED, not CODING_FAILED)', () => {
+    const manager = new TaskStateManager();
+    manager.configure(() => ({}) as never);
+    manager.handleTaskEvent('t1', { type: 'PLANNING_STARTED', sequence: 1 } as never, task, project);
+    const [event] = buildOutcomeTaskEvents({ success: false, error: 'planner crashed', codingCompleted: false, codingStarted: false, totalIterations: 1 });
+    manager.handleTaskEvent('t1', { type: event.type, ...event.extra, sequence: 2 } as never, task, project);
+    expect(manager.getCurrentState('t1')).toBe('error');
+    expect(lastSend()).toEqual(['task:statusChange', 't1', 'error', 'p1', undefined, 'planner crashed']);
   });
 });

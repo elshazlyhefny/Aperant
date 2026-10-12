@@ -130,9 +130,19 @@ export class TaskStateManager {
         }
         return true;
       }
-      case 'backlog':
-        this.handleUiEvent(taskId, { type: 'USER_STOPPED', hasPlan: false }, task, project);
+      case 'backlog': {
+        // zeenha fork: a failed task (machine in `error`, or no actor yet and the
+        // task shown as Failed) leaves `error` only on the dedicated event.
+        const currentState = this.getCurrentState(taskId);
+        const isFailed = currentState === 'error' || (!currentState && task.status === 'error');
+        this.handleUiEvent(
+          taskId,
+          isFailed ? { type: 'USER_MOVED_TO_BACKLOG' } : { type: 'USER_STOPPED', hasPlan: false },
+          task,
+          project
+        );
         return true;
+      }
       case 'human_review':
         // Already in human_review (e.g., stage-only merge keeps task in review).
         // Emit status directly since there's no XState transition needed.

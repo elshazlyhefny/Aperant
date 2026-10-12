@@ -171,6 +171,12 @@ export interface BuildOutcome {
   error?: string;
   /** Whether the coding phase completed before failure (indicates QA-phase failure) */
   codingCompleted: boolean;
+  /**
+   * Whether the build ever entered the coding phase. False on a failure means
+   * it failed while planning (or validating the plan), so the worker reports
+   * PLANNING_FAILED rather than CODING_FAILED.
+   */
+  codingStarted: boolean;
 }
 
 // =============================================================================
@@ -215,6 +221,7 @@ export class BuildOrchestrator extends EventEmitter {
   private completedPhases: CompletablePhase[] = [];
   private iteration = 0;
   private aborted = false;
+  private codingStarted = false;
 
   constructor(config: BuildOrchestratorConfig) {
     super();
@@ -600,6 +607,9 @@ export class BuildOrchestrator extends EventEmitter {
     }
 
     this.currentPhase = phase;
+    if (phase === 'coding') {
+      this.codingStarted = true;
+    }
     this.emitTyped('phase-change', phase, message);
   }
 
@@ -773,6 +783,7 @@ export class BuildOrchestrator extends EventEmitter {
       durationMs,
       error,
       codingCompleted: this.completedPhases.includes('coding'),
+      codingStarted: this.codingStarted,
     };
 
     if (!success && !isTerminalPhase(this.currentPhase)) {

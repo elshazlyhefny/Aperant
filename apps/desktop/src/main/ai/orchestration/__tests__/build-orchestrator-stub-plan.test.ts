@@ -61,6 +61,30 @@ describe('starting a build', () => {
   });
 });
 
+describe('codingStarted on a failed build', () => {
+  it('is false when the planner failed, so the worker reports PLANNING_FAILED', async () => {
+    const { o } = orchestrator();
+    const outcome = await o.run();
+    expect(outcome.success).toBe(false);
+    expect(outcome.codingStarted).toBe(false);
+  });
+
+  it('is true once the build entered coding', async () => {
+    await plan([{ id: 'p1', name: 'Build', subtasks: [{ id: 's1', title: 'Do', description: 'Do', status: 'pending' }] }]);
+    // The coder fails and the build is cancelled, so no retry delays run.
+    const abort = new AbortController();
+    const runSession = vi.fn(async (_config: SessionRunConfig) => {
+      abort.abort();
+      return failed;
+    });
+    const o = new BuildOrchestrator({ specDir, projectDir: specDir, generatePrompt: async () => 'prompt', runSession, abortSignal: abort.signal });
+    const outcome = await o.run();
+    expect(runSession.mock.calls[0][0].agentType).toBe('coder');
+    expect(outcome.success).toBe(false);
+    expect(outcome.codingStarted).toBe(true);
+  });
+});
+
 describe('hasAnySubtask', () => {
   it('needs at least one subtask in some phase', () => {
     expect(hasAnySubtask(null)).toBe(false);
