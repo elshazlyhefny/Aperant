@@ -5,7 +5,7 @@
  * would affect the integration tests that use real filesystem operations.
  */
 
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterAll, vi } from 'vitest';
 import { rename as originalRename, readFile as originalReadFile } from 'fs/promises';
 
 // Track call counts per mock
@@ -44,7 +44,8 @@ import {
   AtomicFileError,
 } from '../atomic-file';
 
-const TEST_DIR = path.join(__dirname, '.test-atomic-retry');
+// zeenha fork: unique per run, so two suites in one checkout never share (and delete) the folder.
+const TEST_DIR = path.join(__dirname, `.test-atomic-retry-${process.pid}-${Math.random().toString(36).slice(2, 8)}`);
 
 describe('transient error retry behavior', () => {
   beforeEach(async () => {
@@ -59,8 +60,11 @@ describe('transient error retry behavior', () => {
     await mkdir(TEST_DIR, { recursive: true });
   });
 
-  // afterEach handled by beforeEach cleanup of next test, plus:
-  // final cleanup not strictly needed since test dir is inside __tests__
+  // beforeEach clears the folder between tests; remove it at the end too,
+  // now that each run has its own name and would otherwise leave one behind.
+  afterAll(async () => {
+    await rm(TEST_DIR, { recursive: true, force: true });
+  });
 
   it('should retry on EBUSY and succeed when error clears', async () => {
     const filePath = path.join(TEST_DIR, 'transient-write.txt');

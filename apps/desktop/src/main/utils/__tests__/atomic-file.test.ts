@@ -20,7 +20,8 @@ import * as fsPromises from 'fs/promises';
 const { mkdir, readFile, writeFile, rm } = fsPromises;
 
 // Test directory for isolated tests
-const TEST_DIR = path.join(__dirname, '.test-atomic-file');
+// zeenha fork: unique per run, so two suites in one checkout never share (and delete) the folder.
+const TEST_DIR = path.join(__dirname, `.test-atomic-file-${process.pid}-${Math.random().toString(36).slice(2, 8)}`);
 
 describe('writeFileAtomic', () => {
   beforeEach(async () => {
