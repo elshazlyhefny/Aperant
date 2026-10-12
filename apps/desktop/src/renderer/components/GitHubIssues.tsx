@@ -6,6 +6,7 @@ import {
   useGitHubInvestigation,
   useIssueFiltering,
   useAutoFix,
+  useGitHubTriage,
 } from "./github-issues/hooks";
 import { useAnalyzePreview } from "./github-issues/hooks/useAnalyzePreview";
 import {
@@ -16,6 +17,7 @@ import {
   IssueDetail,
   InvestigationDialog,
   BatchReviewWizard,
+  TriageDialog,
 } from "./github-issues/components";
 import { GitHubSetupModal } from "./GitHubSetupModal";
 import type { GitHubIssue } from "../../shared/types";
@@ -84,6 +86,10 @@ export function GitHubIssues({ onOpenSettings, onNavigateToTask }: GitHubIssuesP
     approveBatches,
   } = useAnalyzePreview({ projectId: selectedProject?.id || "" });
 
+  // Issue triage (AI categorisation and label suggestions)
+  const triage = useGitHubTriage(selectedProject?.id);
+  const [showTriageDialog, setShowTriageDialog] = useState(false);
+
   const [showInvestigateDialog, setShowInvestigateDialog] = useState(false);
   const [selectedIssueForInvestigation, setSelectedIssueForInvestigation] =
     useState<GitHubIssue | null>(null);
@@ -106,6 +112,13 @@ export function GitHubIssues({ onOpenSettings, onNavigateToTask }: GitHubIssuesP
     }
     return map;
   }, [tasks]);
+
+  // Titles of the loaded issues, so triage results can be named
+  const issueTitles = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const issue of getFilteredIssues()) map.set(issue.number, issue.title);
+    return map;
+  }, [getFilteredIssues]);
 
   // Enhanced refresh that also checks for new auto-fix issues
   const handleRefreshWithAutoFix = useCallback(() => {
@@ -158,6 +171,8 @@ export function GitHubIssues({ onOpenSettings, onNavigateToTask }: GitHubIssuesP
         onAutoFixToggle={toggleAutoFix}
         onAnalyzeAndGroup={openWizard}
         isAnalyzing={isAnalyzing}
+        onOpenTriage={() => setShowTriageDialog(true)}
+        isTriaging={triage.isRunning}
       />
 
       {/* Content */}
@@ -225,6 +240,15 @@ export function GitHubIssues({ onOpenSettings, onNavigateToTask }: GitHubIssuesP
         analysisError={analysisError}
         isAnalyzing={isAnalyzing}
         isApproving={isApproving}
+      />
+
+      {/* Issue Triage */}
+      <TriageDialog
+        open={showTriageDialog}
+        onOpenChange={setShowTriageDialog}
+        repoFullName={syncStatus.repoFullName ?? ""}
+        triage={triage}
+        issueTitles={issueTitles}
       />
 
       {/* GitHub Setup Modal - shown when GitHub module is not configured */}

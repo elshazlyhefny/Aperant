@@ -978,5 +978,69 @@
   "close": "Fermer",
   "delete": "Supprimer",
   "optional": "facultatif",
-  "save": "Enregistrer"
+  "save": "Enregistrer",
+  "githubTriage": {
+    "button": "Trier les tickets",
+    "buttonTooltip": "Laisser l'IA classer les tickets ouverts et suggérer des étiquettes. Rien ne change sur GitHub tant que vous n'appliquez pas les étiquettes.",
+    "title": "Tri des tickets",
+    "description": "L'IA examine jusqu'à 100 tickets ouverts de {{repo}}, les classe et suggère des étiquettes. Les étiquettes ne sont écrites sur GitHub que lorsque vous les appliquez.",
+    "settings": {
+      "title": "Seuils de signalement",
+      "description": "Un signalement de doublon, de spam ou de dérive fonctionnelle n'est conservé que si la confiance de l'IA atteint cette valeur.",
+      "duplicate": "Doublon",
+      "spam": "Spam",
+      "featureCreep": "Dérive fonctionnelle",
+      "save": "Enregistrer les seuils",
+      "saved": "Seuils enregistrés",
+      "saveFailed": "Impossible d'enregistrer les seuils",
+      "invalid": "Saisissez une valeur entre 0 et 100"
+    },
+    "run": {
+      "start": "Trier les tickets ouverts",
+      "rerun": "Trier à nouveau",
+      "running": "Tri en cours…",
+      "hint": "Utilise le modèle GitHub Issues de vos paramètres.",
+      "errorTitle": "Échec du tri"
+    },
+    "results": {
+      "title": "Résultats ({{count}})",
+      "empty": "Aucun résultat de tri pour l'instant. Lancez le tri pour classer les tickets ouverts.",
+      "selectAll": "Tout sélectionner",
+      "selectIssue": "Sélectionner le ticket n°{{number}}",
+      "confidence": "Confiance : {{value}} %",
+      "duplicate": "Doublon",
+      "duplicateOf": "Doublon de #{{number}}",
+      "spam": "Spam",
+      "featureCreep": "Dérive fonctionnelle",
+      "applied": "Étiquettes appliquées",
+      "noChanges": "Aucune modification d'étiquette suggérée"
+    },
+    "categories": {
+      "bug": "Bogue",
+      "feature": "Fonctionnalité",
+      "documentation": "Documentation",
+      "question": "Question",
+      "duplicate": "Doublon",
+      "spam": "Spam",
+      "feature_creep": "Dérive fonctionnelle"
+    },
+    "priority": {
+      "high": "Priorité haute",
+      "medium": "Priorité moyenne",
+      "low": "Priorité basse"
+    },
+    "apply": {
+      "button": "Appliquer les étiquettes ({{count}})",
+      "applying": "Application…",
+      "confirmTitle": "Modifier les étiquettes sur GitHub ?",
+      "confirmDescription_one": "Cela modifie les étiquettes de {{count}} ticket dans {{repo}}. Seules les étiquettes qui existent déjà dans le dépôt sont ajoutées ; aucune n'est créée.",
+      "confirmDescription_other": "Cela modifie les étiquettes de {{count}} tickets dans {{repo}}. Seules les étiquettes qui existent déjà dans le dépôt sont ajoutées ; aucune n'est créée.",
+      "confirm": "Appliquer les étiquettes",
+      "summary_one": "Étiquettes mises à jour sur {{count}} ticket.",
+      "summary_other": "Étiquettes mises à jour sur {{count}} tickets.",
+      "skipped": "#{{number}} : absentes du dépôt, ignorées : {{labels}}",
+      "failed": "#{{number}} non mis à jour : {{error}}",
+      "error": "Les étiquettes n'ont pas été appliquées : {{error}}"
+    }
+  }
 }

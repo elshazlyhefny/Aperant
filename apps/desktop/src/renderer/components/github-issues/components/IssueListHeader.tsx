@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Github, RefreshCw, Search, Filter, Wand2, Loader2, Layers } from 'lucide-react';
+import { Github, RefreshCw, Search, Filter, Wand2, Loader2, Layers, Tags } from 'lucide-react';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
@@ -35,6 +35,8 @@ export function IssueListHeader({
   onAutoFixToggle,
   onAnalyzeAndGroup,
   isAnalyzing,
+  onOpenTriage,
+  isTriaging,
 }: IssueListHeaderProps) {
   const { t } = useTranslation('common');
 
@@ -94,6 +96,32 @@ export function IssueListHeader({
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-xs">
                 <p>Analyze up to 200 open issues, group similar ones, and review proposed batches before creating tasks.</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+
+        {/* Issue Triage */}
+        {onOpenTriage && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onOpenTriage}
+                  disabled={isLoading}
+                >
+                  {isTriaging ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Tags className="h-4 w-4 mr-2" />
+                  )}
+                  {t('githubTriage.button')}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <p>{t('githubTriage.buttonTooltip')}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

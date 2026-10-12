@@ -18,8 +18,15 @@ import {
 } from '../../../shared/constants';
 import { getGitHubConfig, githubFetch } from './utils';
 import { readSettingsFile } from '../../settings-utils';
-import { getAugmentedEnv } from '../../env-utils';
-import type { Project, AppSettings } from '../../../shared/types';
+import type {
+  Project,
+  AppSettings,
+  GitHubTriageCategory,
+  GitHubTriageConfig,
+  GitHubTriageResult,
+  GitHubTriageProgress,
+  GitHubTriageApplyResult,
+} from '../../../shared/types';
 import { createContextLogger } from './utils/logger';
 import { withProjectOrNull } from './utils/project-middleware';
 import { createIPCCommunicators } from './utils/ipc-communicator';
@@ -35,66 +42,56 @@ import type { ModelShorthand, ThinkingLevel } from '../../ai/config/types';
 // Debug logging
 const { debug: debugLog } = createContextLogger('GitHub Triage');
 
-/**
- * Triage categories
- */
-export type TriageCategory =
-  | 'bug'
-  | 'feature'
-  | 'documentation'
-  | 'question'
-  | 'duplicate'
-  | 'spam'
-  | 'feature_creep';
+// The shapes live in shared/types so the preload and renderer use the same ones.
+export type TriageCategory = GitHubTriageCategory;
+export type TriageResult = GitHubTriageResult;
+export type TriageConfig = GitHubTriageConfig;
+export type TriageProgress = GitHubTriageProgress;
 
-/**
- * Triage result for a single issue
- */
-export interface TriageResult {
-  issueNumber: number;
-  repo: string;
-  category: TriageCategory;
-  confidence: number;
-  labelsToAdd: string[];
-  labelsToRemove: string[];
-  isDuplicate: boolean;
-  duplicateOf?: number;
-  isSpam: boolean;
-  isFeatureCreep: boolean;
-  suggestedBreakdown: string[];
-  priority: 'high' | 'medium' | 'low';
-  comment?: string;
-  triagedAt: string;
-}
+const DEFAULT_TRIAGE_CONFIG: TriageConfig = {
+  enabled: false,
+  duplicateThreshold: 0.8,
+  spamThreshold: 0.75,
+  featureCreepThreshold: 0.7,
+  enableComments: false,
+};
 
-/**
- * Triage configuration
- */
-export interface TriageConfig {
-  enabled: boolean;
-  duplicateThreshold: number;
-  spamThreshold: number;
-  featureCreepThreshold: number;
-  enableComments: boolean;
-}
+/** Shown whenever triage needs GitHub and the project has no usable configuration. */
+export const GITHUB_NOT_CONFIGURED_MESSAGE =
+  'GitHub is not configured for this project: set the repository and a token (or sign in with the GitHub CLI) in the project\'s GitHub settings.';
 
-/**
- * Triage progress status
- */
-export interface TriageProgress {
-  phase: 'fetching' | 'analyzing' | 'applying' | 'complete';
-  issueNumber?: number;
-  progress: number;
-  message: string;
-  totalIssues: number;
-  processedIssues: number;
-}
+/** Projects with a triage run in flight; a second run would race on the same result files. */
+const runningProjects = new Set<string>();
 
 /**
  * Get the GitHub directory for a project
  */
 function getGitHubDir(project: Project): string {
   return path.join(project.path, '.auto-claude', 'github');
+}
+
+function isThreshold(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+/**
+ * zeenha fork: the config arrives from the renderer, so it is checked before it
+ * is written; a malformed one is refused rather than half-saved.
+ */
+export function sanitizeTriageConfig(input: unknown): TriageConfig | null {
+  if (!input || typeof input !== 'object') return null;
+  const c = input as Record<string, unknown>;
+  if (typeof c.enabled !== 'boolean' || typeof c.enableComments !== 'boolean') return null;
+  if (!isThreshold(c.duplicateThreshold) || !isThreshold(c.spamThreshold) || !isThreshold(c.featureCreepThreshold)) {
+    return null;
+  }
+  return {
+    enabled: c.enabled,
+    duplicateThreshold: c.duplicateThreshold,
+    spamThreshold: c.spamThreshold,
+    featureCreepThreshold: c.featureCreepThreshold,
+    enableComments: c.enableComments,
+  };
 }
 
 /**
@@ -106,23 +103,23 @@ function getTriageConfig(project: Project): TriageConfig {
   try {
     const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
     return {
-      enabled: data.triage_enabled ?? false,
-      duplicateThreshold: data.duplicate_threshold ?? 0.8,
-      spamThreshold: data.spam_threshold ?? 0.75,
-      featureCreepThreshold: data.feature_creep_threshold ?? 0.7,
-      enableComments: data.enable_triage_comments ?? false,
+      enabled: typeof data.triage_enabled === 'boolean' ? data.triage_enabled : DEFAULT_TRIAGE_CONFIG.enabled,
+      duplicateThreshold: isThreshold(data.duplicate_threshold)
+        ? data.duplicate_threshold
+        : DEFAULT_TRIAGE_CONFIG.duplicateThreshold,
+      spamThreshold: isThreshold(data.spam_threshold) ? data.spam_threshold : DEFAULT_TRIAGE_CONFIG.spamThreshold,
+      featureCreepThreshold: isThreshold(data.feature_creep_threshold)
+        ? data.feature_creep_threshold
+        : DEFAULT_TRIAGE_CONFIG.featureCreepThreshold,
+      enableComments:
+        typeof data.enable_triage_comments === 'boolean'
+          ? data.enable_triage_comments
+          : DEFAULT_TRIAGE_CONFIG.enableComments,
     };
   } catch {
-    // Return defaults if file doesn't exist or is invalid
+    // Defaults if the file doesn't exist or is invalid
+    return { ...DEFAULT_TRIAGE_CONFIG };
   }
-
-  return {
-    enabled: false,
-    duplicateThreshold: 0.8,
-    spamThreshold: 0.75,
-    featureCreepThreshold: 0.7,
-    enableComments: false,
-  };
 }
 
 /**
@@ -153,6 +150,10 @@ function saveTriageConfig(project: Project, config: TriageConfig): void {
   fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2), 'utf-8');
 }
 
+function triageResultPath(project: Project, issueNumber: number): string {
+  return path.join(getGitHubDir(project), 'issues', `triage_${issueNumber}.json`);
+}
+
 /**
  * Get saved triage results for a project
  */
@@ -175,13 +176,14 @@ function getTriageResults(project: Project): TriageResult[] {
             labelsToAdd: data.labels_to_add ?? [],
             labelsToRemove: data.labels_to_remove ?? [],
             isDuplicate: data.is_duplicate ?? false,
-            duplicateOf: data.duplicate_of,
+            duplicateOf: data.duplicate_of ?? undefined,
             isSpam: data.is_spam ?? false,
             isFeatureCreep: data.is_feature_creep ?? false,
             suggestedBreakdown: data.suggested_breakdown ?? [],
             priority: data.priority ?? 'medium',
-            comment: data.comment,
+            comment: data.comment ?? undefined,
             triagedAt: data.triaged_at ?? new Date().toISOString(),
+            labelsAppliedAt: data.labels_applied_at ?? undefined,
           });
         } catch {
           // Skip invalid files
@@ -220,13 +222,10 @@ function saveTriageResultToDisk(project: Project, result: TriageResult): void {
     priority: result.priority,
     comment: result.comment ?? null,
     triaged_at: result.triagedAt,
+    labels_applied_at: result.labelsAppliedAt ?? null,
   };
 
-  fs.writeFileSync(
-    path.join(issuesDir, `triage_${result.issueNumber}.json`),
-    JSON.stringify(data, null, 2),
-    'utf-8',
-  );
+  fs.writeFileSync(triageResultPath(project, result.issueNumber), JSON.stringify(data, null, 2), 'utf-8');
 }
 
 /**
@@ -251,22 +250,29 @@ function getGitHubIssuesSettings(): { modelShorthand: ModelShorthand; thinkingLe
 
 /**
  * Convert engine TriageResult to handler TriageResult format.
+ *
+ * zeenha fork: the configured thresholds were stored and never read. A
+ * duplicate / spam / feature-creep flag now stands only when the AI's
+ * confidence reaches that flag's threshold.
  */
 function convertEngineResult(
   engineResult: EngineTriageResult,
   repo: string,
+  config: TriageConfig,
 ): TriageResult {
+  const confidence = engineResult.confidence;
+  const isDuplicate = engineResult.isDuplicate && confidence >= config.duplicateThreshold;
   return {
     issueNumber: engineResult.issueNumber,
     repo,
     category: engineResult.category as TriageCategory,
-    confidence: engineResult.confidence,
+    confidence,
     labelsToAdd: engineResult.labelsToAdd,
     labelsToRemove: engineResult.labelsToRemove,
-    isDuplicate: engineResult.isDuplicate,
-    duplicateOf: engineResult.duplicateOf ?? undefined,
-    isSpam: engineResult.isSpam,
-    isFeatureCreep: engineResult.isFeatureCreep,
+    isDuplicate,
+    duplicateOf: isDuplicate ? (engineResult.duplicateOf ?? undefined) : undefined,
+    isSpam: engineResult.isSpam && confidence >= config.spamThreshold,
+    isFeatureCreep: engineResult.isFeatureCreep && confidence >= config.featureCreepThreshold,
     suggestedBreakdown: engineResult.suggestedBreakdown,
     priority: engineResult.priority as 'high' | 'medium' | 'low',
     comment: engineResult.comment ?? undefined,
@@ -289,6 +295,33 @@ interface TriageRunOutcome {
   failedIssueNumbers: number[];
 }
 
+/** Positive integers only, de-duplicated; anything else from the renderer is dropped. */
+function validIssueNumbers(input: unknown): number[] {
+  if (!Array.isArray(input)) return [];
+  return [...new Set(input.filter((n): n is number => Number.isInteger(n) && n > 0))];
+}
+
+type GitHubApiIssue = {
+  number: number;
+  title: string;
+  body?: string;
+  user: { login: string };
+  created_at: string;
+  labels?: Array<{ name: string }>;
+  pull_request?: unknown;
+};
+
+function toTriageIssue(issue: GitHubApiIssue): TriageGitHubIssue {
+  return {
+    number: issue.number,
+    title: issue.title,
+    body: issue.body,
+    author: { login: issue.user.login },
+    createdAt: issue.created_at,
+    labels: issue.labels,
+  };
+}
+
 /**
  * Run the TypeScript triage engine on a set of issues.
  */
@@ -309,8 +342,9 @@ async function runTriage(
 
   const config = getGitHubConfig(project);
   if (!config) {
-    throw new Error('No GitHub configuration found for project');
+    throw new Error(GITHUB_NOT_CONFIGURED_MESSAGE);
   }
+  const triageConfig = getTriageConfig(project);
 
   const { modelShorthand, thinkingLevel } = getGitHubIssuesSettings();
 
@@ -326,67 +360,45 @@ async function runTriage(
   });
 
   let issuesToTriage: TriageGitHubIssue[];
+  const unfetched: number[] = [];
 
   if (issueNumbers && issueNumbers.length > 0) {
     // Fetch specific issues
     const fetchedIssues = await Promise.all(
       issueNumbers.map(async (n): Promise<TriageGitHubIssue | null> => {
         try {
-          const issue = (await githubFetch(
-            config.token,
-            `/repos/${config.repo}/issues/${n}`,
-          )) as {
-            number: number;
-            title: string;
-            body?: string;
-            user: { login: string };
-            created_at: string;
-            labels?: Array<{ name: string }>;
-          };
-          return {
-            number: issue.number,
-            title: issue.title,
-            body: issue.body,
-            author: { login: issue.user.login },
-            createdAt: issue.created_at,
-            labels: issue.labels,
-          };
+          const issue = (await githubFetch(config.token, `/repos/${config.repo}/issues/${n}`)) as GitHubApiIssue;
+          // A pull request is not an issue to triage.
+          return issue.pull_request ? null : toTriageIssue(issue);
         } catch {
+          unfetched.push(n);
           return null;
         }
       }),
     );
     issuesToTriage = fetchedIssues.filter((i): i is TriageGitHubIssue => i !== null);
+    // zeenha fork: issues that could not be fetched used to vanish, and a run
+    // where none could be fetched reported "Triaged 0 issues".
+    if (issuesToTriage.length === 0 && unfetched.length > 0) {
+      throw new Error(`Could not fetch issue(s) ${formatIssueNumbers(unfetched.sort((a, b) => a - b))} from ${config.repo}`);
+    }
   } else {
     // Fetch open issues (up to 100)
     const issues = (await githubFetch(
       config.token,
       `/repos/${config.repo}/issues?state=open&per_page=100`,
-    )) as Array<{
-      number: number;
-      title: string;
-      body?: string;
-      user: { login: string };
-      created_at: string;
-      labels?: Array<{ name: string }>;
-      pull_request?: unknown;
-    }>;
+    )) as GitHubApiIssue[];
 
     // Filter out pull requests (GitHub API includes PRs in /issues)
-    issuesToTriage = issues
-      .filter((i) => !i.pull_request)
-      .map((i) => ({
-        number: i.number,
-        title: i.title,
-        body: i.body,
-        author: { login: i.user.login },
-        createdAt: i.created_at,
-        labels: i.labels,
-      }));
+    issuesToTriage = issues.filter((i) => !i.pull_request).map(toTriageIssue);
   }
 
   const totalIssues = issuesToTriage.length;
   debugLog('Issues to triage', { count: totalIssues });
+
+  if (totalIssues === 0) {
+    return { results: [], failedIssueNumbers: unfetched };
+  }
 
   sendProgress({
     phase: 'analyzing',
@@ -421,15 +433,15 @@ async function runTriage(
       failures.push(outcome);
       continue;
     }
-    const result = convertEngineResult(outcome, config.repo);
+    const result = convertEngineResult(outcome, config.repo, triageConfig);
     results.push(result);
     saveTriageResultToDisk(project, result);
   }
 
-  const failedIssueNumbers = failures.map((f) => f.issueNumber);
+  const failedIssueNumbers = [...unfetched, ...failures.map((f) => f.issueNumber)].sort((a, b) => a - b);
   if (failures.length > 0 && results.length === 0) {
     throw new Error(
-      `Triage failed for all ${failures.length} issue(s) (${formatIssueNumbers(failedIssueNumbers)}): ${failures[0].error.slice(0, 200)}`,
+      `Triage failed for all ${failures.length} issue(s) (${formatIssueNumbers(failures.map((f) => f.issueNumber))}): ${failures[0].error.slice(0, 200)}`,
     );
   }
 
@@ -439,6 +451,85 @@ async function runTriage(
 
 function formatIssueNumbers(numbers: number[]): string {
   return numbers.map((n) => `#${n}`).join(', ');
+}
+
+function errorMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 300);
+}
+
+/** Every label defined in the repository, keyed by lower-case name (GitHub label names are case-insensitive). */
+async function fetchRepoLabels(token: string, repo: string): Promise<Map<string, string>> {
+  const labels = new Map<string, string>();
+  for (let page = 1; page <= 10; page++) {
+    const batch = (await githubFetch(token, `/repos/${repo}/labels?per_page=100&page=${page}`)) as Array<{
+      name: string;
+    }>;
+    for (const label of batch) labels.set(label.name.toLowerCase(), label.name);
+    if (batch.length < 100) break;
+  }
+  return labels;
+}
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof Error && /GitHub API error: 404\b/.test(error.message);
+}
+
+/**
+ * Write one issue's suggested labels to GitHub.
+ *
+ * zeenha fork: through the REST API with the project's own token and
+ * repository, the same ones triage read the issue with. It used to shell out
+ * to `gh issue edit` in the project directory, which edits whatever repository
+ * and account the gh CLI resolves there, never removed labels, and aborted the
+ * remaining issues at the first one that failed.
+ *
+ * Only labels that already exist in the repository are added; the rest are
+ * reported as skipped, never created.
+ */
+async function applyLabelsToIssue(
+  token: string,
+  repo: string,
+  result: TriageResult,
+  repoLabels: Map<string, string>,
+): Promise<{ added: string[]; removed: string[]; skipped: string[] }> {
+  const skipped: string[] = [];
+  const known = (name: string): string | null => {
+    const canonical = repoLabels.get(name.toLowerCase());
+    if (!canonical) skipped.push(name);
+    return canonical ?? null;
+  };
+  const toRemove = [...new Set(result.labelsToRemove.map(known).filter((l): l is string => l !== null))];
+  const removing = new Set(toRemove.map((l) => l.toLowerCase()));
+  const toAdd = [
+    ...new Set(
+      result.labelsToAdd
+        .map(known)
+        .filter((l): l is string => l !== null && !removing.has(l.toLowerCase())),
+    ),
+  ];
+
+  if (toAdd.length > 0) {
+    await githubFetch(token, `/repos/${repo}/issues/${result.issueNumber}/labels`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ labels: toAdd }),
+    });
+  }
+
+  const removed: string[] = [];
+  for (const label of toRemove) {
+    try {
+      await githubFetch(token, `/repos/${repo}/issues/${result.issueNumber}/labels/${encodeURIComponent(label)}`, {
+        method: 'DELETE',
+      });
+      removed.push(label);
+    } catch (error) {
+      // The label is not on the issue: nothing to remove.
+      if (!isNotFound(error)) throw error;
+    }
+  }
+
+  return { added: toAdd, removed, skipped: [...new Set(skipped)] };
 }
 
 /**
@@ -463,7 +554,12 @@ export function registerTriageHandlers(getMainWindow: () => BrowserWindow | null
   // Save triage config
   ipcMain.handle(
     IPC_CHANNELS.GITHUB_TRIAGE_SAVE_CONFIG,
-    async (_, projectId: string, config: TriageConfig): Promise<boolean> => {
+    async (_, projectId: string, input: unknown): Promise<boolean> => {
+      const config = sanitizeTriageConfig(input);
+      if (!config) {
+        debugLog('saveTriageConfig refused an invalid config', { projectId });
+        return false;
+      }
       debugLog('saveTriageConfig handler called', { projectId, enabled: config.enabled });
       const result = await withProjectOrNull(projectId, async (project) => {
         saveTriageConfig(project, config);
@@ -491,7 +587,7 @@ export function registerTriageHandlers(getMainWindow: () => BrowserWindow | null
   // Run triage
   ipcMain.on(
     IPC_CHANNELS.GITHUB_TRIAGE_RUN,
-    async (_, projectId: string, issueNumbers?: number[]) => {
+    async (_, projectId: string, issueNumbers?: unknown) => {
       debugLog('runTriage handler called', { projectId, issueNumbers });
       const mainWindow = getMainWindow();
       if (!mainWindow) {
@@ -499,19 +595,26 @@ export function registerTriageHandlers(getMainWindow: () => BrowserWindow | null
         return;
       }
 
-      try {
-        await withProjectOrNull(projectId, async (project) => {
-          const { sendProgress, sendError: _sendError, sendComplete } =
-            createIPCCommunicators<TriageProgress, TriageResult[]>(
-              mainWindow,
-              {
-                progress: IPC_CHANNELS.GITHUB_TRIAGE_PROGRESS,
-                error: IPC_CHANNELS.GITHUB_TRIAGE_ERROR,
-                complete: IPC_CHANNELS.GITHUB_TRIAGE_COMPLETE,
-              },
-              projectId,
-            );
+      const { sendProgress, sendError, sendComplete } = createIPCCommunicators<TriageProgress, TriageResult[]>(
+        mainWindow,
+        {
+          progress: IPC_CHANNELS.GITHUB_TRIAGE_PROGRESS,
+          error: IPC_CHANNELS.GITHUB_TRIAGE_ERROR,
+          complete: IPC_CHANNELS.GITHUB_TRIAGE_COMPLETE,
+        },
+        projectId,
+      );
 
+      // zeenha fork: a second run for the same project raced the first on the
+      // same result files and interleaved its progress events.
+      if (runningProjects.has(projectId)) {
+        sendError('Triage is already running for this project');
+        return;
+      }
+      runningProjects.add(projectId);
+
+      try {
+        const ran = await withProjectOrNull(projectId, async (project) => {
           debugLog('Starting triage');
           sendProgress({
             phase: 'fetching',
@@ -521,9 +624,10 @@ export function registerTriageHandlers(getMainWindow: () => BrowserWindow | null
             processedIssues: 0,
           });
 
+          const requested = validIssueNumbers(issueNumbers);
           const { results, failedIssueNumbers } = await runTriage(
             project,
-            issueNumbers ?? null,
+            requested.length > 0 ? requested : null,
             mainWindow,
           );
 
@@ -536,25 +640,27 @@ export function registerTriageHandlers(getMainWindow: () => BrowserWindow | null
           sendProgress({
             phase: 'complete',
             progress: 100,
-            message: `Triaged ${results.length} issues${failedNote}`,
+            message:
+              results.length === 0 && failedIssueNumbers.length === 0
+                ? 'No open issues to triage'
+                : `Triaged ${results.length} issues${failedNote}`,
             totalIssues: results.length,
             processedIssues: results.length,
           });
 
           sendComplete(results);
+          return true;
         });
+        // zeenha fork: an unknown project used to end the run with no event at
+        // all, leaving the renderer waiting forever.
+        if (ran === null) {
+          sendError('Project not found');
+        }
       } catch (error) {
         debugLog('Triage failed', { error: error instanceof Error ? error.message : error });
-        const { sendError } = createIPCCommunicators<TriageProgress, TriageResult[]>(
-          mainWindow,
-          {
-            progress: IPC_CHANNELS.GITHUB_TRIAGE_PROGRESS,
-            error: IPC_CHANNELS.GITHUB_TRIAGE_ERROR,
-            complete: IPC_CHANNELS.GITHUB_TRIAGE_COMPLETE,
-          },
-          projectId,
-        );
         sendError(error instanceof Error ? error.message : 'Failed to run triage');
+      } finally {
+        runningProjects.delete(projectId);
       }
     },
   );
@@ -562,63 +668,59 @@ export function registerTriageHandlers(getMainWindow: () => BrowserWindow | null
   // Apply labels to issues
   ipcMain.handle(
     IPC_CHANNELS.GITHUB_TRIAGE_APPLY_LABELS,
-    async (_, projectId: string, issueNumbers: number[]): Promise<boolean> => {
-      debugLog('applyTriageLabels handler called', { projectId, issueNumbers });
-      const applyResult = await withProjectOrNull(projectId, async (project) => {
+    async (_, projectId: string, issueNumbersInput: unknown): Promise<GitHubTriageApplyResult> => {
+      debugLog('applyTriageLabels handler called', { projectId, issueNumbers: issueNumbersInput });
+      const refused = (error: string): GitHubTriageApplyResult => ({ success: false, error, applied: [], failed: [] });
+
+      const issueNumbers = validIssueNumbers(issueNumbersInput);
+      // Anything dropped by validation (not a positive integer, or repeated) refuses the whole request.
+      if (
+        issueNumbers.length === 0 ||
+        !Array.isArray(issueNumbersInput) ||
+        issueNumbers.length !== issueNumbersInput.length
+      ) {
+        return refused('Invalid issue numbers');
+      }
+
+      const outcome = await withProjectOrNull(projectId, async (project): Promise<GitHubTriageApplyResult> => {
         const config = getGitHubConfig(project);
         if (!config) {
           debugLog('No GitHub config found');
-          return false;
+          return refused(GITHUB_NOT_CONFIGURED_MESSAGE);
         }
 
+        let repoLabels: Map<string, string>;
         try {
-          for (const issueNumber of issueNumbers) {
-            const triageResults = getTriageResults(project);
-            const result = triageResults.find((r) => r.issueNumber === issueNumber);
-
-            if (result && result.labelsToAdd.length > 0) {
-              debugLog('Applying labels to issue', { issueNumber, labels: result.labelsToAdd });
-
-              // Validate issueNumber to prevent command injection
-              if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
-                throw new Error('Invalid issue number');
-              }
-
-              // Validate labels - reject any that contain shell metacharacters
-              const safeLabels = result.labelsToAdd.filter((label: string) =>
-                /^[\w\s\-.:]+$/.test(label),
-              );
-              if (safeLabels.length !== result.labelsToAdd.length) {
-                debugLog('Some labels were filtered due to invalid characters', {
-                  original: result.labelsToAdd,
-                  filtered: safeLabels,
-                });
-              }
-
-              if (safeLabels.length > 0) {
-                const { execFileSync } = await import('child_process');
-                // Use execFileSync with arguments array to prevent command injection
-                execFileSync(
-                  'gh',
-                  ['issue', 'edit', String(issueNumber), '--add-label', safeLabels.join(',')],
-                  {
-                    cwd: project.path,
-                    env: getAugmentedEnv(),
-                  },
-                );
-              }
-            }
-          }
-          debugLog('Labels applied successfully');
-          return true;
+          repoLabels = await fetchRepoLabels(config.token, config.repo);
         } catch (error) {
-          debugLog('Failed to apply labels', {
-            error: error instanceof Error ? error.message : error,
-          });
-          return false;
+          return refused(`Could not read the labels of ${config.repo}: ${errorMessage(error)}`);
         }
+
+        const byNumber = new Map(getTriageResults(project).map((r) => [r.issueNumber, r]));
+        const applied: GitHubTriageApplyResult['applied'] = [];
+        const failed: GitHubTriageApplyResult['failed'] = [];
+
+        // One issue failing does not stop the others: each is reported.
+        for (const issueNumber of issueNumbers) {
+          const result = byNumber.get(issueNumber);
+          if (!result) {
+            failed.push({ issueNumber, error: 'No triage result for this issue; run triage first' });
+            continue;
+          }
+          try {
+            const done = await applyLabelsToIssue(config.token, config.repo, result, repoLabels);
+            saveTriageResultToDisk(project, { ...result, labelsAppliedAt: new Date().toISOString() });
+            applied.push({ issueNumber, ...done });
+            debugLog('Labels applied', { issueNumber, added: done.added, removed: done.removed, skipped: done.skipped });
+          } catch (error) {
+            failed.push({ issueNumber, error: errorMessage(error) });
+            debugLog('Failed to apply labels', { issueNumber, error: errorMessage(error) });
+          }
+        }
+
+        return { success: true, applied, failed };
       });
-      return applyResult ?? false;
+      return outcome ?? refused('Project not found');
     },
   );
 

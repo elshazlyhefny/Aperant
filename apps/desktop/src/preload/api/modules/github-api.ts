@@ -10,7 +10,11 @@ import type {
   VersionSuggestion,
   PaginatedIssuesResult,
   PRStatusUpdate,
-  PollingMetadata
+  PollingMetadata,
+  GitHubTriageConfig,
+  GitHubTriageResult,
+  GitHubTriageProgress,
+  GitHubTriageApplyResult
 } from '../../../shared/types';
 import { createIpcListener, invokeIpc, sendIpc, IpcListenerCleanup } from './ipc-utils';
 
@@ -266,6 +270,26 @@ export interface GitHubAPI {
     callback: (projectId: string, result: AnalyzePreviewResult) => void
   ) => IpcListenerCleanup;
   onAnalyzePreviewError: (
+    callback: (projectId: string, error: { error: string }) => void
+  ) => IpcListenerCleanup;
+
+  // Issue triage (AI categorisation and label suggestions)
+  getTriageConfig: (projectId: string) => Promise<GitHubTriageConfig | null>;
+  saveTriageConfig: (projectId: string, config: GitHubTriageConfig) => Promise<boolean>;
+  getTriageResults: (projectId: string) => Promise<GitHubTriageResult[]>;
+  /** Starts a run; progress, completion and errors arrive through the listeners below. */
+  runTriage: (projectId: string, issueNumbers?: number[]) => void;
+  /** Writes the stored suggestions for these issues to GitHub. Changes the real repository. */
+  applyTriageLabels: (projectId: string, issueNumbers: number[]) => Promise<GitHubTriageApplyResult>;
+
+  // Triage event listeners
+  onTriageProgress: (
+    callback: (projectId: string, progress: GitHubTriageProgress) => void
+  ) => IpcListenerCleanup;
+  onTriageComplete: (
+    callback: (projectId: string, results: GitHubTriageResult[]) => void
+  ) => IpcListenerCleanup;
+  onTriageError: (
     callback: (projectId: string, error: { error: string }) => void
   ) => IpcListenerCleanup;
 
@@ -720,6 +744,38 @@ export const createGitHubAPI = (): GitHubAPI => ({
     callback: (projectId: string, error: { error: string }) => void
   ): IpcListenerCleanup =>
     createIpcListener(IPC_CHANNELS.GITHUB_AUTOFIX_ANALYZE_PREVIEW_ERROR, callback),
+
+  // Issue triage
+  getTriageConfig: (projectId: string): Promise<GitHubTriageConfig | null> =>
+    invokeIpc(IPC_CHANNELS.GITHUB_TRIAGE_GET_CONFIG, projectId),
+
+  saveTriageConfig: (projectId: string, config: GitHubTriageConfig): Promise<boolean> =>
+    invokeIpc(IPC_CHANNELS.GITHUB_TRIAGE_SAVE_CONFIG, projectId, config),
+
+  getTriageResults: (projectId: string): Promise<GitHubTriageResult[]> =>
+    invokeIpc(IPC_CHANNELS.GITHUB_TRIAGE_GET_RESULTS, projectId),
+
+  runTriage: (projectId: string, issueNumbers?: number[]): void =>
+    sendIpc(IPC_CHANNELS.GITHUB_TRIAGE_RUN, projectId, issueNumbers),
+
+  applyTriageLabels: (projectId: string, issueNumbers: number[]): Promise<GitHubTriageApplyResult> =>
+    invokeIpc(IPC_CHANNELS.GITHUB_TRIAGE_APPLY_LABELS, projectId, issueNumbers),
+
+  // Triage event listeners
+  onTriageProgress: (
+    callback: (projectId: string, progress: GitHubTriageProgress) => void
+  ): IpcListenerCleanup =>
+    createIpcListener(IPC_CHANNELS.GITHUB_TRIAGE_PROGRESS, callback),
+
+  onTriageComplete: (
+    callback: (projectId: string, results: GitHubTriageResult[]) => void
+  ): IpcListenerCleanup =>
+    createIpcListener(IPC_CHANNELS.GITHUB_TRIAGE_COMPLETE, callback),
+
+  onTriageError: (
+    callback: (projectId: string, error: { error: string }) => void
+  ): IpcListenerCleanup =>
+    createIpcListener(IPC_CHANNELS.GITHUB_TRIAGE_ERROR, callback),
 
   // PR operations
   // Fetches up to 100 open PRs at once (GitHub GraphQL limit)
