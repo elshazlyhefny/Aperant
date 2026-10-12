@@ -9,6 +9,11 @@ import os from 'os';
 import path from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '../../../../shared/constants';
+// Imported statically, not inside a test or hook: a cold import of this graph
+// inside the first test counts against its timeout under a loaded suite run.
+// vi.mock calls below are hoisted above these imports, so the mocks apply.
+import { taskStateManager } from '../../../task-state-manager';
+import { registerWorktreeHandlers } from '../worktree-handlers';
 
 const handlers = vi.hoisted(() => new Map<string, Function>());
 vi.mock('electron', () => ({
@@ -43,7 +48,6 @@ function specFile(name: string) {
 }
 
 async function createPrHandler() {
-  const { registerWorktreeHandlers } = await import('../worktree-handlers');
   registerWorktreeHandlers(() => null);
   const fn = handlers.get(IPC_CHANNELS.TASK_WORKTREE_CREATE_PR);
   if (!fn) throw new Error('TASK_WORKTREE_CREATE_PR handler was not registered');
@@ -54,7 +58,6 @@ async function createPrHandler() {
 }
 
 async function resetStateMachine() {
-  const { taskStateManager } = await import('../../../task-state-manager');
   taskStateManager.clearTask('t1');
 }
 
@@ -93,8 +96,7 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
     const plan = JSON.parse(fs.readFileSync(specFile('implementation_plan.json'), 'utf-8'));
     expect(plan.status).toBe('done');
     expect(plan.xstateState).toBe('done');
-    const { taskStateManager } = await import('../../../task-state-manager');
-    expect(taskStateManager.getCurrentState('t1')).toBe('done');
+      expect(taskStateManager.getCurrentState('t1')).toBe('done');
   });
 
   it('opens the PR against the project main branch when the task has none', async () => {

@@ -2992,9 +2992,11 @@ export function registerWorktreeHandlers(
 
   /**
    * zeenha fork: suggest a short Conventional Commits PR title for a task, from
-   * its task title, commit log and diff summary. Read-only. Answers null (and
-   * the dialog keeps the task title) when there is no worktree or the model's
-   * answer is not a usable title.
+   * its task title, commit log, diff summary and any work the coder left
+   * uncommitted. Read-only: it never stages or commits (Create PR commits that
+   * work only once the person confirms). Answers null (and the dialog keeps
+   * the task title) when there is no worktree or the model's answer is not a
+   * usable title.
    */
   ipcMain.handle(
     IPC_CHANNELS.TASK_WORKTREE_SUGGEST_PR_TITLE,
