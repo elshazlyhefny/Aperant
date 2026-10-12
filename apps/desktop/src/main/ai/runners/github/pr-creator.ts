@@ -73,8 +73,16 @@ export interface CreatePRConfig {
   branchName: string;
   /** Base branch to merge into (e.g., "main", "develop") */
   baseBranch: string;
-  /** PR title */
-  title: string;
+  /**
+   * PR title the person typed. When absent, the title is suggested by the
+   * model from the branch AFTER pending work is committed, then falls back to
+   * `fallbackTitle`.
+   */
+  title?: string;
+  /** zeenha fork: used when no title was typed and no usable suggestion came back. */
+  fallbackTitle?: string;
+  /** zeenha fork: the task's own title, given to the model when suggesting one. */
+  taskTitle?: string;
   /** Whether to create as a draft PR */
   draft?: boolean;
   /** Path to the gh CLI executable */
@@ -550,7 +558,9 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
     specId,
     branchName,
     baseBranch,
-    title,
+    title: typedTitle,
+    fallbackTitle,
+    taskTitle,
     draft = false,
     ghPath,
     gitPath,
@@ -575,7 +585,9 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
   // always do it, so finished work can sit uncommitted in the worktree. Commit
   // it (never Aperant's own .auto-claude files) before anything is counted or
   // pushed; otherwise the PR would be empty or refused.
-  const commitError = await commitPendingWork(worktreePath, gitPath, title);
+  const typed = typedTitle?.trim() ? typedTitle : undefined;
+  const fallback = typed ?? (fallbackTitle?.trim() ? fallbackTitle : `auto-claude: ${specId}`);
+  const commitError = await commitPendingWork(worktreePath, gitPath, fallback);
   if (commitError) {
     return { success: false, error: `Could not commit the task's changes: ${commitError}` };
   }
@@ -589,6 +601,15 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
     };
   }
 
+  // zeenha fork: the title is suggested only now, from the committed branch.
+  // It used to be asked for before commitPendingWork, so work the coder left
+  // uncommitted was invisible to the model, which could see no changes at all.
+  const { diffSummary, commitLog } = await gatherPRContext(worktreePath, gitPath, baseBranch);
+  const title =
+    typed ??
+    (await suggestPRTitle({ taskTitle: taskTitle?.trim() ? taskTitle : fallback, specId, diffSummary, commitLog })) ??
+    fallback;
+
   // Step 1: Push the branch to origin
   const pushError = await pushBranch(worktreePath, gitPath, branchName);
   if (pushError) {
@@ -600,8 +621,7 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
     }
   }
 
-  // Step 2: Gather context for AI description
-  const { diffSummary, commitLog } = await gatherPRContext(worktreePath, gitPath, baseBranch);
+  // Step 2: the context gathered above (pushing does not change it)
 
   // Step 3: Generate AI PR body (falls back to spec summary on failure)
   const aiBody = await generatePRBody(

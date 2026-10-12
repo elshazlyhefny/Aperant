@@ -56,6 +56,7 @@ vi.mock('../../../client/factory', () => ({
 }));
 vi.mock('ai', () => ({ generateText: vi.fn(async () => ({ text: '## Summary\n- body' })) }));
 
+import { generateText } from 'ai';
 import { createPR, GH_TIMEOUT_MS, NO_CHANGES_MESSAGE, PUSH_TIMEOUT_MS } from '../pr-creator';
 
 const PR_URL = 'https://github.com/o/r/pull/7';
@@ -274,3 +275,59 @@ describe('createPR commits work the coder left uncommitted (zeenha fork)', () =>
   });
 });
 
+
+describe('createPR suggests the title from the COMMITTED branch (zeenha fork)', () => {
+  const generate = vi.mocked(generateText);
+  const prompts: string[] = [];
+  let committed = false;
+
+  beforeEach(() => {
+    prompts.length = 0;
+    committed = false;
+    generate.mockImplementation((async (args: { prompt: string }) => {
+      prompts.push(args.prompt);
+      return { text: args.prompt.includes('Write the pull request title') ? 'feat(shop): add View cart link' : '## Summary\n- body' };
+    }) as unknown as typeof generateText);
+    state.respond = (call) => {
+      if (call.command === 'gh' && call.args[1] === 'create') return { stdout: `${PR_URL}\n` };
+      if (call.args[0] === 'status') return { stdout: committed ? '' : ' M shop/cart.ts\n' };
+      if (call.args[0] === 'diff' && call.args[1] === '--cached') return { stdout: 'shop/cart.ts\n' };
+      if (call.args[0] === 'commit') {
+        committed = true;
+        return { stdout: '' };
+      }
+      if (call.args[0] === 'rev-list') return { stdout: '1\n' };
+      // The work exists on the branch only once it has been committed.
+      if (call.args[0] === 'log') return { stdout: committed ? 'abc1234 Add a View cart link\n' : '' };
+      if (call.args[0] === 'diff' && call.args[1] === '--stat') return { stdout: committed ? ' shop/cart.ts | 4 ++++\n' : '' };
+      return { stdout: '' };
+    };
+  });
+
+  it('asks for the title after committing pending work, so the model sees the changes', async () => {
+    const result = await createPR(config({ title: undefined, fallbackTitle: 'Add a View cart link', taskTitle: 'Add a View cart link' }));
+
+    expect(result.success).toBe(true);
+    const titlePrompt = prompts.find((p) => p.includes('Write the pull request title')) ?? '';
+    expect(titlePrompt).toContain('abc1234 Add a View cart link');
+    expect(titlePrompt).toContain('shop/cart.ts | 4');
+    // The pending work is committed under the task title; the PR gets the AI title.
+    expect(state.calls.find((c) => c.args[0] === 'commit')?.args).toEqual(['commit', '-m', 'Add a View cart link']);
+    const create = createCalls()[0].args;
+    expect(create[create.indexOf('--title') + 1]).toBe('feat(shop): add View cart link');
+  });
+
+  it('falls back to the task title when the suggestion is unusable', async () => {
+    generate.mockImplementation((async () => ({ text: 'not a conventional title' })) as unknown as typeof generateText);
+    await createPR(config({ title: undefined, fallbackTitle: 'Add a View cart link' }));
+    const create = createCalls()[0].args;
+    expect(create[create.indexOf('--title') + 1]).toBe('Add a View cart link');
+  });
+
+  it('never asks the model when a title was typed', async () => {
+    await createPR(config({ title: 'My own title' }));
+    expect(prompts.some((p) => p.includes('Write the pull request title'))).toBe(false);
+    const create = createCalls()[0].args;
+    expect(create[create.indexOf('--title') + 1]).toBe('My own title');
+  });
+});

@@ -118,23 +118,26 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
   });
 
   // zeenha fork: PR titles
-  it('uses the AI title when no title is sent (bulk Create PR)', async () => {
-    suggestPRTitleForWorktree.mockResolvedValueOnce('feat(shop): add View cart link');
+  // The AI title is asked for inside createPR, after pending work is committed
+  // (pr-creator.test.ts); the handler must not ask for one first.
+  it('leaves the title to createPR when none is sent (bulk Create PR), with the task title as fallback', async () => {
+    suggestPRTitleForWorktree.mockClear();
     createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
     const handler = await createPrHandler();
 
     await handler({}, 't1');
 
-    expect(createPR.mock.calls.at(-1)?.[0].title).toBe('feat(shop): add View cart link');
+    expect(suggestPRTitleForWorktree).not.toHaveBeenCalled();
+    expect(createPR.mock.calls.at(-1)?.[0].title).toBeUndefined();
   });
 
-  it('falls back to the spec id only when there is neither a suggestion nor a task title', async () => {
+  it('falls back to the spec id only when there is no task title', async () => {
     createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
     const handler = await createPrHandler();
 
     await handler({}, 't1');
 
-    expect(createPR.mock.calls.at(-1)?.[0].title).toBe('auto-claude: 001-x');
+    expect(createPR.mock.calls.at(-1)?.[0].fallbackTitle).toBe('auto-claude: 001-x');
   });
 
   it('never asks for a suggestion when the person typed a title', async () => {

@@ -3089,13 +3089,11 @@ export function registerWorktreeHandlers(
         const taskBaseBranch = getTaskBaseBranch(specDir);
         const baseBranch = options?.targetBranch || taskBaseBranch || project.settings?.mainBranch || 'main';
         const branchName = `auto-claude/${task.specId}`;
-        // zeenha fork: no title sent (the bulk dialog) -> the AI suggestion,
-        // then the task title. It used to be `auto-claude: <specId>`.
-        const prTitle =
-          options?.title ||
-          (await suggestPRTitleForWorktree({ worktreePath, gitPath: getToolPath('git'), baseBranch, taskTitle: task.title ?? '', specId: task.specId })) ||
-          (task.title ?? '').slice(0, MAX_PR_TITLE_LENGTH) ||
-          `auto-claude: ${task.specId}`;
+        // zeenha fork: no title sent (the bulk dialog) -> createPR asks the model
+        // once the pending work is committed, then falls back to the task title.
+        // It used to be `auto-claude: <specId>`.
+        const typedTitle = options?.title || undefined;
+        const fallbackTitle = (task.title ?? '').slice(0, MAX_PR_TITLE_LENGTH) || `auto-claude: ${task.specId}`;
 
         if (taskBaseBranch) {
           debug('Using stored base branch:', taskBaseBranch);
@@ -3105,7 +3103,7 @@ export function registerWorktreeHandlers(
         const ghPath = getToolPath('gh');
         const gitPath = getToolPath('git');
 
-        debug('Creating PR via TypeScript runner:', { branchName, baseBranch, prTitle });
+        debug('Creating PR via TypeScript runner:', { branchName, baseBranch, typedTitle });
 
         // Run the TypeScript PR creator
         const result = await createPR({
@@ -3114,7 +3112,9 @@ export function registerWorktreeHandlers(
           specId: task.specId,
           branchName,
           baseBranch,
-          title: prTitle,
+          title: typedTitle,
+          fallbackTitle,
+          taskTitle: task.title ?? '',
           draft: options?.draft,
           ghPath,
           gitPath,
