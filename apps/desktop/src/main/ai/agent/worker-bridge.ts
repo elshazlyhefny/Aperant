@@ -71,6 +71,9 @@ function resolveWorkerPath(): string {
  * await bridge.spawn(config);
  * ```
  */
+/** zeenha fork: how long a finished worker may run its own cleanup before it is terminated. */
+export const WORKER_EXIT_GRACE_MS = 10_000;
+
 export class WorkerBridge extends EventEmitter {
   private worker: Worker | null = null;
   private progressTracker: ProgressTracker = new ProgressTracker();
@@ -183,6 +186,16 @@ export class WorkerBridge extends EventEmitter {
 
       case 'error':
         this.emitTyped('error', message.taskId, message.data, message.projectId);
+        // zeenha fork: the worker posts 'error' only from run()'s catch, i.e.
+        // the session threw and no 'result' will follow. The thread does not
+        // end on its own (its parentPort 'message' listener keeps it alive), so
+        // without this the task stayed "running" forever: no exit, no memory
+        // finalize. Treat it as a failed session.
+        if (this.worker) {
+          this.finalizeMemory('failure');
+          this.emitTyped('exit', message.taskId, 1, this.processType, message.projectId);
+          this.releaseWorker();
+        }
         break;
 
       case 'execution-progress':
@@ -246,7 +259,33 @@ export class WorkerBridge extends EventEmitter {
 
     // Emit exit and cleanup
     this.emitTyped('exit', taskId, exitCode, this.processType, projectId);
+    this.releaseWorker();
+  }
+
+  /**
+   * zeenha fork: drop the worker AND end its thread. A worker thread never
+   * exits by itself once its session is over (the abort listener on
+   * parentPort keeps its event loop alive), so only nulling the reference
+   * leaked one live thread, with its whole module graph, per finished session.
+   * The thread still has cleanup to run after it reports (run()'s finally
+   * closes its MCP clients, which may be child processes), so it gets a grace
+   * period before it is terminated.
+   */
+  private releaseWorker(): void {
+    const worker = this.worker;
     this.cleanup();
+    if (!worker) return;
+    const timer = setTimeout(() => {
+      try {
+        void Promise.resolve(worker.terminate()).catch(() => {
+          // Already gone
+        });
+      } catch {
+        // Already gone
+      }
+    }, WORKER_EXIT_GRACE_MS);
+    timer.unref?.();
+    worker.once('exit', () => clearTimeout(timer));
   }
 
   // ===========================================================================

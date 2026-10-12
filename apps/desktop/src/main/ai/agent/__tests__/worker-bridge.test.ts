@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 
 import type { AgentExecutorConfig, WorkerMessage } from '../types';
@@ -90,7 +90,7 @@ vi.mock('../../session/progress-tracker', () => ({
 }));
 
 // Import after mocks
-import { WorkerBridge } from '../worker-bridge';
+import { WorkerBridge, WORKER_EXIT_GRACE_MS } from '../worker-bridge';
 
 // =============================================================================
 // Helpers
@@ -135,7 +135,12 @@ function createSessionResult(overrides: Partial<SessionResult> = {}): SessionRes
 describe('WorkerBridge', () => {
   let bridge: WorkerBridge;
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
     createdWorkers.length = 0;
     handlerInstances.length = 0;
@@ -320,6 +325,50 @@ describe('WorkerBridge', () => {
 
       expect(exitHandler).toHaveBeenCalledWith('task-123', 1, 'task-execution', 'proj-456');
       expect(bridge.isActive).toBe(false);
+    });
+
+    // zeenha fork: a session that throws posts 'error' and never a 'result'.
+    // The task used to stay "running" forever.
+    it('treats a worker error message as a failed session: exit 1, memory finalized, thread ended', () => {
+      const exitHandler = vi.fn();
+      bridge.on('exit', exitHandler);
+      bridge.on('error', vi.fn());
+      bridge.spawn(createConfig());
+      const worker = getWorker();
+
+      worker.emit('message', { type: 'error', taskId: 'task-123', data: 'Agent session failed: boom', projectId: 'proj-456' });
+
+      expect(exitHandler).toHaveBeenCalledWith('task-123', 1, 'task-execution', 'proj-456');
+      expect(bridge.isActive).toBe(false);
+      expect(handlerInstances.at(-1)?.finalize).toHaveBeenCalledWith('failure');
+      vi.advanceTimersByTime(WORKER_EXIT_GRACE_MS);
+      expect(worker.terminate).toHaveBeenCalled();
+    });
+
+    // zeenha fork: the thread does not end by itself after its session, so
+    // only dropping the reference leaked a live thread per finished session.
+    it('ends the worker thread after a grace period once its result is handled', () => {
+      bridge.spawn(createConfig());
+      const worker = getWorker();
+
+      worker.emit('message', { type: 'result', taskId: 'task-123', data: createSessionResult() });
+
+      // run()'s finally (MCP clients) still gets to run first
+      vi.advanceTimersByTime(WORKER_EXIT_GRACE_MS - 1);
+      expect(worker.terminate).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(worker.terminate).toHaveBeenCalled();
+    });
+
+    it('does not terminate a worker that already exited on its own', () => {
+      bridge.spawn(createConfig());
+      const worker = getWorker();
+
+      worker.emit('message', { type: 'result', taskId: 'task-123', data: createSessionResult() });
+      worker.emit('exit', 0);
+      vi.advanceTimersByTime(WORKER_EXIT_GRACE_MS);
+
+      expect(worker.terminate).not.toHaveBeenCalled();
     });
 
     it('does not emit exit if worker reference already cleaned up (result already handled)', () => {
