@@ -122,10 +122,13 @@ export async function dismissAllIdeas(
   }
 
   try {
-    // Dismiss all ideas that are not already dismissed or converted
+    // Dismiss all ideas that are not already dismissed, converted or archived.
+    // zeenha fork: converted ideas are stored as 'archived' (with
+    // linked_task_id), so they were turned into 'dismissed' on disk while the
+    // screen, which skips archived, looked right until the next reload.
     let dismissedCount = 0;
     ideation.ideas?.forEach((idea) => {
-      if (idea.status !== 'dismissed' && idea.status !== 'converted') {
+      if (idea.status !== 'dismissed' && idea.status !== 'converted' && idea.status !== 'archived') {
         idea.status = 'dismissed';
         dismissedCount++;
       }

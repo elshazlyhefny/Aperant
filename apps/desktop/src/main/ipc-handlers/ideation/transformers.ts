@@ -54,6 +54,15 @@ function validateEnabledTypes(rawTypes: unknown): IdeationType[] {
  * Transform an idea from snake_case (Python backend) to camelCase (TypeScript frontend)
  */
 export function transformIdeaFromSnakeCase(idea: RawIdea): Idea {
+  // zeenha fork: the converter stores the task an idea became as
+  // linked_task_id. It was never carried over, so after a reload no converted
+  // idea offered "Go to task".
+  const linked = idea.linked_task_id ?? idea.taskId;
+  const transformed = transformIdeaFields(idea);
+  return typeof linked === 'string' && linked ? { ...transformed, taskId: linked } : transformed;
+}
+
+function transformIdeaFields(idea: RawIdea): Idea {
   const status = (idea.status || 'draft') as IdeationStatus;
   const createdAt = idea.created_at ? new Date(idea.created_at) : new Date();
 
