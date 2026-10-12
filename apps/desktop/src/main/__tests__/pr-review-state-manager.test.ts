@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PRReviewStateManager } from '../pr-review-state-manager';
+import { EXTERNAL_REVIEW_TIMEOUT_ERROR, PRReviewStateManager } from '../pr-review-state-manager';
 import type { PRReviewResult, PRReviewProgress } from '../../preload/api/modules/github-api';
 
 // Mock dependencies
@@ -139,6 +139,41 @@ describe('PRReviewStateManager', () => {
       manager.handleComplete(projectId, prNumber, result);
       const snapshot = manager.getState(projectId, prNumber);
       expect(String(snapshot!.value)).toBe('externalReview');
+    });
+
+    // zeenha fork: the renderer reports an external review's end over IPC.
+    describe('handleExternalReviewComplete', () => {
+      const startExternal = () => {
+        manager.handleStartReview(projectId, prNumber);
+        manager.handleComplete(projectId, prNumber, createMockResult({ overallStatus: 'in_progress' }));
+      };
+
+      it('completes an external review with the finished result', () => {
+        startExternal();
+        const result = createMockResult({ overallStatus: 'approve' });
+        manager.handleExternalReviewComplete(projectId, prNumber, result);
+        const snapshot = manager.getState(projectId, prNumber);
+        expect(String(snapshot?.value)).toBe('completed');
+        expect(snapshot?.context.result).toEqual(result);
+      });
+
+      it('ends an external review with an error when the renderer gave up (null)', () => {
+        startExternal();
+        manager.handleExternalReviewComplete(projectId, prNumber, null);
+        const snapshot = manager.getState(projectId, prNumber);
+        expect(String(snapshot?.value)).toBe('error');
+        expect(snapshot?.context.error).toBe(EXTERNAL_REVIEW_TIMEOUT_ERROR);
+      });
+
+      it('leaves a review the app is running alone, and ignores a still in_progress result', () => {
+        manager.handleStartReview(projectId, prNumber);
+        manager.handleExternalReviewComplete(projectId, prNumber, createMockResult());
+        expect(String(manager.getState(projectId, prNumber)?.value)).toBe('reviewing');
+
+        startExternal();
+        manager.handleExternalReviewComplete(projectId, prNumber, createMockResult({ overallStatus: 'in_progress' }));
+        expect(String(manager.getState(projectId, prNumber)?.value)).toBe('externalReview');
+      });
     });
 
     it('should transition to error on handleError', () => {

@@ -15,7 +15,8 @@ import {
   isDocumentationGapIdea,
   isSecurityHardeningIdea,
   isPerformanceOptimizationIdea,
-  isCodeQualityIdea
+  isCodeQualityIdea,
+  linkedTaskIdOf
 } from './type-guards';
 import { CodeImprovementDetails } from './details/CodeImprovementDetails';
 import { UIUXDetails } from './details/UIUXDetails';
@@ -36,7 +37,9 @@ interface IdeaDetailPanelProps {
 export function IdeaDetailPanel({ idea, onClose, onConvert, onGoToTask, onDismiss, isConverting }: IdeaDetailPanelProps) {
   const { t } = useTranslation('common');
   const isDismissed = idea.status === 'dismissed';
+  const isArchived = idea.status === 'archived';
   const isConverted = idea.status === 'converted';
+  const linkedTaskId = linkedTaskIdOf(idea);
 
   return (
     <div className="fixed inset-y-0 right-0 w-96 bg-card border-l border-border shadow-lg flex flex-col z-50">
@@ -90,7 +93,7 @@ export function IdeaDetailPanel({ idea, onClose, onConvert, onGoToTask, onDismis
       </div>
 
       {/* Actions */}
-      {!isDismissed && !isConverted && (
+      {!isDismissed && !isArchived && !isConverted && (
         <div className="shrink-0 p-4 border-t border-border space-y-2">
           <Button className="w-full" onClick={() => onConvert(idea)} disabled={isConverting}>
             {isConverting ? (
@@ -113,9 +116,9 @@ export function IdeaDetailPanel({ idea, onClose, onConvert, onGoToTask, onDismis
           </Button>
         </div>
       )}
-      {isConverted && idea.taskId && onGoToTask && (
+      {linkedTaskId && onGoToTask && (
         <div className="shrink-0 p-4 border-t border-border">
-          <Button className="w-full" onClick={() => onGoToTask(idea.taskId!)}>
+          <Button className="w-full" onClick={() => onGoToTask(linkedTaskId)}>
             <ExternalLink className="h-4 w-4 mr-2" />
             {t('common:ideation.goToTask')}
           </Button>

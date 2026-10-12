@@ -81,6 +81,58 @@ describe('ideation.json from the per-category files', () => {
     expect(combined().ideas[0]).toMatchObject({ title: 'New idea', status: 'draft' });
   });
 
+  // zeenha fork: ids are positional, so a regenerated category reuses
+  // ci-001.. for different ideas. A converted idea used to vanish then.
+  it('keeps a converted idea when the regenerated category reuses its id for another idea', () => {
+    write('code_improvements_ideas.json', {
+      code_improvements: [idea('ci-001', 'code_improvements', 'Send reminders to guests'), idea('ci-002', 'code_improvements', 'Other')],
+    });
+    syncIdeationFile(dir, 'all');
+    const saved = combined();
+    saved.ideas[0] = { ...saved.ideas[0], status: 'archived', linked_task_id: '027-send-reminders' };
+    writeFileSync(path.join(dir, 'ideation.json'), JSON.stringify(saved));
+
+    write('code_improvements_ideas.json', {
+      code_improvements: [idea('ci-001', 'code_improvements', 'Cache the slot engine'), idea('ci-002', 'code_improvements', 'Other')],
+    });
+    syncIdeationFile(dir, ['code_improvements']);
+
+    const after = combined().ideas as Array<{ id: string; title: string; status: string; linked_task_id?: string }>;
+    const ids = after.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(after.find((i) => i.linked_task_id === '027-send-reminders')).toMatchObject({
+      id: 'ci-001',
+      title: 'Send reminders to guests',
+      status: 'archived',
+    });
+    // The new idea is there too, under a free id.
+    expect(after.find((i) => i.title === 'Cache the slot engine')).toMatchObject({ id: 'ci-001-2', status: 'draft' });
+    expect(after.filter((i) => i.title === 'Other')).toHaveLength(1);
+  });
+
+  it('carries the saved id and state to a regenerated idea that moved position', () => {
+    write('code_quality_ideas.json', { code_quality: [idea('cq-001', 'code_quality', 'A'), idea('cq-002', 'code_quality', 'B')] });
+    syncIdeationFile(dir, 'all');
+    const saved = combined();
+    saved.ideas[0] = { ...saved.ideas[0], status: 'archived', linked_task_id: '030-a' };
+    saved.ideas[1] = { ...saved.ideas[1], status: 'dismissed' };
+    writeFileSync(path.join(dir, 'ideation.json'), JSON.stringify(saved));
+
+    // Same ideas, other order; plus a new one.
+    write('code_quality_ideas.json', {
+      code_quality: [idea('cq-001', 'code_quality', 'B'), idea('cq-002', 'code_quality', 'C'), idea('cq-003', 'code_quality', 'A')],
+    });
+    syncIdeationFile(dir, ['code_quality']);
+
+    const byTitle = Object.fromEntries(
+      (combined().ideas as Array<{ id: string; title: string }>).map((i) => [i.title, i]),
+    );
+    expect(byTitle.A).toMatchObject({ id: 'cq-001', status: 'archived', linked_task_id: '030-a' });
+    expect(byTitle.B).toMatchObject({ id: 'cq-002', status: 'dismissed' });
+    expect(byTitle.C.id).not.toMatch(/^cq-00[12]$/);
+    expect(combined().ideas).toHaveLength(3);
+  });
+
   it('takes the newest file when two hold the same category, and skips invalid files', () => {
     write('ui_ux_improvements_ideas.json', { ui_ux_improvements: [idea('a', 'ui_ux_improvements')] }, 60);
     write('ui_ux_ideas.json', { ui_ux_improvements: [idea('b', 'ui_ux_improvements')] }, 0);

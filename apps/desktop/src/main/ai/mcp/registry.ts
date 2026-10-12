@@ -105,7 +105,7 @@ const PUPPETEER_SERVER: McpServerConfig = {
 
 /** Options for resolving MCP server configurations */
 export interface McpRegistryOptions {
-  /** Spec directory for auto-claude MCP server */
+  /** Spec directory of the task (not read by any built-in server) */
   specDir?: string;
   /** Memory MCP server URL (if enabled) */
   memoryMcpUrl?: string;
@@ -155,15 +155,6 @@ export function getMcpServerConfig(
 
     case 'puppeteer':
       return PUPPETEER_SERVER;
-
-    case 'auto-claude':
-      // zeenha fork: the build-management tools (record_gotcha, update_qa_status,
-      // ...) are built into the tool registry (tools/auto-claude/), so there is
-      // no MCP server to start. createAutoClaudeServer() pointed at
-      // `node auto-claude-mcp-server.js`, a Python-era script that ships nowhere,
-      // so every planner/coder/QA session spawned a node process that died with
-      // MODULE_NOT_FOUND before failing the MCP connection "non-fatally".
-      return null;
 
     default:
       return null;

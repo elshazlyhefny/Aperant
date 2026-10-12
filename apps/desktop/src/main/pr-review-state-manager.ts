@@ -8,6 +8,9 @@ import { safeSendToRenderer } from './ipc-handlers/utils';
 
 type PRReviewActor = ActorRefFrom<typeof prReviewMachine>;
 
+/** zeenha fork: shown when an external review has not finished after the renderer's 30-minute wait. */
+export const EXTERNAL_REVIEW_TIMEOUT_ERROR = 'External review did not finish within 30 minutes';
+
 /**
  * Build a deduplication key from snapshot state + relevant context fields.
  * PR reviews need to emit even when state stays the same but context changes
@@ -68,6 +71,23 @@ export class PRReviewStateManager {
     if (result.overallStatus === 'in_progress') {
       actor.send({ type: 'DETECT_EXTERNAL_REVIEW' } satisfies PRReviewEvent);
     } else {
+      actor.send({ type: 'REVIEW_COMPLETE', result } satisfies PRReviewEvent);
+    }
+  }
+
+  /**
+   * zeenha fork: a review run outside the app (detected from an in_progress
+   * result on disk) has finished, as reported by the renderer that polls for
+   * it, or the renderer gave up after 30 minutes (result null). Acts only on a
+   * review that is still in externalReview, so a stale or late call cannot
+   * end a review the app itself is running.
+   */
+  handleExternalReviewComplete(projectId: string, prNumber: number, result: PRReviewResult | null): void {
+    const actor = this.getActor(projectId, prNumber);
+    if (!actor || String(actor.getSnapshot().value) !== 'externalReview') return;
+    if (result === null) {
+      actor.send({ type: 'REVIEW_ERROR', error: EXTERNAL_REVIEW_TIMEOUT_ERROR } satisfies PRReviewEvent);
+    } else if (typeof result === 'object' && typeof result.overallStatus === 'string' && result.overallStatus !== 'in_progress') {
       actor.send({ type: 'REVIEW_COMPLETE', result } satisfies PRReviewEvent);
     }
   }

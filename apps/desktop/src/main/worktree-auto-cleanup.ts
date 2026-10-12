@@ -31,7 +31,7 @@ import { cleansUpMergedWorktrees } from '../shared/utils/worktree-cleanup-policy
 import { getToolPath } from './cli-tool-manager';
 import { getAugmentedEnv } from './env-utils';
 import { getIsolatedGitEnv } from './utils/git-isolation';
-import { getTaskWorktreeDir, isPathWithinBase } from './worktree-paths';
+import { isTaskWorktreeFolder } from './worktree-paths';
 
 export type { KeptReason, MergedCleanupOutcome };
 
@@ -368,7 +368,7 @@ export async function ensureWorktreeDeletable(
   const uid = process.getuid?.();
   const gid = process.getgid?.();
   if (uid === undefined || gid === undefined) return { ok: true }; // Windows: no ownership problem to fix
-  if (!isPathWithinBase(path.resolve(worktreePath), getTaskWorktreeDir(projectPath))) {
+  if (!isTaskWorktreeFolder(worktreePath, projectPath)) {
     return { ok: false, detail: 'outside the task worktree folder' };
   }
 

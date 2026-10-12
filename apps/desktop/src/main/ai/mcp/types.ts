@@ -48,8 +48,7 @@ export type McpServerId =
   | 'linear'
   | 'memory'
   | 'electron'
-  | 'puppeteer'
-  | 'auto-claude';
+  | 'puppeteer';
 
 /** Configuration for a single MCP server */
 export interface McpServerConfig {

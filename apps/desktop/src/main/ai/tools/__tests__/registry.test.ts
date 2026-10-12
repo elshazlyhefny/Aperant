@@ -251,12 +251,12 @@ describe('getRequiredMcpServers (registry)', () => {
     expect(servers).toContain('context7');
   });
 
-  it('should support per-agent MCP REMOVE overrides but protect auto-claude', () => {
+  it('should support per-agent MCP REMOVE overrides', () => {
     const servers = getRequiredMcpServers('coder', {
       memoryEnabled: true,
-      mcpConfig: { AGENT_MCP_coder_REMOVE: 'auto-claude,memory' },
+      mcpConfig: { AGENT_MCP_coder_REMOVE: 'memory' },
     });
-    expect(servers).toContain('auto-claude');
+    expect(servers).toContain('context7');
     expect(servers).not.toContain('memory');
   });
 });

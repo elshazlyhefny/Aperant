@@ -57,6 +57,18 @@ export function updateIdeationTimestamp(data: RawIdeationData): void {
 /** Fields the app writes onto an idea after generation; kept when the same idea is generated again. */
 const STATE_FIELDS = ['status', 'linked_task_id'] as const;
 
+/** Converted to a task (stored as `archived` with `linked_task_id`) or archived: never dropped by a regeneration. */
+function isPreservedIdea(idea: RawIdea): boolean {
+  return Boolean(idea.linked_task_id) || idea.status === 'archived' || idea.status === 'converted';
+}
+
+/** `<id>-2`, `<id>-3`, ... : the first one not taken. */
+function freeId(id: string, taken: ReadonlySet<string>): string {
+  let n = 2;
+  while (taken.has(`${id}-${n}`)) n++;
+  return `${id}-${n}`;
+}
+
 function isIdea(value: unknown): value is RawIdea {
   return (
     typeof value === 'object' &&
@@ -114,9 +126,11 @@ export function readIdeasByType(ideationDir: string): Map<string, RawIdea[]> {
  *   what `ideation.json` already holds, so dismissals, archives and deletions
  *   made in the app are not undone.
  *
- * A regenerated idea with the same id AND title as a saved one keeps the saved
- * status and task link. Returns the written data, or null when there are no
- * ideas at all (nothing is written then).
+ * A regenerated idea with the same title as a saved one of its type keeps the
+ * saved id, status and task link. A saved idea that was converted to a task or
+ * archived is kept even when the new run did not produce it again; a new idea
+ * whose id it holds gets a free id instead. Returns the written data, or null
+ * when there are no ideas at all (nothing is written then).
  */
 export function syncIdeationFile(
   ideationDir: string,
@@ -132,23 +146,53 @@ export function syncIdeationFile(
   const replaceAll = regenerated === 'all' || existing === null;
   const replaced = new Set(replaceAll ? fromFiles.keys() : regenerated.filter((t) => fromFiles.has(t)));
 
-  const saved = new Map((existing?.ideas ?? []).map((idea) => [idea.id, idea]));
-  const kept = (existing?.ideas ?? []).filter((idea) => !replaced.has(idea.type));
+  const previousIdeas = existing?.ideas ?? [];
+  const kept = previousIdeas.filter((idea) => !replaced.has(idea.type));
   const fresh: RawIdea[] = [];
+  const retained: RawIdea[] = [];
+  const takenIds = new Set(kept.map((idea) => idea.id));
   for (const type of replaced) {
-    for (const idea of fromFiles.get(type) ?? []) {
-      const previous = saved.get(idea.id);
+    const previousOfType = previousIdeas.filter((idea) => idea.type === type);
+    const consumed = new Set<RawIdea>();
+    const generated = fromFiles.get(type) ?? [];
+    // Ids are positional (the second idea is always `*-002`), so a regenerated
+    // idea is matched to a saved one by its TITLE, preferring the same id.
+    const matches = generated.map((idea) => {
+      const match =
+        previousOfType.find((p) => !consumed.has(p) && p.id === idea.id && p.title === idea.title) ??
+        previousOfType.find((p) => !consumed.has(p) && p.title === idea.title);
+      if (match) consumed.add(match);
+      return match;
+    });
+    for (const match of matches) if (match) takenIds.add(match.id);
+    // zeenha fork: a saved idea that became a task (or was archived) stays,
+    // whatever the new run produced. It used to be dropped whenever the idea at
+    // its id had a different title, leaving the task with no idea behind it.
+    for (const previous of previousOfType) {
+      if (!consumed.has(previous) && isPreservedIdea(previous)) {
+        retained.push(previous);
+        takenIds.add(previous.id);
+      }
+    }
+    generated.forEach((idea, index) => {
+      const previous = matches[index];
       const merged: RawIdea = { ...idea };
-      if (previous && previous.title === idea.title) {
+      if (previous) {
+        merged.id = previous.id; // a task or a dismissal refers to it by this id
         for (const field of STATE_FIELDS) {
           if (previous[field] !== undefined) merged[field] = previous[field];
         }
+      } else if (takenIds.has(merged.id)) {
+        merged.id = freeId(merged.id, takenIds);
+        takenIds.add(merged.id);
+      } else {
+        takenIds.add(merged.id);
       }
       fresh.push(merged);
-    }
+    });
   }
 
-  const ideas = [...kept, ...fresh];
+  const ideas = [...kept, ...retained, ...fresh];
   if (ideas.length === 0 && existing === null) return null;
 
   // Ids must stay unique: `find(id)` drives every operation on an idea.
