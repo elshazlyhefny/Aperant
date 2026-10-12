@@ -273,7 +273,7 @@ describe('triage run', () => {
 
   it('refuses a second run for the same project while one is in flight', async () => {
     mockGithubFetch.mockResolvedValue(openIssues);
-    let finish: (v: unknown) => void = () => {};
+    let finish: (v: unknown) => void = () => undefined;
     mockTriageBatchIssues.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
 
     const first = runTriage('p1');
@@ -325,7 +325,7 @@ describe('applying triage labels', () => {
 
   it('treats removing a label the issue no longer has as done', async () => {
     writeResult(1, { labels_to_add: [], labels_to_remove: ['bug'] });
-    githubWith(['bug'], (endpoint, init) =>
+    githubWith(['bug'], (_endpoint, init) =>
       init?.method === 'DELETE' ? new Error('GitHub API error: 404 - Label does not exist') : undefined,
     );
 

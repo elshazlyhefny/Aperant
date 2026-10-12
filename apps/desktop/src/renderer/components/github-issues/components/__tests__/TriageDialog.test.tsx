@@ -116,6 +116,8 @@ describe('TriageDialog', () => {
     const save = screen.getByRole('button', { name: 'Save thresholds' });
     expect(save).toBeDisabled();
 
+    // One valid change beside an invalid value still cannot be saved.
+    fireEvent.change(screen.getByLabelText('Spam'), { target: { value: '60' } });
     fireEvent.change(screen.getByLabelText('Duplicate'), { target: { value: '150' } });
     expect(screen.getByText('Enter a value from 0 to 100')).toBeInTheDocument();
     expect(save).toBeDisabled();
@@ -124,7 +126,7 @@ describe('TriageDialog', () => {
     fireEvent.click(save);
 
     await screen.findByText('Thresholds saved');
-    expect(api.saveTriageConfig).toHaveBeenCalledWith('p1', { ...config, duplicateThreshold: 0.9 });
+    expect(api.saveTriageConfig).toHaveBeenCalledWith('p1', { ...config, duplicateThreshold: 0.9, spamThreshold: 0.6 });
   });
 
   it('says so when the thresholds could not be saved', async () => {
