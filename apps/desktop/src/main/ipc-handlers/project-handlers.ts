@@ -15,7 +15,6 @@ import { projectStore } from '../project-store';
 import {
   initializeProject,
   isInitialized,
-  hasLocalSource,
   checkGitStatus,
   initializeGit
 } from '../project-initializer';
@@ -413,25 +412,6 @@ export function registerProjectHandlers(
             updateAvailable: false // No updates for .auto-claude - it's just data
           }
         };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    }
-  );
-
-  // Check if project has local auto-claude source (is dev project)
-  ipcMain.handle(
-    'project:has-local-source',
-    async (_, projectId: string): Promise<IPCResult<boolean>> => {
-      try {
-        const project = projectStore.getProject(projectId);
-        if (!project) {
-          return { success: false, error: 'Project not found' };
-        }
-        return { success: true, data: hasLocalSource(project.path) };
       } catch (error) {
         return {
           success: false,

@@ -109,7 +109,6 @@ export const IPC_CHANNELS = {
   TERMINAL_OAUTH_TOKEN: 'terminal:oauthToken',  // OAuth token captured from setup-token output
   TERMINAL_AUTH_CREATED: 'terminal:authCreated',  // Auth terminal created for OAuth flow
   TERMINAL_OAUTH_CODE_NEEDED: 'terminal:oauthCodeNeeded',  // Request user to paste OAuth code from browser
-  TERMINAL_OAUTH_CODE_SUBMIT: 'terminal:oauthCodeSubmit',  // User submitted OAuth code to send to terminal
   TERMINAL_CLAUDE_BUSY: 'terminal:claudeBusy',  // Claude Code busy state (for visual indicator)
   TERMINAL_CLAUDE_EXIT: 'terminal:claudeExit',  // Claude Code exited (returned to shell)
   TERMINAL_PROFILE_CHANGED: 'terminal:profileChanged',  // Profile changed, terminals need refresh (main -> renderer)
@@ -121,7 +120,6 @@ export const IPC_CHANNELS = {
   CLAUDE_PROFILE_RENAME: 'claude:profileRename',
   CLAUDE_PROFILE_SET_ACTIVE: 'claude:profileSetActive',
   CLAUDE_PROFILE_SWITCH: 'claude:profileSwitch',
-  CLAUDE_PROFILE_INITIALIZE: 'claude:profileInitialize',
   CLAUDE_PROFILE_SET_TOKEN: 'claude:profileSetToken',  // Set OAuth token for a profile
   CLAUDE_PROFILE_AUTHENTICATE: 'claude:profileAuthenticate',  // Open visible terminal for OAuth login
   CLAUDE_PROFILE_VERIFY_AUTH: 'claude:profileVerifyAuth',  // Check if profile has been authenticated
@@ -410,7 +408,6 @@ export const IPC_CHANNELS = {
   GITHUB_PR_LIST: 'github:pr:list',
   GITHUB_PR_LIST_MORE: 'github:pr:listMore',  // Load more PRs (pagination)
   GITHUB_PR_GET: 'github:pr:get',
-  GITHUB_PR_GET_DIFF: 'github:pr:getDiff',
   GITHUB_PR_REVIEW: 'github:pr:review',
   GITHUB_PR_REVIEW_CANCEL: 'github:pr:reviewCancel',
   GITHUB_PR_GET_REVIEW: 'github:pr:getReview',
@@ -444,8 +441,6 @@ export const IPC_CHANNELS = {
   GITHUB_PR_STATUS_UPDATE: 'github:pr:statusUpdate',          // Event: PR status updated (main -> renderer)
 
   // GitHub PR Memory operations (saves review insights to memory layer)
-  GITHUB_PR_MEMORY_GET: 'github:pr:memory:get',        // Get PR review memories
-  GITHUB_PR_MEMORY_SEARCH: 'github:pr:memory:search',  // Search PR review memories
 
   // GitHub Workflow Approval (for fork PRs)
   GITHUB_WORKFLOWS_AWAITING_APPROVAL: 'github:workflows:awaitingApproval',

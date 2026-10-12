@@ -66,15 +66,6 @@ export interface ProjectAPI {
   getDefaultProjectLocation: () => Promise<string | null>;
 
    // Ollama Model Management
-   scanOllamaModels: (baseUrl: string) => Promise<IPCResult<{
-     models: Array<{
-       name: string;
-       size: number;
-       modified_at: string;
-       digest: string;
-     }>;
-   }>>;
-   downloadOllamaModel: (baseUrl: string, modelName: string) => Promise<IPCResult<{ message: string }>>;
    onDownloadProgress: (callback: (data: {
      modelName: string;
      status: string;
@@ -223,19 +214,6 @@ export const createProjectAPI = (): ProjectAPI => ({
     ipcRenderer.invoke(IPC_CHANNELS.DIALOG_GET_DEFAULT_PROJECT_LOCATION),
 
   // Ollama Model Management
-  scanOllamaModels: (baseUrl: string): Promise<IPCResult<{
-    models: Array<{
-      name: string;
-      size: number;
-      modified_at: string;
-      digest: string;
-    }>;
-  }>> =>
-    ipcRenderer.invoke('scan-ollama-models', baseUrl),
-
-  downloadOllamaModel: (baseUrl: string, modelName: string): Promise<IPCResult<{ message: string }>> =>
-    ipcRenderer.invoke('download-ollama-model', baseUrl, modelName),
-
   onDownloadProgress: (callback: (data: {
     modelName: string;
     status: string;

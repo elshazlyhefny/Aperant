@@ -312,8 +312,6 @@ export interface ElectronAPI {
     profileId: string;
     profileName: string
   }) => void) => () => void;
-  /** Submit OAuth code from user (for manual OAuth flow) */
-  submitOAuthCode: (terminalId: string, code: string) => Promise<IPCResult>;
 
   // Claude profile management (multi-account support)
   getClaudeProfiles: () => Promise<IPCResult<ClaudeProfileSettings>>;
@@ -323,8 +321,6 @@ export interface ElectronAPI {
   setActiveClaudeProfile: (profileId: string) => Promise<IPCResult>;
   /** Switch terminal to use a different Claude profile (restarts Claude with new config) */
   switchClaudeProfile: (terminalId: string, profileId: string) => Promise<IPCResult>;
-  /** Initialize authentication for a Claude profile (legacy - uses hidden terminal) */
-  initializeClaudeProfile: (profileId: string) => Promise<IPCResult>;
   /** Set OAuth token for a profile (used when capturing from terminal) */
   setClaudeProfileToken: (profileId: string, token: string, email?: string) => Promise<IPCResult>;
   /** Prepare authentication for a Claude profile - returns terminal config for embedded terminal */
