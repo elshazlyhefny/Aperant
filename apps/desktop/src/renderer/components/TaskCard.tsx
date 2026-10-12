@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, Square, Clock, Zap, Target, Shield, Gauge, Palette, FileCode, Bug, Wrench, Loader2, AlertTriangle, RotateCcw, Archive, GitPullRequest, MoreVertical } from 'lucide-react';
+import { Play, Square, Clock, Zap, Target, Shield, Gauge, Palette, FileCode, Bug, Wrench, Loader2, AlertTriangle, RotateCcw, Archive, GitPullRequest, MoreVertical, ListRestart } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -31,7 +31,7 @@ import {
   JSON_ERROR_PREFIX,
   JSON_ERROR_TITLE_SUFFIX
 } from '../../shared/constants';
-import { stopTask, checkTaskRunning, recoverStuckTask, isIncompleteHumanReview, archiveTasks, hasRecentActivity, startTaskOrQueue } from '../stores/task-store';
+import { stopTask, checkTaskRunning, recoverStuckTask, isIncompleteHumanReview, archiveTasks, hasRecentActivity, startTaskOrQueue, retryFailedTask, replanFailedTask } from '../stores/task-store';
 import { useToast } from '../hooks/use-toast';
 import type { Task, TaskCategory, ReviewReason, TaskStatus } from '../../shared/types';
 
@@ -97,6 +97,7 @@ function taskCardPropsAreEqual(prevProps: TaskCardProps, nextProps: TaskCardProp
     prevTask.description === nextTask.description &&
     prevTask.updatedAt === nextTask.updatedAt &&
     prevTask.reviewReason === nextTask.reviewReason &&
+    prevTask.failureReason === nextTask.failureReason &&
     prevTask.executionProgress?.phase === nextTask.executionProgress?.phase &&
     prevTask.executionProgress?.phaseProgress === nextTask.executionProgress?.phaseProgress &&
     prevTask.subtasks.length === nextTask.subtasks.length &&
@@ -140,6 +141,8 @@ export const TaskCard = memo(function TaskCard({
   const stuckIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const isRunning = task.status === 'in_progress';
+  // zeenha fork: the run failed before doing any work (Failed column)
+  const isFailed = task.status === 'error';
   const executionPhase = task.executionProgress?.phase;
   const hasActiveExecution = executionPhase && executionPhase !== 'idle' && executionPhase !== 'complete' && executionPhase !== 'failed';
 
@@ -246,6 +249,21 @@ export const TaskCard = memo(function TaskCard({
     }
   };
 
+  // zeenha fork: Retry continues a failed task from where it stopped; Re-plan discards its plan first.
+  const handleFix = async (kind: 'retry' | 'replan', e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const result = kind === 'retry' ? await retryFailedTask(task.id) : await replanFailedTask(task.id);
+    if (!result.success) {
+      toast({
+        title: t('tasks:wizard.errors.startFailed'),
+        description: result.error,
+        variant: 'destructive',
+      });
+    } else if (result.action === 'queued') {
+      toast({ title: t('tasks:queue.movedToQueue') });
+    }
+  };
+
   const handleRecover = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsRecovering(true);
@@ -282,6 +300,8 @@ export const TaskCard = memo(function TaskCard({
         return 'purple';
       case 'done':
         return 'success';
+      case 'error':
+        return 'destructive';
       default:
         return 'secondary';
     }
@@ -297,6 +317,8 @@ export const TaskCard = memo(function TaskCard({
         return t('labels.needsReview');
       case 'done':
         return t('status.complete');
+      case 'error':
+        return t('labels.failed');
       default:
         return t('labels.pending');
     }
@@ -369,8 +391,19 @@ export const TaskCard = memo(function TaskCard({
           </p>
         )}
 
+        {/* zeenha fork: why a failed task failed */}
+        {isFailed && (
+          <p
+            className="mt-2 text-xs text-destructive line-clamp-2"
+            title={task.failureReason || t('failedTask.noReason')}
+            data-testid="task-card-failure-reason"
+          >
+            {task.failureReason || t('failedTask.noReason')}
+          </p>
+        )}
+
         {/* Metadata badges */}
-        {(task.metadata || isStuck || isIncomplete || hasActiveExecution || reviewReasonInfo) && (
+        {(task.metadata || isStuck || isIncomplete || hasActiveExecution || reviewReasonInfo || isFailed) && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {/* Stuck indicator - highest priority */}
             {isStuck && (
@@ -558,6 +591,18 @@ export const TaskCard = memo(function TaskCard({
                 <Play className="mr-1.5 h-3 w-3" />
                 {t('actions.resume')}
               </Button>
+            ) : isFailed ? (
+              <Button
+                variant="default"
+                size="sm"
+                className="h-7 px-2.5"
+                onClick={(e) => handleFix('retry', e)}
+                title={t('failedTask.retryHint')}
+                data-testid="task-card-retry"
+              >
+                <RotateCcw className="mr-1.5 h-3 w-3" />
+                {t('failedTask.retry')}
+              </Button>
             ) : task.status === 'done' && task.metadata?.prUrl ? (
               <div className="flex gap-1">
                 {task.metadata?.prUrl && (
@@ -615,8 +660,8 @@ export const TaskCard = memo(function TaskCard({
               </Button>
             )}
 
-            {/* Move to menu for keyboard accessibility */}
-            {statusMenuItems && (
+            {/* Move to menu for keyboard accessibility (and, for a failed task, the Fix options) */}
+            {(statusMenuItems || isFailed) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -630,9 +675,30 @@ export const TaskCard = memo(function TaskCard({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenuLabel>{t('actions.moveTo')}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {statusMenuItems}
+                  {isFailed && (
+                    <>
+                      <DropdownMenuLabel>{t('failedTask.fix')}</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => handleFix('retry')} data-testid="task-card-menu-retry">
+                        <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                        {t('failedTask.retry')}
+                      </DropdownMenuItem>
+                      {task.subtasks.length > 0 && (
+                        <DropdownMenuItem onClick={() => handleFix('replan')} data-testid="task-card-menu-replan">
+                          <ListRestart className="mr-2 h-3.5 w-3.5" />
+                          {t('failedTask.replan')}
+                        </DropdownMenuItem>
+                      )}
+                    </>
+                  )}
+                  {statusMenuItems && (
+                    <>
+                      {isFailed && <DropdownMenuSeparator />}
+                      <DropdownMenuLabel>{t('actions.moveTo')}</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {statusMenuItems}
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}

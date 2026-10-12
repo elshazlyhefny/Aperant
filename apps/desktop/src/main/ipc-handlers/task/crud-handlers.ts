@@ -17,6 +17,8 @@ import { getIsolatedGitEnv } from '../../utils/git-isolation';
 import { taskStateManager } from '../../task-state-manager';
 import { safeBreadcrumb } from '../../sentry';
 import { buildSpecId } from '../../utils/spec-slug';
+import { canResetPlan, resetPlanFiles } from './reset-plan';
+import { taskSpecDirs } from '../../task-failure-facts';
 
 /**
  * Sanitize thinking levels in task metadata in-place.
@@ -728,6 +730,29 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
           error: error instanceof Error ? error.message : 'Unknown error loading thumbnail'
         };
       }
+    }
+  );
+
+  /**
+   * zeenha fork: Re-plan a failed task. Discards its plan (every copy) so the
+   * next start plans again. Refused for any task not in the Failed column.
+   */
+  ipcMain.handle(
+    IPC_CHANNELS.TASK_RESET_PLAN,
+    async (_, taskId: string): Promise<IPCResult> => {
+      const { task, project } = findTaskAndProject(taskId);
+      if (!task || !project) {
+        return { success: false, error: 'Task not found' };
+      }
+      if (!canResetPlan(task)) {
+        return { success: false, error: 'Only a failed task can be re-planned' };
+      }
+      const result = resetPlanFiles(taskSpecDirs(project.path, getSpecsDir(project.autoBuildPath), task.specId));
+      if (!result.success) {
+        return { success: false, error: result.error };
+      }
+      projectStore.invalidateTasksCache(project.id);
+      return { success: true };
     }
   );
 

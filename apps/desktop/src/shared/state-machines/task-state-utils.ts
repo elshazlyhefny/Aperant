@@ -65,10 +65,15 @@ export const XSTATE_TO_PHASE: Record<TaskStateName, ExecutionPhase> & Record<str
  * When reviewReason is provided (from XState context), it's used for the
  * human_review state. Otherwise defaults to 'completed' (used by re-stamp
  * callers that don't have access to the XState context).
+ *
+ * zeenha fork: `failedBeforeWork` (from failedBeforeAnyWork() in
+ * shared/utils/task-failure) sends an `error` state to the Failed column
+ * (status 'error') instead of Human Review "errors".
  */
 export function mapStateToLegacy(
   state: string,
-  reviewReason?: ReviewReason
+  reviewReason?: ReviewReason,
+  failedBeforeWork = false
 ): { status: TaskStatus; reviewReason?: ReviewReason } {
   switch (state) {
     case 'backlog':
@@ -84,7 +89,9 @@ export function mapStateToLegacy(
     case 'human_review':
       return { status: 'human_review', reviewReason: reviewReason ?? 'completed' };
     case 'error':
-      return { status: 'human_review', reviewReason: 'errors' };
+      return failedBeforeWork
+        ? { status: 'error' }
+        : { status: 'human_review', reviewReason: 'errors' };
     case 'creating_pr':
       return { status: 'human_review', reviewReason: 'completed' };
     case 'pr_created':

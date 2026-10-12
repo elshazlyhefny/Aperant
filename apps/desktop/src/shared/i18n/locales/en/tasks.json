@@ -32,7 +32,8 @@
     "incomplete": "Incomplete",
     "recovering": "Recovering...",
     "needsRecovery": "Needs Recovery",
-    "needsResume": "Needs Resume"
+    "needsResume": "Needs Resume",
+    "failed": "Failed"
   },
   "reviewReason": {
     "completed": "Completed",
@@ -63,7 +64,7 @@
     "human_review": "Human Review",
     "done": "Done",
     "pr_created": "PR Created",
-    "error": "Error"
+    "error": "Failed"
   },
   "kanban": {
     "emptyBacklog": "No tasks planned",
@@ -349,6 +350,18 @@
     "cancel": "Cancel",
     "deletePermanently": "Delete Permanently",
     "deleting": "Deleting..."
+  },
+  "failedTask": {
+    "title": "This task failed before doing any work",
+    "description": "No subtask was completed and nothing in your project was changed, so there is nothing to review.",
+    "reason": "Reason",
+    "noReason": "No reason was recorded",
+    "fix": "Fix",
+    "retry": "Retry",
+    "retryHint": "Continue from where it stopped, keeping the plan",
+    "replan": "Re-plan",
+    "replanHint": "Discard the plan and plan the task again",
+    "starting": "Starting..."
   },
   "restartFailed": {
     "title": "Task stopped before any work was done",

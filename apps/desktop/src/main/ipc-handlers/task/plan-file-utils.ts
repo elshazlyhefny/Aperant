@@ -244,7 +244,8 @@ export function persistPlanStatusAndReasonSync(
   reviewReason?: string,
   projectId?: string,
   xstateState?: string,
-  executionPhase?: string
+  executionPhase?: string,
+  failureReason?: string
 ): boolean {
   try {
     let plan: Record<string, unknown>;
@@ -277,6 +278,12 @@ export function persistPlanStatusAndReasonSync(
     plan.reviewReason = reviewReason;
     if (xstateState) {
       plan.xstateState = xstateState;
+      // zeenha fork: keep why a run failed while it is failed; drop it once it moves on.
+      if (xstateState !== 'error') {
+        delete plan.failureReason;
+      } else if (failureReason) {
+        plan.failureReason = failureReason;
+      }
     }
     if (executionPhase) {
       plan.executionPhase = executionPhase;

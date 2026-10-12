@@ -46,23 +46,12 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import type { Task, TaskStatus, TaskOrderState } from '../../shared/types';
+import { FAILED_COLUMN, getBoardColumns, getVisualColumn, type BoardColumn as BoardColumnKey } from './kanban-columns';
 
 // Type guard for valid drop column targets - preserves literal type from TASK_STATUS_COLUMNS
 const VALID_DROP_COLUMNS = new Set<string>(TASK_STATUS_COLUMNS);
 function isValidDropColumn(id: string): id is typeof TASK_STATUS_COLUMNS[number] {
   return VALID_DROP_COLUMNS.has(id);
-}
-
-/**
- * Get the visual column for a task status.
- * pr_created tasks are displayed in the 'done' column, so we map them accordingly.
- * error tasks are displayed in the 'human_review' column (errors need human attention).
- * This is used to compare visual positions during drag-and-drop operations.
- */
-function getVisualColumn(status: TaskStatus): typeof TASK_STATUS_COLUMNS[number] {
-  if (status === 'pr_created') return 'done';
-  if (status === 'error') return 'human_review';
-  return status;
 }
 
 interface KanbanBoardProps {
@@ -320,6 +309,8 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
         return 'column-human-review';
       case 'done':
         return 'column-done';
+      case 'error':
+        return 'border-t-destructive';
       default:
         return 'border-t-muted-foreground/30';
     }
@@ -738,18 +729,19 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
 
   const tasksByStatus = useMemo(() => {
     // Note: pr_created tasks are shown in the 'done' column since they're essentially complete
-    // Note: error tasks are shown in the 'human_review' column since they need human attention
-    const grouped: Record<typeof TASK_STATUS_COLUMNS[number], Task[]> = {
+    // zeenha fork: error tasks (failed before any work) have their own Failed column
+    const grouped: Record<BoardColumnKey, Task[]> = {
       backlog: [],
       queue: [],
       in_progress: [],
       ai_review: [],
       human_review: [],
+      error: [],
       done: []
     };
 
     filteredTasks.forEach((task) => {
-      // Map pr_created tasks to the done column, error tasks to human_review
+      // Map pr_created tasks to the done column
       const targetColumn = getVisualColumn(task.status);
       if (grouped[targetColumn]) {
         grouped[targetColumn].push(task);
@@ -758,7 +750,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
 
     // Sort tasks within each column
     Object.keys(grouped).forEach((status) => {
-      const statusKey = status as typeof TASK_STATUS_COLUMNS[number];
+      const statusKey = status as BoardColumnKey;
       const columnTasks = grouped[statusKey];
       const columnOrder = taskOrder?.[statusKey];
 
@@ -936,10 +928,10 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
       return;
     }
 
-    // Check if over a task - get its column
+    // Check if over a task - get its column (never highlight the Failed column: nothing drops there)
     const overTask = tasks.find((t) => t.id === overId);
     if (overTask) {
-      setOverColumnId(overTask.status);
+      setOverColumnId(overTask.status === FAILED_COLUMN ? null : overTask.status);
     }
   };
 
@@ -1406,6 +1398,9 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
           return;
         }
 
+        // zeenha fork: nothing can be moved into the Failed column
+        if (overTaskVisualColumn === FAILED_COLUMN) return;
+
         // Different visual column: move to that task's column (status change)
         // Use the visual column key for ordering to ensure consistency
         newStatus = overTask.status;
@@ -1470,7 +1465,17 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
         onDragEnd={handleDragEnd}
       >
         <div className="flex flex-1 gap-4 overflow-x-auto p-6">
-          {TASK_STATUS_COLUMNS.map((status) => (
+          {getBoardColumns(tasksByStatus[FAILED_COLUMN].length).map((status) => status === FAILED_COLUMN ? (
+            // zeenha fork: Failed column: no add/queue/selection/column preferences, nothing drops here
+            <DroppableColumn
+              key={status}
+              status={status}
+              tasks={tasksByStatus[status]}
+              onTaskClick={onTaskClick}
+              onStatusChange={handleStatusChange}
+              isOver={false}
+            />
+          ) : (
             <DroppableColumn
               key={status}
               status={status}

@@ -11,6 +11,8 @@ import { ensureAbsolutePath } from './utils/path-helpers';
 import { writeFileAtomicSync } from './utils/atomic-file';
 import { updateRoadmapFeatureOutcome, revertRoadmapFeatureOutcome } from './utils/roadmap-utils';
 import { safeParseJson } from './utils/json-repair';
+import { failedRunStatus, isFailedRun } from '../shared/utils/task-failure';
+import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
 
 
 
@@ -370,12 +372,48 @@ export class ProjectStore {
       }
     }
 
-    const tasks = Array.from(taskMap.values());
+    // 4. zeenha fork: a failed run that did no work is shown as Failed (status
+    // 'error'), one that did work as Human Review "errors". Decided here, after
+    // dedupe, so tasks persisted before the rule existed are shown the same way.
+    const tasks = Array.from(taskMap.values()).map((task) =>
+      this.classifyFailedRun(task, project.path, specsBaseDir)
+    );
 
     // Update cache
     this.tasksCache.set(projectId, { tasks, timestamp: now });
 
     return tasks;
+  }
+
+  /**
+   * zeenha fork: apply failedRunStatus() (shared/utils/task-failure) to a task
+   * whose run failed, using the subtasks of BOTH plans (the worktree's is the
+   * one the coder updates) and the worktree's git state. Tasks that are not a
+   * failed run are returned unchanged.
+   */
+  private classifyFailedRun(task: Task, projectPath: string, specsBaseDir: string): Task {
+    const facts = {
+      status: task.status,
+      reviewReason: task.reviewReason,
+      executionPhase: task.executionProgress?.phase,
+    };
+    if (!isFailedRun(facts)) return task;
+
+    const specDirs = taskSpecDirs(projectPath, specsBaseDir, task.specId);
+    const resolved = failedRunStatus({
+      ...facts,
+      subtasks: [...task.subtasks, ...readSubtaskStatuses(specDirs)],
+      hasCodeChanges: taskHasCodeChanges(projectPath, task.specId, { useWorktree: task.metadata?.useWorktree }),
+    });
+    if (!resolved) return task;
+
+    const { reviewReason: _drop, failureReason: _old, ...rest } = task;
+    return {
+      ...rest,
+      status: resolved.status,
+      ...(resolved.reviewReason !== undefined && { reviewReason: resolved.reviewReason }),
+      ...(resolved.status === 'error' && { failureReason: readFailureReason(specDirs) }),
+    };
   }
 
   /**

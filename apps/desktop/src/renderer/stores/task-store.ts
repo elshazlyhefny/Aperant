@@ -22,7 +22,7 @@ interface TaskState {
   setTasks: (tasks: Task[]) => void;
   addTask: (task: Task) => void;
   updateTask: (taskId: string, updates: Partial<Task>) => void;
-  updateTaskStatus: (taskId: string, status: TaskStatus, reviewReason?: ReviewReason) => void;
+  updateTaskStatus: (taskId: string, status: TaskStatus, reviewReason?: ReviewReason, failureReason?: string) => void;
   updateTaskFromPlan: (taskId: string, plan: ImplementationPlan) => void;
   updateExecutionProgress: (taskId: string, progress: Partial<ExecutionProgress>) => void;
   appendLog: (taskId: string, log: string) => void;
@@ -266,7 +266,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       };
     }),
 
-  updateTaskStatus: (taskId, status, reviewReason) => {
+  updateTaskStatus: (taskId, status, reviewReason, failureReason) => {
     // Record activity for stuck detection — status changes prove the task is alive
     recordTaskActivity(taskId);
 
@@ -280,8 +280,11 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     const oldTask = state.tasks[index];
     const oldStatus = oldTask.status;
 
+    // zeenha fork: a failed task keeps its reason; any other status drops it.
+    const nextFailureReason = status === 'error' ? (failureReason ?? oldTask.failureReason) : undefined;
+
     // Skip if status AND reviewReason are the same
-    if (oldStatus === status && oldTask.reviewReason === reviewReason) {
+    if (oldStatus === status && oldTask.reviewReason === reviewReason && oldTask.failureReason === nextFailureReason) {
       debugLog('[updateTaskStatus] Status and reviewReason unchanged, skipping:', { taskId, status, reviewReason });
       return;
     }
@@ -328,7 +331,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
             newPhase: executionProgress?.phase
           });
 
-          return { ...t, status, reviewReason, executionProgress, updatedAt: new Date() };
+          return { ...t, status, reviewReason, failureReason: nextFailureReason, executionProgress, updatedAt: new Date() };
         })
       };
     });
@@ -892,6 +895,29 @@ export async function startTaskOrQueue(taskId: string): Promise<StartTaskOrQueue
 
   startTask(taskId);
   return { action: 'started', success: true };
+}
+
+/**
+ * zeenha fork: Retry a failed task from where it stopped. TASK_START already
+ * resumes into coding when the plan has subtasks (USER_RESUMED; the build
+ * orchestrator's isFirstRun() is false, so it does not plan again) and goes back
+ * to spec creation or planning when it has none.
+ */
+export function retryFailedTask(taskId: string): Promise<StartTaskOrQueueResult> {
+  return startTaskOrQueue(taskId);
+}
+
+/**
+ * zeenha fork: Re-plan a failed task: discard its plan, then start it, which
+ * plans again from the spec.
+ */
+export async function replanFailedTask(taskId: string): Promise<StartTaskOrQueueResult> {
+  const reset = await window.electronAPI.resetTaskPlan(taskId);
+  if (!reset.success) {
+    return { action: 'started', success: false, error: reset.error };
+  }
+  useTaskStore.getState().updateTask(taskId, { subtasks: [] });
+  return startTaskOrQueue(taskId);
 }
 
 /**
