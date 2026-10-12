@@ -8,6 +8,23 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryObserver } from '../../observer/memory-observer';
 import type { MemoryIpcRequest } from '../../types';
 
+/**
+ * zeenha fork: median of many calls after a warm-up. A single cold call timed
+ * against the wall clock also measured JIT warm-up and whatever else the
+ * machine was doing, so the 2ms budget failed under a busy full-suite run.
+ */
+function medianObserveMs(observer: MemoryObserver, msg: MemoryIpcRequest): number {
+  observer.observe(msg);
+  const samples: number[] = [];
+  for (let i = 0; i < 50; i++) {
+    const start = process.hrtime.bigint();
+    observer.observe(msg);
+    samples.push(Number(process.hrtime.bigint() - start) / 1_000_000);
+  }
+  samples.sort((a, b) => a - b);
+  return samples[Math.floor(samples.length / 2)];
+}
+
 describe('MemoryObserver', () => {
   let observer: MemoryObserver;
 
@@ -24,11 +41,7 @@ describe('MemoryObserver', () => {
         stepNumber: 1,
       };
 
-      const start = process.hrtime.bigint();
-      observer.observe(msg);
-      const elapsed = Number(process.hrtime.bigint() - start) / 1_000_000;
-
-      expect(elapsed).toBeLessThan(2);
+      expect(medianObserveMs(observer, msg)).toBeLessThan(2);
     });
 
     it('processes reasoning messages within 2ms', () => {
@@ -38,11 +51,7 @@ describe('MemoryObserver', () => {
         stepNumber: 2,
       };
 
-      const start = process.hrtime.bigint();
-      observer.observe(msg);
-      const elapsed = Number(process.hrtime.bigint() - start) / 1_000_000;
-
-      expect(elapsed).toBeLessThan(2);
+      expect(medianObserveMs(observer, msg)).toBeLessThan(2);
     });
 
     it('processes step-complete messages within 2ms', () => {
@@ -51,11 +60,7 @@ describe('MemoryObserver', () => {
         stepNumber: 5,
       };
 
-      const start = process.hrtime.bigint();
-      observer.observe(msg);
-      const elapsed = Number(process.hrtime.bigint() - start) / 1_000_000;
-
-      expect(elapsed).toBeLessThan(2);
+      expect(medianObserveMs(observer, msg)).toBeLessThan(2);
     });
 
     it('does not throw on malformed messages', () => {
