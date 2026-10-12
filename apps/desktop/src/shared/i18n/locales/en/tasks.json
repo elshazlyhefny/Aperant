@@ -359,5 +359,6 @@
     "dropZone": "Drop images here, paste with {{shortcut}}, or click to choose files",
     "title": "Reference Images (optional)",
     "description": "Add visual references like screenshots or designs to help the AI understand your requirements."
-  }
+  },
+  "untitled": "Untitled"
 }

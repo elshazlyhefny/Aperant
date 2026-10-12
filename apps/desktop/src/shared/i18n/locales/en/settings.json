@@ -932,6 +932,11 @@
       "autoClaude": {
         "name": "Aperant Tools",
         "description": "Build progress tracking"
+      },
+      "memory": {
+        "name": "Memory",
+        "description": "Lets agents read and write project memory across sessions",
+        "notConfigured": "Requires memory configuration (see Memory settings)"
       }
     },
     "customServers": "Custom Servers",
