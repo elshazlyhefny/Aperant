@@ -22,7 +22,6 @@ vi.mock('../../config/agent-configs', () => ({
   getAgentConfig: vi.fn(() => ({
     tools: ['Read', 'Glob', 'Grep', 'Write'],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   })),
 }));
@@ -124,7 +123,6 @@ describe('SubagentExecutorImpl', () => {
     (getAgentConfig as ReturnType<typeof vi.fn>).mockReturnValueOnce({
       tools: ['Read', 'SpawnSubagent', 'Write'],
       mcpServers: [],
-      autoClaudeTools: [],
       thinkingDefault: 'medium',
     });
 

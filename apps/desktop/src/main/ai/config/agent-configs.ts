@@ -36,17 +36,6 @@ const ALL_BUILTIN_TOOLS = [...BASE_READ_TOOLS, ...BASE_WRITE_TOOLS, ...WEB_TOOLS
 const SPEC_TOOLS = [...BASE_READ_TOOLS, 'Write', ...WEB_TOOLS] as const;
 
 // =============================================================================
-// Auto-Claude MCP Tools (Custom build management)
-// =============================================================================
-
-const TOOL_UPDATE_SUBTASK_STATUS = 'mcp__auto-claude__update_subtask_status';
-const TOOL_GET_BUILD_PROGRESS = 'mcp__auto-claude__get_build_progress';
-const TOOL_RECORD_DISCOVERY = 'mcp__auto-claude__record_discovery';
-const TOOL_RECORD_GOTCHA = 'mcp__auto-claude__record_gotcha';
-const TOOL_GET_SESSION_CONTEXT = 'mcp__auto-claude__get_session_context';
-const TOOL_UPDATE_QA_STATUS = 'mcp__auto-claude__update_qa_status';
-
-// =============================================================================
 // External MCP Tools
 // =============================================================================
 
@@ -160,8 +149,6 @@ export interface AgentConfig {
   mcpServers: readonly string[];
   /** Optional MCP servers (conditionally enabled) */
   mcpServersOptional?: readonly string[];
-  /** Auto-Claude MCP tools this agent can use */
-  autoClaudeTools: readonly string[];
   /** Default thinking level for this agent */
   thinkingDefault: ThinkingLevel;
 }
@@ -181,49 +168,41 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   spec_gatherer: {
     tools: [...SPEC_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
   spec_researcher: {
     tools: [...SPEC_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
   spec_writer: {
     tools: [...SPEC_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'high',
   },
   spec_critic: {
     tools: [...SPEC_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'high',
   },
   spec_discovery: {
     tools: [...SPEC_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
   spec_context: {
     tools: [...SPEC_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
   spec_validation: {
     tools: [...SPEC_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'high',
   },
   spec_compaction: {
     tools: [...SPEC_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
 
@@ -235,7 +214,6 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   spec_orchestrator: {
     tools: [...ALL_BUILTIN_TOOLS, 'SpawnSubagent'],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'high',
   },
 
@@ -246,14 +224,8 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
    */
   build_orchestrator: {
     tools: [...ALL_BUILTIN_TOOLS, 'SpawnSubagent'],
-    mcpServers: ['context7', 'memory', 'auto-claude'],
+    mcpServers: ['context7', 'memory'],
     mcpServersOptional: ['linear'],
-    autoClaudeTools: [
-      TOOL_GET_BUILD_PROGRESS,
-      TOOL_GET_SESSION_CONTEXT,
-      TOOL_RECORD_DISCOVERY,
-      TOOL_UPDATE_SUBTASK_STATUS,
-    ],
     thinkingDefault: 'high',
   },
 
@@ -263,26 +235,14 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   // ═══════════════════════════════════════════════════════════════════════
   planner: {
     tools: [...ALL_BUILTIN_TOOLS],
-    mcpServers: ['context7', 'memory', 'auto-claude'],
+    mcpServers: ['context7', 'memory'],
     mcpServersOptional: ['linear'],
-    autoClaudeTools: [
-      TOOL_GET_BUILD_PROGRESS,
-      TOOL_GET_SESSION_CONTEXT,
-      TOOL_RECORD_DISCOVERY,
-    ],
     thinkingDefault: 'high',
   },
   coder: {
     tools: [...ALL_BUILTIN_TOOLS],
-    mcpServers: ['context7', 'memory', 'auto-claude'],
+    mcpServers: ['context7', 'memory'],
     mcpServersOptional: ['linear'],
-    autoClaudeTools: [
-      TOOL_UPDATE_SUBTASK_STATUS,
-      TOOL_GET_BUILD_PROGRESS,
-      TOOL_RECORD_DISCOVERY,
-      TOOL_RECORD_GOTCHA,
-      TOOL_GET_SESSION_CONTEXT,
-    ],
     thinkingDefault: 'low',
   },
 
@@ -291,25 +251,14 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   // ═══════════════════════════════════════════════════════════════════════
   qa_reviewer: {
     tools: [...ALL_BUILTIN_TOOLS],
-    mcpServers: ['context7', 'memory', 'auto-claude', 'browser'],
+    mcpServers: ['context7', 'memory', 'browser'],
     mcpServersOptional: ['linear'],
-    autoClaudeTools: [
-      TOOL_GET_BUILD_PROGRESS,
-      TOOL_UPDATE_QA_STATUS,
-      TOOL_GET_SESSION_CONTEXT,
-    ],
     thinkingDefault: 'high',
   },
   qa_fixer: {
     tools: [...ALL_BUILTIN_TOOLS],
-    mcpServers: ['context7', 'memory', 'auto-claude', 'browser'],
+    mcpServers: ['context7', 'memory', 'browser'],
     mcpServersOptional: ['linear'],
-    autoClaudeTools: [
-      TOOL_UPDATE_SUBTASK_STATUS,
-      TOOL_GET_BUILD_PROGRESS,
-      TOOL_UPDATE_QA_STATUS,
-      TOOL_RECORD_GOTCHA,
-    ],
     thinkingDefault: 'medium',
   },
 
@@ -319,79 +268,66 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   insights: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'low',
   },
   merge_resolver: {
     tools: [],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'low',
   },
   commit_message: {
     tools: [],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'low',
   },
   pr_template_filler: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'low',
   },
   pr_reviewer: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'high',
   },
   pr_orchestrator_parallel: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'high',
   },
   pr_followup_parallel: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'high',
   },
   pr_followup_extraction: {
     tools: [],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'low',
   },
   pr_finding_validator: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
   pr_security_specialist: {
     tools: [...BASE_READ_TOOLS],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
   pr_quality_specialist: {
     tools: [...BASE_READ_TOOLS],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
   pr_logic_specialist: {
     tools: [...BASE_READ_TOOLS],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
   pr_codebase_fit_specialist: {
     tools: [...BASE_READ_TOOLS],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
 
@@ -401,19 +337,16 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   analysis: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'medium',
   },
   batch_analysis: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'low',
   },
   batch_validation: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'low',
   },
 
@@ -423,19 +356,16 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   roadmap_discovery: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'high',
   },
   competitor_analysis: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: ['context7'],
-    autoClaudeTools: [],
     thinkingDefault: 'high',
   },
   ideation: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: [],
-    autoClaudeTools: [],
     thinkingDefault: 'high',
   },
 } as const;
@@ -482,7 +412,6 @@ const MCP_SERVER_NAME_MAP: Record<string, string> = {
   linear: 'linear',
   electron: 'electron',
   puppeteer: 'puppeteer',
-  'auto-claude': 'auto-claude',
 };
 
 /**
@@ -593,11 +522,11 @@ export function getRequiredMcpServers(
     }
   }
 
-  // Apply per-agent MCP removals (never remove auto-claude)
+  // Apply per-agent MCP removals
   if (options.agentMcpRemove) {
     for (const name of options.agentMcpRemove.split(',')) {
       const mapped = mapMcpServerName(name.trim(), options.customServerIds);
-      if (mapped && mapped !== 'auto-claude') {
+      if (mapped) {
         const idx = servers.indexOf(mapped);
         if (idx !== -1) servers.splice(idx, 1);
       }

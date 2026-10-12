@@ -895,7 +895,6 @@
     "projectNotInitialized": "Projet non initialisé",
     "projectNotInitializedDescription": "Initialisez Aperant pour ce projet pour configurer les serveurs MCP.",
     "browserAutomation": "Automatisation du navigateur (agents QA uniquement)",
-    "alwaysEnabled": "toujours activé",
     "addServer": "Ajouter un serveur",
     "addMcpTo": "Ajouter un serveur MCP à {{agent}}",
     "addMcpDescription": "Sélectionnez un serveur MCP à ajouter à cet agent",
@@ -928,10 +927,6 @@
       "puppeteer": {
         "name": "Puppeteer",
         "description": "Automatisation du navigateur web pour les tests"
-      },
-      "autoClaude": {
-        "name": "Outils Aperant",
-        "description": "Suivi de la progression du build"
       },
       "memory": {
         "name": "Mémoire",

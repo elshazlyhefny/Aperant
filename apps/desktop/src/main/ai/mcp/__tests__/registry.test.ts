@@ -104,15 +104,6 @@ describe('getMcpServerConfig', () => {
     });
   });
 
-  describe('auto-claude', () => {
-    // zeenha fork: its tools are built into the tool registry, so there is no
-    // server to start (the old script never shipped and died MODULE_NOT_FOUND).
-    it('starts no MCP server, whatever the specDir', () => {
-      expect(getMcpServerConfig('auto-claude', {})).toBeNull();
-      expect(getMcpServerConfig('auto-claude', { specDir: '/project/.auto-claude/specs/001-feature' })).toBeNull();
-    });
-  });
-
   describe('unknown server', () => {
     it('returns null for unrecognized server ID', () => {
       const config = getMcpServerConfig('nonexistent-server');
@@ -158,9 +149,5 @@ describe('resolveMcpServers', () => {
     const configs = resolveMcpServers(['memory'], { memoryMcpUrl: 'http://memory.local' });
     expect(configs).toHaveLength(1);
     expect(configs[0].id).toBe('memory');
-  });
-
-  it('resolves no server for auto-claude', () => {
-    expect(resolveMcpServers(['auto-claude'], { specDir: '/my-project/.auto-claude/specs/042-auth' })).toHaveLength(0);
   });
 });
