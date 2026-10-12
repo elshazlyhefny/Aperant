@@ -99,6 +99,16 @@ describe('worktreeIsReal', () => {
     mkdirSync(join(leftover, 'frontend', '.nuxt'), { recursive: true });
     expect(await worktreeIsReal(leftover)).toBe(false);
   });
+
+  // zeenha fork: a checkout whose .git link points at a pruned admin dir makes
+  // git fail. That must not read as "leftover" (which skips the dirty check).
+  it('cannot tell (null) when git fails inside the folder', async () => {
+    const broken = join(repo, '.auto-claude', 'worktrees', 'tasks', '017-x');
+    mkdirSync(broken, { recursive: true });
+    writeFileSync(join(broken, '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'pruned')}\n`);
+    writeFileSync(join(broken, 'work.txt'), 'unsaved\n');
+    expect(await worktreeIsReal(broken)).toBeNull();
+  });
 });
 
 describe('branchTipInRepo', () => {
