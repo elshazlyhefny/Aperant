@@ -32,7 +32,8 @@
     "incomplete": "Incomplet",
     "recovering": "Récupération...",
     "needsRecovery": "Récupération requise",
-    "needsResume": "Reprise requise"
+    "needsResume": "Reprise requise",
+    "failed": "Échec"
   },
   "reviewReason": {
     "completed": "Terminé",
@@ -63,7 +64,7 @@
     "human_review": "Révision humaine",
     "done": "Terminé",
     "pr_created": "PR créée",
-    "error": "Erreur"
+    "error": "Échec"
   },
   "kanban": {
     "emptyBacklog": "Aucune tâche planifiée",
@@ -349,6 +350,18 @@
     "cancel": "Annuler",
     "deletePermanently": "Supprimer d\u00e9finitivement",
     "deleting": "Suppression..."
+  },
+  "failedTask": {
+    "title": "Cette tâche a échoué avant de faire le moindre travail",
+    "description": "Aucune sous-tâche n'a été terminée et rien n'a été modifié dans votre projet : il n'y a rien à réviser.",
+    "reason": "Raison",
+    "noReason": "Aucune raison n'a été enregistrée",
+    "fix": "Corriger",
+    "retry": "Réessayer",
+    "retryHint": "Reprendre là où elle s'est arrêtée, en gardant le plan",
+    "replan": "Replanifier",
+    "replanHint": "Abandonner le plan et planifier la tâche à nouveau",
+    "starting": "Démarrage..."
   },
   "restartFailed": {
     "title": "La tâche s'est arrêtée avant tout travail",

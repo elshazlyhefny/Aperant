@@ -259,6 +259,8 @@ export interface Task {
   description: string;
   status: TaskStatus;
   reviewReason?: ReviewReason;  // Why task needs human review (only set when status is 'human_review')
+  /** zeenha fork: why the run failed, when status is 'error' (Failed column). Undefined when nothing was recorded. */
+  failureReason?: string;
   subtasks: Subtask[];
   qaReport?: QAReport;
   logs: string[];
@@ -289,6 +291,7 @@ export interface ImplementationPlan {
   planStatus?: string;
   reviewReason?: ReviewReason;
   xstateState?: string;  // Persisted XState machine state for restoration (e.g., 'planning', 'coding')
+  failureReason?: string;  // zeenha fork: the state machine's error when it entered 'error'
   lastEvent?: {
     eventId: string;
     sequence: number;

@@ -11,6 +11,8 @@ import { findTaskWorktree } from './worktree-paths';
 import { getSpecsDir, AUTO_BUILD_PATHS } from '../shared/constants';
 import { existsSync } from 'fs';
 import path from 'path';
+import { failedBeforeAnyWork } from '../shared/utils/task-failure';
+import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
 
 type TaskActor = ActorRefFrom<typeof taskMachine>;
 
@@ -266,9 +268,14 @@ export class TaskStateManager {
         return;
       }
       const { task, project } = contextEntry;
+      // zeenha fork: an `error` state that did no work goes to the Failed column.
+      const failure = stateValue === 'error'
+        ? this.describeFailure(task, project, snapshot.context.error)
+        : { failedBeforeWork: false, failureReason: undefined };
       const { status, reviewReason } = mapStateToLegacy(
         stateValue,
-        snapshot.context.reviewReason
+        snapshot.context.reviewReason,
+        failure.failedBeforeWork
       );
 
       // Map XState state to execution phase for persistence
@@ -282,13 +289,35 @@ export class TaskStateManager {
         projectId: project.id
       });
 
-      this.persistStatus(task, project, status, reviewReason, stateValue, executionPhase);
-      this.emitStatus(taskId, status, reviewReason, project.id);
+      this.persistStatus(task, project, status, reviewReason, stateValue, executionPhase, failure.failureReason);
+      this.emitStatus(taskId, status, reviewReason, project.id, status === 'error' ? failure.failureReason : undefined);
     });
 
     actor.start();
     this.actors.set(taskId, actor);
     return actor;
+  }
+
+  /**
+   * zeenha fork: facts for a task whose machine just entered `error`, read
+   * fresh from both plans and the worktree (see shared/utils/task-failure).
+   */
+  private describeFailure(
+    task: Task,
+    project: Project,
+    machineError: string | undefined
+  ): { failedBeforeWork: boolean; failureReason: string | undefined } {
+    const specDirs = taskSpecDirs(project.path, getSpecsDir(project.autoBuildPath), task.specId);
+    const failedBeforeWork = failedBeforeAnyWork({
+      xstateState: 'error',
+      subtasks: [...(task.subtasks ?? []), ...readSubtaskStatuses(specDirs)],
+      hasCodeChanges: taskHasCodeChanges(project.path, task.specId, {
+        useWorktree: task.metadata?.useWorktree,
+        fresh: true,
+      }),
+    });
+    const failureReason = machineError?.trim() || readFailureReason(specDirs);
+    return { failedBeforeWork, failureReason };
   }
 
   private persistStatus(
@@ -297,10 +326,11 @@ export class TaskStateManager {
     status: TaskStatus,
     reviewReason?: ReviewReason,
     xstateState?: string,
-    executionPhase?: string
+    executionPhase?: string,
+    failureReason?: string
   ): void {
     const mainPlanPath = getPlanPath(project, task);
-    persistPlanStatusAndReasonSync(mainPlanPath, status, reviewReason, project.id, xstateState, executionPhase);
+    persistPlanStatusAndReasonSync(mainPlanPath, status, reviewReason, project.id, xstateState, executionPhase, failureReason);
 
     const worktreePath = findTaskWorktree(project.path, task.specId);
     if (!worktreePath) return;
@@ -313,7 +343,7 @@ export class TaskStateManager {
       AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN
     );
     if (existsSync(worktreePlanPath)) {
-      persistPlanStatusAndReasonSync(worktreePlanPath, status, reviewReason, project.id, xstateState, executionPhase);
+      persistPlanStatusAndReasonSync(worktreePlanPath, status, reviewReason, project.id, xstateState, executionPhase, failureReason);
     }
   }
 
@@ -328,7 +358,8 @@ export class TaskStateManager {
     taskId: string,
     status: TaskStatus,
     reviewReason: ReviewReason | undefined,
-    projectId?: string
+    projectId?: string,
+    failureReason?: string
   ): void {
     if (!this.getMainWindow) {
       console.warn(`[TaskStateManager] emitStatus: No main window, cannot emit status ${status} for ${taskId}`);
@@ -341,7 +372,9 @@ export class TaskStateManager {
       taskId,
       status,
       projectId,
-      reviewReason
+      reviewReason,
+      // zeenha fork: only a Failed task carries a reason (keeps the 4-argument event otherwise)
+      ...(failureReason !== undefined ? [failureReason] : [])
     );
   }
 
@@ -359,6 +392,7 @@ export class TaskStateManager {
     const executionPhase = task.executionProgress?.phase;
     let stateValue: string = 'backlog';
     let contextReviewReason: ReviewReason | undefined;
+    let contextError: string | undefined;
 
     switch (status) {
       case 'in_progress':
@@ -391,6 +425,7 @@ export class TaskStateManager {
       case 'error':
         stateValue = 'error';
         contextReviewReason = reviewReason ?? 'errors';
+        contextError = task.failureReason;
         break;
       default:
         stateValue = 'backlog';
@@ -400,7 +435,8 @@ export class TaskStateManager {
     return taskMachine.resolveState({
       value: stateValue,
       context: {
-        reviewReason: contextReviewReason
+        reviewReason: contextReviewReason,
+        error: contextError
       }
     });
   }

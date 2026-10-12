@@ -639,12 +639,15 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
 
       mockAgentManager.emit("exit", "task-1", 1, "task-execution");
 
+      // zeenha fork: the run failed with no plan, no subtasks and no worktree,
+      // so it did no work: it goes to the Failed column (status 'error'), not
+      // Human Review "errors" (see shared/utils/task-failure).
       expect(mockMainWindow.webContents.send).toHaveBeenCalledWith(
         "task:statusChange",
         "task-1",
-        "human_review",
+        "error",
         expect.any(String), // projectId for multi-project filtering
-        "errors"
+        undefined
       );
     });
   });

@@ -55,6 +55,8 @@ export interface TaskAPI {
 
   // Worktree Change Detection
   checkWorktreeChanges: (taskId: string) => Promise<IPCResult<{ hasChanges: boolean; worktreePath?: string; changedFileCount?: number }>>;
+  /** zeenha fork: discard a failed task's plan so the next start plans again. */
+  resetTaskPlan: (taskId: string) => Promise<IPCResult>;
 
   // Image Operations
   loadImageThumbnail: (projectPath: string, specId: string, imagePath: string) => Promise<IPCResult<string>>;
@@ -82,7 +84,7 @@ export interface TaskAPI {
   onTaskProgress: (callback: (taskId: string, plan: ImplementationPlan, projectId?: string) => void) => () => void;
   onTaskError: (callback: (taskId: string, error: string, projectId?: string) => void) => () => void;
   onTaskLog: (callback: (taskId: string, log: string, projectId?: string) => void) => () => void;
-  onTaskStatusChange: (callback: (taskId: string, status: TaskStatus, projectId?: string, reviewReason?: ReviewReason) => void) => () => void;
+  onTaskStatusChange: (callback: (taskId: string, status: TaskStatus, projectId?: string, reviewReason?: ReviewReason, failureReason?: string) => void) => () => void;
   onTaskExecutionProgress: (
     callback: (taskId: string, progress: import('../../shared/types').ExecutionProgress, projectId?: string) => void
   ) => () => void;
@@ -156,6 +158,9 @@ export const createTaskAPI = (): TaskAPI => ({
   // Worktree Change Detection
   checkWorktreeChanges: (taskId: string): Promise<IPCResult<{ hasChanges: boolean; worktreePath?: string; changedFileCount?: number }>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_CHECK_WORKTREE_CHANGES, taskId),
+
+  resetTaskPlan: (taskId: string): Promise<IPCResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_RESET_PLAN, taskId),
 
   // Image Operations
   loadImageThumbnail: (projectPath: string, specId: string, imagePath: string): Promise<IPCResult<string>> =>
@@ -263,16 +268,22 @@ export const createTaskAPI = (): TaskAPI => ({
   },
 
   onTaskStatusChange: (
-    callback: (taskId: string, status: TaskStatus, projectId?: string, reviewReason?: ReviewReason) => void
+    callback: (taskId: string, status: TaskStatus, projectId?: string, reviewReason?: ReviewReason, failureReason?: string) => void
   ): (() => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
       taskId: string,
       status: TaskStatus,
       projectId?: string,
-      reviewReason?: ReviewReason
+      reviewReason?: ReviewReason,
+      failureReason?: string
     ): void => {
-      callback(taskId, status, projectId, reviewReason);
+      // zeenha fork: the reason is passed only for a Failed task
+      if (failureReason !== undefined) {
+        callback(taskId, status, projectId, reviewReason, failureReason);
+      } else {
+        callback(taskId, status, projectId, reviewReason);
+      }
     };
     ipcRenderer.on(IPC_CHANNELS.TASK_STATUS_CHANGE, handler);
     return () => {

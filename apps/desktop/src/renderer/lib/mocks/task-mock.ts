@@ -77,6 +77,8 @@ export const taskMock = {
   resumePausedTask: async () => ({ success: true }),
 
   // Worktree change detection
+  resetTaskPlan: async (_taskId: string) => ({ success: true }),
+
   checkWorktreeChanges: async (_taskId: string) => ({
     success: true as const,
     data: { hasChanges: false }

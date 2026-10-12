@@ -43,6 +43,7 @@ import { TaskSubtasks } from './TaskSubtasks';
 import { TaskLogs } from './TaskLogs';
 import { TaskFiles } from './TaskFiles';
 import { TaskReview } from './TaskReview';
+import { FailedTaskPanel } from './FailedTaskPanel';
 import type { Task, WorktreeCreatePROptions } from '../../../shared/types';
 
 interface TaskDetailModalProps {
@@ -236,6 +237,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
         return 'purple';
       case 'in_progress':
         return 'info';
+      case 'error':
+        return 'destructive';
       default:
         return 'secondary';
     }
@@ -512,6 +515,14 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                     <div className="p-5 space-y-5 overflow-x-hidden max-w-full">
                       {/* Metadata */}
                       <TaskMetadata task={task} />
+
+                      {/* zeenha fork: a task that failed before any work: reason + Retry / Re-plan, no Create PR */}
+                      {task.status === 'error' && (
+                        <>
+                          <Separator />
+                          <FailedTaskPanel task={task} />
+                        </>
+                      )}
 
                       {/* Human Review Section */}
                       {state.needsReview && (

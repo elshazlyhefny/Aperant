@@ -419,7 +419,8 @@ export function registerAgenteventsHandlers(
     if (currentXState && !planWithStatus.xstateState && task && project) {
       console.debug(`[agent-events-handlers] Re-stamping XState status on plan file for ${taskId} (state: ${currentXState})`);
       const mainPlanPath = getPlanPath(project, task);
-      const { status, reviewReason } = mapStateToLegacy(currentXState);
+      // zeenha fork: keep a failed-before-work task in the Failed column (project-store already classified it).
+      const { status, reviewReason } = mapStateToLegacy(currentXState, undefined, currentXState === 'error' && task.status === 'error');
       const phase = XSTATE_TO_PHASE[currentXState] || 'idle';
       persistPlanStatusAndReasonSync(mainPlanPath, status, reviewReason, project.id, currentXState, phase);
 
