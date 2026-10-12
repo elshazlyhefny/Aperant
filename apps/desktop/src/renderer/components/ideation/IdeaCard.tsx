@@ -32,7 +32,8 @@ import {
   isDocumentationGapIdea,
   isSecurityHardeningIdea,
   isPerformanceOptimizationIdea,
-  isCodeQualityIdea
+  isCodeQualityIdea,
+  linkedTaskIdOf
 } from './type-guards';
 
 interface IdeaCardProps {
@@ -51,6 +52,7 @@ export function IdeaCard({ idea, isSelected, onClick, onConvert, onGoToTask, onD
   const isArchived = idea.status === 'archived';
   const isConverted = idea.status === 'converted';
   const isInactive = isDismissed || isArchived;
+  const linkedTaskId = linkedTaskIdOf(idea);
 
   return (
     <Card
@@ -163,8 +165,8 @@ export function IdeaCard({ idea, isSelected, onClick, onConvert, onGoToTask, onD
               </Tooltip>
             </div>
           )}
-          {/* Archived ideas show link to task */}
-          {isArchived && idea.taskId && onGoToTask && (
+          {/* A converted idea (archived, or the legacy converted status) links to its task */}
+          {linkedTaskId && onGoToTask && (
             <div className="flex items-center gap-1 ml-2">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -174,29 +176,7 @@ export function IdeaCard({ idea, isSelected, onClick, onConvert, onGoToTask, onD
                     className="h-8 w-8 p-0 text-primary"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onGoToTask(idea.taskId!);
-                    }}
-                    aria-label={t('accessibility.goToTaskAriaLabel')}
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('accessibility.goToTaskAriaLabel')}</TooltipContent>
-              </Tooltip>
-            </div>
-          )}
-          {/* Legacy: converted status also shows link to task */}
-          {isConverted && idea.taskId && onGoToTask && (
-            <div className="flex items-center gap-1 ml-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0 text-primary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onGoToTask(idea.taskId!);
+                      onGoToTask(linkedTaskId);
                     }}
                     aria-label={t('accessibility.goToTaskAriaLabel')}
                   >

@@ -31,3 +31,12 @@ export function isPerformanceOptimizationIdea(idea: Idea): idea is PerformanceOp
 export function isCodeQualityIdea(idea: Idea): idea is CodeQualityIdea {
   return idea.type === 'code_quality';
 }
+
+/**
+ * zeenha fork: the task an idea was turned into, or null. A converted idea is
+ * stored as `archived` with its task link; `converted` is the legacy status.
+ * The card and the detail panel both read this, so "Go to task" shows in both.
+ */
+export function linkedTaskIdOf(idea: Idea): string | null {
+  return (idea.status === 'archived' || idea.status === 'converted') && idea.taskId ? idea.taskId : null;
+}
