@@ -21,7 +21,7 @@ vi.mock('electron', () => ({
 const ref = vi.hoisted(() => ({ path: '', worktree: '', settings: {} as Record<string, unknown> }));
 vi.mock('../shared', () => ({
   findTaskAndProject: () => ({
-    task: { id: 't1', specId: '001-x' },
+    task: { id: 't1', specId: '001-x', status: 'human_review', reviewReason: 'completed' },
     project: { id: 'p1', path: ref.path, autoBuildPath: '.auto-claude', settings: ref.settings },
   }),
 }));
@@ -53,8 +53,14 @@ async function createPrHandler() {
   }>;
 }
 
+async function resetStateMachine() {
+  const { taskStateManager } = await import('../../../task-state-manager');
+  taskStateManager.clearTask('t1');
+}
+
 describe('Create PR when the PR already exists (zeenha fork)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await resetStateMachine();
     handlers.clear();
     createPR.mockReset();
     ref.path = fs.mkdtempSync(path.join(os.tmpdir(), 'create-pr-'));
@@ -74,6 +80,21 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
     expect(result.data).toMatchObject({ success: true, prUrl: PR_URL, alreadyExists: true });
     expect(JSON.parse(fs.readFileSync(specFile('task_metadata.json'), 'utf-8')).prUrl).toBe(PR_URL);
     expect(JSON.parse(fs.readFileSync(specFile('implementation_plan.json'), 'utf-8')).status).toBe('done');
+  });
+
+  // zeenha fork: the plan said done while xstateState still said human_review,
+  // because only the file was updated and the state machine never heard of it.
+  it('moves the task state machine to done, not only the plan status', async () => {
+    createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+    const handler = await createPrHandler();
+
+    await handler({}, 't1');
+
+    const plan = JSON.parse(fs.readFileSync(specFile('implementation_plan.json'), 'utf-8'));
+    expect(plan.status).toBe('done');
+    expect(plan.xstateState).toBe('done');
+    const { taskStateManager } = await import('../../../task-state-manager');
+    expect(taskStateManager.getCurrentState('t1')).toBe('done');
   });
 
   it('opens the PR against the project main branch when the task has none', async () => {
