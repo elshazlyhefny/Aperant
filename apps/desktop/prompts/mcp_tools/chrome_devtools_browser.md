@@ -23,6 +23,8 @@ Tool names may carry a server prefix (for example `mcp__aperant__navigate_page`)
 
 ### Validation Flow
 
+0. **Prove the page is your code.** A dev server that was already running may serve another checkout, not your task worktree. Check which directory it serves (see the QA prompt's 4.1a) before trusting anything below. If it is not your worktree and you cannot run your own, report the browser check as NOT RUN, never PASS.
+
 1. **Find the page:** `list_pages`, then use its id as `pageId`.
 2. **Open the URL:** `navigate_page` with `{"pageId": 1, "type": "url", "url": "<dev URL>"}`. Use the dev URL the project documents; do not guess a port.
 3. **Read before you act:** `take_snapshot`. Interact by `uid`, never by a guessed CSS selector. Take a new snapshot after anything that changes the page.

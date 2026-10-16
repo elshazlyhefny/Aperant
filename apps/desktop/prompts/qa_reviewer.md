@@ -175,6 +175,20 @@ Check the PROJECT CAPABILITIES section above for available startup commands.
    Args: {"pageId": 1, "type": "url", "url": "http://localhost:[port]"}
    ```
 
+### 4.1a: Confirm the Browser Shows YOUR Code (MANDATORY for web frontends)
+
+You work in a task worktree. A dev server that was already running on this machine is very often serving a DIFFERENT checkout (the main one), and then nothing you see in the browser contains your change: a check against it passes or fails for reasons unrelated to your work.
+
+Before trusting any browser result, establish which directory the server serves:
+- Docker: `docker inspect <container> --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'` and the container's bind mounts (`docker inspect <container> --format '{{range .Mounts}}{{.Source}} {{end}}'`).
+- A plain process: its working directory (`ls -l /proc/<pid>/cwd`).
+
+Compare it with your worktree (`git rev-parse --show-toplevel`).
+
+- **It is your worktree** → continue with 4.2.
+- **It is another checkout** → do NOT start, stop, recreate or re-point that server or its containers: other people and agents depend on it, and recreating a shared Docker stack from your worktree breaks it. Start your own frontend dev server from your worktree on a free port if the project lets you do that without touching the shared stack, and test that URL.
+- **You cannot get your own code into a browser** → record `Visual verification: NOT RUN — the running server serves <path>, not this worktree`. Never report a criterion as PASS from a page that does not contain your change. Do not REJECT for this reason alone: list it under **Major (Should Fix)** as "Visual verification not run", so the pull request shows a human must check it.
+
 ### 4.2: Capture and Verify Screenshots
 
 For EACH visual success criterion in the spec:
@@ -197,6 +211,7 @@ For EACH visual success criterion in the spec:
 VISUAL VERIFICATION:
 - Verification required: YES/NO (reason: [which UI files changed or "no UI files in diff"])
 - Application started: YES/NO (method: [Electron MCP / Chrome DevTools / N/A])
+- Server serves this worktree: YES/NO (path: [directory the server serves])
 - Screenshots captured: [count]
 - Visual criteria verified:
   - "[criterion 1]": PASS/FAIL
@@ -205,7 +220,7 @@ VISUAL VERIFICATION:
 - Issues found: [list or "None"]
 ```
 
-**If you cannot start the application for visual verification of UI changes**: This is a BLOCKING issue. Do NOT silently skip — document it as a critical issue and REJECT, requesting startup instructions be fixed.
+**If you cannot start the application at all for visual verification of UI changes**: This is a BLOCKING issue. (A running server that serves another checkout is not this case: follow 4.1a.) Do NOT silently skip — document it as a critical issue and REJECT, requesting startup instructions be fixed.
 
 ---
 

@@ -251,6 +251,8 @@ Apply the fix as described in `QA_FIX_REQUEST.md`.
 
 ### 3.4: Verify the Fix Locally
 
+If the fix is visual and you check it in a browser, first confirm the dev server serves YOUR worktree, not another checkout (`docker inspect` the container's compose working_dir or bind mounts, or the process's cwd). Never recreate or re-point a shared server or Docker stack from your worktree. If you cannot see your own code in a browser, say so in your notes instead of claiming the fix was verified visually.
+
 Run the verification from QA_FIX_REQUEST.md:
 
 ```bash
