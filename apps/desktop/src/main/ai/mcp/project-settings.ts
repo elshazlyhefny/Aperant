@@ -17,6 +17,7 @@
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import type { CustomMcpServerDefinition } from './types';
+import { checkMcpCommand } from './command-policy';
 import type { McpServerResolveOptions } from '../config/agent-configs';
 
 export interface ProjectMcpOptions {
@@ -59,8 +60,10 @@ function isValidCustomServer(s: unknown): s is CustomMcpServerDefinition {
   const o = s as Record<string, unknown>;
   if (typeof o.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(o.id)) return false;
   if (o.type === 'command') {
-    return typeof o.command === 'string' && o.command.length > 0
-      && (o.args === undefined || (Array.isArray(o.args) && o.args.every((a) => typeof a === 'string')));
+    if (typeof o.command !== 'string' || o.command.length === 0) return false;
+    if (o.args !== undefined && !(Array.isArray(o.args) && o.args.every((a) => typeof a === 'string'))) return false;
+    // The same rule the settings page's checks apply (command-policy.ts).
+    return checkMcpCommand(o.command, o.args as string[] | undefined).ok;
   }
   if (o.type === 'http') {
     if (typeof o.url !== 'string') return false;
