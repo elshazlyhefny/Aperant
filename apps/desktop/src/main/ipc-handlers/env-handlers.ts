@@ -141,15 +141,25 @@ export function registerEnvHandlers(
       if (config.mcpServers.context7Enabled !== undefined) {
         existingVars['CONTEXT7_ENABLED'] = config.mcpServers.context7Enabled ? 'true' : 'false';
       }
-      if (config.mcpServers.linearMcpEnabled !== undefined) {
-        existingVars['LINEAR_MCP_ENABLED'] = config.mcpServers.linearMcpEnabled ? 'true' : 'false';
-      }
       if (config.mcpServers.electronEnabled !== undefined) {
         existingVars['ELECTRON_MCP_ENABLED'] = config.mcpServers.electronEnabled ? 'true' : 'false';
       }
-      if (config.mcpServers.puppeteerEnabled !== undefined) {
-        existingVars['PUPPETEER_MCP_ENABLED'] = config.mcpServers.puppeteerEnabled ? 'true' : 'false';
+      if (config.mcpServers.chromeDevtoolsEnabled !== undefined) {
+        existingVars['CHROME_DEVTOOLS_MCP_ENABLED'] = config.mcpServers.chromeDevtoolsEnabled ? 'true' : 'false';
       }
+      if (config.mcpServers.chromeDevtoolsWebmcp !== undefined) {
+        existingVars['CHROME_DEVTOOLS_WEBMCP'] = config.mcpServers.chromeDevtoolsWebmcp ? 'true' : 'false';
+      }
+      if (config.mcpServers.chromeDevtoolsExecutable !== undefined) {
+        // One line in a .env file: a newline here would inject another key.
+        const exe = config.mcpServers.chromeDevtoolsExecutable.replace(/[\r\n]/g, '').trim();
+        if (exe) existingVars['CHROME_DEVTOOLS_EXECUTABLE'] = exe;
+        else delete existingVars['CHROME_DEVTOOLS_EXECUTABLE'];
+      }
+      // zeenha fork: the Linear and Puppeteer MCP servers were removed (their
+      // npm packages do not exist); drop their stale keys on the next save.
+      delete existingVars['LINEAR_MCP_ENABLED'];
+      delete existingVars['PUPPETEER_MCP_ENABLED'];
       // Note: memoryEnabled is already handled via GRAPHITI_ENABLED above
     }
 
@@ -230,12 +240,14 @@ ${existingVars['ENABLE_FANCY_UI'] !== undefined ? `ENABLE_FANCY_UI=${existingVar
 # =============================================================================
 # Context7 documentation lookup (default: enabled)
 ${existingVars['CONTEXT7_ENABLED'] !== undefined ? `CONTEXT7_ENABLED=${existingVars['CONTEXT7_ENABLED']}` : '# CONTEXT7_ENABLED=true'}
-# Linear MCP integration (default: follows LINEAR_API_KEY)
-${existingVars['LINEAR_MCP_ENABLED'] !== undefined ? `LINEAR_MCP_ENABLED=${existingVars['LINEAR_MCP_ENABLED']}` : '# LINEAR_MCP_ENABLED=true'}
 # Electron desktop automation - QA agents only (default: disabled)
 ${existingVars['ELECTRON_MCP_ENABLED'] !== undefined ? `ELECTRON_MCP_ENABLED=${existingVars['ELECTRON_MCP_ENABLED']}` : '# ELECTRON_MCP_ENABLED=false'}
-# Puppeteer browser automation - QA agents only (default: disabled)
-${existingVars['PUPPETEER_MCP_ENABLED'] !== undefined ? `PUPPETEER_MCP_ENABLED=${existingVars['PUPPETEER_MCP_ENABLED']}` : '# PUPPETEER_MCP_ENABLED=false'}
+# Chrome DevTools browser automation - QA agents only (default: disabled)
+${existingVars['CHROME_DEVTOOLS_MCP_ENABLED'] !== undefined ? `CHROME_DEVTOOLS_MCP_ENABLED=${existingVars['CHROME_DEVTOOLS_MCP_ENABLED']}` : '# CHROME_DEVTOOLS_MCP_ENABLED=false'}
+# Absolute path of the Chrome to launch (default: the installed Chrome)
+${existingVars['CHROME_DEVTOOLS_EXECUTABLE'] !== undefined ? `CHROME_DEVTOOLS_EXECUTABLE=${existingVars['CHROME_DEVTOOLS_EXECUTABLE']}` : '# CHROME_DEVTOOLS_EXECUTABLE='}
+# Expose pages' WebMCP tools to QA agents - needs Chrome 150+ (default: disabled)
+${existingVars['CHROME_DEVTOOLS_WEBMCP'] !== undefined ? `CHROME_DEVTOOLS_WEBMCP=${existingVars['CHROME_DEVTOOLS_WEBMCP']}` : '# CHROME_DEVTOOLS_WEBMCP=false'}
 
 # =============================================================================
 # PER-AGENT MCP OVERRIDES
@@ -445,13 +457,14 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
       }
 
       // MCP Server Configuration (per-project overrides)
-      // Default: context7=true, linear=true (if API key set), electron/puppeteer=false
+      // Default: context7=true, electron/chrome-devtools=false
       config.mcpServers = {
         context7Enabled: vars['CONTEXT7_ENABLED']?.toLowerCase() !== 'false', // default true
         memoryEnabled: config.memoryEnabled, // follows GRAPHITI_ENABLED
-        linearMcpEnabled: vars['LINEAR_MCP_ENABLED']?.toLowerCase() !== 'false', // default true
         electronEnabled: vars['ELECTRON_MCP_ENABLED']?.toLowerCase() === 'true', // default false
-        puppeteerEnabled: vars['PUPPETEER_MCP_ENABLED']?.toLowerCase() === 'true', // default false
+        chromeDevtoolsEnabled: vars['CHROME_DEVTOOLS_MCP_ENABLED']?.toLowerCase() === 'true', // default false
+        chromeDevtoolsWebmcp: vars['CHROME_DEVTOOLS_WEBMCP']?.toLowerCase() === 'true', // default false
+        chromeDevtoolsExecutable: vars['CHROME_DEVTOOLS_EXECUTABLE'] || undefined,
       };
 
       // Parse per-agent MCP overrides (AGENT_MCP_<agent>_ADD/REMOVE)

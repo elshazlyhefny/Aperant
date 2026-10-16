@@ -7,9 +7,7 @@ import {
   getRequiredMcpServers,
   mapMcpServerName,
   CONTEXT7_TOOLS,
-  LINEAR_TOOLS,
   MEMORY_MCP_TOOLS, GRAPHITI_MCP_TOOLS,
-  PUPPETEER_TOOLS,
   ELECTRON_TOOLS,
   type AgentType,
 } from '../agent-configs';
@@ -90,7 +88,8 @@ describe('AGENT_CONFIGS', () => {
     const config = AGENT_CONFIGS.planner;
     expect(config.mcpServers).toContain('context7');
     expect(config.mcpServers).toContain('memory');
-    expect(config.mcpServersOptional).toContain('linear');
+    // zeenha fork: the Linear MCP server was removed (its package does not exist).
+    expect(config.mcpServersOptional ?? []).not.toContain('linear');
     expect(config.thinkingDefault).toBe('high');
   });
 
@@ -140,16 +139,8 @@ describe('MCP tool arrays', () => {
     expect(CONTEXT7_TOOLS).toContain('mcp__context7__resolve-library-id');
   });
 
-  it('LINEAR_TOOLS should have 16 tools', () => {
-    expect(LINEAR_TOOLS).toHaveLength(16);
-  });
-
   it('MEMORY_MCP_TOOLS should have 5 tools', () => {
     expect(MEMORY_MCP_TOOLS).toHaveLength(5);
-  });
-
-  it('PUPPETEER_TOOLS should have 8 tools', () => {
-    expect(PUPPETEER_TOOLS).toHaveLength(8);
   });
 
   it('ELECTRON_TOOLS should have 4 tools', () => {
@@ -194,7 +185,9 @@ describe('mapMcpServerName', () => {
     expect(mapMcpServerName('context7')).toBe('context7');
     expect(mapMcpServerName('graphiti')).toBe('memory');
     expect(mapMcpServerName('graphiti-memory')).toBe('memory');
-    expect(mapMcpServerName('linear')).toBe('linear');
+    expect(mapMcpServerName('linear')).toBeNull();
+    expect(mapMcpServerName('puppeteer')).toBeNull();
+    expect(mapMcpServerName('chrome-devtools')).toBe('chrome-devtools');
   });
 
   it('should return null for unknown names', () => {
@@ -238,19 +231,8 @@ describe('getRequiredMcpServers', () => {
     expect(servers).toContain('memory');
   });
 
-  it('should add linear when optional and enabled', () => {
-    const servers = getRequiredMcpServers('planner', {
-      linearEnabled: true,
-      memoryEnabled: true,
-    });
-    expect(servers).toContain('linear');
-  });
-
-  it('should not add linear when not enabled', () => {
-    const servers = getRequiredMcpServers('planner', {
-      linearEnabled: false,
-      memoryEnabled: true,
-    });
+  it('never adds a linear server', () => {
+    const servers = getRequiredMcpServers('planner', { memoryEnabled: true });
     expect(servers).not.toContain('linear');
   });
 
@@ -264,14 +246,34 @@ describe('getRequiredMcpServers', () => {
     expect(servers).toContain('electron');
   });
 
-  it('should resolve browser to puppeteer for web frontend projects', () => {
+  it('should resolve browser to chrome-devtools when the project enabled it', () => {
     const servers = getRequiredMcpServers('qa_reviewer', {
       memoryEnabled: true,
-      projectCapabilities: { is_web_frontend: true, is_electron: false },
-      puppeteerMcpEnabled: true,
+      chromeDevtoolsMcpEnabled: true,
     });
     expect(servers).not.toContain('browser');
-    expect(servers).toContain('puppeteer');
+    expect(servers).toContain('chrome-devtools');
+  });
+
+  it('resolves chrome-devtools without detected capabilities (the agent path passes none)', () => {
+    const servers = getRequiredMcpServers('qa_fixer', { chromeDevtoolsMcpEnabled: true });
+    expect(servers).toContain('chrome-devtools');
+  });
+
+  it('starts no browser when chrome-devtools is off', () => {
+    const servers = getRequiredMcpServers('qa_reviewer', { memoryEnabled: true });
+    expect(servers).not.toContain('chrome-devtools');
+    expect(servers).not.toContain('browser');
+  });
+
+  it('prefers electron over chrome-devtools for an Electron project with Electron MCP on', () => {
+    const servers = getRequiredMcpServers('qa_reviewer', {
+      projectCapabilities: { is_electron: true },
+      electronMcpEnabled: true,
+      chromeDevtoolsMcpEnabled: true,
+    });
+    expect(servers).toContain('electron');
+    expect(servers).not.toContain('chrome-devtools');
   });
 
   it('should filter context7 when explicitly disabled', () => {

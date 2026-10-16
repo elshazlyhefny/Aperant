@@ -10,7 +10,7 @@
  * Tool lists are organized by category:
  * - Base tools: Core file operations (Read, Write, Edit, etc.)
  * - Web tools: Documentation and research (WebFetch, WebSearch)
- * - MCP tools: External integrations (Context7, Linear, Memory, etc.)
+ * - MCP tools: External integrations (Context7, Memory, Chrome DevTools, etc.)
  * - Auto-Claude tools: Custom build management tools
  */
 
@@ -45,26 +45,6 @@ export const CONTEXT7_TOOLS = [
   'mcp__context7__query-docs',
 ] as const;
 
-/** Linear MCP tools for project management (when LINEAR_API_KEY is set) */
-export const LINEAR_TOOLS = [
-  'mcp__linear-server__list_teams',
-  'mcp__linear-server__get_team',
-  'mcp__linear-server__list_projects',
-  'mcp__linear-server__get_project',
-  'mcp__linear-server__create_project',
-  'mcp__linear-server__update_project',
-  'mcp__linear-server__list_issues',
-  'mcp__linear-server__get_issue',
-  'mcp__linear-server__create_issue',
-  'mcp__linear-server__update_issue',
-  'mcp__linear-server__list_comments',
-  'mcp__linear-server__create_comment',
-  'mcp__linear-server__list_issue_statuses',
-  'mcp__linear-server__list_issue_labels',
-  'mcp__linear-server__list_users',
-  'mcp__linear-server__get_user',
-] as const;
-
 /** Memory MCP tools for knowledge graph memory (when GRAPHITI_MCP_URL is set) */
 export const MEMORY_MCP_TOOLS = [
   'mcp__graphiti-memory__search_nodes',
@@ -80,18 +60,6 @@ export const GRAPHITI_MCP_TOOLS = MEMORY_MCP_TOOLS;
 // =============================================================================
 // Browser Automation MCP Tools (QA agents only)
 // =============================================================================
-
-/** Puppeteer MCP tools for web browser automation */
-export const PUPPETEER_TOOLS = [
-  'mcp__puppeteer__puppeteer_connect_active_tab',
-  'mcp__puppeteer__puppeteer_navigate',
-  'mcp__puppeteer__puppeteer_screenshot',
-  'mcp__puppeteer__puppeteer_click',
-  'mcp__puppeteer__puppeteer_fill',
-  'mcp__puppeteer__puppeteer_select',
-  'mcp__puppeteer__puppeteer_hover',
-  'mcp__puppeteer__puppeteer_evaluate',
-] as const;
 
 /** Electron MCP tools for desktop app automation (when ELECTRON_MCP_ENABLED is set) */
 export const ELECTRON_TOOLS = [
@@ -225,24 +193,20 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   build_orchestrator: {
     tools: [...ALL_BUILTIN_TOOLS, 'SpawnSubagent'],
     mcpServers: ['context7', 'memory'],
-    mcpServersOptional: ['linear'],
     thinkingDefault: 'high',
   },
 
   // ═══════════════════════════════════════════════════════════════════════
   // BUILD PHASES (Full tools + memory)
-  // Note: "linear" is conditional on project setting "update_linear_with_tasks"
   // ═══════════════════════════════════════════════════════════════════════
   planner: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: ['context7', 'memory'],
-    mcpServersOptional: ['linear'],
     thinkingDefault: 'high',
   },
   coder: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: ['context7', 'memory'],
-    mcpServersOptional: ['linear'],
     thinkingDefault: 'low',
   },
 
@@ -252,13 +216,11 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   qa_reviewer: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: ['context7', 'memory', 'browser'],
-    mcpServersOptional: ['linear'],
     thinkingDefault: 'high',
   },
   qa_fixer: {
     tools: [...ALL_BUILTIN_TOOLS],
     mcpServers: ['context7', 'memory', 'browser'],
-    mcpServersOptional: ['linear'],
     thinkingDefault: 'medium',
   },
 
@@ -409,9 +371,9 @@ const MCP_SERVER_NAME_MAP: Record<string, string> = {
   'graphiti-memory': 'memory',
   graphiti: 'memory',
   memory: 'memory',
-  linear: 'linear',
   electron: 'electron',
-  puppeteer: 'puppeteer',
+  'chrome-devtools': 'chrome-devtools',
+  chrome: 'chrome-devtools',
 };
 
 /**
@@ -442,14 +404,12 @@ export interface McpServerResolveOptions {
     is_electron?: boolean;
     is_web_frontend?: boolean;
   };
-  /** Whether Linear integration is enabled for this project */
-  linearEnabled?: boolean;
   /** Whether memory MCP is available (GRAPHITI_MCP_URL is set) */
   memoryEnabled?: boolean;
   /** Whether Electron MCP is enabled */
   electronMcpEnabled?: boolean;
-  /** Whether Puppeteer MCP is enabled */
-  puppeteerMcpEnabled?: boolean;
+  /** zeenha fork: whether the Chrome DevTools browser server is enabled */
+  chromeDevtoolsMcpEnabled?: boolean;
   /** Whether Context7 is enabled (default: true) */
   context7Enabled?: boolean;
   /** Per-agent MCP additions (comma-separated server names) */
@@ -464,8 +424,10 @@ export interface McpServerResolveOptions {
  * Get MCP servers required for an agent type.
  *
  * Handles dynamic server selection:
- * - "browser" → electron (if is_electron) or puppeteer (if is_web_frontend)
- * - "linear" → only if in mcpServersOptional AND linearEnabled is true
+ * - "browser" → electron (Electron project with Electron MCP on), else
+ *   chrome-devtools when the project switched it on. zeenha fork: upstream
+ *   also required a detected `is_web_frontend`, which the agent path never
+ *   passes, so the browser slot could not resolve at all.
  * - "memory" → only if memoryEnabled is true
  * - Applies per-agent ADD/REMOVE overrides
  *
@@ -486,23 +448,15 @@ export function getRequiredMcpServers(
     if (idx !== -1) servers.splice(idx, 1);
   }
 
-  // Handle optional servers (e.g., Linear)
-  const optional = config.mcpServersOptional ?? [];
-  if (optional.includes('linear') && options.linearEnabled) {
-    servers.push('linear');
-  }
-
-  // Handle dynamic "browser" → electron/puppeteer
+  // Handle dynamic "browser" → electron/chrome-devtools
   const browserIdx = servers.indexOf('browser');
   if (browserIdx !== -1) {
     servers.splice(browserIdx, 1);
     const caps = options.projectCapabilities;
-    if (caps) {
-      if (caps.is_electron && options.electronMcpEnabled) {
-        servers.push('electron');
-      } else if (caps.is_web_frontend && !caps.is_electron && options.puppeteerMcpEnabled) {
-        servers.push('puppeteer');
-      }
+    if (caps?.is_electron && options.electronMcpEnabled) {
+      servers.push('electron');
+    } else if (options.chromeDevtoolsMcpEnabled) {
+      servers.push('chrome-devtools');
     }
   }
 

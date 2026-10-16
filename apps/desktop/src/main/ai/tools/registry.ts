@@ -18,8 +18,6 @@ import {
   ELECTRON_TOOLS,
   MEMORY_MCP_TOOLS,
   GRAPHITI_MCP_TOOLS,
-  LINEAR_TOOLS,
-  PUPPETEER_TOOLS,
   getAgentConfig,
   getDefaultThinkingLevel,
   mapMcpServerName,
@@ -35,8 +33,6 @@ export {
   ELECTRON_TOOLS,
   MEMORY_MCP_TOOLS,
   GRAPHITI_MCP_TOOLS,
-  LINEAR_TOOLS,
-  PUPPETEER_TOOLS,
   getAgentConfig,
   getDefaultThinkingLevel,
 };
@@ -52,9 +48,8 @@ export const WEB_TOOLS = ['WebFetch', 'WebSearch'] as const;
 
 export interface McpConfig {
   CONTEXT7_ENABLED?: string;
-  LINEAR_MCP_ENABLED?: string;
   ELECTRON_MCP_ENABLED?: string;
-  PUPPETEER_MCP_ENABLED?: string;
+  CHROME_DEVTOOLS_MCP_ENABLED?: string;
   CUSTOM_MCP_SERVERS?: Array<{ id: string }>;
   [key: string]: unknown;
 }
@@ -127,8 +122,7 @@ export class ToolRegistry {
  * Get MCP servers required for an agent type.
  *
  * Handles dynamic server selection:
- * - "browser" → electron (if is_electron) or puppeteer (if is_web_frontend)
- * - "linear" → only if in mcpServersOptional AND linearEnabled is true
+ * - "browser" → electron (if is_electron) or chrome-devtools (if enabled)
  * - "memory" → only if memoryEnabled is true
  * - Applies per-agent ADD/REMOVE overrides from mcpConfig
  */
@@ -136,7 +130,6 @@ export function getRequiredMcpServers(
   agentType: AgentType,
   options: {
     projectCapabilities?: ProjectCapabilities;
-    linearEnabled?: boolean;
     memoryEnabled?: boolean;
     /** @deprecated Use memoryEnabled instead */
     graphitiEnabled?: boolean;
@@ -145,7 +138,6 @@ export function getRequiredMcpServers(
 ): string[] {
   const {
     projectCapabilities,
-    linearEnabled = false,
     memoryEnabled = options.graphitiEnabled ?? false,
     mcpConfig = {},
   } = options;
@@ -161,30 +153,15 @@ export function getRequiredMcpServers(
     }
   }
 
-  // Handle optional servers (e.g., Linear)
-  const optional = config.mcpServersOptional ?? [];
-  if (optional.includes('linear') && linearEnabled) {
-    const linearMcpEnabled = mcpConfig.LINEAR_MCP_ENABLED ?? 'true';
-    if (String(linearMcpEnabled).toLowerCase() !== 'false') {
-      servers.push('linear');
-    }
-  }
-
-  // Handle dynamic "browser" → electron/puppeteer
+  // Handle dynamic "browser" → electron/chrome-devtools
   if (servers.includes('browser')) {
     servers = servers.filter((s) => s !== 'browser');
-    if (projectCapabilities) {
-      const { is_electron, is_web_frontend } = projectCapabilities;
-      const electronEnabled = mcpConfig.ELECTRON_MCP_ENABLED ?? 'false';
-      const puppeteerEnabled = mcpConfig.PUPPETEER_MCP_ENABLED ?? 'false';
-
-      if (is_electron && String(electronEnabled).toLowerCase() === 'true') {
-        servers.push('electron');
-      } else if (is_web_frontend && !is_electron) {
-        if (String(puppeteerEnabled).toLowerCase() === 'true') {
-          servers.push('puppeteer');
-        }
-      }
+    const electronEnabled = mcpConfig.ELECTRON_MCP_ENABLED ?? 'false';
+    const chromeEnabled = mcpConfig.CHROME_DEVTOOLS_MCP_ENABLED ?? 'false';
+    if (projectCapabilities?.is_electron && String(electronEnabled).toLowerCase() === 'true') {
+      servers.push('electron');
+    } else if (String(chromeEnabled).toLowerCase() === 'true') {
+      servers.push('chrome-devtools');
     }
   }
 

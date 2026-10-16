@@ -314,7 +314,7 @@ function getMcpToolFilesForCapabilities(capabilities: ProjectCapabilities): stri
     tools.push('mcp_tools/tauri_validation.md');
   }
   if (capabilities.is_web_frontend && !capabilities.is_electron) {
-    tools.push('mcp_tools/puppeteer_browser.md');
+    tools.push('mcp_tools/chrome_devtools_browser.md');
   }
   if (capabilities.has_database) {
     tools.push('mcp_tools/database_validation.md');

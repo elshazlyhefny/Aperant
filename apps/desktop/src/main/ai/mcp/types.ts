@@ -45,10 +45,9 @@ export type McpTransportConfig = StdioTransportConfig | StreamableHttpTransportC
 /** Internal MCP server identifier */
 export type McpServerId =
   | 'context7'
-  | 'linear'
   | 'memory'
   | 'electron'
-  | 'puppeteer';
+  | 'chrome-devtools';
 
 /** Configuration for a single MCP server */
 export interface McpServerConfig {

@@ -30,32 +30,6 @@ describe('getMcpServerConfig', () => {
     });
   });
 
-  describe('linear', () => {
-    it('returns null when no API key provided', () => {
-      const config = getMcpServerConfig('linear', {});
-      expect(config).toBeNull();
-    });
-
-    it('returns config when linearApiKey is provided', () => {
-      const config = getMcpServerConfig('linear', { linearApiKey: 'lin_api_123' });
-      expect(config).not.toBeNull();
-      expect(config?.id).toBe('linear');
-    });
-
-    it('returns config when LINEAR_API_KEY is in env option', () => {
-      const config = getMcpServerConfig('linear', { env: { LINEAR_API_KEY: 'lin_env_456' } });
-      expect(config).not.toBeNull();
-    });
-
-    it('injects LINEAR_API_KEY into the transport env', () => {
-      const config = getMcpServerConfig('linear', { linearApiKey: 'lin_inject' });
-      expect(config?.transport.type).toBe('stdio');
-      if (config?.transport.type === 'stdio') {
-        expect(config.transport.env?.LINEAR_API_KEY).toBe('lin_inject');
-      }
-    });
-  });
-
   describe('memory', () => {
     it('returns null when no memory URL provided', () => {
       const config = getMcpServerConfig('memory', {});
@@ -91,16 +65,46 @@ describe('getMcpServerConfig', () => {
     });
   });
 
-  describe('puppeteer', () => {
-    it('returns the puppeteer server config', () => {
-      const config = getMcpServerConfig('puppeteer');
-      expect(config).not.toBeNull();
-      expect(config?.id).toBe('puppeteer');
+  describe('removed built-ins', () => {
+    it('no longer knows linear or puppeteer (their npm packages do not exist)', () => {
+      expect(getMcpServerConfig('linear', { env: { LINEAR_API_KEY: 'x' } })).toBeNull();
+      expect(getMcpServerConfig('puppeteer')).toBeNull();
+    });
+  });
+
+  describe('chrome-devtools', () => {
+    it('launches a pinned, headless, isolated server with telemetry off', () => {
+      const config = getMcpServerConfig('chrome-devtools');
+      expect(config?.id).toBe('chrome-devtools');
+      expect(config?.transport.type).toBe('stdio');
+      if (config?.transport.type === 'stdio') {
+        expect(config.transport.args).toEqual(expect.arrayContaining([
+          'chrome-devtools-mcp@1.11.0', '--headless', '--isolated',
+          '--usageStatistics=false', '--performanceCrux=false',
+        ]));
+        expect(config.transport.args?.some((a) => a.endsWith('@latest'))).toBe(false);
+        expect(config.transport.args).not.toContain('--categoryExperimentalWebmcp');
+        expect(config.transport.args).not.toContain('--executablePath');
+      }
     });
 
-    it('uses stdio transport', () => {
-      const config = getMcpServerConfig('puppeteer');
-      expect(config?.transport.type).toBe('stdio');
+    it('passes the executable and the WebMCP flags only when set', () => {
+      const config = getMcpServerConfig('chrome-devtools', {
+        chromeDevtools: { executablePath: '/opt/chrome/chrome', webmcp: true },
+      });
+      if (config?.transport.type !== 'stdio') throw new Error('expected stdio');
+      const args = config.transport.args ?? [];
+      expect(args[args.indexOf('--executablePath') + 1]).toBe('/opt/chrome/chrome');
+      expect(args).toContain('--categoryExperimentalWebmcp');
+      expect(args).toContain('--chromeArg=--enable-features=WebMCP');
+    });
+
+    it('a built-in id wins over a custom server of the same id', () => {
+      const config = getMcpServerConfig('chrome-devtools', {
+        customServers: [{ id: 'chrome-devtools', type: 'command', command: 'evil' }],
+      });
+      if (config?.transport.type !== 'stdio') throw new Error('expected stdio');
+      expect(config.transport.command).toBe('npx');
     });
   });
 
@@ -118,20 +122,15 @@ describe('getMcpServerConfig', () => {
 
 describe('resolveMcpServers', () => {
   it('returns configs for all recognized server IDs', () => {
-    const configs = resolveMcpServers(['context7', 'electron', 'puppeteer']);
+    const configs = resolveMcpServers(['context7', 'electron', 'chrome-devtools']);
     expect(configs).toHaveLength(3);
-    expect(configs.map((c) => c.id)).toEqual(['context7', 'electron', 'puppeteer']);
+    expect(configs.map((c) => c.id)).toEqual(['context7', 'electron', 'chrome-devtools']);
   });
 
-  it('filters out servers that cannot be configured (e.g. linear without API key)', () => {
-    const configs = resolveMcpServers(['context7', 'linear'], {});
+  it('filters out servers that cannot be configured (e.g. memory without a URL)', () => {
+    const configs = resolveMcpServers(['context7', 'memory'], {});
     expect(configs).toHaveLength(1);
     expect(configs[0].id).toBe('context7');
-  });
-
-  it('includes linear when API key option is provided', () => {
-    const configs = resolveMcpServers(['context7', 'linear'], { linearApiKey: 'lin_test' });
-    expect(configs).toHaveLength(2);
   });
 
   it('returns empty array for empty input', () => {

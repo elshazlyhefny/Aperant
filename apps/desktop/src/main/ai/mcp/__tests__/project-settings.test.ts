@@ -5,16 +5,17 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseProjectMcpOptions, readProjectMcpOptions } from '../project-settings';
+import { mcpResolveOptionsForAgent, parseProjectMcpOptions, readProjectMcpOptions } from '../project-settings';
+import { getRequiredMcpServers } from '../../config/agent-configs';
 import { getMcpServerConfig } from '../registry';
 
 describe('parseProjectMcpOptions', () => {
   it('uses upstream defaults when nothing is set', () => {
     expect(parseProjectMcpOptions('# CONTEXT7_ENABLED=false\n')).toEqual({
       context7Enabled: true,
-      linearMcpEnabled: true,
       electronMcpEnabled: false,
-      puppeteerMcpEnabled: false,
+      chromeDevtoolsMcpEnabled: false,
+      chromeDevtoolsWebmcp: false,
     });
   });
 
@@ -52,6 +53,18 @@ describe('parseProjectMcpOptions', () => {
     expect(opts.customServers?.map((s) => s.id)).toEqual(['ok']);
   });
 
+  it('reads the Chrome DevTools options and keeps only an absolute executable', () => {
+    const opts = parseProjectMcpOptions([
+      'CHROME_DEVTOOLS_MCP_ENABLED=true',
+      'CHROME_DEVTOOLS_WEBMCP=true',
+      'CHROME_DEVTOOLS_EXECUTABLE=/opt/chrome/chrome',
+    ].join('\n'));
+    expect(opts.chromeDevtoolsMcpEnabled).toBe(true);
+    expect(opts.chromeDevtoolsWebmcp).toBe(true);
+    expect(opts.chromeDevtoolsExecutable).toBe('/opt/chrome/chrome');
+    expect(parseProjectMcpOptions('CHROME_DEVTOOLS_EXECUTABLE=chrome').chromeDevtoolsExecutable).toBeUndefined();
+  });
+
   it('treats invalid JSON as no custom servers', () => {
     expect(parseProjectMcpOptions('CUSTOM_MCP_SERVERS=[{').customServers).toBeUndefined();
   });
@@ -67,8 +80,8 @@ describe('readProjectMcpOptions', () => {
   it('reads <project>/<autoBuildPath>/.env', () => {
     dir = mkdtempSync(path.join(tmpdir(), 'mcp-settings-'));
     mkdirSync(path.join(dir, '.auto-claude'));
-    writeFileSync(path.join(dir, '.auto-claude', '.env'), 'PUPPETEER_MCP_ENABLED=true\n');
-    expect(readProjectMcpOptions(dir).puppeteerMcpEnabled).toBe(true);
+    writeFileSync(path.join(dir, '.auto-claude', '.env'), 'CHROME_DEVTOOLS_MCP_ENABLED=true\n');
+    expect(readProjectMcpOptions(dir).chromeDevtoolsMcpEnabled).toBe(true);
   });
 
   it('falls back to defaults when the file is missing', () => {
@@ -78,10 +91,10 @@ describe('readProjectMcpOptions', () => {
 
 describe('custom servers in the registry', () => {
   it('resolves a custom id that upstream silently dropped', () => {
-    const config = getMcpServerConfig('chrome-devtools', {
-      customServers: [{ id: 'chrome-devtools', type: 'command', command: 'npx', args: ['-y', 'chrome-devtools-mcp'] }],
+    const config = getMcpServerConfig('laravel-boost', {
+      customServers: [{ id: 'laravel-boost', type: 'command', command: 'docker', args: ['compose', 'exec', '-T', 'app', 'php', 'artisan', 'boost:mcp'] }],
     });
-    expect(config?.transport).toEqual({ type: 'stdio', command: 'npx', args: ['-y', 'chrome-devtools-mcp'] });
+    expect(config?.transport).toEqual({ type: 'stdio', command: 'docker', args: ['compose', 'exec', '-T', 'app', 'php', 'artisan', 'boost:mcp'] });
   });
 
   it('maps an http custom server to streamable-http', () => {
@@ -93,5 +106,39 @@ describe('custom servers in the registry', () => {
 
   it('still returns null for an unknown id', () => {
     expect(getMcpServerConfig('nope', { customServers: [] })).toBeNull();
+  });
+});
+
+describe('mcpResolveOptionsForAgent', () => {
+  const session = {
+    chromeDevtoolsMcpEnabled: true,
+    agentMcpOverrides: {
+      qa_reviewer: { add: ['laravel-boost'], remove: ['context7'] },
+    },
+  };
+
+  it("applies an agent's own overrides to that agent", () => {
+    const opts = mcpResolveOptionsForAgent(session, 'qa_reviewer');
+    expect(opts.agentMcpAdd).toBe('laravel-boost');
+    const servers = getRequiredMcpServers('qa_reviewer', { ...opts, customServerIds: ['laravel-boost'] });
+    expect(servers).toContain('laravel-boost');
+    expect(servers).toContain('chrome-devtools');
+    expect(servers).not.toContain('context7');
+  });
+
+  it("does not leak one agent's overrides onto another", () => {
+    const opts = mcpResolveOptionsForAgent(session, 'coder');
+    const servers = getRequiredMcpServers('coder', { ...opts, customServerIds: ['laravel-boost'] });
+    expect(servers).not.toContain('laravel-boost');
+    expect(servers).toContain('context7');
+  });
+
+  it('defaults to Context7 on and everything else off', () => {
+    expect(mcpResolveOptionsForAgent(undefined, 'coder')).toMatchObject({
+      context7Enabled: true,
+      memoryEnabled: false,
+      electronMcpEnabled: false,
+      chromeDevtoolsMcpEnabled: false,
+    });
   });
 });

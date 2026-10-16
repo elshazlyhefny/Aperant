@@ -20,7 +20,6 @@ import {
   Circle,
   Monitor,
   Globe,
-  ClipboardList,
   Info,
   AlertCircle,
   Plus,
@@ -37,6 +36,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { ScrollArea } from './ui/scroll-area';
 import { Switch } from './ui/switch';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 import {
   Dialog,
   DialogContent,
@@ -152,7 +152,6 @@ const AGENT_CONFIGS: Record<string, AgentConfig> = {
     category: 'build',
     tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'WebFetch', 'WebSearch'],
     mcp_servers: ['context7', 'memory'],
-    mcp_optional: ['linear'],
     settingsSource: { type: 'phase', phase: 'planning' },
   },
   coder: {
@@ -161,27 +160,26 @@ const AGENT_CONFIGS: Record<string, AgentConfig> = {
     category: 'build',
     tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'WebFetch', 'WebSearch'],
     mcp_servers: ['context7', 'memory'],
-    mcp_optional: ['linear'],
     settingsSource: { type: 'phase', phase: 'coding' },
   },
 
   // QA Phases
   qa_reviewer: {
     label: 'QA Reviewer',
-    description: 'Validates acceptance criteria. Uses Electron or Puppeteer based on project type.',
+    description: 'Validates acceptance criteria. Uses Electron or Chrome DevTools based on project type.',
     category: 'qa',
     tools: ['Read', 'Glob', 'Grep', 'Bash', 'WebFetch', 'WebSearch'],
     mcp_servers: ['context7', 'memory'],
-    mcp_optional: ['linear', 'electron', 'puppeteer'],
+    mcp_optional: ['electron', 'chrome-devtools'],
     settingsSource: { type: 'phase', phase: 'qa' },
   },
   qa_fixer: {
     label: 'QA Fixer',
-    description: 'Fixes QA-reported issues. Uses Electron or Puppeteer based on project type.',
+    description: 'Fixes QA-reported issues. Uses Electron or Chrome DevTools based on project type.',
     category: 'qa',
     tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'WebFetch', 'WebSearch'],
     mcp_servers: ['context7', 'memory'],
-    mcp_optional: ['linear', 'electron', 'puppeteer'],
+    mcp_optional: ['electron', 'chrome-devtools'],
     settingsSource: { type: 'phase', phase: 'qa' },
   },
 
@@ -285,19 +283,6 @@ const MCP_SERVERS: Record<string, { name: string; description: string; icon: Rea
       'mcp__graphiti-memory__get_entity_edge',
     ],
   },
-  linear: {
-    name: 'Linear',
-    description: 'Project management via Linear API. Requires LINEAR_API_KEY env var.',
-    icon: ClipboardList,
-    tools: [
-      'mcp__linear-server__list_teams',
-      'mcp__linear-server__list_projects',
-      'mcp__linear-server__list_issues',
-      'mcp__linear-server__create_issue',
-      'mcp__linear-server__update_issue',
-      // ... and more
-    ],
-  },
   electron: {
     name: 'Electron MCP',
     description: 'Desktop app automation via Chrome DevTools Protocol. Requires ELECTRON_MCP_ENABLED=true.',
@@ -309,19 +294,20 @@ const MCP_SERVERS: Record<string, { name: string; description: string; icon: Rea
       'mcp__electron__read_electron_logs',
     ],
   },
-  puppeteer: {
-    name: 'Puppeteer MCP',
-    description: 'Web browser automation for non-Electron web frontends.',
+  'chrome-devtools': {
+    name: 'Chrome DevTools MCP',
+    description: 'Headless Chrome for web frontends: navigate, click, snapshot, console, network, Lighthouse. Requires CHROME_DEVTOOLS_MCP_ENABLED=true.',
     icon: Globe,
     tools: [
-      'mcp__puppeteer__puppeteer_connect_active_tab',
-      'mcp__puppeteer__puppeteer_navigate',
-      'mcp__puppeteer__puppeteer_screenshot',
-      'mcp__puppeteer__puppeteer_click',
-      'mcp__puppeteer__puppeteer_fill',
-      'mcp__puppeteer__puppeteer_select',
-      'mcp__puppeteer__puppeteer_hover',
-      'mcp__puppeteer__puppeteer_evaluate',
+      'navigate_page',
+      'take_snapshot',
+      'take_screenshot',
+      'click',
+      'fill_form',
+      'list_console_messages',
+      'list_network_requests',
+      'lighthouse_audit',
+      // ... and more
     ],
   },
 };
@@ -330,9 +316,8 @@ const MCP_SERVERS: Record<string, { name: string; description: string; icon: Rea
 const ALL_MCP_SERVERS = [
   'context7',
   'memory',
-  'linear',
   'electron',
-  'puppeteer',
+  'chrome-devtools',
 ] as const;
 
 // Category metadata - neutral styling per design.json
@@ -391,9 +376,8 @@ function AgentCard({ id, config, modelLabel, thinkingLabel, overrides, mcpServer
       switch (mcp) {
         case 'context7': return mcpServerStates.context7Enabled !== false;
         case 'memory': return mcpServerStates.memoryEnabled !== false;
-        case 'linear': return mcpServerStates.linearMcpEnabled !== false;
         case 'electron': return mcpServerStates.electronEnabled !== false;
-        case 'puppeteer': return mcpServerStates.puppeteerEnabled !== false;
+        case 'chrome-devtools': return mcpServerStates.chromeDevtoolsEnabled === true;
         default: return true;
       }
     });
@@ -672,7 +656,7 @@ export function AgentTools() {
   // Update MCP server toggle
   const updateMcpServer = useCallback(async (
     key: keyof NonNullable<ProjectEnvConfig['mcpServers']>,
-    value: boolean
+    value: boolean | string
   ) => {
     if (!selectedProjectId || !envConfig) return;
 
@@ -965,9 +949,8 @@ export function AgentTools() {
   const enabledCount = [
     mcpServers.context7Enabled !== false,
     mcpServers.memoryEnabled && envConfig?.memoryProviderConfig,
-    mcpServers.linearMcpEnabled !== false && envConfig?.linearEnabled,
     mcpServers.electronEnabled,
-    mcpServers.puppeteerEnabled,
+    mcpServers.chromeDevtoolsEnabled,
   ].filter(Boolean).length;
 
   // Resolve model and thinking for an agent based on its settings source
@@ -1104,26 +1087,6 @@ export function AgentTools() {
                   />
                 </div>
 
-                {/* Linear */}
-                <div className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <div className="flex items-center gap-3">
-                    <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <span className="text-sm font-medium">{t('settings:mcp.servers.linear.name')}</span>
-                      <p className="text-xs text-muted-foreground">
-                        {envConfig.linearEnabled
-                          ? t('settings:mcp.servers.linear.description')
-                          : t('settings:mcp.servers.linear.notConfigured')}
-                      </p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={mcpServers.linearMcpEnabled !== false && envConfig.linearEnabled}
-                    onCheckedChange={(checked) => updateMcpServer('linearMcpEnabled', checked)}
-                    disabled={!envConfig.linearEnabled}
-                  />
-                </div>
-
                 {/* Browser Automation Section */}
                 <div className="pt-2">
                   <div className="flex items-center gap-2 mb-3">
@@ -1148,19 +1111,58 @@ export function AgentTools() {
                     />
                   </div>
 
-                  {/* Puppeteer */}
-                  <div className="flex items-center justify-between py-2">
-                    <div className="flex items-center gap-3">
-                      <Globe className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <span className="text-sm font-medium">{t('settings:mcp.servers.puppeteer.name')}</span>
-                        <p className="text-xs text-muted-foreground">{t('settings:mcp.servers.puppeteer.description')}</p>
+                  {/* Chrome DevTools (zeenha fork: replaces Puppeteer, whose package did not exist) */}
+                  <div className="py-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Globe className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <span className="text-sm font-medium">{t('settings:mcp.servers.chromeDevtools.name')}</span>
+                          <p className="text-xs text-muted-foreground">{t('settings:mcp.servers.chromeDevtools.description')}</p>
+                        </div>
                       </div>
+                      <Switch
+                        data-testid="mcp-chrome-devtools-toggle"
+                        checked={mcpServers.chromeDevtoolsEnabled === true}
+                        onCheckedChange={(checked) => updateMcpServer('chromeDevtoolsEnabled', checked)}
+                      />
                     </div>
-                    <Switch
-                      checked={mcpServers.puppeteerEnabled === true}
-                      onCheckedChange={(checked) => updateMcpServer('puppeteerEnabled', checked)}
-                    />
+                    {mcpServers.chromeDevtoolsEnabled === true && (
+                      <div className="mt-3 ms-7 space-y-3">
+                        <div>
+                          <label htmlFor="mcp-chrome-executable" className="text-xs font-medium">
+                            {t('settings:mcp.servers.chromeDevtools.executableLabel')}
+                          </label>
+                          <Input
+                            id="mcp-chrome-executable"
+                            key={mcpServers.chromeDevtoolsExecutable ?? ''}
+                            defaultValue={mcpServers.chromeDevtoolsExecutable ?? ''}
+                            placeholder="/path/to/chrome"
+                            className="mt-1 h-8 text-xs font-mono"
+                            onBlur={(e) => {
+                              const next = e.target.value.trim();
+                              if (next !== (mcpServers.chromeDevtoolsExecutable ?? '')) {
+                                updateMcpServer('chromeDevtoolsExecutable', next);
+                              }
+                            }}
+                          />
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('settings:mcp.servers.chromeDevtools.executableHint')}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-xs font-medium">{t('settings:mcp.servers.chromeDevtools.webmcpLabel')}</span>
+                            <p className="text-xs text-muted-foreground">{t('settings:mcp.servers.chromeDevtools.webmcpHint')}</p>
+                          </div>
+                          <Switch
+                            data-testid="mcp-chrome-webmcp-toggle"
+                            checked={mcpServers.chromeDevtoolsWebmcp === true}
+                            onCheckedChange={(checked) => updateMcpServer('chromeDevtoolsWebmcp', checked)}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 

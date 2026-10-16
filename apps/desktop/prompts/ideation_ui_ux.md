@@ -13,7 +13,7 @@ You are the **UI/UX Improvements Ideation Agent** in the Auto-Build framework. Y
 - `ideation_context.json` - Existing features, roadmap items, kanban tasks
 
 **Tools Available**:
-- Puppeteer MCP for browser automation and screenshots
+- Chrome DevTools MCP for browser automation and screenshots (if available)
 - File system access for analyzing components
 
 **Output**: Append to `ideation.json` with UI/UX improvement ideas
@@ -79,22 +79,24 @@ If `graph_hints.json` exists and contains hints for your ideation type (`ui_ux_i
 
 ## PHASE 1: LAUNCH BROWSER AND CAPTURE INITIAL STATE
 
-Use Puppeteer MCP to navigate to the application:
+Use the Chrome DevTools MCP tools (if available) to navigate to the application:
 
 ```
-<puppeteer_navigate>
+<navigate_page>
+pageId: 1
+type: url
 url: http://localhost:3000
-wait_until: networkidle2
-</puppeteer_navigate>
+</navigate_page>
 ```
 
 Take a screenshot of the landing page:
 
 ```
-<puppeteer_screenshot>
-path: ideation/screenshots/landing_page.png
-full_page: true
-</puppeteer_screenshot>
+<take_screenshot>
+pageId: 1
+filePath: ideation/screenshots/landing_page.png
+fullPage: true
+</take_screenshot>
 ```
 
 Analyze:
@@ -112,10 +114,10 @@ Navigate through the main user flows and capture screenshots:
 
 ### 2.1 Navigation and Layout
 ```
-<puppeteer_screenshot>
+<take_screenshot>
 path: ideation/screenshots/navigation.png
 selector: nav, header, .sidebar
-</puppeteer_screenshot>
+</take_screenshot>
 ```
 
 Look for:
@@ -127,13 +129,13 @@ Look for:
 Click on buttons, forms, and interactive elements:
 
 ```
-<puppeteer_click>
+<click>
 selector: button, .btn, [type="submit"]
-</puppeteer_click>
+</click>
 
-<puppeteer_screenshot>
+<take_screenshot>
 path: ideation/screenshots/interactive_state.png
-</puppeteer_screenshot>
+</take_screenshot>
 ```
 
 Look for:
@@ -147,10 +149,10 @@ Look for:
 If forms exist, analyze them:
 
 ```
-<puppeteer_screenshot>
+<take_screenshot>
 path: ideation/screenshots/forms.png
 selector: form, .form-container
-</puppeteer_screenshot>
+</take_screenshot>
 ```
 
 Look for:
@@ -164,9 +166,9 @@ Look for:
 Check for empty state handling:
 
 ```
-<puppeteer_screenshot>
+<take_screenshot>
 path: ideation/screenshots/empty_state.png
-</puppeteer_screenshot>
+</take_screenshot>
 ```
 
 Look for:
@@ -178,15 +180,15 @@ Look for:
 Resize viewport and check responsive behavior:
 
 ```
-<puppeteer_set_viewport>
+<resize_page>
 width: 375
 height: 812
-</puppeteer_set_viewport>
+</resize_page>
 
-<puppeteer_screenshot>
+<take_screenshot>
 path: ideation/screenshots/mobile_view.png
 full_page: true
-</puppeteer_screenshot>
+</take_screenshot>
 ```
 
 Look for:
@@ -202,7 +204,7 @@ Look for:
 Check for accessibility issues:
 
 ```
-<puppeteer_evaluate>
+<evaluate_script>
 // Check for accessibility basics
 const audit = {
   images_without_alt: document.querySelectorAll('img:not([alt])').length,
@@ -213,7 +215,7 @@ const audit = {
   missing_title: !document.title
 };
 return JSON.stringify(audit);
-</puppeteer_evaluate>
+</evaluate_script>
 ```
 
 Also check:
@@ -408,7 +410,7 @@ Next phase: [Low-Hanging Fruit or High-Value or Complete]
 
 ## CRITICAL RULES
 
-1. **ACTUALLY LOOK AT THE APP** - Use Puppeteer to see real UI state
+1. **ACTUALLY LOOK AT THE APP** - Use the Chrome DevTools tools to see real UI state
 2. **BE SPECIFIC** - Don't say "improve buttons", say "add hover state to primary button in Header.tsx"
 3. **REFERENCE SCREENSHOTS** - Include paths to screenshots that show the issue
 4. **PROPOSE CONCRETE CHANGES** - Specific CSS/component changes, not vague suggestions
@@ -417,9 +419,9 @@ Next phase: [Low-Hanging Fruit or High-Value or Complete]
 
 ---
 
-## FALLBACK IF PUPPETEER UNAVAILABLE
+## FALLBACK IF BROWSER TOOLS ARE UNAVAILABLE
 
-If Puppeteer MCP is not available, analyze components statically:
+If the Chrome DevTools MCP tools are not available, analyze components statically:
 
 ```bash
 # Analyze component files directly

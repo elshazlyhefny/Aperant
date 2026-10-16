@@ -331,7 +331,7 @@ describe('createMcpClient timeout and failure reporting', () => {
   };
 
   it('rejects a server that never answers instead of hanging the agent', async () => {
-    mockCreateMCPClient.mockReturnValue(new Promise(() => {}) as never);
+    mockCreateMCPClient.mockReturnValue(new Promise(() => undefined) as never);
     await expect(createMcpClient(cfg, 20)).rejects.toThrow(/did not answer/);
   });
 

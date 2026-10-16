@@ -361,12 +361,14 @@ export interface ProjectEnvConfig {
     context7Enabled?: boolean;
     /** Memory knowledge graph - default: true (if memoryProviderConfig set) */
     memoryEnabled?: boolean;
-    /** Linear MCP integration - default: follows linearEnabled */
-    linearMcpEnabled?: boolean;
     /** Electron desktop automation (QA only) - default: false */
     electronEnabled?: boolean;
-    /** Puppeteer browser automation (QA only) - default: false */
-    puppeteerEnabled?: boolean;
+    /** Chrome DevTools browser automation (QA only) - default: false */
+    chromeDevtoolsEnabled?: boolean;
+    /** Absolute path of the Chrome binary to launch - default: installed Chrome */
+    chromeDevtoolsExecutable?: string;
+    /** Expose pages' WebMCP tools (Chrome 150+) - default: false */
+    chromeDevtoolsWebmcp?: boolean;
   };
 
   // Per-agent MCP overrides (add/remove MCPs from specific agents)

@@ -14,13 +14,12 @@ import { buildToolRegistry } from '../../tools/build-registry';
 import { getMcpServerConfig } from '../../mcp/registry';
 import { AGENT_CONFIGS } from '../agent-configs';
 
-/** 'browser' is not a server: getRequiredMcpServers() swaps it for electron/puppeteer. */
+/** 'browser' is not a server: getRequiredMcpServers() swaps it for electron/chrome-devtools. */
 const DYNAMIC_SERVER_IDS = new Set(['browser']);
 
 /** Every option a server can need, so only an id with no server resolves to null. */
 const FULL_OPTIONS = {
   memoryMcpUrl: 'http://memory.local',
-  linearApiKey: 'lin_test',
   specDir: '/project/.auto-claude/specs/001-x',
 };
 

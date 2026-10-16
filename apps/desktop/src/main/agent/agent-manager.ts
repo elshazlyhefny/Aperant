@@ -325,9 +325,10 @@ export class AgentManager extends EventEmitter {
     return {
       context7Enabled: settings.context7Enabled,
       memoryEnabled: !!process.env.GRAPHITI_MCP_URL,
-      linearEnabled: !!process.env.LINEAR_API_KEY && settings.linearMcpEnabled,
       electronMcpEnabled: settings.electronMcpEnabled,
-      puppeteerMcpEnabled: settings.puppeteerMcpEnabled,
+      chromeDevtoolsMcpEnabled: settings.chromeDevtoolsMcpEnabled,
+      chromeDevtoolsExecutable: settings.chromeDevtoolsExecutable,
+      chromeDevtoolsWebmcp: settings.chromeDevtoolsWebmcp,
       agentMcpOverrides: settings.agentMcpOverrides,
       customServers: settings.customServers,
     };

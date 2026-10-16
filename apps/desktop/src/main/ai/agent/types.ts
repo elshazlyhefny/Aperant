@@ -71,9 +71,11 @@ export interface SerializableSessionConfig {
   mcpOptions?: {
     context7Enabled?: boolean;
     memoryEnabled?: boolean;
-    linearEnabled?: boolean;
     electronMcpEnabled?: boolean;
-    puppeteerMcpEnabled?: boolean;
+    /** zeenha fork: the Chrome DevTools browser server (replaces Puppeteer) */
+    chromeDevtoolsMcpEnabled?: boolean;
+    chromeDevtoolsExecutable?: string;
+    chromeDevtoolsWebmcp?: boolean;
     projectCapabilities?: {
       is_electron?: boolean;
       is_web_frontend?: boolean;

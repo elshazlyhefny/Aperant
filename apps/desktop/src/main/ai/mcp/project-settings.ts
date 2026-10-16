@@ -17,12 +17,16 @@
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import type { CustomMcpServerDefinition } from './types';
+import type { McpServerResolveOptions } from '../config/agent-configs';
 
 export interface ProjectMcpOptions {
   context7Enabled: boolean;
-  linearMcpEnabled: boolean;
   electronMcpEnabled: boolean;
-  puppeteerMcpEnabled: boolean;
+  chromeDevtoolsMcpEnabled: boolean;
+  /** Absolute path of the Chrome binary the browser server launches */
+  chromeDevtoolsExecutable?: string;
+  /** Expose pages' WebMCP tools (Chrome 150+) */
+  chromeDevtoolsWebmcp: boolean;
   /** Keyed by agent type, e.g. `qa_reviewer` → { add: ['chrome-devtools'] } */
   agentMcpOverrides?: Record<string, { add?: string[]; remove?: string[] }>;
   customServers?: CustomMcpServerDefinition[];
@@ -70,17 +74,22 @@ export function parseProjectMcpOptions(content: string): ProjectMcpOptions {
   const vars = parseEnv(content);
   const options: ProjectMcpOptions = {
     context7Enabled: vars.CONTEXT7_ENABLED?.toLowerCase() !== 'false',
-    linearMcpEnabled: vars.LINEAR_MCP_ENABLED?.toLowerCase() !== 'false',
     electronMcpEnabled: vars.ELECTRON_MCP_ENABLED?.toLowerCase() === 'true',
-    puppeteerMcpEnabled: vars.PUPPETEER_MCP_ENABLED?.toLowerCase() === 'true',
+    chromeDevtoolsMcpEnabled: vars.CHROME_DEVTOOLS_MCP_ENABLED?.toLowerCase() === 'true',
+    chromeDevtoolsWebmcp: vars.CHROME_DEVTOOLS_WEBMCP?.toLowerCase() === 'true',
   };
+  // An absolute path only: this becomes a process argument, and a relative
+  // one would resolve against whichever worktree the agent runs in.
+  const exe = vars.CHROME_DEVTOOLS_EXECUTABLE?.trim();
+  if (exe && path.isAbsolute(exe)) options.chromeDevtoolsExecutable = exe;
 
   const overrides: Record<string, { add?: string[]; remove?: string[] }> = {};
   for (const [key, value] of Object.entries(vars)) {
     const m = /^AGENT_MCP_(.+)_(ADD|REMOVE)$/.exec(key);
     if (!m) continue;
     const list = value.split(',').map((s) => s.trim()).filter(Boolean);
-    const entry = (overrides[m[1]] ??= {});
+    const entry = overrides[m[1]] ?? {};
+    overrides[m[1]] = entry;
     if (m[2] === 'ADD') entry.add = list;
     else entry.remove = list;
   }
@@ -113,4 +122,36 @@ export function readProjectMcpOptions(projectPath: string, autoBuildPath = '.aut
   } catch {
     return parseProjectMcpOptions('');
   }
+}
+
+/** The worker's serialized MCP options (SerializableSessionConfig['mcpOptions']). */
+export interface WorkerMcpOptions {
+  context7Enabled?: boolean;
+  memoryEnabled?: boolean;
+  electronMcpEnabled?: boolean;
+  chromeDevtoolsMcpEnabled?: boolean;
+  projectCapabilities?: { is_electron?: boolean; is_web_frontend?: boolean };
+  agentMcpAdd?: string;
+  agentMcpRemove?: string;
+  agentMcpOverrides?: Record<string, { add?: string[]; remove?: string[] }>;
+}
+
+/**
+ * Resolution options for ONE agent type: that agent's own AGENT_MCP_<agent>_*
+ * override wins over the session-wide add/remove strings.
+ */
+export function mcpResolveOptionsForAgent(
+  o: WorkerMcpOptions | undefined,
+  agentType: string,
+): McpServerResolveOptions {
+  const override = o?.agentMcpOverrides?.[agentType];
+  return {
+    context7Enabled: o?.context7Enabled ?? true,
+    memoryEnabled: o?.memoryEnabled ?? false,
+    electronMcpEnabled: o?.electronMcpEnabled ?? false,
+    chromeDevtoolsMcpEnabled: o?.chromeDevtoolsMcpEnabled ?? false,
+    projectCapabilities: o?.projectCapabilities,
+    agentMcpAdd: override?.add?.join(',') ?? o?.agentMcpAdd,
+    agentMcpRemove: override?.remove?.join(',') ?? o?.agentMcpRemove,
+  };
 }

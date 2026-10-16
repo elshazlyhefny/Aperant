@@ -46,6 +46,7 @@ import { getPhaseThinking } from '../config/phase-config';
 import { TaskLogWriter, phaseEndMessage } from '../logging/task-log-writer';
 import { loadProjectInstructions, injectContext } from '../prompts/prompt-loader';
 import { connectMcpServers, resolveMcpServersForAgent, mergeMcpTools, closeAllMcpClients } from '../mcp/client';
+import { mcpResolveOptionsForAgent } from '../mcp/project-settings';
 import type { McpClientResult } from '../mcp/types';
 import { runProjectIndexer } from '../project/project-indexer';
 import { WorkerObserverProxy } from '../memory/ipc/worker-observer-proxy';
@@ -224,7 +225,7 @@ function loadPrompt(promptName: string): string | null {
 // MCP Clients (module-scope for worker lifetime)
 // =============================================================================
 
-let mcpClients: McpClientResult[] = [];
+const mcpClients: McpClientResult[] = [];
 
 /**
  * zeenha fork: MCP clients are resolved PER AGENT TYPE and shared by id.
@@ -236,24 +237,17 @@ const mcpClientById = new Map<string, McpClientResult>();
 const mcpFailedIds = new Set<string>();
 
 function mcpResolveOptionsFor(agentType: AgentType) {
-  const o = config.session.mcpOptions;
-  const override = o?.agentMcpOverrides?.[agentType];
-  return {
-    context7Enabled: o?.context7Enabled ?? true,
-    memoryEnabled: o?.memoryEnabled ?? false,
-    linearEnabled: o?.linearEnabled ?? false,
-    electronMcpEnabled: o?.electronMcpEnabled ?? false,
-    puppeteerMcpEnabled: o?.puppeteerMcpEnabled ?? false,
-    projectCapabilities: o?.projectCapabilities,
-    agentMcpAdd: override?.add?.join(',') ?? o?.agentMcpAdd,
-    agentMcpRemove: override?.remove?.join(',') ?? o?.agentMcpRemove,
-  };
+  return mcpResolveOptionsForAgent(config.session.mcpOptions, agentType);
 }
 
 /** MCP tools for one agent type; connects servers not yet connected. */
 async function mcpToolsFor(agentType: AgentType): Promise<Record<string, AITool>> {
   const configs = resolveMcpServersForAgent(agentType, mcpResolveOptionsFor(agentType), {
     customServers: config.session.mcpOptions?.customServers,
+    chromeDevtools: {
+      executablePath: config.session.mcpOptions?.chromeDevtoolsExecutable,
+      webmcp: config.session.mcpOptions?.chromeDevtoolsWebmcp,
+    },
   });
   const missing = configs.filter((c) => !mcpClientById.has(c.id) && !mcpFailedIds.has(c.id));
   if (missing.length > 0) {

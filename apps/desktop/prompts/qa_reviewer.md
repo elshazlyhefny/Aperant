@@ -166,13 +166,13 @@ Check the PROJECT CAPABILITIES section above for available startup commands.
    ```
    Wait 15 seconds, then retry `get_electron_window_info`.
 
-**For web frontends** (if Puppeteer tools are available):
+**For web frontends** (if Chrome DevTools tools such as `navigate_page` are available):
 1. Start dev server using the dev_command from the startup commands above
 2. Wait for the server to be listening on the expected port
-3. Navigate with Puppeteer:
+3. Navigate with Chrome DevTools (`list_pages` gives the `pageId`):
    ```
-   Tool: mcp__puppeteer__puppeteer_navigate
-   Args: {"url": "http://localhost:[port]"}
+   Tool: navigate_page
+   Args: {"pageId": 1, "type": "url", "url": "http://localhost:[port]"}
    ```
 
 ### 4.2: Capture and Verify Screenshots
@@ -182,21 +182,21 @@ For EACH visual success criterion in the spec:
 2. Set up test conditions (e.g., create long text to test overflow)
 3. Take a screenshot:
    - Electron: `mcp__electron__take_screenshot`
-   - Web: `mcp__puppeteer__puppeteer_screenshot`
+   - Web: `take_screenshot` (and `take_snapshot` to read the page structure)
 4. Examine the screenshot and verify the criterion is met
 5. Document: "[Criterion]: VERIFIED via screenshot" or "FAILED: [what you observed]"
 
 ### 4.3: Check Console for Errors
 
 - Electron: `mcp__electron__read_electron_logs` with `{"logType": "console", "lines": 50}`
-- Web: `mcp__puppeteer__puppeteer_evaluate` with `{"script": "window.__consoleErrors || []"}`
+- Web: `list_console_messages` (and `list_network_requests` for failed API calls)
 
 ### 4.4: Document Findings
 
 ```
 VISUAL VERIFICATION:
 - Verification required: YES/NO (reason: [which UI files changed or "no UI files in diff"])
-- Application started: YES/NO (method: [Electron MCP / Puppeteer / N/A])
+- Application started: YES/NO (method: [Electron MCP / Chrome DevTools / N/A])
 - Screenshots captured: [count]
 - Visual criteria verified:
   - "[criterion 1]": PASS/FAIL
@@ -212,7 +212,7 @@ VISUAL VERIFICATION:
 <!-- PROJECT-SPECIFIC VALIDATION TOOLS WILL BE INJECTED HERE -->
 <!-- The following sections are dynamically added based on project type: -->
 <!-- - Electron validation (for Electron apps) -->
-<!-- - Puppeteer browser automation (for web frontends) -->
+<!-- - Chrome DevTools browser automation (for web frontends) -->
 <!-- - Database validation (for projects with databases) -->
 <!-- - API validation (for projects with API endpoints) -->
 

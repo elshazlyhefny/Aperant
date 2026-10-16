@@ -32,23 +32,6 @@ const CONTEXT7_SERVER: McpServerConfig = {
 };
 
 /**
- * Linear MCP server - project management.
- * Conditionally enabled when project has Linear integration active.
- * Requires LINEAR_API_KEY environment variable.
- */
-const LINEAR_SERVER: McpServerConfig = {
-  id: 'linear',
-  name: 'Linear',
-  description: 'Project management integration for issues and tasks',
-  enabledByDefault: false,
-  transport: {
-    type: 'stdio',
-    command: 'npx',
-    args: ['-y', '@linear/mcp-server'],
-  },
-};
-
-/**
  * Memory MCP server - knowledge graph memory.
  * Conditionally enabled when GRAPHITI_MCP_URL is set.
  * Connects via StreamableHTTP to the running memory sidecar.
@@ -84,20 +67,47 @@ const ELECTRON_SERVER: McpServerConfig = {
 };
 
 /**
- * Puppeteer MCP server - web browser automation.
- * Only available to QA agents for non-Electron web frontends.
+ * Chrome DevTools MCP server - web browser automation for QA agents.
+ *
+ * zeenha fork: replaces upstream's Puppeteer server, whose package
+ * (`@anthropic-ai/puppeteer-mcp-server`) does not exist on npm, so enabling it
+ * could never start anything. Pinned, never `@latest`: its tool names and
+ * arguments are part of what the QA prompt tells agents to call.
+ * Headless with a throwaway profile, so an agent never sees a person's
+ * signed-in browser; usage statistics and CrUX lookups are off so no visited
+ * URL leaves the machine.
  */
-const PUPPETEER_SERVER: McpServerConfig = {
-  id: 'puppeteer',
-  name: 'Puppeteer',
-  description: 'Web browser automation for frontend validation',
-  enabledByDefault: false,
-  transport: {
-    type: 'stdio',
-    command: 'npx',
-    args: ['-y', '@anthropic-ai/puppeteer-mcp-server'],
-  },
-};
+export const CHROME_DEVTOOLS_MCP_PACKAGE = 'chrome-devtools-mcp@1.11.0';
+
+export interface ChromeDevtoolsOptions {
+  /** Chrome binary to launch (e.g. a Playwright headless shell). Default: installed Chrome. */
+  executablePath?: string;
+  /** Expose the page's own WebMCP tools (Chrome 150+). */
+  webmcp?: boolean;
+}
+
+export function createChromeDevtoolsServer(options: ChromeDevtoolsOptions = {}): McpServerConfig {
+  const args = [
+    '-y',
+    CHROME_DEVTOOLS_MCP_PACKAGE,
+    '--headless',
+    '--isolated',
+    '--viewport=1280x800',
+    '--usageStatistics=false',
+    '--performanceCrux=false',
+  ];
+  if (options.executablePath) args.push('--executablePath', options.executablePath);
+  if (options.webmcp) {
+    args.push('--categoryExperimentalWebmcp', '--chromeArg=--enable-features=WebMCP');
+  }
+  return {
+    id: 'chrome-devtools',
+    name: 'Chrome DevTools',
+    description: 'Web browser automation and debugging for frontend validation',
+    enabledByDefault: false,
+    transport: { type: 'stdio', command: 'npx', args },
+  };
+}
 
 // =============================================================================
 // Registry
@@ -109,10 +119,10 @@ export interface McpRegistryOptions {
   specDir?: string;
   /** Memory MCP server URL (if enabled) */
   memoryMcpUrl?: string;
-  /** Linear API key (if available) */
-  linearApiKey?: string;
   /** Environment variables for server processes */
   env?: Record<string, string>;
+  /** zeenha fork: options for the built-in Chrome DevTools server */
+  chromeDevtools?: ChromeDevtoolsOptions;
   /** zeenha fork: project-defined servers, resolved by id after the built-ins */
   customServers?: CustomMcpServerDefinition[];
 }
@@ -155,20 +165,6 @@ export function getMcpServerConfig(
     case 'context7':
       return CONTEXT7_SERVER;
 
-    case 'linear': {
-      if (!options.linearApiKey && !options.env?.LINEAR_API_KEY) return null;
-      const server = { ...LINEAR_SERVER };
-      // Pass LINEAR_API_KEY to the server process
-      const apiKey = options.linearApiKey ?? options.env?.LINEAR_API_KEY;
-      if (apiKey && server.transport.type === 'stdio') {
-        server.transport = {
-          ...server.transport,
-          env: { ...server.transport.env, LINEAR_API_KEY: apiKey },
-        };
-      }
-      return server;
-    }
-
     case 'memory': {
       const url = options.memoryMcpUrl ?? options.env?.GRAPHITI_MCP_URL;
       if (!url) return null;
@@ -178,8 +174,8 @@ export function getMcpServerConfig(
     case 'electron':
       return ELECTRON_SERVER;
 
-    case 'puppeteer':
-      return PUPPETEER_SERVER;
+    case 'chrome-devtools':
+      return createChromeDevtoolsServer(options.chromeDevtools);
 
     default: {
       // zeenha fork: upstream returned null here, so a custom server named in

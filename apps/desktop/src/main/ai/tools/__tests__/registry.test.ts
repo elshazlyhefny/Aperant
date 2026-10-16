@@ -10,9 +10,7 @@ import {
   BASE_WRITE_TOOLS,
   WEB_TOOLS,
   CONTEXT7_TOOLS,
-  LINEAR_TOOLS,
   MEMORY_MCP_TOOLS, GRAPHITI_MCP_TOOLS,
-  PUPPETEER_TOOLS,
   ELECTRON_TOOLS,
   type AgentType,
 } from '../registry';
@@ -63,9 +61,7 @@ describe('tool constants', () => {
 
   it('should export MCP tool arrays matching agent-configs', () => {
     expect(CONTEXT7_TOOLS).toHaveLength(2);
-    expect(LINEAR_TOOLS).toHaveLength(16);
     expect(MEMORY_MCP_TOOLS).toHaveLength(5);
-    expect(PUPPETEER_TOOLS).toHaveLength(8);
     expect(ELECTRON_TOOLS).toHaveLength(4);
   });
 });
@@ -227,14 +223,13 @@ describe('getRequiredMcpServers (registry)', () => {
     expect(servers).toContain('electron');
   });
 
-  it('should handle browser→puppeteer resolution via mcpConfig', () => {
+  it('should handle browser→chrome-devtools resolution via mcpConfig', () => {
     const servers = getRequiredMcpServers('qa_reviewer', {
       memoryEnabled: true,
-      projectCapabilities: { is_web_frontend: true, is_electron: false },
-      mcpConfig: { PUPPETEER_MCP_ENABLED: 'true' },
+      mcpConfig: { CHROME_DEVTOOLS_MCP_ENABLED: 'true' },
     });
     expect(servers).not.toContain('browser');
-    expect(servers).toContain('puppeteer');
+    expect(servers).toContain('chrome-devtools');
   });
 
   it('should respect CONTEXT7_ENABLED=false in mcpConfig', () => {
