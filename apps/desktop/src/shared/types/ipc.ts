@@ -923,8 +923,8 @@ export interface ElectronAPI {
   }>>;
 
   // MCP Server health check operations
-  checkMcpHealth: (server: CustomMcpServer) => Promise<IPCResult<McpHealthCheckResult>>;
-  testMcpConnection: (server: CustomMcpServer) => Promise<IPCResult<McpTestConnectionResult>>;
+  checkMcpHealth: (server: CustomMcpServer, projectId?: string) => Promise<IPCResult<McpHealthCheckResult>>;
+  testMcpConnection: (server: CustomMcpServer, projectId?: string) => Promise<IPCResult<McpTestConnectionResult>>;
 
   // Screenshot capture operations
   getSources: () => Promise<IPCResult<ScreenshotSource[]> & { devMode?: boolean }>;

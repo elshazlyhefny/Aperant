@@ -11,17 +11,17 @@ import type { CustomMcpServer, McpHealthCheckResult, McpTestConnectionResult } f
 
 export interface McpAPI {
   /** Quick health check for a custom MCP server */
-  checkMcpHealth: (server: CustomMcpServer) => Promise<IPCResult<McpHealthCheckResult>>;
+  checkMcpHealth: (server: CustomMcpServer, projectId?: string) => Promise<IPCResult<McpHealthCheckResult>>;
   /** Full MCP connection test */
-  testMcpConnection: (server: CustomMcpServer) => Promise<IPCResult<McpTestConnectionResult>>;
+  testMcpConnection: (server: CustomMcpServer, projectId?: string) => Promise<IPCResult<McpTestConnectionResult>>;
 }
 
 export function createMcpAPI(): McpAPI {
   return {
-    checkMcpHealth: (server: CustomMcpServer) =>
-      ipcRenderer.invoke(IPC_CHANNELS.MCP_CHECK_HEALTH, server),
+    checkMcpHealth: (server: CustomMcpServer, projectId?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.MCP_CHECK_HEALTH, server, projectId),
 
-    testMcpConnection: (server: CustomMcpServer) =>
-      ipcRenderer.invoke(IPC_CHANNELS.MCP_TEST_CONNECTION, server),
+    testMcpConnection: (server: CustomMcpServer, projectId?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.MCP_TEST_CONNECTION, server, projectId),
   };
 }

@@ -69,6 +69,35 @@ function isValidCustomServer(s: unknown): s is CustomMcpServerDefinition {
   return false;
 }
 
+const VAR_REF = /\$\{([A-Z][A-Z0-9_]*)\}/g;
+
+/**
+ * zeenha fork: `${NAME}` in a custom server's args or headers is replaced with
+ * NAME from the SAME project .env, so a secret (e.g. GITHUB_TOKEN) is written
+ * once instead of copied into the server's JSON. Only this file's variables are
+ * read, never the app's process environment. A reference to a variable that is
+ * missing or empty drops the server: sending `Bearer ` with no token, or
+ * launching with a blank argument, is worse than not starting it.
+ */
+function expandServerVars(
+  server: CustomMcpServerDefinition,
+  vars: Record<string, string>,
+): CustomMcpServerDefinition | null {
+  let missing = false;
+  const expand = (value: string): string =>
+    value.replace(VAR_REF, (_, name: string) => {
+      const v = vars[name];
+      if (!v) missing = true;
+      return v ?? '';
+    });
+  const out: CustomMcpServerDefinition = { ...server };
+  if (server.args) out.args = server.args.map(expand);
+  if (server.headers) {
+    out.headers = Object.fromEntries(Object.entries(server.headers).map(([k, v]) => [k, expand(String(v))]));
+  }
+  return missing ? null : out;
+}
+
 /** Parse the MCP keys out of a project .env file's text. Exported for tests. */
 export function parseProjectMcpOptions(content: string): ProjectMcpOptions {
   const vars = parseEnv(content);
@@ -99,7 +128,10 @@ export function parseProjectMcpOptions(content: string): ProjectMcpOptions {
     try {
       const parsed: unknown = JSON.parse(vars.CUSTOM_MCP_SERVERS);
       if (Array.isArray(parsed)) {
-        const valid = parsed.filter(isValidCustomServer);
+        const valid = parsed
+          .filter(isValidCustomServer)
+          .map((server) => expandServerVars(server, vars))
+          .filter((server): server is CustomMcpServerDefinition => server !== null);
         if (valid.length > 0) options.customServers = valid;
       }
     } catch {

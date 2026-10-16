@@ -9,6 +9,9 @@ import { mcpResolveOptionsForAgent, parseProjectMcpOptions, readProjectMcpOption
 import { getRequiredMcpServers } from '../../config/agent-configs';
 import { getMcpServerConfig } from '../registry';
 
+/** A literal `${NAME}` reference, as a person would type it into the server JSON. */
+const ref = (name: string): string => `$${'{'}${name}}`;
+
 describe('parseProjectMcpOptions', () => {
   it('uses upstream defaults when nothing is set', () => {
     expect(parseProjectMcpOptions('# CONTEXT7_ENABLED=false\n')).toEqual({
@@ -63,6 +66,38 @@ describe('parseProjectMcpOptions', () => {
     expect(opts.chromeDevtoolsWebmcp).toBe(true);
     expect(opts.chromeDevtoolsExecutable).toBe('/opt/chrome/chrome');
     expect(parseProjectMcpOptions('CHROME_DEVTOOLS_EXECUTABLE=chrome').chromeDevtoolsExecutable).toBeUndefined();
+  });
+
+  it('expands variable references in headers and args from the same file', () => {
+    const custom = [{
+      id: 'github',
+      type: 'http',
+      url: 'https://api.githubcopilot.com/mcp/',
+      headers: { Authorization: `Bearer ${ref('GITHUB_TOKEN')}`, 'X-MCP-Readonly': 'true' },
+    }];
+    const opts = parseProjectMcpOptions(`GITHUB_TOKEN=gho_abc\nCUSTOM_MCP_SERVERS=${JSON.stringify(custom)}`);
+    expect(opts.customServers?.[0].headers).toEqual({ Authorization: 'Bearer gho_abc', 'X-MCP-Readonly': 'true' });
+  });
+
+  it('drops a server whose referenced variable is missing or empty', () => {
+    const custom = [
+      { id: 'gh', type: 'http', url: 'https://x.example/mcp', headers: { Authorization: `Bearer ${ref('GITHUB_TOKEN')}` } },
+      { id: 'cmd', type: 'command', command: 'npx', args: ['--key', ref('EMPTY_ONE')] },
+      { id: 'plain', type: 'command', command: 'npx' },
+    ];
+    const opts = parseProjectMcpOptions(`EMPTY_ONE=\nCUSTOM_MCP_SERVERS=${JSON.stringify(custom)}`);
+    expect(opts.customServers?.map((s) => s.id)).toEqual(['plain']);
+  });
+
+  it('never reads the process environment', () => {
+    process.env.ZEENHA_TEST_SECRET = 'from-process';
+    try {
+      const custom = [{ id: 'x', type: 'command', command: 'npx', args: [ref('ZEENHA_TEST_SECRET')] }];
+      const opts = parseProjectMcpOptions(`CUSTOM_MCP_SERVERS=${JSON.stringify(custom)}`);
+      expect(opts.customServers).toBeUndefined();
+    } finally {
+      delete process.env.ZEENHA_TEST_SECRET;
+    }
   });
 
   it('treats invalid JSON as no custom servers', () => {

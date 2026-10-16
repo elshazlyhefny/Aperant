@@ -11,6 +11,31 @@ import { spawn } from 'child_process';
 import { appLog } from '../app-logger';
 import { isWindows } from '../platform';
 import { getWhereExePath } from '../utils/windows-paths';
+import { projectStore } from '../project-store';
+import { readProjectMcpOptions } from '../ai/mcp/project-settings';
+
+const VAR_REF = /\$\{[A-Z][A-Z0-9_]*\}/;
+
+/**
+ * zeenha fork: a saved custom server may write `${NAME}` in its args or headers
+ * (expanded from the project's .env when an agent starts). Check the server the
+ * way an agent would see it, or "Test" would send the literal placeholder.
+ * Returns null when it references a variable the project does not define.
+ */
+export function resolveForCheck(server: CustomMcpServer, projectId?: string): CustomMcpServer | null {
+  const usesVars =
+    (server.args ?? []).some((a) => VAR_REF.test(a)) ||
+    Object.values(server.headers ?? {}).some((v) => VAR_REF.test(String(v)));
+  if (!usesVars) return server;
+  const project = projectId ? projectStore.getProjects().find((p) => p.id === projectId) : undefined;
+  if (!project) return null;
+  const expanded = readProjectMcpOptions(project.path, project.autoBuildPath || '.auto-claude')
+    .customServers?.find((s) => s.id === server.id);
+  return expanded ? { ...server, args: expanded.args, headers: expanded.headers } : null;
+}
+
+const MISSING_VARIABLE_MESSAGE =
+  'This server references a variable that is not set in the project settings (.auto-claude/.env).';
 
 /**
  * Defense-in-depth: Frontend-side command validation
@@ -553,8 +578,18 @@ async function testCommandConnection(server: CustomMcpServer, startTime: number)
  */
 export function registerMcpHandlers(): void {
   // Quick health check
-  ipcMain.handle(IPC_CHANNELS.MCP_CHECK_HEALTH, async (_event, server: CustomMcpServer) => {
+  ipcMain.handle(IPC_CHANNELS.MCP_CHECK_HEALTH, async (_event, rawServer: CustomMcpServer, projectId?: string) => {
     try {
+      const server = resolveForCheck(rawServer, projectId);
+      if (!server) {
+        const data: McpHealthCheckResult = {
+          serverId: rawServer.id,
+          status: 'unhealthy',
+          message: MISSING_VARIABLE_MESSAGE,
+          checkedAt: new Date().toISOString(),
+        };
+        return { success: true, data };
+      }
       const result = await checkMcpHealth(server);
       return { success: true, data: result };
     } catch (error) {
@@ -567,8 +602,17 @@ export function registerMcpHandlers(): void {
   });
 
   // Full connection test
-  ipcMain.handle(IPC_CHANNELS.MCP_TEST_CONNECTION, async (_event, server: CustomMcpServer) => {
+  ipcMain.handle(IPC_CHANNELS.MCP_TEST_CONNECTION, async (_event, rawServer: CustomMcpServer, projectId?: string) => {
     try {
+      const server = resolveForCheck(rawServer, projectId);
+      if (!server) {
+        const data: McpTestConnectionResult = {
+          serverId: rawServer.id,
+          success: false,
+          message: MISSING_VARIABLE_MESSAGE,
+        };
+        return { success: true, data };
+      }
       const result = await testMcpConnection(server);
       return { success: true, data: result };
     } catch (error) {
