@@ -64,6 +64,21 @@ export interface McpServerConfig {
   description?: string;
 }
 
+/**
+ * A project-defined MCP server (the overview's "Custom MCP Servers"),
+ * as stored in CUSTOM_MCP_SERVERS. Same shape as shared CustomMcpServer.
+ */
+export interface CustomMcpServerDefinition {
+  id: string;
+  name?: string;
+  type: 'command' | 'http';
+  command?: string;
+  args?: string[];
+  url?: string;
+  headers?: Record<string, string>;
+  description?: string;
+}
+
 // =============================================================================
 // Client Types
 // =============================================================================

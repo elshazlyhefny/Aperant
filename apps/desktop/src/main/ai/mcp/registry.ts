@@ -9,7 +9,7 @@
  * and whether it's enabled by default.
  */
 
-import type { McpServerConfig, McpServerId } from './types';
+import type { CustomMcpServerDefinition, McpServerConfig, McpServerId } from './types';
 
 // =============================================================================
 // Server Configuration Definitions
@@ -113,6 +113,31 @@ export interface McpRegistryOptions {
   linearApiKey?: string;
   /** Environment variables for server processes */
   env?: Record<string, string>;
+  /** zeenha fork: project-defined servers, resolved by id after the built-ins */
+  customServers?: CustomMcpServerDefinition[];
+}
+
+/** zeenha fork: turn a project-defined server into a transport config. */
+export function customServerToConfig(def: CustomMcpServerDefinition): McpServerConfig | null {
+  if (def.type === 'command' && def.command) {
+    return {
+      id: def.id,
+      name: def.name ?? def.id,
+      description: def.description,
+      enabledByDefault: false,
+      transport: { type: 'stdio', command: def.command, args: def.args ?? [] },
+    };
+  }
+  if (def.type === 'http' && def.url) {
+    return {
+      id: def.id,
+      name: def.name ?? def.id,
+      description: def.description,
+      enabledByDefault: false,
+      transport: { type: 'streamable-http', url: def.url, headers: def.headers },
+    };
+  }
+  return null;
 }
 
 /**
@@ -156,8 +181,12 @@ export function getMcpServerConfig(
     case 'puppeteer':
       return PUPPETEER_SERVER;
 
-    default:
-      return null;
+    default: {
+      // zeenha fork: upstream returned null here, so a custom server named in
+      // AGENT_MCP_<agent>_ADD was silently dropped and never started.
+      const def = options.customServers?.find((c) => c.id === serverId);
+      return def ? customServerToConfig(def) : null;
+    }
   }
 }
 

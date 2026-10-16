@@ -8,6 +8,7 @@
  */
 
 import type { ExecutionProgressData, ProcessType } from '../../../main/agent/types';
+import type { CustomMcpServerDefinition } from '../mcp/types';
 import type { SessionConfig, SessionResult, StreamEvent } from '../session/types';
 import type { RunnerOptions } from '../session/runner';
 
@@ -79,6 +80,10 @@ export interface SerializableSessionConfig {
     };
     agentMcpAdd?: string;
     agentMcpRemove?: string;
+    /** zeenha fork: AGENT_MCP_<agent>_ADD/REMOVE from the project, keyed by agent type */
+    agentMcpOverrides?: Record<string, { add?: string[]; remove?: string[] }>;
+    /** zeenha fork: the project's custom MCP servers (CUSTOM_MCP_SERVERS) */
+    customServers?: CustomMcpServerDefinition[];
   };
   /** Enable agentic orchestration mode where the AI drives the pipeline via SpawnSubagent tool */
   useAgenticOrchestration?: boolean;

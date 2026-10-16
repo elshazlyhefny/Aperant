@@ -34,7 +34,7 @@ import type { McpServerResolveOptions } from '../config/agent-configs';
  */
 function createTransport(
   config: McpServerConfig,
-): StdioClientTransport | { type: 'sse'; url: string; headers?: Record<string, string> } {
+): StdioClientTransport | { type: 'http'; url: string; headers?: Record<string, string> } {
   const { transport } = config;
 
   if (transport.type === 'stdio') {
@@ -49,10 +49,12 @@ function createTransport(
     });
   }
 
-  // StreamableHTTP transport - use SSE transport from @ai-sdk/mcp
+  // StreamableHTTP transport. zeenha fork: upstream sent these as 'sse', the
+  // older protocol, which a Streamable-HTTP-only server (e.g. a remote /mcp
+  // endpoint) refuses.
   const httpConfig = transport as StreamableHttpTransportConfig;
   return {
-    type: 'sse' as const,
+    type: 'http' as const,
     url: httpConfig.url,
     headers: httpConfig.headers,
   };
@@ -71,18 +73,48 @@ function createTransport(
  * @param config - Server configuration to connect to
  * @returns MCP client result with tools and cleanup function
  */
-export async function createMcpClient(config: McpServerConfig): Promise<McpClientResult> {
+/** zeenha fork: an MCP server that never answers must not hold an agent's start. */
+export const MCP_CONNECT_TIMEOUT_MS = 90_000;
+
+export async function createMcpClient(
+  config: McpServerConfig,
+  timeoutMs: number = MCP_CONNECT_TIMEOUT_MS,
+): Promise<McpClientResult> {
   const transport = createTransport(config);
 
-  const client = await createMCPClient({ transport });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`MCP server "${config.id}" did not answer within ${timeoutMs / 1000}s`)), timeoutMs);
+  });
 
-  const tools = await client.tools();
+  let client: Awaited<ReturnType<typeof createMCPClient>> | undefined;
+  let tools: Awaited<ReturnType<NonNullable<typeof client>['tools']>>;
+  try {
+    const connect = (async () => {
+      client = await createMCPClient({ transport });
+      return client.tools();
+    })();
+    tools = await Promise.race([connect, timeout]);
+  } catch (error) {
+    await client?.close().catch(() => undefined);
+    if (!client && transport instanceof StdioClientTransport) {
+      // A connect that timed out may have spawned the server: stop it.
+      try {
+        await transport.close?.();
+      } catch {
+        // best effort
+      }
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 
   return {
     serverId: config.id,
     tools,
     close: async () => {
-      await client.close();
+      await client?.close();
     },
   };
 }
@@ -102,27 +134,46 @@ export async function createMcpClientsForAgent(
   agentType: AgentType,
   resolveOptions: McpServerResolveOptions = {},
   registryOptions: McpRegistryOptions = {},
+  onError?: (serverId: string, error: unknown) => void,
 ): Promise<McpClientResult[]> {
-  // Determine which servers this agent needs
-  const serverIds = getRequiredMcpServers(agentType, resolveOptions);
+  const serverConfigs = resolveMcpServersForAgent(agentType, resolveOptions, registryOptions);
+  return connectMcpServers(serverConfigs, onError);
+}
 
-  // Resolve server configurations
-  const serverConfigs = resolveMcpServers(serverIds, registryOptions);
+/**
+ * zeenha fork: which server configs an agent type needs. Custom server ids are
+ * recognised in per-agent overrides only when their definitions are known.
+ */
+export function resolveMcpServersForAgent(
+  agentType: AgentType,
+  resolveOptions: McpServerResolveOptions = {},
+  registryOptions: McpRegistryOptions = {},
+): McpServerConfig[] {
+  const customServerIds = resolveOptions.customServerIds
+    ?? registryOptions.customServers?.map((c) => c.id);
+  const serverIds = getRequiredMcpServers(agentType, { ...resolveOptions, customServerIds });
+  return resolveMcpServers(serverIds, registryOptions);
+}
 
-  // Create clients for each server (parallel initialization)
+/** Connect to servers in parallel; a failed server is reported, never fatal. */
+export async function connectMcpServers(
+  serverConfigs: McpServerConfig[],
+  onError?: (serverId: string, error: unknown) => void,
+): Promise<McpClientResult[]> {
   const results = await Promise.allSettled(
     serverConfigs.map((config) => createMcpClient(config)),
   );
 
-  // Collect successful clients, skip failed ones gracefully
   const clients: McpClientResult[] = [];
-  for (const result of results) {
+  results.forEach((result, i) => {
     if (result.status === 'fulfilled') {
       clients.push(result.value);
+    } else {
+      // Non-fatal: the agent works without optional MCP tools. Upstream
+      // swallowed this silently, so a broken server looked like a quiet one.
+      onError?.(serverConfigs[i].id, result.reason);
     }
-    // Failed MCP connections are non-fatal - the agent can still function
-    // without optional MCP tools
-  }
+  });
 
   return clients;
 }

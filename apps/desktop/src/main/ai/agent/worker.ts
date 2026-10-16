@@ -45,7 +45,7 @@ import type { ExecutionPhase } from '../../../shared/constants/phase-protocol';
 import { getPhaseThinking } from '../config/phase-config';
 import { TaskLogWriter, phaseEndMessage } from '../logging/task-log-writer';
 import { loadProjectInstructions, injectContext } from '../prompts/prompt-loader';
-import { createMcpClientsForAgent, mergeMcpTools, closeAllMcpClients } from '../mcp/client';
+import { connectMcpServers, resolveMcpServersForAgent, mergeMcpTools, closeAllMcpClients } from '../mcp/client';
 import type { McpClientResult } from '../mcp/types';
 import { runProjectIndexer } from '../project/project-indexer';
 import { WorkerObserverProxy } from '../memory/ipc/worker-observer-proxy';
@@ -226,6 +226,55 @@ function loadPrompt(promptName: string): string | null {
 
 let mcpClients: McpClientResult[] = [];
 
+/**
+ * zeenha fork: MCP clients are resolved PER AGENT TYPE and shared by id.
+ * Upstream connected once, for the worker's entry agent type, and handed those
+ * tools to every phase: a build ran with `build_orchestrator`'s servers, so the
+ * QA phases' `browser` server (and any per-agent override) never started.
+ */
+const mcpClientById = new Map<string, McpClientResult>();
+const mcpFailedIds = new Set<string>();
+
+function mcpResolveOptionsFor(agentType: AgentType) {
+  const o = config.session.mcpOptions;
+  const override = o?.agentMcpOverrides?.[agentType];
+  return {
+    context7Enabled: o?.context7Enabled ?? true,
+    memoryEnabled: o?.memoryEnabled ?? false,
+    linearEnabled: o?.linearEnabled ?? false,
+    electronMcpEnabled: o?.electronMcpEnabled ?? false,
+    puppeteerMcpEnabled: o?.puppeteerMcpEnabled ?? false,
+    projectCapabilities: o?.projectCapabilities,
+    agentMcpAdd: override?.add?.join(',') ?? o?.agentMcpAdd,
+    agentMcpRemove: override?.remove?.join(',') ?? o?.agentMcpRemove,
+  };
+}
+
+/** MCP tools for one agent type; connects servers not yet connected. */
+async function mcpToolsFor(agentType: AgentType): Promise<Record<string, AITool>> {
+  const configs = resolveMcpServersForAgent(agentType, mcpResolveOptionsFor(agentType), {
+    customServers: config.session.mcpOptions?.customServers,
+  });
+  const missing = configs.filter((c) => !mcpClientById.has(c.id) && !mcpFailedIds.has(c.id));
+  if (missing.length > 0) {
+    const fresh = await connectMcpServers(missing, (id, error) => {
+      mcpFailedIds.add(id);
+      postLog(`MCP server "${id}" failed to start (non-fatal): ${error instanceof Error ? error.message : String(error)}`);
+    });
+    for (const client of fresh) {
+      mcpClientById.set(client.serverId, client);
+      mcpClients.push(client);
+    }
+    if (fresh.length > 0) {
+      postLog(`MCP initialized for ${agentType}: ${fresh.map((c) => c.serverId).join(', ')}`);
+    }
+  }
+  const active = configs
+    .map((c) => mcpClientById.get(c.id))
+    .filter((c): c is McpClientResult => c !== undefined);
+  return mergeMcpTools(active) as Record<string, AITool>;
+}
+
 // =============================================================================
 // Prompt Assembly (provider-agnostic context injection)
 // =============================================================================
@@ -307,7 +356,7 @@ async function runSingleSession(
 
   const tools: Record<string, AITool> = {
     ...registry.getToolsForAgent(agentType, toolContext),
-    ...(mergeMcpTools(mcpClients) as Record<string, AITool>),
+    ...(await mcpToolsFor(agentType)),
     ...memoryTools(),
   };
 
@@ -422,21 +471,10 @@ async function run(): Promise<void> {
     const toolContext = buildToolContext(session, securityProfile);
     const registry = buildToolRegistry();
 
-    // Initialize MCP clients from session config
+    // Initialize the entry agent's MCP clients from session config; phases
+    // connect their own on first use (mcpToolsFor).
     try {
-      mcpClients = await createMcpClientsForAgent(session.agentType, {
-        context7Enabled: session.mcpOptions?.context7Enabled ?? true,
-        memoryEnabled: session.mcpOptions?.memoryEnabled ?? false,
-        linearEnabled: session.mcpOptions?.linearEnabled ?? false,
-        electronMcpEnabled: session.mcpOptions?.electronMcpEnabled ?? false,
-        puppeteerMcpEnabled: session.mcpOptions?.puppeteerMcpEnabled ?? false,
-        projectCapabilities: session.mcpOptions?.projectCapabilities,
-        agentMcpAdd: session.mcpOptions?.agentMcpAdd,
-        agentMcpRemove: session.mcpOptions?.agentMcpRemove,
-      });
-      if (mcpClients.length > 0) {
-        postLog(`MCP initialized: ${mcpClients.map(c => c.serverId).join(', ')}`);
-      }
+      await mcpToolsFor(session.agentType);
     } catch (error) {
       postLog(`MCP init failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -497,7 +535,7 @@ async function runDefaultSession(
 
   const tools: Record<string, AITool> = {
     ...registry.getToolsForAgent(session.agentType, toolContext),
-    ...(mergeMcpTools(mcpClients) as Record<string, AITool>),
+    ...(await mcpToolsFor(session.agentType)),
     ...memoryTools(),
   };
 
@@ -1095,7 +1133,7 @@ async function runAgenticSpecOrchestrator(
   // Get tools for the orchestrator (includes SpawnSubagent since it's in AGENT_CONFIGS)
   const tools: Record<string, AITool> = {
     ...registry.getToolsForAgent('spec_orchestrator', orchestratorToolContext),
-    ...(mergeMcpTools(mcpClients) as Record<string, AITool>),
+    ...(await mcpToolsFor('spec_orchestrator')),
     ...memoryTools(),
   };
 

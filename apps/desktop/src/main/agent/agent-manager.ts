@@ -30,6 +30,7 @@ import { landsThroughPullRequestsOnly } from '../../shared/utils/landing-policy'
 import { readSettingsFile } from '../settings-utils';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
+import { readProjectMcpOptions } from '../ai/mcp/project-settings';
 
 /**
  * Main AgentManager - orchestrates agent process lifecycle
@@ -312,6 +313,26 @@ export class AgentManager extends EventEmitter {
   /**
    * Start spec creation process
    */
+  /**
+   * zeenha fork: the project's MCP settings (the "MCP Server Overview" page) for
+   * a worker. Upstream hardcoded Context7 on and ignored every other toggle,
+   * per-agent override and custom server on that page. Always read from the
+   * PROJECT root, never a task worktree: `.auto-claude/.env` is untracked.
+   */
+  private mcpOptionsForProject(projectPath: string): NonNullable<SerializableSessionConfig['mcpOptions']> {
+    const project = projectStore.getProjects().find((p) => p.path === projectPath);
+    const settings = readProjectMcpOptions(projectPath, project?.autoBuildPath || '.auto-claude');
+    return {
+      context7Enabled: settings.context7Enabled,
+      memoryEnabled: !!process.env.GRAPHITI_MCP_URL,
+      linearEnabled: !!process.env.LINEAR_API_KEY && settings.linearMcpEnabled,
+      electronMcpEnabled: settings.electronMcpEnabled,
+      puppeteerMcpEnabled: settings.puppeteerMcpEnabled,
+      agentMcpOverrides: settings.agentMcpOverrides,
+      customServers: settings.customServers,
+    };
+  }
+
   async startSpecCreation(
     taskId: string,
     projectPath: string,
@@ -397,11 +418,7 @@ export class AgentManager extends EventEmitter {
       baseURL: resolved.auth?.baseURL,
       configDir: resolved.configDir,
       oauthTokenFilePath: resolved.auth?.oauthTokenFilePath,
-      mcpOptions: {
-        context7Enabled: true,
-        memoryEnabled: !!process.env.GRAPHITI_MCP_URL,
-        linearEnabled: !!process.env.LINEAR_API_KEY,
-      },
+      mcpOptions: this.mcpOptionsForProject(projectPath),
       toolContext: {
         cwd: projectPath,
         projectDir: projectPath,
@@ -535,11 +552,7 @@ export class AgentManager extends EventEmitter {
       baseURL: resolved.auth?.baseURL,
       configDir: resolved.configDir,
       oauthTokenFilePath: resolved.auth?.oauthTokenFilePath,
-      mcpOptions: {
-        context7Enabled: true,
-        memoryEnabled: !!process.env.GRAPHITI_MCP_URL,
-        linearEnabled: !!process.env.LINEAR_API_KEY,
-      },
+      mcpOptions: this.mcpOptionsForProject(projectPath),
       toolContext: {
         cwd: effectiveCwd,
         projectDir: effectiveProjectDir,
@@ -644,11 +657,7 @@ export class AgentManager extends EventEmitter {
       baseURL: resolved.auth?.baseURL,
       configDir: resolved.configDir,
       oauthTokenFilePath: resolved.auth?.oauthTokenFilePath,
-      mcpOptions: {
-        context7Enabled: true,
-        memoryEnabled: !!process.env.GRAPHITI_MCP_URL,
-        linearEnabled: !!process.env.LINEAR_API_KEY,
-      },
+      mcpOptions: this.mcpOptionsForProject(projectPath),
       toolContext: {
         cwd: effectiveCwd,
         projectDir: effectiveProjectDir,

@@ -37,6 +37,7 @@ import { resolveMcpServers } from '../registry';
 import { getRequiredMcpServers } from '../../config/agent-configs';
 import type { McpServerResolveOptions } from '../../config/agent-configs';
 import {
+  connectMcpServers,
   createMcpClient,
   createMcpClientsForAgent,
   closeAllMcpClients,
@@ -119,12 +120,12 @@ describe('createMcpClient', () => {
     });
   });
 
-  it('creates an SSE transport object for streamable-http config', async () => {
+  it('creates a Streamable HTTP transport object for streamable-http config', async () => {
     await createMcpClient(httpConfig);
 
     expect(mockCreateMCPClient).toHaveBeenCalledWith({
       transport: {
-        type: 'sse',
+        type: 'http',
         url: 'https://mcp.example.com/sse',
         headers: { Authorization: 'Bearer token123' },
       },
@@ -312,5 +313,53 @@ describe('closeAllMcpClients', () => {
 
   it('resolves immediately for empty clients array', async () => {
     await expect(closeAllMcpClients([])).resolves.toBeUndefined();
+  });
+});
+
+
+// zeenha fork
+describe('createMcpClient timeout and failure reporting', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const cfg: McpServerConfig = {
+    id: 'slow',
+    name: 'Slow',
+    enabledByDefault: false,
+    transport: { type: 'stdio', command: 'npx', args: ['-y', 'slow'] },
+  };
+
+  it('rejects a server that never answers instead of hanging the agent', async () => {
+    mockCreateMCPClient.mockReturnValue(new Promise(() => {}) as never);
+    await expect(createMcpClient(cfg, 20)).rejects.toThrow(/did not answer/);
+  });
+
+  it('reports each failed server through onError and keeps the healthy ones', async () => {
+    const ok = makeMockMcpInstance();
+    mockCreateMCPClient
+      .mockResolvedValueOnce(ok as unknown as MCPClient)
+      .mockRejectedValueOnce(new Error('boom'));
+    const onError = vi.fn();
+
+    const clients = await connectMcpServers([{ ...cfg, id: 'good' }, { ...cfg, id: 'bad' }], onError);
+
+    expect(clients.map((c) => c.serverId)).toEqual(['good']);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith('bad', expect.any(Error));
+  });
+
+  it('passes custom server ids to resolution so a per-agent ADD can name one', async () => {
+    mockGetRequiredMcpServers.mockReturnValue(['chrome-devtools']);
+    mockResolveMcpServers.mockReturnValue([]);
+    const customServers = [{ id: 'chrome-devtools', type: 'command' as const, command: 'npx' }];
+
+    await createMcpClientsForAgent('qa_reviewer', { agentMcpAdd: 'chrome-devtools' }, { customServers });
+
+    expect(mockGetRequiredMcpServers).toHaveBeenCalledWith(
+      'qa_reviewer',
+      expect.objectContaining({ customServerIds: ['chrome-devtools'] }),
+    );
+    expect(mockResolveMcpServers).toHaveBeenCalledWith(['chrome-devtools'], { customServers });
   });
 });
