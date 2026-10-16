@@ -8,6 +8,8 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({ ipcMain: { handle: vi.fn() }, app: { getPath: () => tmpdir() } }));
+// Keep test noise out of the real ~/.config/aperant/logs/main.log.
+vi.mock('../../app-logger', () => ({ appLog: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } }));
 
 const projects: Array<{ id: string; path: string; autoBuildPath: string }> = [];
 vi.mock('../../project-store', () => ({ projectStore: { getProjects: () => projects } }));
