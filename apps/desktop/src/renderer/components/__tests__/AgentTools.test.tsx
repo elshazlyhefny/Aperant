@@ -8,6 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DEFAULT_AGENT_PROFILES, DEFAULT_PHASE_MODELS, DEFAULT_FEATURE_MODELS, DEFAULT_FEATURE_THINKING } from '../../../shared/constants/models';
 import { resolveAgentSettings, } from '../../hooks';
+import { agentMemoryRow } from '../AgentTools';
 
 // Mock electronAPI
 global.window.electronAPI = {
@@ -306,5 +307,30 @@ describe('AgentTools - Agent Profile Resolution', () => {
       expect(DEFAULT_PHASE_MODELS.coding).toBe('sonnet');
       expect(DEFAULT_PHASE_MODELS.qa).toBe('sonnet');
     });
+  });
+});
+
+// zeenha fork
+describe('agentMemoryRow', () => {
+  const available = { enabled: true, available: true, embeddingProvider: 'onnx' };
+
+  it('is on when the app switch is not off and memory.db started', () => {
+    expect(agentMemoryRow(undefined, available)).toEqual({
+      on: true,
+      key: 'settings:mcp.servers.memory.agentOn',
+      params: { provider: 'onnx' },
+    });
+    expect(agentMemoryRow(true, available).on).toBe(true);
+  });
+
+  it('is off when the app-wide switch is off, whatever the database says', () => {
+    expect(agentMemoryRow(false, available)).toEqual({ on: false, key: 'settings:mcp.servers.memory.agentOff' });
+  });
+
+  it('shows the reason when memory could not start', () => {
+    const row = agentMemoryRow(undefined, { enabled: false, available: false, reason: 'Memory service initialization failed' });
+    expect(row.on).toBe(false);
+    expect(row.text).toBe('Memory service initialization failed');
+    expect(agentMemoryRow(undefined, null)).toMatchObject({ on: false, key: 'settings:mcp.servers.memory.agentUnavailable' });
   });
 });

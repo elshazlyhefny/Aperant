@@ -46,7 +46,7 @@ import {
 } from './ui/dialog';
 import { useSettingsStore } from '../stores/settings-store';
 import { useProjectStore } from '../stores/project-store';
-import type { ProjectEnvConfig, AgentMcpOverride, CustomMcpServer, McpHealthCheckResult, } from '../../shared/types';
+import type { ProjectEnvConfig, AgentMcpOverride, CustomMcpServer, McpHealthCheckResult, MemorySystemStatus } from '../../shared/types';
 import { CustomMcpDialog } from './CustomMcpDialog';
 import { useTranslation } from 'react-i18next';
 import {
@@ -609,6 +609,26 @@ function AgentCard({ id, config, modelLabel, thinkingLabel, overrides, mcpServer
   );
 }
 
+/**
+ * zeenha fork: what the MCP page says about the built-in agent memory.
+ * `memoryEnabled` is the app-wide switch (absent = on, isAgentMemoryEnabled);
+ * `status` is CONTEXT_MEMORY_STATUS, which knows whether memory.db started.
+ */
+export function agentMemoryRow(
+  memoryEnabled: boolean | undefined,
+  status: MemorySystemStatus | null,
+): { on: boolean; key: string; params?: Record<string, string>; text?: string } {
+  if (memoryEnabled === false) return { on: false, key: 'settings:mcp.servers.memory.agentOff' };
+  if (status?.available === true) {
+    return {
+      on: true,
+      key: 'settings:mcp.servers.memory.agentOn',
+      params: { provider: status.embeddingProvider ?? '?' },
+    };
+  }
+  return { on: false, key: 'settings:mcp.servers.memory.agentUnavailable', text: status?.reason };
+}
+
 export function AgentTools() {
   const { t } = useTranslation(['settings']);
   const settings = useSettingsStore((state) => state.settings);
@@ -629,6 +649,31 @@ export function AgentTools() {
   // Health status tracking for custom servers
   const [serverHealthStatus, setServerHealthStatus] = useState<Record<string, McpHealthCheckResult>>({});
   const [testingServers, setTestingServers] = useState<Set<string>>(new Set());
+
+  // zeenha fork: the built-in agent memory (memory.db), which is what agents
+  // actually use. The page used to show only upstream's Graphiti memory
+  // SERVER, which needs a sidecar this fork never runs, so the row read
+  // "Requires memory configuration" while memory was working.
+  const [agentMemory, setAgentMemory] = useState<MemorySystemStatus | null>(null);
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setAgentMemory(null);
+      return;
+    }
+    let cancelled = false;
+    window.electronAPI.getMemoryStatus(selectedProjectId)
+      .then((result) => {
+        if (!cancelled) setAgentMemory(result.success && result.data ? result.data : null);
+      })
+      .catch(() => {
+        if (!cancelled) setAgentMemory(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId]);
+  const memoryRow = agentMemoryRow(settings?.memoryEnabled, agentMemory);
+  const agentMemoryOn = memoryRow.on;
 
   // Load project env config when project changes
   useEffect(() => {
@@ -948,7 +993,7 @@ export function AgentTools() {
   // Count enabled MCP servers
   const enabledCount = [
     mcpServers.context7Enabled !== false,
-    mcpServers.memoryEnabled && envConfig?.memoryProviderConfig,
+    agentMemoryOn,
     mcpServers.electronEnabled,
     mcpServers.chromeDevtoolsEnabled,
   ].filter(Boolean).length;
@@ -1067,24 +1112,20 @@ export function AgentTools() {
                   />
                 </div>
 
-                {/* Memory */}
+                {/* Memory (zeenha fork: the built-in agent memory, app-wide) */}
                 <div className="flex items-center justify-between py-2 border-b border-border last:border-0">
                   <div className="flex items-center gap-3">
                     <Brain className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <span className="text-sm font-medium">{t('settings:mcp.servers.memory.name')}</span>
-                      <p className="text-xs text-muted-foreground">
-                        {envConfig.memoryProviderConfig
-                          ? t('settings:mcp.servers.memory.description')
-                          : t('settings:mcp.servers.memory.notConfigured')}
+                      <p className="text-xs text-muted-foreground" data-testid="mcp-agent-memory-status">
+                        {memoryRow.text ?? t(memoryRow.key, memoryRow.params)}
                       </p>
                     </div>
                   </div>
-                  <Switch
-                    checked={mcpServers.memoryEnabled !== false && !!envConfig.memoryProviderConfig}
-                    onCheckedChange={(checked) => updateMcpServer('memoryEnabled', checked)}
-                    disabled={!envConfig.memoryProviderConfig}
-                  />
+                  <span className={`text-xs font-medium ${agentMemoryOn ? 'text-success' : 'text-muted-foreground'}`}>
+                    {agentMemoryOn ? t('settings:mcp.servers.memory.stateOn') : t('settings:mcp.servers.memory.stateOff')}
+                  </span>
                 </div>
 
                 {/* Browser Automation Section */}
