@@ -924,6 +924,8 @@
         "description": "Chrome sans interface pour les applications web : pages, console, réseau, Lighthouse",
         "executableLabel": "Exécutable Chrome (facultatif)",
         "executableHint": "Chemin absolu. Laissez vide pour utiliser le Chrome installé.",
+        "secureOriginsLabel": "Considérer comme sécurisées (facultatif)",
+        "secureOriginsHint": "Origines de développement http:// séparées par des virgules. Permet à WebMCP et aux clés d'accès de fonctionner sur un domaine de développement en http. Chrome complet uniquement, pas le headless shell. Pas de caractères génériques.",
         "webmcpLabel": "Outils WebMCP",
         "webmcpHint": "Permet aux agents QA d'appeler les outils qu'une page enregistre avec WebMCP. Nécessite Chrome 150 ou plus récent."
       },

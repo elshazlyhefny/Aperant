@@ -76,6 +76,7 @@ export interface SerializableSessionConfig {
     chromeDevtoolsMcpEnabled?: boolean;
     chromeDevtoolsExecutable?: string;
     chromeDevtoolsWebmcp?: boolean;
+    chromeDevtoolsSecureOrigins?: string[];
     projectCapabilities?: {
       is_electron?: boolean;
       is_web_frontend?: boolean;

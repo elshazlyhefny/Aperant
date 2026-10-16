@@ -27,6 +27,11 @@ export interface ProjectMcpOptions {
   chromeDevtoolsExecutable?: string;
   /** Expose pages' WebMCP tools (Chrome 150+) */
   chromeDevtoolsWebmcp: boolean;
+  /**
+   * http:// development origins the QA browser treats as secure contexts, so
+   * APIs gated on one (WebMCP, WebAuthn) exist on a plain-http dev domain.
+   */
+  chromeDevtoolsSecureOrigins?: string[];
   /** Keyed by agent type, e.g. `qa_reviewer` → { add: ['chrome-devtools'] } */
   agentMcpOverrides?: Record<string, { add?: string[]; remove?: string[] }>;
   customServers?: CustomMcpServerDefinition[];
@@ -98,6 +103,22 @@ function expandServerVars(
   return missing ? null : out;
 }
 
+/**
+ * Only bare `http://host[:port]` origins, at most 32. Chrome's switch takes an
+ * explicit comma-separated list (it ignores wildcards, measured on Chrome 155),
+ * and anything else here would become part of a browser launch argument.
+ */
+const HTTP_ORIGIN = /^http:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/;
+
+export function parseSecureOrigins(raw: string | undefined): string[] {
+  if (!raw) return [];
+  const origins = raw
+    .split(',')
+    .map((o) => o.trim().toLowerCase().replace(/\/+$/, ''))
+    .filter((o) => HTTP_ORIGIN.test(o));
+  return [...new Set(origins)].slice(0, 32);
+}
+
 /** Parse the MCP keys out of a project .env file's text. Exported for tests. */
 export function parseProjectMcpOptions(content: string): ProjectMcpOptions {
   const vars = parseEnv(content);
@@ -111,6 +132,8 @@ export function parseProjectMcpOptions(content: string): ProjectMcpOptions {
   // one would resolve against whichever worktree the agent runs in.
   const exe = vars.CHROME_DEVTOOLS_EXECUTABLE?.trim();
   if (exe && path.isAbsolute(exe)) options.chromeDevtoolsExecutable = exe;
+  const secure = parseSecureOrigins(vars.CHROME_DEVTOOLS_SECURE_ORIGINS);
+  if (secure.length > 0) options.chromeDevtoolsSecureOrigins = secure;
 
   const overrides: Record<string, { add?: string[]; remove?: string[] }> = {};
   for (const [key, value] of Object.entries(vars)) {

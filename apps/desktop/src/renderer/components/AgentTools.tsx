@@ -1150,6 +1150,27 @@ export function AgentTools() {
                             {t('settings:mcp.servers.chromeDevtools.executableHint')}
                           </p>
                         </div>
+                        <div>
+                          <label htmlFor="mcp-chrome-secure-origins" className="text-xs font-medium">
+                            {t('settings:mcp.servers.chromeDevtools.secureOriginsLabel')}
+                          </label>
+                          <Input
+                            id="mcp-chrome-secure-origins"
+                            key={mcpServers.chromeDevtoolsSecureOrigins ?? ''}
+                            defaultValue={mcpServers.chromeDevtoolsSecureOrigins ?? ''}
+                            placeholder="http://app.test,http://shop.app.test"
+                            className="mt-1 h-8 text-xs font-mono"
+                            onBlur={(e) => {
+                              const next = e.target.value.trim();
+                              if (next !== (mcpServers.chromeDevtoolsSecureOrigins ?? '')) {
+                                updateMcpServer('chromeDevtoolsSecureOrigins', next);
+                              }
+                            }}
+                          />
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('settings:mcp.servers.chromeDevtools.secureOriginsHint')}
+                          </p>
+                        </div>
                         <div className="flex items-center justify-between">
                           <div>
                             <span className="text-xs font-medium">{t('settings:mcp.servers.chromeDevtools.webmcpLabel')}</span>

@@ -84,6 +84,8 @@ export interface ChromeDevtoolsOptions {
   executablePath?: string;
   /** Expose the page's own WebMCP tools (Chrome 150+). */
   webmcp?: boolean;
+  /** http:// dev origins to treat as secure contexts (already validated). */
+  secureOrigins?: string[];
 }
 
 export function createChromeDevtoolsServer(options: ChromeDevtoolsOptions = {}): McpServerConfig {
@@ -99,6 +101,10 @@ export function createChromeDevtoolsServer(options: ChromeDevtoolsOptions = {}):
   if (options.executablePath) args.push('--executablePath', options.executablePath);
   if (options.webmcp) {
     args.push('--categoryExperimentalWebmcp', '--chromeArg=--enable-features=WebMCP');
+  }
+  if (options.secureOrigins && options.secureOrigins.length > 0) {
+    // Honoured by full Chrome, NOT by chrome-headless-shell (measured on 155).
+    args.push(`--chromeArg=--unsafely-treat-insecure-origin-as-secure=${options.secureOrigins.join(',')}`);
   }
   return {
     id: 'chrome-devtools',

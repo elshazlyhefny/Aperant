@@ -369,6 +369,8 @@ export interface ProjectEnvConfig {
     chromeDevtoolsExecutable?: string;
     /** Expose pages' WebMCP tools (Chrome 150+) - default: false */
     chromeDevtoolsWebmcp?: boolean;
+    /** http:// dev origins the QA browser treats as secure (comma-separated) */
+    chromeDevtoolsSecureOrigins?: string;
   };
 
   // Per-agent MCP overrides (add/remove MCPs from specific agents)

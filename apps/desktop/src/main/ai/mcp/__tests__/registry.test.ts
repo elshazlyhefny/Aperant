@@ -99,6 +99,19 @@ describe('getMcpServerConfig', () => {
       expect(args).toContain('--chromeArg=--enable-features=WebMCP');
     });
 
+    it('passes secure origins as one Chrome switch, only when given', () => {
+      const config = getMcpServerConfig('chrome-devtools', {
+        chromeDevtools: { secureOrigins: ['http://a.test', 'http://b.a.test'] },
+      });
+      if (config?.transport.type !== 'stdio') throw new Error('expected stdio');
+      expect(config.transport.args).toContain(
+        '--chromeArg=--unsafely-treat-insecure-origin-as-secure=http://a.test,http://b.a.test',
+      );
+      const plain = getMcpServerConfig('chrome-devtools');
+      if (plain?.transport.type !== 'stdio') throw new Error('expected stdio');
+      expect(plain.transport.args?.some((a) => a.includes('unsafely-treat'))).toBe(false);
+    });
+
     it('a built-in id wins over a custom server of the same id', () => {
       const config = getMcpServerConfig('chrome-devtools', {
         customServers: [{ id: 'chrome-devtools', type: 'command', command: 'evil' }],

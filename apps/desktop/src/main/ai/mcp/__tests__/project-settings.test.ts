@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { mcpResolveOptionsForAgent, parseProjectMcpOptions, readProjectMcpOptions } from '../project-settings';
+import { mcpResolveOptionsForAgent, parseProjectMcpOptions, parseSecureOrigins, readProjectMcpOptions } from '../project-settings';
 import { getRequiredMcpServers } from '../../config/agent-configs';
 import { getMcpServerConfig } from '../registry';
 
@@ -175,5 +175,35 @@ describe('mcpResolveOptionsForAgent', () => {
       electronMcpEnabled: false,
       chromeDevtoolsMcpEnabled: false,
     });
+  });
+});
+
+describe('parseSecureOrigins', () => {
+  it('keeps bare http origins, lowercased, deduplicated, without a trailing slash', () => {
+    expect(parseSecureOrigins('http://127.0.0.2.sslip.io, HTTP://Shop.127.0.0.2.sslip.io/ ,http://127.0.0.2.sslip.io,http://localhost:3000'))
+      .toEqual(['http://127.0.0.2.sslip.io', 'http://shop.127.0.0.2.sslip.io', 'http://localhost:3000']);
+  });
+
+  it('refuses https, paths, wildcards and anything that could smuggle another argument', () => {
+    expect(parseSecureOrigins([
+      'https://a.test',
+      'http://a.test/path',
+      'http://*.a.test',
+      'http://a.test --disable-web-security',
+      'http://a.test,--no-sandbox',
+      'javascript:alert(1)',
+      'http://',
+    ].join(','))).toEqual(['http://a.test']);
+  });
+
+  it('caps the list at 32', () => {
+    const many = Array.from({ length: 40 }, (_, i) => `http://h${i}.test`).join(',');
+    expect(parseSecureOrigins(many)).toHaveLength(32);
+  });
+
+  it('is read from CHROME_DEVTOOLS_SECURE_ORIGINS', () => {
+    const opts = parseProjectMcpOptions('CHROME_DEVTOOLS_SECURE_ORIGINS=http://a.test,https://b.test');
+    expect(opts.chromeDevtoolsSecureOrigins).toEqual(['http://a.test']);
+    expect(parseProjectMcpOptions('').chromeDevtoolsSecureOrigins).toBeUndefined();
   });
 });

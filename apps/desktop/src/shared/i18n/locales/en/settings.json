@@ -924,6 +924,8 @@
         "description": "Headless Chrome for web frontends: pages, console, network, Lighthouse",
         "executableLabel": "Chrome executable (optional)",
         "executableHint": "Absolute path. Leave empty to use the installed Chrome.",
+        "secureOriginsLabel": "Treat as secure (optional)",
+        "secureOriginsHint": "Comma-separated http:// development origins. Lets WebMCP and passkeys work on a plain-http dev domain. Full Chrome only, not the headless shell. No wildcards.",
         "webmcpLabel": "WebMCP tools",
         "webmcpHint": "Let QA agents call tools a page registers with WebMCP. Needs Chrome 150 or later."
       },

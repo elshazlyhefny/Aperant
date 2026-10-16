@@ -7,6 +7,7 @@ import { app } from 'electron';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { projectStore } from '../project-store';
 import { parseEnvFile } from './utils';
+import { parseSecureOrigins } from '../ai/mcp/project-settings';
 
 // GitLab environment variable keys
 const GITLAB_ENV_KEYS = {
@@ -150,6 +151,11 @@ export function registerEnvHandlers(
       if (config.mcpServers.chromeDevtoolsWebmcp !== undefined) {
         existingVars['CHROME_DEVTOOLS_WEBMCP'] = config.mcpServers.chromeDevtoolsWebmcp ? 'true' : 'false';
       }
+      if (config.mcpServers.chromeDevtoolsSecureOrigins !== undefined) {
+        const origins = parseSecureOrigins(config.mcpServers.chromeDevtoolsSecureOrigins);
+        if (origins.length > 0) existingVars['CHROME_DEVTOOLS_SECURE_ORIGINS'] = origins.join(',');
+        else delete existingVars['CHROME_DEVTOOLS_SECURE_ORIGINS'];
+      }
       if (config.mcpServers.chromeDevtoolsExecutable !== undefined) {
         // One line in a .env file: a newline here would inject another key.
         const exe = config.mcpServers.chromeDevtoolsExecutable.replace(/[\r\n]/g, '').trim();
@@ -246,6 +252,8 @@ ${existingVars['ELECTRON_MCP_ENABLED'] !== undefined ? `ELECTRON_MCP_ENABLED=${e
 ${existingVars['CHROME_DEVTOOLS_MCP_ENABLED'] !== undefined ? `CHROME_DEVTOOLS_MCP_ENABLED=${existingVars['CHROME_DEVTOOLS_MCP_ENABLED']}` : '# CHROME_DEVTOOLS_MCP_ENABLED=false'}
 # Absolute path of the Chrome to launch (default: the installed Chrome)
 ${existingVars['CHROME_DEVTOOLS_EXECUTABLE'] !== undefined ? `CHROME_DEVTOOLS_EXECUTABLE=${existingVars['CHROME_DEVTOOLS_EXECUTABLE']}` : '# CHROME_DEVTOOLS_EXECUTABLE='}
+# http:// dev origins the QA browser treats as secure contexts (comma-separated; full Chrome only)
+${existingVars['CHROME_DEVTOOLS_SECURE_ORIGINS'] !== undefined ? `CHROME_DEVTOOLS_SECURE_ORIGINS=${existingVars['CHROME_DEVTOOLS_SECURE_ORIGINS']}` : '# CHROME_DEVTOOLS_SECURE_ORIGINS='}
 # Expose pages' WebMCP tools to QA agents - needs Chrome 150+ (default: disabled)
 ${existingVars['CHROME_DEVTOOLS_WEBMCP'] !== undefined ? `CHROME_DEVTOOLS_WEBMCP=${existingVars['CHROME_DEVTOOLS_WEBMCP']}` : '# CHROME_DEVTOOLS_WEBMCP=false'}
 
@@ -465,6 +473,7 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         chromeDevtoolsEnabled: vars['CHROME_DEVTOOLS_MCP_ENABLED']?.toLowerCase() === 'true', // default false
         chromeDevtoolsWebmcp: vars['CHROME_DEVTOOLS_WEBMCP']?.toLowerCase() === 'true', // default false
         chromeDevtoolsExecutable: vars['CHROME_DEVTOOLS_EXECUTABLE'] || undefined,
+        chromeDevtoolsSecureOrigins: vars['CHROME_DEVTOOLS_SECURE_ORIGINS'] || undefined,
       };
 
       // Parse per-agent MCP overrides (AGENT_MCP_<agent>_ADD/REMOVE)

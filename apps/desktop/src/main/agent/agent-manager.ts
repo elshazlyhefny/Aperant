@@ -329,6 +329,7 @@ export class AgentManager extends EventEmitter {
       chromeDevtoolsMcpEnabled: settings.chromeDevtoolsMcpEnabled,
       chromeDevtoolsExecutable: settings.chromeDevtoolsExecutable,
       chromeDevtoolsWebmcp: settings.chromeDevtoolsWebmcp,
+      chromeDevtoolsSecureOrigins: settings.chromeDevtoolsSecureOrigins,
       agentMcpOverrides: settings.agentMcpOverrides,
       customServers: settings.customServers,
     };

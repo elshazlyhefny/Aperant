@@ -247,6 +247,7 @@ async function mcpToolsFor(agentType: AgentType): Promise<Record<string, AITool>
     chromeDevtools: {
       executablePath: config.session.mcpOptions?.chromeDevtoolsExecutable,
       webmcp: config.session.mcpOptions?.chromeDevtoolsWebmcp,
+      secureOrigins: config.session.mcpOptions?.chromeDevtoolsSecureOrigins,
     },
   });
   const missing = configs.filter((c) => !mcpClientById.has(c.id) && !mcpFailedIds.has(c.id));
