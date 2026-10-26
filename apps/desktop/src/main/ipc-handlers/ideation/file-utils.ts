@@ -62,10 +62,28 @@ function isPreservedIdea(idea: RawIdea): boolean {
   return Boolean(idea.linked_task_id) || idea.status === 'archived' || idea.status === 'converted';
 }
 
-/** `<id>-2`, `<id>-3`, ... : the first one not taken. */
-function freeId(id: string, taken: ReadonlySet<string>): string {
+/**
+ * An id for a new idea whose own id a kept one holds. zeenha fork: a numbered
+ * id (`sec-001`) continues its series past every number in use (`sec-006`)
+ * instead of becoming `sec-001-2`; other ids still get `<id>-2`, `<id>-3`, ...
+ * `avoid` holds the ids the rest of the batch will claim.
+ */
+function freeId(id: string, taken: ReadonlySet<string>, avoid: ReadonlySet<string> = new Set()): string {
+  const used = (candidate: string) => taken.has(candidate) || avoid.has(candidate);
+  const series = id.match(/^(.*-)(\d+)$/);
+  if (series) {
+    const [, prefix, digits] = series;
+    let max = 0;
+    for (const other of [...taken, ...avoid]) {
+      const match = other.startsWith(prefix) ? other.slice(prefix.length).match(/^(\d+)$/) : null;
+      if (match) max = Math.max(max, Number(match[1]));
+    }
+    let n = max + 1;
+    while (used(`${prefix}${String(n).padStart(digits.length, '0')}`)) n++;
+    return `${prefix}${String(n).padStart(digits.length, '0')}`;
+  }
   let n = 2;
-  while (taken.has(`${id}-${n}`)) n++;
+  while (used(`${id}-${n}`)) n++;
   return `${id}-${n}`;
 }
 
@@ -209,7 +227,7 @@ export function syncIdeationFile(
           if (previous[field] !== undefined) merged[field] = previous[field];
         }
       } else if (takenIds.has(merged.id)) {
-        merged.id = freeId(merged.id, takenIds);
+        merged.id = freeId(merged.id, takenIds, new Set(generated.slice(index + 1).map((later) => later.id)));
         takenIds.add(merged.id);
       } else {
         takenIds.add(merged.id);
@@ -234,7 +252,11 @@ export function syncIdeationFile(
   const data: RawIdeationData = {
     ...(existing ?? {}),
     id: existing?.id ?? `ideation-${Date.now()}`,
-    config: existing?.config ?? { enabled_types: types },
+    // zeenha fork: kept in step with the ideas; it never gained a type added after the first run
+    config: {
+      ...(existing?.config ?? {}),
+      enabled_types: [...new Set([...(existing?.config?.enabled_types ?? []), ...types])],
+    },
     ideas: unique,
     generated_at: existing?.generated_at ?? now,
     updated_at: now,

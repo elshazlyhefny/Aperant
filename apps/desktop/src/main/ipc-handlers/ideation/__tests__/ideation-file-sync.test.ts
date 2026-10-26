@@ -105,9 +105,10 @@ describe('ideation.json from the per-category files', () => {
       title: 'Send reminders to guests',
       status: 'archived',
     });
-    // The new idea is there too, under a free id.
-    expect(after.find((i) => i.title === 'Cache the slot engine')).toMatchObject({ id: 'ci-001-2', status: 'draft' });
-    expect(after.filter((i) => i.title === 'Other')).toHaveLength(1);
+    // The new idea is there too, under the next number of its series that
+    // neither a kept idea nor a later one of the batch (ci-002) holds.
+    expect(after.find((i) => i.title === 'Cache the slot engine')).toMatchObject({ id: 'ci-003', status: 'draft' });
+    expect(after.filter((i) => i.title === 'Other')).toEqual([expect.objectContaining({ id: 'ci-002' })]);
   });
 
   it('carries the saved id and state to a regenerated idea that moved position', () => {
@@ -166,5 +167,33 @@ describe('one field convention in ideation.json', () => {
     expect(ideas.find((i: { id: string }) => i.id === 'sec-001')).toMatchObject({ current_risk: 'high', status: 'draft' });
     expect(ideas.find((i: { id: string }) => i.id === 'sec-001').created_at).toEqual(expect.any(String));
     expect(JSON.stringify(ideas)).not.toMatch(/"(affectedAreas|currentRisk)"/);
+  });
+});
+
+describe('ids and config after a sync', () => {
+  it('numbers a colliding idea past every id in use, and keeps a non-numbered id unique', () => {
+    writeFileSync(path.join(dir, 'ideation.json'), JSON.stringify({
+      ideas: [
+        { ...idea('sec-001', 'security_hardening', 'Old A'), status: 'archived' },
+        { ...idea('sec-004', 'security_hardening', 'Old B'), status: 'archived' },
+        { ...idea('custom', 'security_hardening', 'Old C'), status: 'archived' },
+      ],
+    }));
+    write('security_hardening_ideas.json', { security_hardening: [idea('sec-001', 'security_hardening', 'New'), idea('custom', 'security_hardening', 'New C')] });
+
+    syncIdeationFile(dir, ['security_hardening']);
+
+    const ideas = combined().ideas as Array<{ id: string; title: string }>;
+    expect(ideas.find((i) => i.title === 'New')?.id).toBe('sec-005');
+    expect(ideas.find((i) => i.title === 'New C')?.id).toBe('custom-2');
+  });
+
+  it('adds a newly generated type to config.enabled_types', () => {
+    writeFileSync(path.join(dir, 'ideation.json'), JSON.stringify({ config: { enabled_types: ['code_quality'] }, ideas: [idea('cq-001', 'code_quality')] }));
+    write('performance_optimizations_ideas.json', { performance_optimizations: [idea('perf-001', 'performance_optimizations')] });
+
+    syncIdeationFile(dir, ['performance_optimizations']);
+
+    expect(combined().config.enabled_types).toEqual(['code_quality', 'performance_optimizations']);
   });
 });
