@@ -18,6 +18,7 @@ import { writeFileWithRetry } from '../utils/atomic-file';
 import { runIdeation, IDEATION_TYPES } from '../ai/runners/ideation';
 import type { IdeationType, IdeationStreamEvent } from '../ai/runners/ideation';
 import { findUnpulledCommits, unpulledCommitsNote } from '../ideation-freshness';
+import { priorWorkNote, readPriorWork } from '../ideation-prior-work';
 import { runRoadmapGeneration } from '../ai/runners/roadmap';
 import type { RoadmapStreamEvent } from '../ai/runners/roadmap';
 import type { ModelShorthand, ThinkingLevel } from '../ai/config/types';
@@ -273,6 +274,8 @@ export class AgentQueueManager {
             maxIdeasPerType: config.maxIdeasPerType || 5,
             abortSignal: abortController.signal,
             checkoutNote,
+            // read per category: ideation.json changes as each category finishes
+            priorWorkNote: priorWorkNote(readPriorWork(projectPath), ideationType),
           },
           (event: IdeationStreamEvent) => {
             if (event.type === 'text-delta') {

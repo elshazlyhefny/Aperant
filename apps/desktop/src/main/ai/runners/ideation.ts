@@ -81,6 +81,8 @@ export interface IdeationConfig {
   abortSignal?: AbortSignal;
   /** zeenha fork: prompt section naming merged commits the checkout lacks (see ideation-freshness.ts) */
   checkoutNote?: string;
+  /** zeenha fork: prompt section listing existing tasks and saved ideas (see ideation-prior-work.ts) */
+  priorWorkNote?: string;
 }
 
 /** Result of an ideation run */
@@ -108,6 +110,18 @@ export type IdeationStreamEvent =
  * files and was stopped before writing anything.
  */
 export const IDEATION_MAX_STEPS = 60;
+
+/**
+ * zeenha fork: appended to every category's prompt. An audit of the
+ * 2026-10-26 run against the code found ideas that called documented things
+ * undocumented, cited a composable that does not exist, generalised one file
+ * to its siblings, and reversed recorded design decisions without saying so.
+ */
+export const IDEATION_EVIDENCE_RULES = `## Evidence rules
+- Before you call something undocumented or missing, search the whole documentation (every docs folder, README*, CLAUDE.md / AGENTS.md, and the docblocks in the code) under more than one name. Say where you looked.
+- Grep for every file, function, class, component, route, config key or command you name before you cite it, and cite only names you found, with their path.
+- Measure counts and line numbers yourself. When a claim covers several files, check each one; do not generalise from the first.
+- Before you propose changing how something is designed, look for a comment or doc that records why it is that way. If there is one, answer it in the rationale.`;
 
 /**
  * Whether a `*_ideas.json` file written since `since` holds ideas of `ideationType`.
@@ -165,6 +179,7 @@ export async function runIdeation(
     maxIdeasPerType = 5,
     abortSignal,
     checkoutNote,
+    priorWorkNote,
   } = config;
 
   // Load prompt file
@@ -195,6 +210,8 @@ export async function runIdeation(
   prompt += `**Project Directory**: ${projectDir}\n`;
   prompt += `**Max Ideas**: ${maxIdeasPerType}\n`;
   if (checkoutNote) prompt += `\n${checkoutNote}\n`;
+  prompt += `\n${IDEATION_EVIDENCE_RULES}\n`;
+  if (priorWorkNote) prompt += `\n${priorWorkNote}\n`;
 
   // Create tool context for read-only tools
   const toolContext: ToolContext = {

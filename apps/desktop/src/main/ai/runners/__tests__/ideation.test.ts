@@ -47,7 +47,7 @@ vi.mock('../../tools/build-registry', () => ({
 // Import after mocking
 // =============================================================================
 
-import { runIdeation, IDEATION_MAX_STEPS, IDEATION_TYPES, IDEATION_TYPE_LABELS } from '../ideation';
+import { runIdeation, IDEATION_EVIDENCE_RULES, IDEATION_MAX_STEPS, IDEATION_TYPES, IDEATION_TYPE_LABELS } from '../ideation';
 import type { IdeationConfig, IdeationStreamEvent } from '../ideation';
 
 // =============================================================================
@@ -368,5 +368,19 @@ describe('runIdeation', () => {
     mockStreamText.mockReturnValue(makeStream([]));
     await runIdeation(baseConfig());
     expect(mockStreamText.mock.calls[0][0].system).not.toContain('Checkout is behind');
+  });
+
+  it('always appends the evidence rules, and the prior-work note when there is one', async () => {
+    mockStreamText.mockReturnValue(makeStream([]));
+    await runIdeation(baseConfig({ priorWorkNote: '## Work that already exists\n- 007-x' }));
+    const system = mockStreamText.mock.calls[0][0].system as string;
+    expect(system).toContain(IDEATION_EVIDENCE_RULES);
+    expect(system).toContain('## Work that already exists\n- 007-x');
+
+    mockStreamText.mockClear();
+    mockStreamText.mockReturnValue(makeStream([]));
+    await runIdeation(baseConfig());
+    expect(mockStreamText.mock.calls[0][0].system).toContain('## Evidence rules');
+    expect(mockStreamText.mock.calls[0][0].system).not.toContain('Work that already exists');
   });
 });
