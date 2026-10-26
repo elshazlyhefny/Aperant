@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SessionResult } from '../../session/types';
-import { BuildOrchestrator, hasAnySubtask, type SessionRunConfig } from '../build-orchestrator';
+import { BuildOrchestrator, codingPhaseError, hasAnySubtask, type SessionRunConfig } from '../build-orchestrator';
 
 let specDir: string;
 beforeEach(async () => {
@@ -91,5 +91,48 @@ describe('hasAnySubtask', () => {
     expect(hasAnySubtask({ phases: [] })).toBe(false);
     expect(hasAnySubtask({ phases: 'x' })).toBe(false);
     expect(hasAnySubtask({ phases: [{ subtasks: [] }, { subtasks: [{ id: 'a' }] }] })).toBe(true);
+  });
+});
+
+describe('codingPhaseError', () => {
+  it('passes only when no subtask is stuck', () => {
+    expect(codingPhaseError({ totalSubtasks: 3, completedSubtasks: 3, stuckSubtasks: [] }, 3)).toBeUndefined();
+  });
+
+  it('fails when some subtasks finished and others are stuck, naming the stuck ones', () => {
+    const error = codingPhaseError({ totalSubtasks: 20, completedSubtasks: 11, stuckSubtasks: ['4.1', '4.2'] }, 3);
+    expect(error).toContain('2 of 20 subtasks not finished after 3 attempts each: 4.1, 4.2');
+  });
+
+  it('keeps the all-stuck message when nothing finished', () => {
+    expect(codingPhaseError({ totalSubtasks: 2, completedSubtasks: 0, stuckSubtasks: ['a', 'b'] }, 3)).toBe('All subtasks stuck: a, b');
+  });
+});
+
+describe('a build with a stuck subtask', () => {
+  it('stops before QA even though another subtask completed', async () => {
+    vi.useFakeTimers();
+    try {
+      await plan([{ id: 'p1', name: 'Build', subtasks: [
+        { id: 's1', title: 'Done', description: 'Done', status: 'pending' },
+        { id: 's2', title: 'Cut off', description: 'Cut off', status: 'pending' },
+      ] }]);
+      const runSession = vi.fn(async (config: SessionRunConfig): Promise<SessionResult> =>
+        ({ ...failed, outcome: config.subtaskId === 's1' ? 'completed' : 'max_steps', error: undefined }));
+      const { o } = orchestrator(runSession);
+
+      // The 3s retry delays only start after real file I/O, so keep advancing until the run settles.
+      let outcome: Awaited<ReturnType<typeof o.run>> | undefined;
+      const running = o.run().then((result) => { outcome = result; });
+      while (!outcome) await vi.advanceTimersByTimeAsync(3_000);
+      await running;
+
+      expect(runSession.mock.calls.map((c) => c[0].agentType)).not.toContain('qa_reviewer');
+      expect(outcome.success).toBe(false);
+      expect(outcome.error).toContain('1 of 2 subtasks not finished');
+      expect(outcome.error).toContain('s2');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

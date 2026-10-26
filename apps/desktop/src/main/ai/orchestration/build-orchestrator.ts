@@ -478,11 +478,9 @@ export class BuildOrchestrator extends EventEmitter {
       return { success: false, error: 'Build cancelled' };
     }
 
-    if (iteratorResult.stuckSubtasks.length > 0 && iteratorResult.completedSubtasks === 0) {
-      return {
-        success: false,
-        error: `All subtasks stuck: ${iteratorResult.stuckSubtasks.join(', ')}`,
-      };
+    const stuckError = codingPhaseError(iteratorResult, MAX_SUBTASK_RETRIES);
+    if (stuckError) {
+      return { success: false, error: stuckError };
     }
 
     // Sync after coding
@@ -803,6 +801,26 @@ export class BuildOrchestrator extends EventEmitter {
   ): void {
     this.emit(event, ...args);
   }
+}
+
+/**
+ * zeenha fork: the coding phase fails if ANY subtask is stuck, not only when
+ * all are. Upstream went on to QA with the rest, and QA's "stop if subtasks
+ * are not all completed" is only a prompt line: tasks 028 (0/17), 039 (11/20)
+ * and 050 (29/30) reached review and were merged with pending subtasks. A
+ * resumed task retries the pending ones.
+ */
+export function codingPhaseError(
+  result: { totalSubtasks: number; completedSubtasks: number; stuckSubtasks: string[] },
+  maxRetries: number,
+): string | undefined {
+  const { totalSubtasks, completedSubtasks, stuckSubtasks } = result;
+  if (stuckSubtasks.length === 0) return undefined;
+  if (completedSubtasks === 0) return `All subtasks stuck: ${stuckSubtasks.join(', ')}`;
+  return (
+    `${stuckSubtasks.length} of ${totalSubtasks} subtasks not finished after ${maxRetries} attempts each: ` +
+    `${stuckSubtasks.join(', ')}. Stopped before QA; resume the task to retry them.`
+  );
 }
 
 /** zeenha fork: whether a parsed plan holds at least one subtask (i.e. has been planned). */
