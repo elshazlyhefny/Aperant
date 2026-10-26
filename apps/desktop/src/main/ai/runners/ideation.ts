@@ -79,6 +79,8 @@ export interface IdeationConfig {
   maxIdeasPerType?: number;
   /** Abort signal for cancellation */
   abortSignal?: AbortSignal;
+  /** zeenha fork: prompt section naming merged commits the checkout lacks (see ideation-freshness.ts) */
+  checkoutNote?: string;
 }
 
 /** Result of an ideation run */
@@ -162,6 +164,7 @@ export async function runIdeation(
     thinkingLevel = 'medium',
     maxIdeasPerType = 5,
     abortSignal,
+    checkoutNote,
   } = config;
 
   // Load prompt file
@@ -191,6 +194,7 @@ export async function runIdeation(
   prompt += `\n\n---\n\n**Output Directory**: ${outputDir}\n`;
   prompt += `**Project Directory**: ${projectDir}\n`;
   prompt += `**Max Ideas**: ${maxIdeasPerType}\n`;
+  if (checkoutNote) prompt += `\n${checkoutNote}\n`;
 
   // Create tool context for read-only tools
   const toolContext: ToolContext = {

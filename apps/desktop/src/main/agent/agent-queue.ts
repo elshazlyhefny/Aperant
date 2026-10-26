@@ -17,6 +17,7 @@ import { debounce } from '../utils/debounce';
 import { writeFileWithRetry } from '../utils/atomic-file';
 import { runIdeation, IDEATION_TYPES } from '../ai/runners/ideation';
 import type { IdeationType, IdeationStreamEvent } from '../ai/runners/ideation';
+import { findUnpulledCommits, unpulledCommitsNote } from '../ideation-freshness';
 import { runRoadmapGeneration } from '../ai/runners/roadmap';
 import type { RoadmapStreamEvent } from '../ai/runners/roadmap';
 import type { ModelShorthand, ThinkingLevel } from '../ai/config/types';
@@ -236,6 +237,14 @@ export class AgentQueueManager {
       completedTypes: []
     });
 
+    // zeenha fork: once per run, so every category sees the same note
+    const unpulled = await findUnpulledCommits(projectPath);
+    const checkoutNote = unpulled ? unpulledCommitsNote(unpulled) : undefined;
+    if (unpulled) {
+      this.emitter.emit('ideation-log', projectId,
+        `The project checkout is ${unpulled.count} commit(s) behind ${unpulled.upstream}; the agents are told to check those commits. Pull it for the most accurate ideas.\n`);
+    }
+
     // Run each ideation type sequentially (matches Python runner behavior)
     for (const ideationType of enabledTypes) {
       if (abortController.signal.aborted) {
@@ -263,6 +272,7 @@ export class AgentQueueManager {
             thinkingLevel: (config.thinkingLevel || 'medium') as ThinkingLevel,
             maxIdeasPerType: config.maxIdeasPerType || 5,
             abortSignal: abortController.signal,
+            checkoutNote,
           },
           (event: IdeationStreamEvent) => {
             if (event.type === 'text-delta') {

@@ -358,4 +358,15 @@ describe('runIdeation', () => {
     const systemPrompt = streamArgs.system as string;
     expect(systemPrompt).toContain('10');
   });
+
+  it('appends the stale-checkout note only when there is one', async () => {
+    mockStreamText.mockReturnValue(makeStream([]));
+    await runIdeation(baseConfig({ checkoutNote: '**Checkout is behind**: 5 commits' }));
+    expect(mockStreamText.mock.calls[0][0].system).toContain('**Checkout is behind**: 5 commits');
+
+    mockStreamText.mockClear();
+    mockStreamText.mockReturnValue(makeStream([]));
+    await runIdeation(baseConfig());
+    expect(mockStreamText.mock.calls[0][0].system).not.toContain('Checkout is behind');
+  });
 });
