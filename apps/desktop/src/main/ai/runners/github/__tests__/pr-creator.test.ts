@@ -9,6 +9,10 @@
  *   and the augmented PATH, so a credential prompt cannot freeze the app.
  */
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface Call {
@@ -329,5 +333,28 @@ describe('createPR suggests the title from the COMMITTED branch (zeenha fork)', 
     expect(prompts.some((p) => p.includes('Write the pull request title'))).toBe(false);
     const create = createCalls()[0].args;
     expect(create[create.indexOf('--title') + 1]).toBe('My own title');
+  });
+});
+
+describe('the PR body is written from the project conventions and the QA report', () => {
+  it('gives the model the running/testing sections and the QA report, not a guess', async () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'pr-body-'));
+    try {
+      writeFileSync(join(worktree, 'CLAUDE.md'), '# Repo\n\n## Tenancy rules\nsecret sauce\n\n## Running things\n- **Docker only.** `docker compose exec app php artisan <cmd>`\n');
+      mkdirSync(join(worktree, '.auto-claude', 'specs', '001-x'), { recursive: true });
+      writeFileSync(join(worktree, '.auto-claude', 'specs', '001-x', 'qa_report.md'), 'Status: PASSED\nscripts/test-backend.sh --filter=ReminderSweepTest: 14 passed');
+      const generate = vi.mocked(generateText);
+      generate.mockClear();
+
+      await createPR(config({ worktreePath: worktree }));
+
+      const prompts = generate.mock.calls.map((c) => String((c[0] as { prompt?: string }).prompt));
+      const body = prompts.find((p) => p.includes('Create a GitHub Pull Request description')) ?? '';
+      expect(body).toContain('`docker compose exec app php artisan <cmd>`');
+      expect(body).toContain('scripts/test-backend.sh --filter=ReminderSweepTest: 14 passed');
+      expect(body).not.toContain('secret sauce');
+    } finally {
+      rmSync(worktree, { recursive: true, force: true });
+    }
   });
 });

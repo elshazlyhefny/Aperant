@@ -39,10 +39,73 @@ Format your response in Markdown with these sections:
 (Bulleted list of specific changes made)
 
 ## Testing
-(How to verify the changes work correctly)
+(What was verified and how a reviewer can re-check it)
 
 Keep the description concise but informative. Focus on the business value and technical impact.
+For Testing, use only what you are given:
+- Report what the QA report says was run and its result, including anything it says was not run.
+- Write a command only if it appears in the project conventions or the QA report, exactly as written there (for example through the project's container or test script). Never invent setup or test commands, and never fall back to generic ones such as running php, composer, npm or artisan directly.
+- If neither tells you how to run something, name the tests that were added or changed and leave the command out.
 Do not include any preamble — output only the Markdown body.`;
+
+/** zeenha fork: caps on what the PR body model is given from the project. */
+const MAX_CONVENTIONS_CHARS = 6_000;
+const MAX_QA_REPORT_CHARS = 5_000;
+const CONVENTION_HEADING_RE = /\b(run|running|test|tests|testing|commands?|develop|development|setup|docker|verif\w*)\b/i;
+
+/**
+ * zeenha fork: the sections of a project instructions file (AGENTS.md or
+ * CLAUDE.md) whose `##`/`###` heading is about running or testing things. The
+ * body model used to see only the commit log and diff stat, so its Testing
+ * section was generic: PR #219 told reviewers to run `php artisan migrate`
+ * on the host, which that project forbids (everything runs in Docker).
+ * Exported for tests.
+ */
+export function extractConventionSections(markdown: string): string {
+  const sections: string[] = [];
+  let current: string[] | null = null;
+  let currentLevel = 0;
+  for (const line of markdown.split('\n')) {
+    const heading = line.match(/^(#{2,3})\s+(.*)$/);
+    if (heading && (current === null || heading[1].length <= currentLevel)) {
+      if (current) sections.push(current.join('\n').trim());
+      current = CONVENTION_HEADING_RE.test(heading[2]) ? [line] : null;
+      currentLevel = heading[1].length;
+      continue;
+    }
+    current?.push(line);
+  }
+  if (current) sections.push(current.join('\n').trim());
+  return sections.join('\n\n').slice(0, MAX_CONVENTIONS_CHARS).trim();
+}
+
+function readCapped(file: string, max: number): string {
+  try {
+    return readFileSync(file, 'utf-8').slice(0, max).trim();
+  } catch {
+    return '';
+  }
+}
+
+/** The branch's own AGENTS.md or CLAUDE.md, reduced to its running/testing sections. */
+function readProjectConventions(worktreePath: string): string {
+  for (const name of ['AGENTS.md', 'CLAUDE.md']) {
+    const file = join(worktreePath, name);
+    if (!existsSync(file)) continue;
+    const sections = extractConventionSections(readFileSync(file, 'utf-8'));
+    if (sections) return sections;
+  }
+  return '';
+}
+
+/** The task's QA report: the worktree's copy, else the main project's. */
+function readQAReport(worktreePath: string, projectDir: string, specId: string): string {
+  for (const root of [worktreePath, projectDir]) {
+    const report = readCapped(join(root, '.auto-claude', 'specs', specId, 'qa_report.md'), MAX_QA_REPORT_CHARS);
+    if (report) return report;
+  }
+  return '';
+}
 
 /**
  * zeenha fork: every git/gh call here runs in the Electron MAIN process. They
@@ -376,30 +439,49 @@ function extractSpecSummary(projectDir: string, specId: string): string {
  * Generate a PR description using AI.
  * Mirrors Python's _try_ai_pr_body().
  */
+export interface PRBodyContext {
+  specId: string;
+  title: string;
+  baseBranch: string;
+  branchName: string;
+  diffSummary: string;
+  commitLog: string;
+  /** zeenha fork: running/testing sections of the project's instructions file */
+  conventions: string;
+  /** zeenha fork: the task's qa_report.md */
+  qaReport: string;
+}
+
+/** Exported for tests. */
+export function buildPRBodyPrompt(ctx: PRBodyContext): string {
+  return `Create a GitHub Pull Request description for the following change:
+
+Task: ${ctx.title}
+Spec ID: ${ctx.specId}
+Branch: ${ctx.branchName}
+Base branch: ${ctx.baseBranch}
+
+Commit log:
+${ctx.commitLog || '(no commits listed)'}
+
+Diff summary:
+${ctx.diffSummary || '(no diff available)'}
+
+Project conventions for running and testing (from the repository's instructions file):
+${ctx.conventions || '(none found: do not write any commands)'}
+
+QA report for this task:
+${ctx.qaReport || '(no QA report: say that verification was not recorded)'}
+
+Write a professional PR description. Output ONLY the Markdown body — no preamble.`;
+}
+
 async function generatePRBody(
-  specId: string,
-  title: string,
-  baseBranch: string,
-  branchName: string,
-  diffSummary: string,
-  commitLog: string,
+  ctx: PRBodyContext,
   modelShorthand: ModelShorthand,
   thinkingLevel: ThinkingLevel,
 ): Promise<string | null> {
-  const prompt = `Create a GitHub Pull Request description for the following change:
-
-Task: ${title}
-Spec ID: ${specId}
-Branch: ${branchName}
-Base branch: ${baseBranch}
-
-Commit log:
-${commitLog || '(no commits listed)'}
-
-Diff summary:
-${diffSummary || '(no diff available)'}
-
-Write a professional PR description. Output ONLY the Markdown body — no preamble.`;
+  const prompt = buildPRBodyPrompt(ctx);
 
   try {
     const client = await createSimpleClient({
@@ -715,12 +797,16 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
 
   // Step 3: Generate AI PR body (falls back to spec summary on failure)
   const aiBody = await generatePRBody(
-    specId,
-    title,
-    baseBranch,
-    branchName,
-    diffSummary,
-    commitLog,
+    {
+      specId,
+      title,
+      baseBranch,
+      branchName,
+      diffSummary,
+      commitLog,
+      conventions: readProjectConventions(worktreePath),
+      qaReport: readQAReport(worktreePath, projectDir, specId),
+    },
     modelShorthand,
     thinkingLevel,
   );
