@@ -79,6 +79,30 @@ function isIdea(value: unknown): value is RawIdea {
   );
 }
 
+const toSnakeCase = (key: string): string => key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+
+/**
+ * zeenha fork: one field convention in `ideation.json`. The prompts' schemas
+ * mixed snake_case (code improvements, UI/UX) and camelCase (security, code
+ * quality, performance, docs), and the latter carried no `status` or
+ * `created_at`, so the app stamped a new creation date on every load and the
+ * task converter, which reads snake_case, dropped their content. Top-level
+ * keys become snake_case (the snake_case spelling wins if both exist; the
+ * renderer's `taskId` becomes `linked_task_id`), and a missing status or
+ * creation date is filled in. Nested values (e.g. `metrics`) are left alone.
+ */
+export function normalizeIdea(idea: RawIdea, createdAt: string): RawIdea {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(idea)) {
+    const snake = key === 'taskId' ? 'linked_task_id' : toSnakeCase(key);
+    if (snake !== key && (idea[snake] !== undefined || out[snake] !== undefined)) continue;
+    out[snake] = value;
+  }
+  out.status ??= 'draft';
+  out.created_at ??= createdAt;
+  return out as RawIdea;
+}
+
 /**
  * Ideas from the current `*_ideas.json` files, grouped by the idea's own
  * `type`. File names are chosen by the prompts and do not match the type
@@ -94,7 +118,7 @@ export function readIdeasByType(ideationDir: string): Map<string, RawIdea[]> {
     .sort((a, b) => a.mtime - b.mtime);
 
   const byType = new Map<string, RawIdea[]>();
-  for (const { name } of files) {
+  for (const { name, mtime } of files) {
     let data: unknown;
     try {
       data = JSON.parse(readFileSync(path.join(ideationDir, name), 'utf-8'));
@@ -108,7 +132,7 @@ export function readIdeasByType(ideationDir: string): Map<string, RawIdea[]> {
       for (const item of value) {
         if (!isIdea(item)) continue;
         const list = fromFile.get(item.type) ?? [];
-        list.push(item);
+        list.push(normalizeIdea(item, new Date(mtime).toISOString()));
         fromFile.set(item.type, list);
       }
     }
@@ -146,7 +170,9 @@ export function syncIdeationFile(
   const replaceAll = regenerated === 'all' || existing === null;
   const replaced = new Set(replaceAll ? fromFiles.keys() : regenerated.filter((t) => fromFiles.has(t)));
 
-  const previousIdeas = existing?.ideas ?? [];
+  // Ideas saved before normalizeIdea existed are converted on the next sync.
+  const savedAt = existing?.generated_at ?? new Date().toISOString();
+  const previousIdeas = (existing?.ideas ?? []).map((idea) => normalizeIdea(idea, savedAt));
   const kept = previousIdeas.filter((idea) => !replaced.has(idea.type));
   const fresh: RawIdea[] = [];
   const retained: RawIdea[] = [];

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { readIdeasByType, readIdeationFile, syncIdeationFile } from '../file-utils';
+import { normalizeIdea, readIdeasByType, readIdeationFile, syncIdeationFile } from '../file-utils';
 
 let dir: string;
 beforeEach(() => {
@@ -138,5 +138,33 @@ describe('ideation.json from the per-category files', () => {
     write('ui_ux_ideas.json', { ui_ux_improvements: [idea('b', 'ui_ux_improvements')] }, 0);
     writeFileSync(path.join(dir, 'broken_ideas.json'), '{ not json');
     expect(readIdeasByType(dir).get('ui_ux_improvements')?.map((i) => i.id)).toEqual(['b']);
+  });
+});
+
+describe('one field convention in ideation.json', () => {
+  it('turns camelCase keys into snake_case, the snake_case spelling winning', () => {
+    const raw = { id: 'a', type: 'code_quality', title: 't', description: 'd', rationale: 'r', affectedFiles: ['x'], currentState: 'old', current_state: 'kept', taskId: '007-x', metrics: { lineCount: 3 } };
+    const out = normalizeIdea(raw, '2026-10-26T00:00:00.000Z');
+    expect(out).toMatchObject({ affected_files: ['x'], current_state: 'kept', linked_task_id: '007-x', metrics: { lineCount: 3 } });
+    expect(Object.keys(out).filter((k) => /[A-Z]/.test(k))).toEqual([]);
+  });
+
+  it('fills a missing status and creation date, keeping ones that exist', () => {
+    const base = { id: 'a', type: 'code_quality', title: 't', description: 'd', rationale: 'r' };
+    expect(normalizeIdea(base, '2026-10-26T00:00:00.000Z')).toMatchObject({ status: 'draft', created_at: '2026-10-26T00:00:00.000Z' });
+    expect(normalizeIdea({ ...base, status: 'archived', created_at: 'then' }, 'now')).toMatchObject({ status: 'archived', created_at: 'then' });
+  });
+
+  it('writes the category files and the ideas saved before it in snake_case', () => {
+    writeFileSync(path.join(dir, 'ideation.json'), JSON.stringify({ ideas: [{ ...idea('perf-001', 'performance_optimizations'), affectedAreas: ['a'] }] }));
+    write('security_hardening_ideas.json', { security_hardening: [{ id: 'sec-001', type: 'security_hardening', title: 'T', description: 'd', rationale: 'r', currentRisk: 'high' }] });
+
+    syncIdeationFile(dir, ['security_hardening']);
+
+    const ideas = combined().ideas;
+    expect(ideas.find((i: { id: string }) => i.id === 'perf-001')).toMatchObject({ affected_areas: ['a'] });
+    expect(ideas.find((i: { id: string }) => i.id === 'sec-001')).toMatchObject({ current_risk: 'high', status: 'draft' });
+    expect(ideas.find((i: { id: string }) => i.id === 'sec-001').created_at).toEqual(expect.any(String));
+    expect(JSON.stringify(ideas)).not.toMatch(/"(affectedAreas|currentRisk)"/);
   });
 });

@@ -18,7 +18,7 @@ vi.mock('../../../utils/spec-number-lock', () => ({
 }));
 
 import { dismissAllIdeas } from '../idea-manager';
-import { convertIdeaToTask } from '../task-converter';
+import { buildTaskDescription, convertIdeaToTask } from '../task-converter';
 import { transformIdeaFromSnakeCase } from '../transformers';
 import type { RawIdea } from '../types';
 
@@ -82,5 +82,41 @@ describe('converted ideas', () => {
 
     const saved = JSON.parse(readFileSync(ideationFile(), 'utf-8')).ideas;
     expect(saved.map((i: { status: string }) => i.status)).toEqual(['archived', 'dismissed']);
+  });
+
+  it('writes the idea sections into spec.md, which the planner reads', async () => {
+    const sec = {
+      ...base, id: 'sec-003', type: 'security_hardening', title: 'Restrict Telescope', severity: 'high',
+      currentRisk: 'staff read tokens', remediation: "Extend hideRequestParameters with 'otp' and 'code'", affectedFiles: ['app/Providers/TelescopeServiceProvider.php'],
+    };
+    writeFileSync(ideationFile(), JSON.stringify({ ideas: [sec] }));
+
+    const result = await convertIdeaToTask({} as never, 'p1', 'sec-003');
+
+    const spec = readFileSync(path.join(ref.path, '.auto-claude', 'specs', result.data?.specId ?? '', 'spec.md'), 'utf-8');
+    expect(spec).toContain("## Remediation\nExtend hideRequestParameters with 'otp' and 'code'");
+    expect(spec).toContain('## Affected Files\n- app/Providers/TelescopeServiceProvider.php');
+    expect(spec).toContain('## Current Risk\nstaff read tokens');
+    expect(spec).toContain('## Overview\n\nd');
+  });
+
+  it.each([
+    ['code_quality', { proposedChange: 'Split it', codeExample: 'a()', breakingChange: true }, ['## Proposed Change\nSplit it', '## Code Example\n```\na()\n```', '## Breaking Change\nYes']],
+    ['performance_optimizations', { implementation: 'Cache it', tradeoffs: 'Memory', affectedAreas: ['x.ts'] }, ['## Implementation\nCache it', '## Tradeoffs\nMemory', '## Affected Areas\n- x.ts']],
+    ['documentation_gaps', { proposedContent: 'A guide', targetAudience: 'operators' }, ['## Proposed Content\nA guide', '## Target Audience\noperators']],
+  ])('carries the %s sections into the task', (type, fields, expected) => {
+    const description = buildTaskDescription({ ...base, id: 'x', type, title: 'T', ...fields } as RawIdea);
+    for (const section of expected) expect(description).toContain(section);
+  });
+
+  it('leaves out empty sections instead of printing "undefined"', () => {
+    const description = buildTaskDescription({ ...base, id: 'u', type: 'ui_ux_improvements', title: 'T', breaking_change: false } as RawIdea);
+    expect(description).not.toContain('undefined');
+    expect(description).not.toContain('## Current State');
+  });
+
+  it('shows code quality metrics whichever spelling the agent used', () => {
+    const idea = { ...base, id: 'cq', type: 'code_quality', title: 'T', metrics: { line_count: 1070, duplicateLines: 4 } } as RawIdea;
+    expect((transformIdeaFromSnakeCase(idea) as { metrics: unknown }).metrics).toEqual({ lineCount: 1070, duplicateLines: 4 });
   });
 });

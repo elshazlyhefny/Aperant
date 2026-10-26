@@ -144,19 +144,19 @@ Write your findings to `{output_dir}/code_quality_ideas.json`:
       "rationale": "Very large files increase cognitive load, make code reviews harder, and often lead to merge conflicts. Smaller, focused modules are easier to test, maintain, and reason about.",
       "category": "large_files",
       "severity": "major",
-      "affectedFiles": ["src/api/handlers.ts"],
-      "currentState": "Single 1200-line file handling users, products, and orders API logic",
-      "proposedChange": "Split into src/api/users/handlers.ts, src/api/products/handlers.ts, src/api/orders/handlers.ts with shared utilities in src/api/utils/",
-      "codeExample": "// Current:\nexport function handleUserCreate() { ... }\nexport function handleProductList() { ... }\nexport function handleOrderSubmit() { ... }\n\n// Proposed:\n// users/handlers.ts\nexport function handleCreate() { ... }",
-      "bestPractice": "Single Responsibility Principle - each module should have one reason to change",
+      "affected_files": ["src/api/handlers.ts"],
+      "current_state": "Single 1200-line file handling users, products, and orders API logic",
+      "proposed_change": "Split into src/api/users/handlers.ts, src/api/products/handlers.ts, src/api/orders/handlers.ts with shared utilities in src/api/utils/",
+      "code_example": "// Current:\nexport function handleUserCreate() { ... }\nexport function handleProductList() { ... }\nexport function handleOrderSubmit() { ... }\n\n// Proposed:\n// users/handlers.ts\nexport function handleCreate() { ... }",
+      "best_practice": "Single Responsibility Principle - each module should have one reason to change",
       "metrics": {
-        "lineCount": 1200,
+        "line_count": 1200,
         "complexity": null,
-        "duplicateLines": null,
-        "testCoverage": null
+        "duplicate_lines": null,
+        "test_coverage": null
       },
-      "estimatedEffort": "medium",
-      "breakingChange": false,
+      "estimated_effort": "medium",
+      "breaking_change": false,
       "prerequisites": ["Ensure test coverage before refactoring"]
     },
     {
@@ -167,35 +167,35 @@ Write your findings to `{output_dir}/code_quality_ideas.json`:
       "rationale": "Code duplication leads to bugs when fixes are applied inconsistently and increases maintenance burden.",
       "category": "duplication",
       "severity": "minor",
-      "affectedFiles": [
+      "affected_files": [
         "src/components/UserForm.tsx",
         "src/components/ContactForm.tsx",
         "src/components/SignupForm.tsx",
         "src/components/ProfileForm.tsx",
         "src/components/CheckoutForm.tsx"
       ],
-      "currentState": "5 forms each implementing their own validation with 15-20 lines of similar code",
-      "proposedChange": "Create src/lib/validation.ts with reusable validators (validateEmail, validatePhone, validateRequired) and a useFormValidation hook",
-      "codeExample": "// Current (repeated in 5 files):\nconst validateEmail = (v) => /^[^@]+@[^@]+\\.[^@]+$/.test(v);\n\n// Proposed:\nimport { validators, useFormValidation } from '@/lib/validation';\nconst { errors, validate } = useFormValidation({\n  email: validators.email,\n  phone: validators.phone\n});",
-      "bestPractice": "DRY (Don't Repeat Yourself) - extract common logic into reusable utilities",
+      "current_state": "5 forms each implementing their own validation with 15-20 lines of similar code",
+      "proposed_change": "Create src/lib/validation.ts with reusable validators (validateEmail, validatePhone, validateRequired) and a useFormValidation hook",
+      "code_example": "// Current (repeated in 5 files):\nconst validateEmail = (v) => /^[^@]+@[^@]+\\.[^@]+$/.test(v);\n\n// Proposed:\nimport { validators, useFormValidation } from '@/lib/validation';\nconst { errors, validate } = useFormValidation({\n  email: validators.email,\n  phone: validators.phone\n});",
+      "best_practice": "DRY (Don't Repeat Yourself) - extract common logic into reusable utilities",
       "metrics": {
-        "lineCount": null,
+        "line_count": null,
         "complexity": null,
-        "duplicateLines": 85,
-        "testCoverage": null
+        "duplicate_lines": 85,
+        "test_coverage": null
       },
-      "estimatedEffort": "small",
-      "breakingChange": false,
+      "estimated_effort": "small",
+      "breaking_change": false,
       "prerequisites": null
     }
   ],
   "metadata": {
-    "filesAnalyzed": 156,
-    "largeFilesFound": 8,
-    "duplicateBlocksFound": 12,
-    "lintingConfigured": true,
-    "testsPresent": true,
-    "generatedAt": "2024-12-11T10:00:00Z"
+    "files_analyzed": 156,
+    "large_files_found": 8,
+    "duplicate_blocks_found": 12,
+    "linting_configured": true,
+    "tests_present": true,
+    "generated_at": "2024-12-11T10:00:00Z"
   }
 }
 ```

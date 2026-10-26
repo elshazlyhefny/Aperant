@@ -17,7 +17,7 @@ import type {
   TaskPriority
 } from '../../../shared/types';
 import { projectStore } from '../../project-store';
-import { readIdeationFile, writeIdeationFile, updateIdeationTimestamp } from './file-utils';
+import { normalizeIdea, readIdeationFile, writeIdeationFile, updateIdeationTimestamp } from './file-utils';
 import type { RawIdea } from './types';
 import { withSpecNumberLock } from '../../utils/spec-number-lock';
 import { slugifySpecTitle } from '../../utils/spec-slug';
@@ -30,39 +30,84 @@ function slugifyTitle(title: string): string {
 }
 
 /**
+ * zeenha fork: the sections each idea type carries into its task, in order.
+ * Only code improvements and UI/UX ideas had any, so a converted security,
+ * code quality, performance or documentation idea became a task with no
+ * remediation, proposed change or affected files: the spec writer started
+ * from the title, description and rationale alone.
+ */
+const TASK_SECTIONS: Record<string, ReadonlyArray<readonly [field: string, heading: string]>> = {
+  code_improvements: [
+    ['builds_upon', 'Builds Upon'],
+    ['implementation_approach', 'Implementation Approach'],
+    ['affected_files', 'Affected Files'],
+    ['existing_patterns', 'Patterns to Follow'],
+  ],
+  ui_ux_improvements: [
+    ['category', 'Category'],
+    ['current_state', 'Current State'],
+    ['proposed_change', 'Proposed Change'],
+    ['user_benefit', 'User Benefit'],
+    ['affected_components', 'Affected Components'],
+  ],
+  documentation_gaps: [
+    ['category', 'Category'],
+    ['target_audience', 'Target Audience'],
+    ['current_documentation', 'Current Documentation'],
+    ['proposed_content', 'Proposed Content'],
+    ['affected_areas', 'Affected Areas'],
+  ],
+  security_hardening: [
+    ['severity', 'Severity'],
+    ['vulnerability', 'Vulnerability'],
+    ['current_risk', 'Current Risk'],
+    ['remediation', 'Remediation'],
+    ['affected_files', 'Affected Files'],
+    ['references', 'References'],
+    ['compliance', 'Compliance'],
+  ],
+  performance_optimizations: [
+    ['impact', 'Impact'],
+    ['current_metric', 'Current Metric'],
+    ['expected_improvement', 'Expected Improvement'],
+    ['implementation', 'Implementation'],
+    ['tradeoffs', 'Tradeoffs'],
+    ['affected_areas', 'Affected Areas'],
+  ],
+  code_quality: [
+    ['severity', 'Severity'],
+    ['current_state', 'Current State'],
+    ['proposed_change', 'Proposed Change'],
+    ['code_example', 'Code Example'],
+    ['best_practice', 'Best Practice'],
+    ['affected_files', 'Affected Files'],
+    ['prerequisites', 'Prerequisites'],
+    ['breaking_change', 'Breaking Change'],
+  ],
+};
+
+function formatSection(heading: string, value: unknown): string {
+  if (Array.isArray(value)) {
+    const items = value.filter((v) => typeof v === 'string' && v.trim());
+    return items.length > 0 ? `## ${heading}\n${items.map((v) => `- ${v}`).join('\n')}\n\n` : '';
+  }
+  if (typeof value === 'boolean') return value ? `## ${heading}\nYes\n\n` : '';
+  if (typeof value !== 'string' || !value.trim()) return '';
+  return heading === 'Code Example' ? `## ${heading}\n\`\`\`\n${value}\n\`\`\`\n\n` : `## ${heading}\n${value}\n\n`;
+}
+
+/**
  * Build task description from idea data
  */
-function buildTaskDescription(idea: RawIdea): string {
+export function buildTaskDescription(rawIdea: RawIdea): string {
+  // ideation.json files written before normalizeIdea may still hold camelCase keys
+  const idea = normalizeIdea(rawIdea, '');
   let description = `# ${idea.title}\n\n`;
-  description += `${idea.description}\n\n`;
+  description += `## Overview\n\n${idea.description}\n\n`;
   description += `## Rationale\n${idea.rationale}\n\n`;
-
-  if (idea.type === 'code_improvements') {
-    const buildsUpon = idea.builds_upon || [];
-    if (Array.isArray(buildsUpon) && buildsUpon.length > 0) {
-      description += `## Builds Upon\n${buildsUpon.map((b: string) => `- ${b}`).join('\n')}\n\n`;
-    }
-    if (idea.implementation_approach) {
-      description += `## Implementation Approach\n${idea.implementation_approach}\n\n`;
-    }
-    const affectedFiles = idea.affected_files || [];
-    if (Array.isArray(affectedFiles) && affectedFiles.length > 0) {
-      description += `## Affected Files\n${affectedFiles.map((f: string) => `- ${f}`).join('\n')}\n\n`;
-    }
-    const existingPatterns = idea.existing_patterns || [];
-    if (Array.isArray(existingPatterns) && existingPatterns.length > 0) {
-      description += `## Patterns to Follow\n${existingPatterns.map((p: string) => `- ${p}`).join('\n')}\n\n`;
-    }
-  } else if (idea.type === 'ui_ux_improvements') {
-    description += `## Category\n${idea.category}\n\n`;
-    description += `## Current State\n${idea.current_state}\n\n`;
-    description += `## Proposed Change\n${idea.proposed_change}\n\n`;
-    description += `## User Benefit\n${idea.user_benefit}\n\n`;
-    if (idea.affected_components?.length) {
-      description += `## Affected Components\n${idea.affected_components.map((c: string) => `- ${c}`).join('\n')}\n\n`;
-    }
+  for (const [field, heading] of TASK_SECTIONS[idea.type] ?? []) {
+    description += formatSection(heading, idea[field]);
   }
-
   return description;
 }
 
@@ -136,7 +181,7 @@ function buildTaskMetadata(idea: RawIdea): TaskMetadata {
 function createSpecFiles(
   specDir: string,
   idea: RawIdea,
-  _taskDescription: string
+  taskDescription: string
 ): void {
   // Create the spec directory
   mkdirSync(specDir, { recursive: true });
@@ -162,15 +207,12 @@ function createSpecFiles(
   );
 
   // Create initial spec.md
-  const specContent = `# ${idea.title}
-
-## Overview
-
-${idea.description}
-
-## Rationale
-
-${idea.rationale}
+  // zeenha fork: from the full task description. It was built from the title,
+  // description and rationale only, so the idea's remediation, proposed change
+  // and affected files never reached the planner: all 69 ideation tasks in
+  // zeenha-ai started from a 12-line spec, and task 007 built half its fix
+  // because the other half (redact `otp`/`code`) was only in `remediation`.
+  const specContent = `${taskDescription.trimEnd()}
 
 ---
 *This spec was created from ideation and is pending detailed specification.*

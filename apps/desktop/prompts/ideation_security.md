@@ -114,21 +114,21 @@ Write your findings to `{output_dir}/security_hardening_ideas.json`:
       "rationale": "SQL injection is a critical vulnerability that could allow attackers to read, modify, or delete database contents, potentially compromising all user data.",
       "category": "input_validation",
       "severity": "critical",
-      "affectedFiles": ["src/api/users.ts", "src/db/queries.ts"],
+      "affected_files": ["src/api/users.ts", "src/db/queries.ts"],
       "vulnerability": "CWE-89: SQL Injection",
-      "currentRisk": "Attacker can execute arbitrary SQL through the search parameter",
+      "current_risk": "Attacker can execute arbitrary SQL through the search parameter",
       "remediation": "Use parameterized queries with the database driver's prepared statement API. Replace string concatenation with bound parameters.",
       "references": ["https://owasp.org/www-community/attacks/SQL_Injection", "https://cwe.mitre.org/data/definitions/89.html"],
       "compliance": ["SOC2", "PCI-DSS"]
     }
   ],
   "metadata": {
-    "dependenciesScanned": 145,
-    "knownVulnerabilities": 3,
-    "filesAnalyzed": 89,
-    "criticalIssues": 1,
-    "highIssues": 4,
-    "generatedAt": "2024-12-11T10:00:00Z"
+    "dependencies_scanned": 145,
+    "known_vulnerabilities": 3,
+    "files_analyzed": 89,
+    "critical_issues": 1,
+    "high_issues": 4,
+    "generated_at": "2024-12-11T10:00:00Z"
   }
 }
 ```

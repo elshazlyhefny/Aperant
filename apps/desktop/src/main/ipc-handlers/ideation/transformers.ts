@@ -62,6 +62,17 @@ export function transformIdeaFromSnakeCase(idea: RawIdea): Idea {
   return typeof linked === 'string' && linked ? { ...transformed, taskId: linked } : transformed;
 }
 
+/** zeenha fork: the prompt now asks for `line_count`; the renderer reads `lineCount`. Both are accepted. */
+function camelCaseKeys(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value)) {
+    const camel = key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+    if (out[camel] === undefined || camel === key) out[camel] = v;
+  }
+  return out;
+}
+
 function transformIdeaFields(idea: RawIdea): Idea {
   const status = (idea.status || 'draft') as IdeationStatus;
   const createdAt = idea.created_at ? new Date(idea.created_at) : new Date();
@@ -166,7 +177,7 @@ function transformIdeaFields(idea: RawIdea): Idea {
       proposedChange: idea.proposed_change || idea.proposedChange || '',
       codeExample: idea.code_example || idea.codeExample || '',
       bestPractice: idea.best_practice || idea.bestPractice || '',
-      metrics: idea.metrics || {},
+      metrics: camelCaseKeys(idea.metrics),
       estimatedEffort: idea.estimated_effort || idea.estimatedEffort || 'medium',
       breakingChange: idea.breaking_change ?? idea.breakingChange ?? false,
       prerequisites: idea.prerequisites || []

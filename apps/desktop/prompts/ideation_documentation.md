@@ -98,20 +98,20 @@ Write your findings to `{output_dir}/documentation_gaps_ideas.json`:
       "description": "The auth/ module exports 12 functions but only 3 have JSDoc comments. Key functions like validateToken() and refreshSession() are undocumented.",
       "rationale": "Authentication is a critical module used throughout the app. Developers frequently need to understand token handling but must read source code.",
       "category": "api_docs",
-      "targetAudience": "developers",
-      "affectedAreas": ["src/auth/token.ts", "src/auth/session.ts", "src/auth/index.ts"],
-      "currentDocumentation": "Only basic type exports are documented",
-      "proposedContent": "Add JSDoc for all public functions including parameters, return values, errors thrown, and usage examples",
+      "target_audience": "developers",
+      "affected_areas": ["src/auth/token.ts", "src/auth/session.ts", "src/auth/index.ts"],
+      "current_documentation": "Only basic type exports are documented",
+      "proposed_content": "Add JSDoc for all public functions including parameters, return values, errors thrown, and usage examples",
       "priority": "high",
-      "estimatedEffort": "medium"
+      "estimated_effort": "medium"
     }
   ],
   "metadata": {
-    "filesAnalyzed": 150,
-    "documentedFunctions": 45,
-    "undocumentedFunctions": 89,
-    "readmeLastUpdated": "2024-06-15",
-    "generatedAt": "2024-12-11T10:00:00Z"
+    "files_analyzed": 150,
+    "documented_functions": 45,
+    "undocumented_functions": 89,
+    "readme_last_updated": "2024-06-15",
+    "generated_at": "2024-12-11T10:00:00Z"
   }
 }
 ```

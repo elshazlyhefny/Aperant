@@ -121,20 +121,20 @@ Write your findings to `{output_dir}/performance_optimizations_ideas.json`:
       "rationale": "moment.js is the largest dependency in the bundle and only 3 functions are used: format(), add(), and diff(). This is low-hanging fruit for bundle size reduction.",
       "category": "bundle_size",
       "impact": "high",
-      "affectedAreas": ["src/utils/date.ts", "src/components/Calendar.tsx", "package.json"],
-      "currentMetric": "Bundle includes 300KB for moment.js",
-      "expectedImprovement": "~270KB reduction in bundle size, ~20% faster initial load",
+      "affected_areas": ["src/utils/date.ts", "src/components/Calendar.tsx", "package.json"],
+      "current_metric": "Bundle includes 300KB for moment.js",
+      "expected_improvement": "~270KB reduction in bundle size, ~20% faster initial load",
       "implementation": "1. Install date-fns\n2. Replace moment imports with date-fns equivalents\n3. Update format strings to date-fns syntax\n4. Remove moment.js dependency",
       "tradeoffs": "date-fns format strings differ from moment.js, requiring updates",
-      "estimatedEffort": "small"
+      "estimated_effort": "small"
     }
   ],
   "metadata": {
-    "totalBundleSize": "2.4MB",
-    "largestDependencies": ["react-dom", "moment", "lodash"],
-    "filesAnalyzed": 145,
-    "potentialSavings": "~400KB",
-    "generatedAt": "2024-12-11T10:00:00Z"
+    "total_bundle_size": "2.4MB",
+    "largest_dependencies": ["react-dom", "moment", "lodash"],
+    "files_analyzed": 145,
+    "potential_savings": "~400KB",
+    "generated_at": "2024-12-11T10:00:00Z"
   }
 }
 ```
