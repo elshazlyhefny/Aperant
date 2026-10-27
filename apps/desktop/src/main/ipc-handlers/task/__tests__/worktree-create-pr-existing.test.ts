@@ -152,4 +152,46 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
     expect(suggestPRTitleForWorktree).not.toHaveBeenCalled();
     expect(createPR.mock.calls.at(-1)?.[0].title).toBe('My own title');
   });
+
+  // zeenha fork: task 095 was stopped after 1 of 29 subtasks, and Create PR
+  // told the person to mark it done. createPR needs the plan's progress to
+  // say "resume it" instead (pr-creator.test.ts).
+  describe('subtask progress', () => {
+    const plan = (statuses: string[]) =>
+      JSON.stringify({ phases: [{ subtasks: statuses.map((status, i) => ({ id: `${i}`, status })) }] });
+    const worktreePlan = () => path.join(ref.worktree, '.auto-claude', 'specs', '001-x', 'implementation_plan.json');
+
+    it("passes the worktree plan's counts, which the coder keeps current", async () => {
+      fs.writeFileSync(specFile('implementation_plan.json'), plan(['pending', 'pending', 'pending']));
+      fs.mkdirSync(path.dirname(worktreePlan()), { recursive: true });
+      fs.writeFileSync(worktreePlan(), plan(['completed', 'pending', 'pending']));
+      createPR.mockResolvedValue({ success: false, noChanges: true, error: 'x' });
+      const handler = await createPrHandler();
+
+      await handler({}, 't1');
+
+      expect(createPR.mock.calls.at(-1)?.[0].subtaskProgress).toEqual({ completed: 1, total: 3 });
+    });
+
+    it("falls back to the project's plan when the worktree's has no subtasks", async () => {
+      fs.writeFileSync(specFile('implementation_plan.json'), plan(['completed', 'completed']));
+      fs.mkdirSync(path.dirname(worktreePlan()), { recursive: true });
+      fs.writeFileSync(worktreePlan(), JSON.stringify({ phases: [] }));
+      createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+      const handler = await createPrHandler();
+
+      await handler({}, 't1');
+
+      expect(createPR.mock.calls.at(-1)?.[0].subtaskProgress).toEqual({ completed: 2, total: 2 });
+    });
+
+    it('passes nothing when no plan has subtasks', async () => {
+      createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+      const handler = await createPrHandler();
+
+      await handler({}, 't1');
+
+      expect(createPR.mock.calls.at(-1)?.[0].subtaskProgress).toBeUndefined();
+    });
+  });
 });

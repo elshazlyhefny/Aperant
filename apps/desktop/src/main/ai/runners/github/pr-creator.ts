@@ -146,6 +146,8 @@ export interface CreatePRConfig {
   fallbackTitle?: string;
   /** zeenha fork: the task's own title, given to the model when suggesting one. */
   taskTitle?: string;
+  /** zeenha fork: subtask counts from the task's plan, when it has one. */
+  subtaskProgress?: { completed: number; total: number };
   /** Whether to create as a draft PR */
   draft?: boolean;
   /** Path to the gh CLI executable */
@@ -297,6 +299,20 @@ export async function commitPendingWork(
 export const NO_CHANGES_MESSAGE =
   'This task made no code changes, so there is nothing to put in a pull request. ' +
   'If its work was done outside the code (for example, running database migrations), mark the task as done.';
+
+/**
+ * zeenha fork: shown instead of NO_CHANGES_MESSAGE when the plan still has
+ * unfinished subtasks. A task that was stopped (or stalled) before writing
+ * code is not one whose work happened outside the code, so it must not be
+ * told to mark itself done.
+ */
+export function unfinishedTaskMessage(completed: number, total: number): string {
+  return (
+    `This task stopped after ${completed} of ${total} subtasks and has made no code changes yet, ` +
+    'so there is nothing to put in a pull request. Resume the task to finish its work. ' +
+    'Do not mark it as done: the work it was created for has not been done.'
+  );
+}
 
 /**
  * zeenha fork: commits on HEAD that the base branch does not have, or null
@@ -766,10 +782,12 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
 
   const ahead = await commitsAheadOfBase(worktreePath, gitPath, baseBranch);
   if (ahead === 0) {
+    const progress = config.subtaskProgress;
+    const unfinished = progress !== undefined && progress.total > 0 && progress.completed < progress.total;
     return {
       success: false,
       noChanges: true,
-      error: NO_CHANGES_MESSAGE,
+      error: unfinished ? unfinishedTaskMessage(progress.completed, progress.total) : NO_CHANGES_MESSAGE,
     };
   }
 

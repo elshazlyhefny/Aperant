@@ -1459,6 +1459,27 @@ function getTaskBaseBranch(specDir: string): string | undefined {
 }
 
 /**
+ * zeenha fork: subtask counts from the first readable implementation_plan.json
+ * among `specDirs` (the worktree's copy first: the coder updates that one).
+ * Undefined when no plan has subtasks.
+ */
+export function readSubtaskProgress(specDirs: string[]): { completed: number; total: number } | undefined {
+  for (const dir of specDirs) {
+    try {
+      const plan = JSON.parse(readFileSync(path.join(dir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN), 'utf-8'));
+      const subtasks = (Array.isArray(plan?.phases) ? plan.phases : []).flatMap(
+        (phase: { subtasks?: unknown }) => (Array.isArray(phase?.subtasks) ? phase.subtasks : [])
+      ) as Array<{ status?: unknown }>;
+      if (subtasks.length === 0) continue;
+      return { completed: subtasks.filter((s) => s?.status === 'completed').length, total: subtasks.length };
+    } catch {
+      // missing or unreadable: try the next copy
+    }
+  }
+  return undefined;
+}
+
+/**
  * Get the effective base branch for a task with proper fallback chain.
  * Priority:
  * 1. Task metadata baseBranch (explicit task-level override from task_metadata.json)
@@ -3120,6 +3141,10 @@ export function registerWorktreeHandlers(
           draft: options?.draft,
           ghPath,
           gitPath,
+          subtaskProgress: readSubtaskProgress([
+            path.join(worktreePath, project.autoBuildPath || '.auto-claude', 'specs', task.specId),
+            specDir,
+          ]),
         });
 
         debug('PR creation result:', result);

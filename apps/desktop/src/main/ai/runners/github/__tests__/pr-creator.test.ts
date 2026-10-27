@@ -61,7 +61,7 @@ vi.mock('../../../client/factory', () => ({
 vi.mock('ai', () => ({ generateText: vi.fn(async () => ({ text: '## Summary\n- body' })) }));
 
 import { generateText } from 'ai';
-import { createPR, GH_TIMEOUT_MS, NO_CHANGES_MESSAGE, PUSH_TIMEOUT_MS } from '../pr-creator';
+import { createPR, GH_TIMEOUT_MS, NO_CHANGES_MESSAGE, PUSH_TIMEOUT_MS, unfinishedTaskMessage } from '../pr-creator';
 
 const PR_URL = 'https://github.com/o/r/pull/7';
 
@@ -208,6 +208,23 @@ describe('createPR for a task that changed no code (zeenha fork)', () => {
     expect(createCalls()).toHaveLength(0);
     const check = state.calls.find((c) => c.args[0] === 'rev-list');
     expect(check?.args).toEqual(['rev-list', '--count', 'origin/main..HEAD']);
+  });
+
+  // Task 095: stopped after 1 of 29 subtasks, then told to mark itself done.
+  it('says to resume, not to mark done, when the plan has unfinished subtasks', async () => {
+    revList({ stdout: '0\n' });
+    const result = await createPR(config({ subtaskProgress: { completed: 1, total: 29 } }));
+    expect(result).toEqual({ success: false, noChanges: true, error: unfinishedTaskMessage(1, 29) });
+    expect(result.error).toContain('stopped after 1 of 29 subtasks');
+    expect(result.error).toContain('Resume the task');
+    expect(result.error).not.toBe(NO_CHANGES_MESSAGE);
+    expect(pushCalls()).toHaveLength(0);
+  });
+
+  it('keeps the mark-done advice when every subtask finished without code', async () => {
+    revList({ stdout: '0\n' });
+    const result = await createPR(config({ subtaskProgress: { completed: 4, total: 4 } }));
+    expect(result.error).toBe(NO_CHANGES_MESSAGE);
   });
 
   it('pushes and opens the PR when the branch has commits', async () => {
