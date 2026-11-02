@@ -157,7 +157,8 @@ describe('runIdeation', () => {
     expect(IDEATION_TYPES).toContain('security_hardening');
     expect(IDEATION_TYPES).toContain('performance_optimizations');
     expect(IDEATION_TYPES).toContain('code_quality');
-    expect(IDEATION_TYPES).toHaveLength(6);
+    expect(IDEATION_TYPES).toContain('seo_improvements');
+    expect(IDEATION_TYPES).toHaveLength(7);
   });
 
   it('exports human-readable labels for all ideation types', () => {

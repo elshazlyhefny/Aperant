@@ -104,6 +104,7 @@ describe('converted ideas', () => {
     ['code_quality', { proposedChange: 'Split it', codeExample: 'a()', breakingChange: true }, ['## Proposed Change\nSplit it', '## Code Example\n```\na()\n```', '## Breaking Change\nYes']],
     ['performance_optimizations', { implementation: 'Cache it', tradeoffs: 'Memory', affectedAreas: ['x.ts'] }, ['## Implementation\nCache it', '## Tradeoffs\nMemory', '## Affected Areas\n- x.ts']],
     ['documentation_gaps', { proposedContent: 'A guide', targetAudience: 'operators' }, ['## Proposed Content\nA guide', '## Target Audience\noperators']],
+    ['seo_improvements', { category: 'structured_data', proposed_change: 'Emit JSON-LD', affected_pages: ['/venues/{slug}'], references: ['https://schema.org/LocalBusiness'] }, ['## Category\nstructured_data', '## Proposed Change\nEmit JSON-LD', '## Affected Pages\n- /venues/{slug}', '## References\n- https://schema.org/LocalBusiness']],
   ])('carries the %s sections into the task', (type, fields, expected) => {
     const description = buildTaskDescription({ ...base, id: 'x', type, title: 'T', ...fields } as RawIdea);
     for (const section of expected) expect(description).toContain(section);
@@ -113,6 +114,20 @@ describe('converted ideas', () => {
     const description = buildTaskDescription({ ...base, id: 'u', type: 'ui_ux_improvements', title: 'T', breaking_change: false } as RawIdea);
     expect(description).not.toContain('undefined');
     expect(description).not.toContain('## Current State');
+  });
+
+  it('reads an SEO idea in either spelling and keeps its files on the task', async () => {
+    const seo = { ...base, id: 'seo-001', type: 'seo_improvements', title: 'Add hreflang', category: 'internationalization', impact: 'high', affected_pages: ['/'], affectedFiles: ['nuxt.config.ts'], estimated_effort: 'small' };
+    expect(transformIdeaFromSnakeCase(seo as RawIdea)).toMatchObject({
+      type: 'seo_improvements', category: 'internationalization', impact: 'high', affectedPages: ['/'], affectedFiles: ['nuxt.config.ts'], estimatedEffort: 'small',
+    });
+    writeFileSync(path.join(ideationDir(), 'seo_improvements_ideas.json'), JSON.stringify({ seo_improvements: [seo] }));
+
+    const result = await convertIdeaToTask({} as never, 'p1', 'seo-001');
+
+    expect(result.success).toBe(true);
+    const metadata = JSON.parse(readFileSync(path.join(ref.path, '.auto-claude', 'specs', result.data?.specId ?? '', 'task_metadata.json'), 'utf-8'));
+    expect(metadata).toMatchObject({ ideationType: 'seo_improvements', impact: 'high', estimatedEffort: 'small', affectedFiles: ['nuxt.config.ts'] });
   });
 
   it('shows code quality metrics whichever spelling the agent used', () => {

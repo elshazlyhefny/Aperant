@@ -16,7 +16,8 @@ export type IdeationType =
   | 'documentation_gaps'
   | 'security_hardening'
   | 'performance_optimizations'
-  | 'code_quality';
+  | 'code_quality'
+  | 'seo_improvements';
 export type IdeationStatus = 'draft' | 'selected' | 'converted' | 'dismissed' | 'archived';
 export type IdeationGenerationPhase = 'idle' | 'analyzing' | 'discovering' | 'generating' | 'finalizing' | 'complete' | 'error';
 
@@ -114,13 +115,28 @@ export interface CodeQualityIdea extends IdeaBase {
   prerequisites?: string[];  // Things that should be done first
 }
 
+/** zeenha fork: search visibility of the public pages. */
+export interface SeoIdea extends IdeaBase {
+  type: 'seo_improvements';
+  category: 'metadata' | 'structured_data' | 'crawlability' | 'indexing' | 'internationalization' | 'social_sharing' | 'page_experience';
+  impact: 'low' | 'medium' | 'high';
+  affectedPages: string[];  // Public routes or URLs
+  affectedFiles: string[];
+  currentState: string;  // What search engines see today
+  proposedChange: string;
+  expectedOutcome?: string;
+  references?: string[];  // Google Search Central, schema.org, web.dev
+  estimatedEffort: 'trivial' | 'small' | 'medium' | 'large';
+}
+
 export type Idea =
   | CodeImprovementIdea
   | UIUXImprovementIdea
   | DocumentationGapIdea
   | SecurityHardeningIdea
   | PerformanceOptimizationIdea
-  | CodeQualityIdea;
+  | CodeQualityIdea
+  | SeoIdea;
 
 export interface IdeationSession {
   id: string;

@@ -84,6 +84,16 @@ const TASK_SECTIONS: Record<string, ReadonlyArray<readonly [field: string, headi
     ['prerequisites', 'Prerequisites'],
     ['breaking_change', 'Breaking Change'],
   ],
+  seo_improvements: [
+    ['category', 'Category'],
+    ['impact', 'Impact'],
+    ['current_state', 'Current State'],
+    ['proposed_change', 'Proposed Change'],
+    ['expected_outcome', 'Expected Outcome'],
+    ['affected_pages', 'Affected Pages'],
+    ['affected_files', 'Affected Files'],
+    ['references', 'References'],
+  ],
 };
 
 function formatSection(heading: string, value: unknown): string {
@@ -129,7 +139,8 @@ function buildTaskMetadata(idea: RawIdea): TaskMetadata {
     'documentation_gaps': 'documentation',
     'security_hardening': 'security',
     'performance_optimizations': 'performance',
-    'code_quality': 'refactoring'
+    'code_quality': 'refactoring',
+    'seo_improvements': 'feature'
   };
   metadata.category = ideaTypeToCategory[idea.type] || 'feature';
 
@@ -170,6 +181,10 @@ function buildTaskMetadata(idea: RawIdea): TaskMetadata {
     metadata.estimatedEffort = pick(idea.estimated_effort, idea.estimatedEffort) as TaskComplexity | undefined;
     metadata.affectedFiles = pick(idea.affected_files, idea.affectedFiles);
     metadata.priority = severity === 'critical' ? 'urgent' : severity === 'major' ? 'high' : 'medium';
+  } else if (idea.type === 'seo_improvements') {
+    metadata.impact = idea.impact as TaskImpact | undefined;
+    metadata.estimatedEffort = pick(idea.estimated_effort, idea.estimatedEffort) as TaskComplexity | undefined;
+    metadata.affectedFiles = pick(idea.affected_files, idea.affectedFiles);
   }
 
   return metadata;

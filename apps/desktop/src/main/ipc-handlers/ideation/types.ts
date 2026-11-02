@@ -70,6 +70,12 @@ export interface RawIdea extends Record<string, unknown> {
   breakingChange?: boolean;
   prerequisites?: string[];
 
+  // SEO specific
+  affected_pages?: string[];
+  affectedPages?: string[];
+  expected_outcome?: string;
+  expectedOutcome?: string;
+
   // Linked task
   linked_task_id?: string;
 }

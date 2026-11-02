@@ -16,6 +16,7 @@ import {
   isSecurityHardeningIdea,
   isPerformanceOptimizationIdea,
   isCodeQualityIdea,
+  isSeoIdea,
   linkedTaskIdOf
 } from './type-guards';
 import { CodeImprovementDetails } from './details/CodeImprovementDetails';
@@ -24,6 +25,7 @@ import { DocumentationGapDetails } from './details/DocumentationGapDetails';
 import { SecurityHardeningDetails } from './details/SecurityHardeningDetails';
 import { PerformanceOptimizationDetails } from './details/PerformanceOptimizationDetails';
 import { CodeQualityDetails } from './details/CodeQualityDetails';
+import { SeoDetails } from './details/SeoDetails';
 
 interface IdeaDetailPanelProps {
   idea: Idea;
@@ -90,6 +92,7 @@ export function IdeaDetailPanel({ idea, onClose, onConvert, onGoToTask, onDismis
         {isSecurityHardeningIdea(idea) && <SecurityHardeningDetails idea={idea} />}
         {isPerformanceOptimizationIdea(idea) && <PerformanceOptimizationDetails idea={idea} />}
         {isCodeQualityIdea(idea) && <CodeQualityDetails idea={idea} />}
+        {isSeoIdea(idea) && <SeoDetails idea={idea} />}
       </div>
 
       {/* Actions */}

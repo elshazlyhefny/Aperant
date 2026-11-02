@@ -1,4 +1,4 @@
-import { Zap, Palette, BookOpen, Shield, Gauge } from 'lucide-react';
+import { Zap, Palette, BookOpen, Shield, Gauge, Search } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 
 interface IdeationFiltersProps {
@@ -31,6 +31,10 @@ export function IdeationFilters({ activeTab, onTabChange, children }: IdeationFi
         <TabsTrigger value="performance_optimizations">
           <Gauge className="h-3 w-3 mr-1" />
           Performance
+        </TabsTrigger>
+        <TabsTrigger value="seo_improvements">
+          <Search className="h-3 w-3 mr-1" />
+          SEO
         </TabsTrigger>
       </TabsList>
       {children}

@@ -7,7 +7,7 @@
  *
  * Uses `createSimpleClient()` with read-only tools and streaming to generate
  * ideas of different types: code improvements, UI/UX, documentation, security,
- * performance, and code quality.
+ * performance, code quality, and SEO.
  */
 
 import { stepCountIs } from 'ai';
@@ -33,6 +33,7 @@ export const IDEATION_TYPES = [
   'security_hardening',
   'performance_optimizations',
   'code_quality',
+  'seo_improvements',
 ] as const;
 
 export type IdeationType = (typeof IDEATION_TYPES)[number];
@@ -45,6 +46,7 @@ export const IDEATION_TYPE_LABELS: Record<IdeationType, string> = {
   security_hardening: 'Security Hardening',
   performance_optimizations: 'Performance Optimizations',
   code_quality: 'Code Quality & Refactoring',
+  seo_improvements: 'SEO',
 };
 
 /** Prompt file mapping per ideation type */
@@ -55,6 +57,7 @@ const IDEATION_TYPE_PROMPTS: Record<IdeationType, string> = {
   security_hardening: 'ideation_security.md',
   performance_optimizations: 'ideation_performance.md',
   code_quality: 'ideation_code_quality.md',
+  seo_improvements: 'ideation_seo.md',
 };
 
 // =============================================================================

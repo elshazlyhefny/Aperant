@@ -11,6 +11,7 @@ import type {
   SecurityHardeningIdea,
   PerformanceOptimizationIdea,
   CodeQualityIdea,
+  SeoIdea,
   IdeationStatus,
   IdeationType,
   IdeationSession
@@ -24,7 +25,8 @@ const VALID_IDEATION_TYPES: ReadonlySet<IdeationType> = new Set([
   'documentation_gaps',
   'security_hardening',
   'performance_optimizations',
-  'code_quality'
+  'code_quality',
+  'seo_improvements'
 ] as const);
 
 function isValidIdeationType(value: unknown): value is IdeationType {
@@ -182,6 +184,25 @@ function transformIdeaFields(idea: RawIdea): Idea {
       breakingChange: idea.breaking_change ?? idea.breakingChange ?? false,
       prerequisites: idea.prerequisites || []
     } as CodeQualityIdea;
+  } else if (idea.type === 'seo_improvements') {
+    return {
+      id: idea.id,
+      type: 'seo_improvements',
+      title: idea.title,
+      description: idea.description,
+      rationale: idea.rationale,
+      status,
+      createdAt,
+      category: idea.category || 'metadata',
+      impact: idea.impact || 'medium',
+      affectedPages: idea.affected_pages || idea.affectedPages || [],
+      affectedFiles: idea.affected_files || idea.affectedFiles || [],
+      currentState: idea.current_state || idea.currentState || '',
+      proposedChange: idea.proposed_change || idea.proposedChange || '',
+      expectedOutcome: idea.expected_outcome || idea.expectedOutcome || '',
+      references: idea.references || [],
+      estimatedEffort: idea.estimated_effort || idea.estimatedEffort || 'small'
+    } as SeoIdea;
   }
 
   // Fallback to base idea (shouldn't happen with proper data)

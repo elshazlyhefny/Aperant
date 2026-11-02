@@ -85,7 +85,8 @@ const initialTypeStates: Record<IdeationType, IdeationTypeState> = {
   documentation_gaps: 'pending',
   security_hardening: 'pending',
   performance_optimizations: 'pending',
-  code_quality: 'pending'
+  code_quality: 'pending',
+  seo_improvements: 'pending'
 };
 
 export const useIdeationStore = create<IdeationState>((set) => ({

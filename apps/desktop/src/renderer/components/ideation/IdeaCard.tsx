@@ -14,7 +14,8 @@ import {
   SECURITY_SEVERITY_COLORS,
   UIUX_CATEGORY_LABELS,
   DOCUMENTATION_CATEGORY_LABELS,
-  CODE_QUALITY_SEVERITY_COLORS
+  CODE_QUALITY_SEVERITY_COLORS,
+  SEO_CATEGORY_LABELS
 } from '../../../shared/constants';
 import type {
   Idea,
@@ -23,7 +24,8 @@ import type {
   DocumentationGapIdea,
   SecurityHardeningIdea,
   PerformanceOptimizationIdea,
-  CodeQualityIdea
+  CodeQualityIdea,
+  SeoIdea
 } from '../../../shared/types';
 import { TypeIcon } from './TypeIcon';
 import {
@@ -33,6 +35,7 @@ import {
   isSecurityHardeningIdea,
   isPerformanceOptimizationIdea,
   isCodeQualityIdea,
+  isSeoIdea,
   linkedTaskIdOf
 } from './type-guards';
 
@@ -118,6 +121,11 @@ export function IdeaCard({ idea, isSelected, onClick, onConvert, onGoToTask, onD
             {isCodeQualityIdea(idea) && typeof (idea as CodeQualityIdea).severity === 'string' && (
               <Badge variant="outline" className={CODE_QUALITY_SEVERITY_COLORS[(idea as CodeQualityIdea).severity]}>
                 {(idea as CodeQualityIdea).severity}
+              </Badge>
+            )}
+            {isSeoIdea(idea) && typeof (idea as SeoIdea).category === 'string' && (
+              <Badge variant="outline">
+                {SEO_CATEGORY_LABELS[(idea as SeoIdea).category]}
               </Badge>
             )}
           </div>
