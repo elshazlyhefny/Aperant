@@ -162,6 +162,33 @@ export interface MemorySystemStatus {
   projectMemoryCount?: number;
 }
 
+/** zeenha fork: the local `ollama` Docker container that serves memory embeddings. */
+export interface OllamaContainerStatus {
+  docker: 'ok' | 'unavailable';
+  /** Why Docker could not be asked (CLI missing, no socket permission…). */
+  detail?: string;
+  container: 'running' | 'stopped' | 'missing' | 'unknown';
+  /** Docker's own state word: running, exited, restarting, paused… */
+  state?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  exitCode?: number;
+  image?: string;
+  imageBytes?: number;
+  /** As `docker stats` reports it: 100 = one full core. */
+  cpuPercent?: number;
+  /** Cores the container may use; undefined = no limit. */
+  cpuLimit?: number;
+  memoryBytes?: number;
+  memoryLimitBytes?: number;
+  apiReachable?: boolean;
+  models?: { name: string; bytes: number }[];
+  loadedModels?: { name: string; bytes: number; expiresAt?: string }[];
+  /** The disk holding Docker's data (images, volumes). */
+  diskFreeBytes?: number;
+  diskTotalBytes?: number;
+}
+
 // Memory Infrastructure Types
 export interface MemoryDatabaseStatus {
   kuzuInstalled: boolean;

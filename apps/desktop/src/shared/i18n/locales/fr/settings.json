@@ -431,9 +431,41 @@
           "none": "Aucun : recherche par mots-clés",
           "unknown": "{{provider}}"
         },
-        "noSemanticSearch": "Aucun modèle d'embedding trouvé : la recherche dans la mémoire ne compare que des mots-clés. Lancez un modèle d'embedding Ollama (qwen3-embedding) puis redémarrez Aperant.",
+        "noSemanticSearch": "Aucun modèle d'embedding trouvé : la recherche dans la mémoire ne compare que des mots-clés. Démarrez le conteneur Ollama ci-dessous ; le modèle est pris en compte sans redémarrer Aperant.",
         "embeddingHow": "Les embeddings sont choisis au démarrage d'Aperant : un fournisseur hébergé configuré dans l'assistant de configuration, sinon le meilleur modèle qwen3-embedding servi par Ollama, sinon une recherche par mots-clés seulement. Les mémoires déjà enregistrées ne sont pas recalculées quand le modèle change.",
         "browse": "Parcourez, épinglez ou supprimez les mémoires de ce projet dans Contexte → Mémoires."
+      },
+      "ollama": {
+        "title": "Conteneur Ollama",
+        "badge": {
+          "running": "En marche",
+          "stopped": "Arrêté",
+          "missing": "Introuvable",
+          "unavailable": "Docker indisponible",
+          "checking": "Vérification…"
+        },
+        "refresh": "Actualiser",
+        "start": "Démarrer",
+        "starting": "Démarrage…",
+        "startFailed": "Docker n'a pas pu démarrer le conteneur.",
+        "dockerUnavailable": "Impossible d'interroger Docker : {{detail}}",
+        "missing": "Aucun conteneur Docker nommé « ollama » sur cette machine : la recherche dans la mémoire n'utilise que des mots-clés.",
+        "stoppedSince": "Arrêté ({{state}}) depuis le {{date}}, code de sortie {{code}}. La recherche dans la mémoire n'utilise que des mots-clés tant qu'il ne tourne pas.",
+        "upLabel": "En marche",
+        "upSince": "depuis le {{date}}",
+        "apiDown": "l'API Ollama ne répond pas encore",
+        "cpuLabel": "CPU",
+        "cpuLimit_one": "limite {{count}} cœur",
+        "cpuLimit_other": "limite {{count}} cœurs",
+        "memoryLabel": "Mémoire",
+        "memoryOf": "{{used}} sur {{limit}}",
+        "modelsLabel": "Modèles",
+        "noModels": "aucun téléchargé",
+        "loaded": "chargé en mémoire",
+        "diskLabel": "Disque",
+        "diskModels": "modèles {{size}}",
+        "diskImage": "image {{size}}",
+        "diskFree": "{{free}} libres sur {{total}} sur le disque de Docker"
       }
     }
   },

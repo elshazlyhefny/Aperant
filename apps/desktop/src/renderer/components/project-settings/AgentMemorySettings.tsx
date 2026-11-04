@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Database } from 'lucide-react';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
+import { OllamaContainerPanel } from './OllamaContainerPanel';
 import type { MemorySystemStatus } from '../../../shared/types';
 
 /**
@@ -71,10 +72,12 @@ export function AgentMemorySettings({ projectId, memoryEnabled, onMemoryEnabledC
   const { t } = useTranslation('settings');
   // undefined while the first check runs; null when it failed
   const [status, setStatus] = useState<MemorySystemStatus | null | undefined>(undefined);
+  // bumped after Ollama starts, so the embedding model is read again
+  const [statusVersion, setStatusVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setStatus(undefined);
+    if (statusVersion === 0) setStatus(undefined);
     window.electronAPI.getMemoryStatus(projectId)
       .then((result) => {
         if (!cancelled) setStatus(result.success && result.data ? result.data : null);
@@ -85,7 +88,7 @@ export function AgentMemorySettings({ projectId, memoryEnabled, onMemoryEnabledC
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, statusVersion]);
 
   const state = agentMemoryState(memoryEnabled, status);
   const embedding = embeddingLabel(status?.embeddingProvider);
@@ -151,6 +154,8 @@ export function AgentMemorySettings({ projectId, memoryEnabled, onMemoryEnabledC
         {status?.embeddingProvider === 'none' && state === 'on' && (
           <p className="text-xs text-warning">{t('projectSections.memory.agent.noSemanticSearch')}</p>
         )}
+
+        <OllamaContainerPanel onStarted={() => setStatusVersion((v) => v + 1)} />
 
         <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1">
           <p className="text-xs text-muted-foreground">{t('projectSections.memory.agent.embeddingHow')}</p>

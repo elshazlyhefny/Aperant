@@ -32,6 +32,15 @@ vi.mock('../memory-service-factory', () => ({
   getEmbeddingProvider: () => 'ollama-0.6b',
 }));
 
+const ollama = {
+  status: vi.fn(async (..._args: unknown[]) => ({ docker: 'ok', container: 'running' })),
+  start: vi.fn(async (..._args: unknown[]) => ({ docker: 'ok', container: 'running' })),
+};
+vi.mock('../../../ollama-container', () => ({
+  getOllamaContainerStatus: (...args: unknown[]) => ollama.status(...args),
+  startOllamaContainer: (...args: unknown[]) => ollama.start(...args),
+}));
+
 import { getInMemoryClient } from '../../../ai/memory/db';
 import { buildMemoryStatus, registerMemoryStatusHandlers } from '../memory-status-handlers';
 import { IPC_CHANNELS } from '../../../../shared/constants';
@@ -112,5 +121,31 @@ describe('CONTEXT_MEMORY_STATUS', () => {
   it('refuses an unknown project', async () => {
     const result = await ask('nope');
     expect(result).toEqual({ success: false, error: 'Project not found' });
+  });
+});
+
+describe('Ollama container IPC', () => {
+  beforeEach(() => {
+    handlers.clear();
+    registerMemoryStatusHandlers(() => null);
+    ollama.status.mockClear();
+    ollama.start.mockClear();
+  });
+
+  it('passes nothing from the renderer through to Docker', async () => {
+    const start = handlers.get(IPC_CHANNELS.OLLAMA_CONTAINER_START);
+    const status = handlers.get(IPC_CHANNELS.OLLAMA_CONTAINER_STATUS);
+    if (!start || !status) throw new Error('handlers not registered');
+
+    expect(await start({}, 'other-container; rm -rf /')).toEqual({ success: true, data: { docker: 'ok', container: 'running' } });
+    expect(ollama.start).toHaveBeenCalledWith();
+    await status({}, '--privileged');
+    expect(ollama.status).toHaveBeenCalledWith();
+  });
+
+  it('turns a failed start into an error result', async () => {
+    ollama.start.mockRejectedValueOnce(new Error('Error response from daemon: boom'));
+    const start = handlers.get(IPC_CHANNELS.OLLAMA_CONTAINER_START);
+    expect(await start?.({})).toEqual({ success: false, error: 'Error response from daemon: boom' });
   });
 });

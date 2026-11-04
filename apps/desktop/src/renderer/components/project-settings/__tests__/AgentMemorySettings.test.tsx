@@ -6,7 +6,7 @@
  * app-wide switch, not upstream's Graphiti toggle.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import i18n from '../../../../shared/i18n';
 import { AgentMemorySettings, agentMemoryState, embeddingLabel } from '../AgentMemorySettings';
@@ -20,9 +20,11 @@ const running: MemorySystemStatus = {
   projectMemoryCount: 12,
 };
 
-function mockStatus(result: unknown) {
+function mockStatus(result: unknown, ollama: unknown = { docker: 'ok', container: 'running' }) {
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     getMemoryStatus: vi.fn().mockResolvedValue(result),
+    getOllamaContainerStatus: vi.fn().mockResolvedValue({ success: true, data: ollama }),
+    startOllamaContainer: vi.fn().mockResolvedValue({ success: true, data: { docker: 'ok', container: 'running' } }),
   };
 }
 
@@ -119,6 +121,14 @@ describe('AgentMemorySettings', () => {
     mockStatus({ success: true, data: { ...running, embeddingProvider: 'none' } });
     render(<AgentMemorySettings projectId="p1" memoryEnabled={undefined} onMemoryEnabledChange={vi.fn()} />);
     expect(await screen.findByText(/memory search matches keywords only/)).toBeInTheDocument();
+  });
+
+  it('reads the embedding model again after Ollama is started from the page', async () => {
+    mockStatus({ success: true, data: { ...running, embeddingProvider: 'none' } }, { docker: 'ok', container: 'stopped', state: 'exited' });
+    render(<AgentMemorySettings projectId="p1" memoryEnabled={undefined} onMemoryEnabledChange={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Start/ }));
+    await waitFor(() => expect(window.electronAPI.getMemoryStatus).toHaveBeenCalledTimes(2));
   });
 
   it('is translated into French, plural included', async () => {

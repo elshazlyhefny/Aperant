@@ -43,6 +43,8 @@ export interface ProjectAPI {
   getProjectContext: (projectId: string) => Promise<IPCResult<unknown>>;
   refreshProjectIndex: (projectId: string) => Promise<IPCResult<unknown>>;
   getMemoryStatus: (projectId: string) => Promise<IPCResult<unknown>>;
+  getOllamaContainerStatus: () => Promise<IPCResult<unknown>>;
+  startOllamaContainer: () => Promise<IPCResult<unknown>>;
   searchMemories: (projectId: string, query: string) => Promise<IPCResult<unknown>>;
   getRecentMemories: (projectId: string, limit?: number) => Promise<IPCResult<unknown>>;
 
@@ -172,6 +174,12 @@ export const createProjectAPI = (): ProjectAPI => ({
 
   getMemoryStatus: (projectId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.CONTEXT_MEMORY_STATUS, projectId),
+
+  getOllamaContainerStatus: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.OLLAMA_CONTAINER_STATUS),
+
+  startOllamaContainer: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.OLLAMA_CONTAINER_START),
 
   searchMemories: (projectId: string, query: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.CONTEXT_SEARCH_MEMORIES, projectId, query),

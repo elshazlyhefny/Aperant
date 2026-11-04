@@ -1,10 +1,11 @@
 import { ipcMain } from 'electron';
 import type { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/constants';
-import type { IPCResult, MemorySystemStatus } from '../../../shared/types';
+import type { IPCResult, MemorySystemStatus, OllamaContainerStatus } from '../../../shared/types';
 import { projectStore } from '../../project-store';
 import { getMemoryService, getEmbeddingProvider } from './memory-service-factory';
 import { getMemoryClient, getMemoryDbPath } from '../../ai/memory/db';
+import { getOllamaContainerStatus, startOllamaContainer } from '../../ollama-container';
 
 /**
  * zeenha fork: live memories stored for one project, for the Memory settings
@@ -77,6 +78,30 @@ export function registerMemoryStatusHandlers(
           success: false,
           error: error instanceof Error ? error.message : 'Failed to check memory status',
         };
+      }
+    }
+  );
+
+  // zeenha fork: the Memory page's Ollama panel. No arguments: the container
+  // name is fixed in ollama-container.ts.
+  ipcMain.handle(
+    IPC_CHANNELS.OLLAMA_CONTAINER_STATUS,
+    async (): Promise<IPCResult<OllamaContainerStatus>> => {
+      try {
+        return { success: true, data: await getOllamaContainerStatus() };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to read the Ollama container' };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.OLLAMA_CONTAINER_START,
+    async (): Promise<IPCResult<OllamaContainerStatus>> => {
+      try {
+        return { success: true, data: await startOllamaContainer() };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to start the Ollama container' };
       }
     }
   );

@@ -15,6 +15,7 @@ import type {
   ProjectContextData,
   ProjectIndex,
   MemorySystemStatus,
+  OllamaContainerStatus,
   ContextSearchResult,
   RendererMemory,
   ProjectEnvConfig,
@@ -466,6 +467,8 @@ export interface ElectronAPI {
   getProjectContext: (projectId: string) => Promise<IPCResult<ProjectContextData>>;
   refreshProjectIndex: (projectId: string) => Promise<IPCResult<ProjectIndex>>;
   getMemoryStatus: (projectId: string) => Promise<IPCResult<MemorySystemStatus>>;
+  getOllamaContainerStatus: () => Promise<IPCResult<OllamaContainerStatus>>;
+  startOllamaContainer: () => Promise<IPCResult<OllamaContainerStatus>>;
   searchMemories: (projectId: string, query: string) => Promise<IPCResult<ContextSearchResult[]>>;
   getRecentMemories: (projectId: string, limit?: number) => Promise<IPCResult<RendererMemory[]>>;
 

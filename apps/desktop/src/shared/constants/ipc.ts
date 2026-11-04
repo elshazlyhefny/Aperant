@@ -466,6 +466,8 @@ export const IPC_CHANNELS = {
   OLLAMA_LIST_EMBEDDING_MODELS: 'ollama:listEmbeddingModels',
   OLLAMA_PULL_MODEL: 'ollama:pullModel',
   OLLAMA_PULL_PROGRESS: 'ollama:pullProgress',
+  OLLAMA_CONTAINER_STATUS: 'ollama:containerStatus', // zeenha fork
+  OLLAMA_CONTAINER_START: 'ollama:containerStart', // zeenha fork
 
   // Changelog operations
   CHANGELOG_GET_DONE_TASKS: 'changelog:getDoneTasks',

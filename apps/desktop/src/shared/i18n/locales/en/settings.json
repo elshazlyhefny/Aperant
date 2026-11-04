@@ -431,9 +431,41 @@
           "none": "None: keyword fallback",
           "unknown": "{{provider}}"
         },
-        "noSemanticSearch": "No embedding model was found, so memory search matches keywords only. Run an Ollama embedding model (qwen3-embedding) and restart Aperant.",
+        "noSemanticSearch": "No embedding model was found, so memory search matches keywords only. Start the Ollama container below; the model is picked up without restarting Aperant.",
         "embeddingHow": "Embeddings are chosen when Aperant starts: a hosted provider set up in the setup wizard, otherwise the best qwen3-embedding model Ollama serves, otherwise keyword-only search. Memories already stored are not re-embedded when the model changes.",
         "browse": "Browse, pin or remove this project's memories under Context → Memories."
+      },
+      "ollama": {
+        "title": "Ollama container",
+        "badge": {
+          "running": "Running",
+          "stopped": "Stopped",
+          "missing": "Not found",
+          "unavailable": "Docker unavailable",
+          "checking": "Checking…"
+        },
+        "refresh": "Refresh",
+        "start": "Start",
+        "starting": "Starting…",
+        "startFailed": "Docker could not start the container.",
+        "dockerUnavailable": "Docker could not be asked: {{detail}}",
+        "missing": "There is no Docker container named \"ollama\" on this machine, so memory search uses keywords only.",
+        "stoppedSince": "Stopped ({{state}}) since {{date}}, exit code {{code}}. Memory search uses keywords only until it runs.",
+        "upLabel": "Up",
+        "upSince": "since {{date}}",
+        "apiDown": "the Ollama API is not answering yet",
+        "cpuLabel": "CPU",
+        "cpuLimit_one": "limit {{count}} core",
+        "cpuLimit_other": "limit {{count}} cores",
+        "memoryLabel": "Memory",
+        "memoryOf": "{{used}} of {{limit}}",
+        "modelsLabel": "Models",
+        "noModels": "none pulled",
+        "loaded": "loaded in memory",
+        "diskLabel": "Disk",
+        "diskModels": "models {{size}}",
+        "diskImage": "image {{size}}",
+        "diskFree": "{{free}} free of {{total}} on Docker's disk"
       }
     }
   },

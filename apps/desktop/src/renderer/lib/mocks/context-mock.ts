@@ -28,6 +28,16 @@ export const contextMock = {
     }
   }),
 
+  getOllamaContainerStatus: async () => ({
+    success: true,
+    data: { docker: 'unavailable' as const, container: 'unknown' as const, detail: 'Browser mock environment' }
+  }),
+
+  startOllamaContainer: async () => ({
+    success: false,
+    error: 'Not available in browser mock'
+  }),
+
   searchMemories: async () => ({
     success: true,
     data: []
