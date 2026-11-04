@@ -404,10 +404,37 @@
     },
     "memory": {
       "title": "Mémoire",
-      "description": "Backend mémoire Graphiti",
+      "description": "Mémoire intégrée des agents",
       "integrationTitle": "Mémoire",
-      "integrationDescription": "Configurer la mémoire persistante inter-sessions pour les agents",
-      "syncDescription": "Configurer la mémoire persistante"
+      "integrationDescription": "Ce que les agents apprennent en travaillant, enregistré et recherché d'une session à l'autre",
+      "syncDescription": "Configurer la mémoire persistante",
+      "agent": {
+        "title": "Mémoire des agents",
+        "state": {
+          "on": "Activée",
+          "off": "Désactivée",
+          "checking": "Vérification…",
+          "unavailable": "Non démarrée"
+        },
+        "enable": "Les agents enregistrent et recherchent des mémoires",
+        "enableDescription": "S'applique à tous les projets, pas seulement à celui-ci. Les agents démarrés après l'enregistrement utilisent le nouveau réglage.",
+        "unavailable": "La base de mémoire n'a pas pu démarrer.",
+        "embeddingLabel": "Embeddings",
+        "storedLabel": "Ce projet",
+        "stored_one": "{{count}} mémoire enregistrée",
+        "stored_other": "{{count}} mémoires enregistrées",
+        "databaseLabel": "Base de données",
+        "embedding": {
+          "ollama": "Ollama, {{model}} (local)",
+          "ollamaOther": "Ollama, un autre modèle d'embedding (local)",
+          "cloud": "{{name}} (hébergé)",
+          "none": "Aucun : recherche par mots-clés",
+          "unknown": "{{provider}}"
+        },
+        "noSemanticSearch": "Aucun modèle d'embedding trouvé : la recherche dans la mémoire ne compare que des mots-clés. Lancez un modèle d'embedding Ollama (qwen3-embedding) puis redémarrez Aperant.",
+        "embeddingHow": "Les embeddings sont choisis au démarrage d'Aperant : un fournisseur hébergé configuré dans l'assistant de configuration, sinon le meilleur modèle qwen3-embedding servi par Ollama, sinon une recherche par mots-clés seulement. Les mémoires déjà enregistrées ne sont pas recalculées quand le modèle change.",
+        "browse": "Parcourez, épinglez ou supprimez les mémoires de ce projet dans Contexte → Mémoires."
+      }
     }
   },
   "agentProfile": {

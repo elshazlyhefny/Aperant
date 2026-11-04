@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import type { Project, ProjectSettings as ProjectSettingsType, AutoBuildVersionInfo, ProjectEnvConfig, LinearSyncStatus, GitHubSyncStatus, GitLabSyncStatus } from '../../../../shared/types';
 import { SettingsSection } from '../SettingsSection';
 import { GeneralSettings } from '../../project-settings/GeneralSettings';
-import { SecuritySettings } from '../../project-settings/SecuritySettings';
+import { AgentMemorySettings } from '../../project-settings/AgentMemorySettings';
 import { LinearIntegration } from '../integrations/LinearIntegration';
 import { GitHubIntegration } from '../integrations/GitHubIntegration';
 import { GitLabIntegration } from '../integrations/GitLabIntegration';
@@ -23,8 +23,6 @@ interface SectionRouterProps {
   updateEnvConfig: (updates: Partial<ProjectEnvConfig>) => void;
   showLinearKey: boolean;
   setShowLinearKey: React.Dispatch<React.SetStateAction<boolean>>;
-  showOpenAIKey: boolean;
-  setShowOpenAIKey: React.Dispatch<React.SetStateAction<boolean>>;
   showGitHubToken: boolean;
   setShowGitHubToken: React.Dispatch<React.SetStateAction<boolean>>;
   gitHubConnectionStatus: GitHubSyncStatus | null;
@@ -37,6 +35,8 @@ interface SectionRouterProps {
   isCheckingLinear: boolean;
   handleInitialize: () => Promise<void>;
   onOpenLinearImport: () => void;
+  appMemoryEnabled: boolean | undefined;
+  onAppMemoryEnabledChange: (enabled: boolean) => void;
 }
 
 /**
@@ -57,8 +57,6 @@ export function SectionRouter({
   updateEnvConfig,
   showLinearKey,
   setShowLinearKey,
-  showOpenAIKey,
-  setShowOpenAIKey,
   showGitHubToken,
   setShowGitHubToken,
   gitHubConnectionStatus,
@@ -70,7 +68,9 @@ export function SectionRouter({
   linearConnectionStatus,
   isCheckingLinear,
   handleInitialize,
-  onOpenLinearImport
+  onOpenLinearImport,
+  appMemoryEnabled,
+  onAppMemoryEnabledChange
 }: SectionRouterProps) {
   const { t } = useTranslation('settings');
 
@@ -180,15 +180,11 @@ export function SectionRouter({
             title={t('projectSections.memory.integrationTitle')}
             description={t('projectSections.memory.syncDescription')}
           >
-            <SecuritySettings
-              envConfig={envConfig}
-              settings={settings}
-              setSettings={setSettings}
-              updateEnvConfig={updateEnvConfig}
-              showOpenAIKey={showOpenAIKey}
-              setShowOpenAIKey={setShowOpenAIKey}
-              expanded={true}
-              onToggle={() => {}}
+            {/* zeenha fork: the built-in agent memory, not upstream's Graphiti toggle */}
+            <AgentMemorySettings
+              projectId={project.id}
+              memoryEnabled={appMemoryEnabled}
+              onMemoryEnabledChange={onAppMemoryEnabledChange}
             />
           </InitializationGuard>
         </SettingsSection>

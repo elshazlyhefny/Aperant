@@ -17,6 +17,9 @@ interface ProjectSettingsContentProps {
   activeSection: ProjectSettingsSection;
   isOpen: boolean;
   onHookReady: (hook: UseProjectSettingsReturn | null) => void;
+  /** zeenha fork: the app-wide agent memory switch, from the dialog's app settings draft. */
+  appMemoryEnabled: boolean | undefined;
+  onAppMemoryEnabledChange: (enabled: boolean) => void;
 }
 
 /**
@@ -27,7 +30,9 @@ export function ProjectSettingsContent({
   project,
   activeSection,
   isOpen,
-  onHookReady
+  onHookReady,
+  appMemoryEnabled,
+  onAppMemoryEnabledChange
 }: ProjectSettingsContentProps) {
   const { t } = useTranslation('settings');
 
@@ -49,6 +54,8 @@ export function ProjectSettingsContent({
       activeSection={activeSection}
       isOpen={isOpen}
       onHookReady={onHookReady}
+      appMemoryEnabled={appMemoryEnabled}
+      onAppMemoryEnabledChange={onAppMemoryEnabledChange}
     />
   );
 }
@@ -61,12 +68,16 @@ function ProjectSettingsContentInner({
   project,
   activeSection,
   isOpen,
-  onHookReady
+  onHookReady,
+  appMemoryEnabled,
+  onAppMemoryEnabledChange
 }: {
   project: Project;
   activeSection: ProjectSettingsSection;
   isOpen: boolean;
   onHookReady: (hook: UseProjectSettingsReturn | null) => void;
+  appMemoryEnabled: boolean | undefined;
+  onAppMemoryEnabledChange: (enabled: boolean) => void;
 }) {
   const hook = useProjectSettings(project, isOpen);
 
@@ -86,8 +97,6 @@ function ProjectSettingsContentInner({
     updateEnvConfig,
     showLinearKey,
     setShowLinearKey,
-    showOpenAIKey,
-    setShowOpenAIKey,
     showGitHubToken,
     setShowGitHubToken,
     expandedSections: _expandedSections,
@@ -134,8 +143,6 @@ function ProjectSettingsContentInner({
         updateEnvConfig={updateEnvConfig}
         showLinearKey={showLinearKey}
         setShowLinearKey={setShowLinearKey}
-        showOpenAIKey={showOpenAIKey}
-        setShowOpenAIKey={setShowOpenAIKey}
         showGitHubToken={showGitHubToken}
         setShowGitHubToken={setShowGitHubToken}
         gitHubConnectionStatus={gitHubConnectionStatus}
@@ -148,6 +155,8 @@ function ProjectSettingsContentInner({
         isCheckingLinear={isCheckingLinear}
         handleInitialize={handleInitialize}
         onOpenLinearImport={() => setShowLinearImportModal(true)}
+        appMemoryEnabled={appMemoryEnabled}
+        onAppMemoryEnabledChange={onAppMemoryEnabledChange}
       />
 
       <ErrorDisplay error={error} envError={envError} />

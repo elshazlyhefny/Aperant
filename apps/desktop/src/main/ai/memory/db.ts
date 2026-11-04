@@ -55,6 +55,16 @@ function loadCreateClient(): (config: Config) => Client {
 let _client: Client | null = null;
 
 /**
+ * zeenha fork: where the Electron memory database lives. One file serves
+ * every project; rows carry their project_id.
+ */
+export async function getMemoryDbPath(): Promise<string> {
+  // Lazy import electron to avoid issues in test environments
+  const { app } = await import('electron');
+  return join(app.getPath('userData'), 'memory.db');
+}
+
+/**
  * Get or create the Electron memory database client.
  * Uses local libSQL file by default; optionally syncs to Turso Cloud.
  *
@@ -67,9 +77,7 @@ export async function getMemoryClient(
 ): Promise<Client> {
   if (_client) return _client;
 
-  // Lazy import electron to avoid issues in test environments
-  const { app } = await import('electron');
-  const localPath = join(app.getPath('userData'), 'memory.db');
+  const localPath = await getMemoryDbPath();
 
   _client = loadCreateClient()({
     url: `file:${localPath}`,

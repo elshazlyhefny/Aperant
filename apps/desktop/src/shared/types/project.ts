@@ -158,6 +158,8 @@ export interface MemorySystemStatus {
   dbPath?: string;
   embeddingProvider?: string;
   reason?: string;
+  /** zeenha fork: live (not deprecated) memories stored for the asked project. */
+  projectMemoryCount?: number;
 }
 
 // Memory Infrastructure Types

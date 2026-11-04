@@ -217,6 +217,8 @@ export function AppSettingsDialog({ open, onOpenChange, initialSection, initialP
         activeSection={projectSection}
         isOpen={open}
         onHookReady={handleProjectHookReady}
+        appMemoryEnabled={settings.memoryEnabled}
+        onAppMemoryEnabledChange={(memoryEnabled) => setSettings((prev) => ({ ...prev, memoryEnabled }))}
       />
     );
   };

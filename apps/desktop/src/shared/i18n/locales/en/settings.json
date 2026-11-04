@@ -404,10 +404,37 @@
     },
     "memory": {
       "title": "Memory",
-      "description": "Graphiti memory backend",
+      "description": "Built-in agent memory",
       "integrationTitle": "Memory",
-      "integrationDescription": "Configure persistent cross-session memory for agents",
-      "syncDescription": "Configure persistent memory"
+      "integrationDescription": "What agents learn while working, saved and searched across sessions",
+      "syncDescription": "Configure persistent memory",
+      "agent": {
+        "title": "Agent memory",
+        "state": {
+          "on": "On",
+          "off": "Off",
+          "checking": "Checking…",
+          "unavailable": "Not running"
+        },
+        "enable": "Agents save and search memories",
+        "enableDescription": "Applies to every project, not just this one. Agents started after you save use the new setting.",
+        "unavailable": "The memory database could not start.",
+        "embeddingLabel": "Embeddings",
+        "storedLabel": "This project",
+        "stored_one": "{{count}} memory stored",
+        "stored_other": "{{count}} memories stored",
+        "databaseLabel": "Database",
+        "embedding": {
+          "ollama": "Ollama, {{model}} (local)",
+          "ollamaOther": "Ollama, another embedding model (local)",
+          "cloud": "{{name}} (hosted)",
+          "none": "None: keyword fallback",
+          "unknown": "{{provider}}"
+        },
+        "noSemanticSearch": "No embedding model was found, so memory search matches keywords only. Run an Ollama embedding model (qwen3-embedding) and restart Aperant.",
+        "embeddingHow": "Embeddings are chosen when Aperant starts: a hosted provider set up in the setup wizard, otherwise the best qwen3-embedding model Ollama serves, otherwise keyword-only search. Memories already stored are not re-embedded when the model changes.",
+        "browse": "Browse, pin or remove this project's memories under Context → Memories."
+      }
     }
   },
   "agentProfile": {
