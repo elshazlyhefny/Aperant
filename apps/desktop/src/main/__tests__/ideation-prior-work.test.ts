@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { MAX_LISTED, priorWorkNote, readPriorWork } from '../ideation-prior-work';
+import { MAX_LISTED, priorWorkNote, readPriorWork, roadmapPriorWorkNote } from '../ideation-prior-work';
 
 let project: string;
 beforeEach(() => {
@@ -87,5 +87,22 @@ describe('priorWorkNote', () => {
     expect(priorWorkNote({ tasks: [], ideas: [] }, 'code_quality')).toBeUndefined();
     const tasks = Array.from({ length: MAX_LISTED + 3 }, (_, i) => ({ id: `t${i}`, title: 'T', status: 'done' }));
     expect(priorWorkNote({ tasks, ideas: [] }, 'code_quality')).toContain('- …and 3 more');
+  });
+});
+
+describe('roadmapPriorWorkNote', () => {
+  it('lists every task and idea, and tells the agent to scope to what is missing', () => {
+    const note = roadmapPriorWorkNote({
+      tasks: [{ id: '044-draft-stock-orders-from-low-stock', title: 'Draft stock orders from low-stock products', status: 'done' }],
+      ideas: [{ type: 'code_quality', title: 'Old idea', status: 'dismissed' }],
+    }) ?? '';
+    expect(note).toContain('- 044-draft-stock-orders-from-low-stock: Draft stock orders from low-stock products [done]');
+    expect(note).toContain('[code_quality, dismissed] Old idea');
+    expect(note).toContain('.auto-claude/specs/<id>/spec.md');
+    expect(note).toContain('git log --oneline -i --grep=<keyword>');
+  });
+
+  it('is undefined for a project with nothing yet', () => {
+    expect(roadmapPriorWorkNote({ tasks: [], ideas: [] })).toBeUndefined();
   });
 });

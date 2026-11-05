@@ -43,6 +43,21 @@ const STEP_BUDGET_NOTE = ` You have at most ${MAX_STEPS_PER_PHASE} tool-using st
  * run's file is still on disk, and validating it reported success for an
  * agent that wrote nothing (stopped by its step limit, or failed).
  */
+/**
+ * zeenha fork: what the feature agent must check before it proposes anything
+ * (the ideation agents got these rules on 2026-10-27; the roadmap never did).
+ */
+export const ROADMAP_EVIDENCE_RULES = `## Evidence rules
+- The roadmap is for work that does NOT exist yet. Before you add a feature, search for it: grep the code for its key nouns, read the matching docs, and run \`git log --oneline -i --grep=<keyword>\` on the project. If it is already built, leave it out. If part is built, scope the feature to the missing part and name what exists (path, task id or commit) in the rationale.
+- Grep for every file, class, route, config key or command you name before you cite it, and cite only names you found.
+- Before you propose changing how something is designed, look for a comment or doc that records why it is that way, and answer it in the rationale.`;
+
+/** The runner's own sections, appended to a phase's prompt. Empty parts are dropped. */
+export function runnerNotes(...notes: (string | undefined)[]): string {
+  const present = notes.filter((n): n is string => Boolean(n?.trim()));
+  return present.length ? `\n\n${present.join('\n\n')}\n` : '';
+}
+
 export function writtenSince(file: string, startedAt: number): boolean {
   try {
     return statSync(file).mtimeMs >= startedAt - 1000;
@@ -71,6 +86,10 @@ export interface RoadmapConfig {
   enableCompetitorAnalysis?: boolean;
   /** Abort signal for cancellation */
   abortSignal?: AbortSignal;
+  /** zeenha fork: what the checkout is missing from its upstream, when it could not be updated */
+  checkoutNote?: string;
+  /** zeenha fork: the project's task specs and ideation ideas */
+  priorWorkNote?: string;
 }
 
 /** Result of a roadmap phase */
@@ -123,6 +142,7 @@ async function runDiscoveryPhase(
   client: SimpleClientResult,
   abortSignal?: AbortSignal,
   onStream?: RoadmapStreamCallback,
+  notes = '',
 ): Promise<RoadmapPhaseResult> {
   const discoveryFile = join(outputDir, 'roadmap_discovery.json');
   const projectIndexFile = join(outputDir, 'project_index.json');
@@ -141,7 +161,7 @@ async function runDiscoveryPhase(
   const loadedDiscoveryPrompt = tryLoadPrompt('roadmap_discovery');
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const contextBlock = `\n\n---\n\n## CONTEXT (injected by runner)\n\n**Project Directory**: ${projectDir}\n**Project Index**: ${projectIndexFile}\n**Output Directory**: ${outputDir}\n**Output File**: ${discoveryFile}\n\nUse the paths above when reading input files and writing output.`;
+    const contextBlock = `\n\n---\n\n## CONTEXT (injected by runner)\n\n**Project Directory**: ${projectDir}\n**Project Index**: ${projectIndexFile}\n**Output Directory**: ${outputDir}\n**Output File**: ${discoveryFile}\n\nUse the paths above when reading input files and writing output.${notes}`;
 
     const prompt = loadedDiscoveryPrompt
       ? loadedDiscoveryPrompt + contextBlock
@@ -160,7 +180,7 @@ Your task:
 
 The JSON must contain at minimum: project_name, target_audience, product_vision, key_features, technical_stack, and constraints.
 
-Do NOT ask questions. Make educated inferences and create the file.`;
+Do NOT ask questions. Make educated inferences and create the file.${notes}`;
 
     const discoveryUserPrompt = `Analyze the project and create the discovery document. Use the available tools to explore the codebase, then write your findings as JSON to the output file specified in the context above.${STEP_BUDGET_NOTE}`;
 
@@ -240,6 +260,7 @@ async function runFeaturesPhase(
   client: SimpleClientResult,
   abortSignal?: AbortSignal,
   onStream?: RoadmapStreamCallback,
+  notes = '',
 ): Promise<RoadmapPhaseResult> {
   const roadmapFile = join(outputDir, 'roadmap.json');
   const discoveryFile = join(outputDir, 'roadmap_discovery.json');
@@ -276,7 +297,7 @@ The following ${preservedFeatures.length} features already exist and will be pre
 Generate NEW features that complement these, do not duplicate them:
 ${preservedInfo}\n`;
     }
-    const featuresContextBlock = `\n\n---\n\n## CONTEXT (injected by runner)\n\n**Discovery File**: ${discoveryFile}\n**Project Index**: ${projectIndexFile}\n**Output File**: ${roadmapFile}\n${preservedSection}\nUse the paths above when reading input files and writing output. Write the complete roadmap JSON to the Output File path.`;
+    const featuresContextBlock = `\n\n---\n\n## CONTEXT (injected by runner)\n\n**Discovery File**: ${discoveryFile}\n**Project Index**: ${projectIndexFile}\n**Output File**: ${roadmapFile}\n${preservedSection}\nUse the paths above when reading input files and writing output. Write the complete roadmap JSON to the Output File path.${notes}`;
 
     const prompt = loadedFeaturesPrompt
       ? loadedFeaturesPrompt + featuresContextBlock
@@ -295,7 +316,7 @@ Based on the discovery data:
 6. Map dependencies
 
 Output the complete roadmap as valid JSON to ${roadmapFile}.
-The JSON must contain: vision, target_audience (object with "primary" key), phases (array), and features (array with at least 3 items each with id, title, description, priority, complexity, impact, phase_id, status, acceptance_criteria, and user_stories).`;
+The JSON must contain: vision, target_audience (object with "primary" key), phases (array), and features (array with at least 3 items each with id, title, description, priority, complexity, impact, phase_id, status, acceptance_criteria, and user_stories).${notes}`;
 
     const featuresUserPrompt = `Read the discovery data and generate a complete roadmap with prioritized features. Write the roadmap JSON to the output file specified in the context above.${STEP_BUDGET_NOTE}`;
 
@@ -467,6 +488,8 @@ export async function runRoadmapGeneration(
     thinkingLevel = 'medium',
     refresh = false,
     abortSignal,
+    checkoutNote,
+    priorWorkNote,
   } = config;
 
   const outputDir = config.outputDir ?? join(projectDir, '.auto-claude', 'roadmap');
@@ -502,6 +525,7 @@ export async function runRoadmapGeneration(
   onStream?.({ type: 'phase-start', phase: 'discovery' });
   const discoveryResult = await runDiscoveryPhase(
     projectDir, outputDir, refresh, client, abortSignal, onStream,
+    runnerNotes(checkoutNote, priorWorkNote),
   );
   phases.push(discoveryResult);
   onStream?.({ type: 'phase-complete', phase: 'discovery', success: discoveryResult.success });
@@ -518,6 +542,7 @@ export async function runRoadmapGeneration(
   onStream?.({ type: 'phase-start', phase: 'features' });
   const featuresResult = await runFeaturesPhase(
     projectDir, outputDir, refresh, client, abortSignal, onStream,
+    runnerNotes(checkoutNote, ROADMAP_EVIDENCE_RULES, priorWorkNote),
   );
   phases.push(featuresResult);
   onStream?.({ type: 'phase-complete', phase: 'features', success: featuresResult.success });

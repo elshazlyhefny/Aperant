@@ -61,7 +61,8 @@ vi.mock('../../prompts/prompt-loader', () => ({
 // Import after mocking
 // =============================================================================
 
-import { runRoadmapGeneration } from '../roadmap';
+import { ROADMAP_EVIDENCE_RULES, runRoadmapGeneration, runnerNotes } from '../roadmap';
+import { tryLoadPrompt } from '../../prompts/prompt-loader';
 import type { RoadmapConfig, RoadmapStreamEvent } from '../roadmap';
 
 // =============================================================================
@@ -184,6 +185,46 @@ describe('runRoadmapGeneration', () => {
       await runRoadmapGeneration(baseConfig({ refresh: true }));
       expect(mockCreateSimpleClient.mock.calls[0][0].maxSteps).toBe(60);
       expect(mockStreamText.mock.calls[0][0].prompt).toContain('at most 60 tool-using steps');
+    });
+
+    // zeenha fork: the roadmap re-proposed merged work (2026-11-05)
+    it('gives discovery the checkout and prior-work notes, and features those plus the evidence rules', async () => {
+      existingFiles();
+      await runRoadmapGeneration(baseConfig({
+        refresh: true,
+        checkoutNote: 'CHECKOUT NOTE: 66 behind origin/main',
+        priorWorkNote: '## Work that already exists\n- 044-draft-stock-orders',
+      }));
+
+      const [discovery, features] = mockStreamText.mock.calls.map((c) => c[0].system as string);
+      expect(discovery).toContain('CHECKOUT NOTE: 66 behind origin/main');
+      expect(discovery).toContain('- 044-draft-stock-orders');
+      expect(discovery).not.toContain(ROADMAP_EVIDENCE_RULES);
+      expect(features).toContain('CHECKOUT NOTE: 66 behind origin/main');
+      expect(features).toContain(ROADMAP_EVIDENCE_RULES);
+      expect(features).toContain('- 044-draft-stock-orders');
+    });
+
+    it('appends the notes to the prompt files too (what the app actually loads)', async () => {
+      existingFiles();
+      vi.mocked(tryLoadPrompt).mockImplementation((name: string) => `PROMPT FILE ${name}`);
+      try {
+        await runRoadmapGeneration(baseConfig({ refresh: true, checkoutNote: 'CHECKOUT NOTE', priorWorkNote: 'PRIOR WORK' }));
+      } finally {
+        vi.mocked(tryLoadPrompt).mockReturnValue(null);
+      }
+      const [discovery, features] = mockStreamText.mock.calls.map((c) => c[0].system as string);
+      expect(discovery).toMatch(/^PROMPT FILE roadmap_discovery[\s\S]*CHECKOUT NOTE[\s\S]*PRIOR WORK/);
+      expect(features).toMatch(/^PROMPT FILE roadmap_features[\s\S]*CHECKOUT NOTE[\s\S]*Evidence rules[\s\S]*PRIOR WORK/);
+    });
+
+    it('adds no runner notes when there are none', async () => {
+      existingFiles();
+      await runRoadmapGeneration(baseConfig({ refresh: true }));
+      const [discovery, features] = mockStreamText.mock.calls.map((c) => c[0].system as string);
+      expect(discovery).not.toContain('Work that already exists');
+      expect(features).toContain(ROADMAP_EVIDENCE_RULES);
+      expect(runnerNotes(undefined, ' ', '')).toBe('');
     });
   });
 

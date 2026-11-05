@@ -121,3 +121,27 @@ export function priorWorkNote({ tasks, ideas }: PriorWork, ideationType: string)
   }
   return parts.join('\n\n');
 }
+
+/**
+ * zeenha fork: the roadmap's feature agent saw only the roadmap's own feature
+ * titles, never the task specs, so a refresh re-proposed work that tasks had
+ * already built (2026-11-05: "Low-stock auto-reorder drafts" after task 044
+ * and PR #227 drafted stock orders from low stock).
+ */
+export function roadmapPriorWorkNote({ tasks, ideas }: PriorWork): string | undefined {
+  if (tasks.length === 0 && ideas.length === 0) return undefined;
+  const parts = [
+    '## Work that already exists',
+    'These tasks were built, are being built, or are planned, outside the roadmap features listed above. A feature that repeats one is wasted. Before you add a feature, check this list and the code (grep it, and `git log --oneline -i --grep=<keyword>`). When part of it exists already, read that task\'s spec (`.auto-claude/specs/<id>/spec.md`) and the code it changed, scope the feature to what is still missing, and say so in the rationale ("task 044 already drafts stock orders from low stock; this adds …"). A dismissed idea was turned down: do not propose it again.',
+  ];
+  if (tasks.length > 0) {
+    parts.push(`### Tasks in this project (${tasks.length})`, list(tasks, (t) => `${t.id}: ${clip(t.title)} [${t.status}]`));
+  }
+  if (ideas.length > 0) {
+    parts.push(
+      `### Ideation ideas (${ideas.length})`,
+      list(ideas, (i) => `[${i.type}, ${i.status}${i.linkedTaskId ? ` → task ${i.linkedTaskId}` : ''}] ${clip(i.title)}`),
+    );
+  }
+  return parts.join('\n\n');
+}

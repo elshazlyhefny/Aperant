@@ -17,8 +17,8 @@ import { debounce } from '../utils/debounce';
 import { writeFileWithRetry } from '../utils/atomic-file';
 import { runIdeation, IDEATION_TYPES } from '../ai/runners/ideation';
 import type { IdeationType, IdeationStreamEvent } from '../ai/runners/ideation';
-import { findUnpulledCommits, unpulledCommitsNote } from '../ideation-freshness';
-import { priorWorkNote, readPriorWork } from '../ideation-prior-work';
+import { checkoutUpdateLog, fastForwardCheckout, findUnpulledCommits, unpulledCommitsNote } from '../ideation-freshness';
+import { priorWorkNote, readPriorWork, roadmapPriorWorkNote } from '../ideation-prior-work';
 import { runRoadmapGeneration } from '../ai/runners/roadmap';
 import type { RoadmapStreamEvent } from '../ai/runners/roadmap';
 import type { ModelShorthand, ThinkingLevel } from '../ai/config/types';
@@ -423,9 +423,17 @@ export class AgentQueueManager {
     });
 
     try {
+      // zeenha fork: read the project as it is upstream, not as last pulled
+      const update = await fastForwardCheckout(projectPath);
+      const updateLog = checkoutUpdateLog(update);
+      if (updateLog) this.emitter.emit('roadmap-log', projectId, updateLog);
+      const checkoutNote = update.kind === 'behind' ? unpulledCommitsNote(update.unpulled) : undefined;
+
       const result = await runRoadmapGeneration(
         {
           projectDir: projectPath,
+          checkoutNote,
+          priorWorkNote: roadmapPriorWorkNote(readPriorWork(projectPath)),
           modelShorthand: (config?.model || 'sonnet') as ModelShorthand,
           thinkingLevel: (config?.thinkingLevel || 'medium') as ThinkingLevel,
           refresh,

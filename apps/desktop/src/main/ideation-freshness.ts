@@ -71,6 +71,62 @@ export async function findUnpulledCommits(projectDir: string): Promise<UnpulledC
   }
 }
 
+export type CheckoutUpdate =
+  /** Fast-forwarded `from`..`to` (short shas) onto `upstream`. */
+  | { kind: 'pulled'; upstream: string; count: number; from: string; to: string }
+  /** Nothing to pull (or nothing to compare with). */
+  | { kind: 'current' }
+  /** Behind, but left as it is; `reason` says why. */
+  | { kind: 'behind'; reason: string; unpulled: UnpulledCommits };
+
+/**
+ * zeenha fork: the roadmap brings its checkout up to date before it reads it
+ * (2026-11-05: discovery ran on a clone 66 commits behind and proposed work
+ * that had merged that day). Only ever a fast-forward of the branch onto its
+ * OWN upstream, and only when no tracked file is modified: anything else is
+ * left untouched and reported, so the agents can be told what they cannot see.
+ * `.auto-claude/` is Aperant's own state and does not count as a change.
+ */
+export async function fastForwardCheckout(projectDir: string): Promise<CheckoutUpdate> {
+  const unpulled = await findUnpulledCommits(projectDir); // fetches
+  if (!unpulled) return { kind: 'current' };
+  const behind = (reason: string): CheckoutUpdate => ({ kind: 'behind', reason, unpulled });
+
+  let tracking = '';
+  try {
+    tracking = (await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], projectDir)).trim();
+  } catch {
+    // detached HEAD or no tracking branch
+  }
+  if (tracking !== unpulled.upstream) return behind('the current branch does not track a remote branch');
+
+  try {
+    const dirty = await git(['status', '--porcelain', '--untracked-files=no', '--', '.', ':(exclude).auto-claude'], projectDir);
+    if (dirty.trim()) return behind('it has uncommitted changes');
+  } catch {
+    return behind('its status could not be read');
+  }
+  try {
+    const from = (await git(['rev-parse', '--short', 'HEAD'], projectDir)).trim();
+    await git(['merge', '--ff-only', '--quiet', unpulled.upstream], projectDir, FETCH_TIMEOUT_MS);
+    const to = (await git(['rev-parse', '--short', 'HEAD'], projectDir)).trim();
+    return { kind: 'pulled', upstream: unpulled.upstream, count: unpulled.count, from, to };
+  } catch {
+    return behind('it cannot be fast-forwarded (it has local commits, or untracked files are in the way)');
+  }
+}
+
+/** One line for the run log, or null when there is nothing to say. */
+export function checkoutUpdateLog(update: CheckoutUpdate): string | null {
+  if (update.kind === 'pulled') {
+    return `Updated the project checkout: fast-forwarded ${update.count} commit(s) from ${update.upstream} (${update.from} → ${update.to}).\n`;
+  }
+  if (update.kind === 'behind') {
+    return `The project checkout is ${update.unpulled.count} commit(s) behind ${update.unpulled.upstream} and was NOT updated: ${update.reason}. The agents are told which commits they cannot see; pull it for the most accurate result.\n`;
+  }
+  return null;
+}
+
 /** The prompt section that tells an ideation agent what its checkout is missing. */
 export function unpulledCommitsNote({ upstream, count, subjects }: UnpulledCommits): string {
   const more = count > subjects.length ? `\n- …and ${count - subjects.length} older ones` : '';
