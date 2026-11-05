@@ -47,6 +47,8 @@ import { getPRStatusPoller } from "../../services/pr-status-poller";
 import { safeBreadcrumb, safeCaptureException } from "../../sentry";
 import { sanitizeForSentry } from "../../../shared/utils/sentry-privacy";
 import { PRReviewStateManager } from "../../pr-review-state-manager";
+import { checkoutNoteFor, preparePRReviewCheckout, type PRReviewCheckout } from "../../ai/runners/github/pr-review-checkout";
+import { createPRReviewMcpSession, type PRReviewMcpSession } from "../../ai/runners/github/pr-review-mcp";
 import type { PRReviewResult as PreloadPRReviewResult } from "../../../preload/api/modules/github-api";
 import type {
   StartPollingRequest,
@@ -1665,12 +1667,27 @@ async function runPRReview(
   runningReviews.set(reviewKey, abortController);
   debugLog("Registered review abort controller", { reviewKey });
 
+  // zeenha fork: released in `finally`, whatever way the review ends
+  let checkout: PRReviewCheckout | null = null;
+  let mcp: PRReviewMcpSession | null = null;
+
   try {
     logCollector.processLine(`[fetching] Fetching PR #${prNumber} from GitHub...`);
     sendProgress({ phase: "fetching", prNumber, progress: 15, message: "Fetching PR data from GitHub..." });
 
     const context = await fetchPRContext(config, prNumber);
     logCollector.processLine(`[Context] Fetched ${context.changedFiles.length} changed files, ${context.commits.length} commits`);
+
+    // zeenha fork: review the PR's own code, not the base branch on disk
+    checkout = await preparePRReviewCheckout(project.path, prNumber);
+    logCollector.processLine(
+      checkout.kind === "pr-head"
+        ? `[Context] Reviewing a checkout of the PR head ${checkout.sha.slice(0, 12)}`
+        : `[Context] WARNING: reviewing the base branch's files, not the PR's: ${checkout.reason}`,
+    );
+    mcp = createPRReviewMcpSession(project.path, project.autoBuildPath || ".auto-claude", (line) =>
+      logCollector.processLine(`[Context] ${line}`),
+    );
 
     sendProgress({ phase: "analyzing", prNumber, progress: 30, message: "Starting parallel orchestrator review..." });
 
@@ -1679,6 +1696,9 @@ async function runPRReview(
       projectDir: project.path,
       model: model as ModelShorthand,
       thinkingLevel: thinkingLevel as ThinkingLevel,
+      reviewDir: checkout.kind === "pr-head" ? checkout.dir : undefined,
+      checkoutNote: checkoutNoteFor(checkout, context.baseBranch),
+      mcp,
     };
 
     const orchestrator = new ParallelOrchestratorReviewer(
@@ -1763,6 +1783,8 @@ async function runPRReview(
   } finally {
     runningReviews.delete(reviewKey);
     debugLog("Unregistered review abort controller", { reviewKey });
+    await mcp?.close().catch(() => undefined);
+    if (checkout?.kind === "pr-head") await checkout.cleanup().catch(() => undefined);
   }
 }
 

@@ -48,6 +48,7 @@ import { getAgentConfig, type AgentType } from '../../config/agent-configs';
 import type { ToolContext } from '../../tools/types';
 import type { ToolRegistry } from '../../tools/registry';
 import type { SecurityProfile } from '../../security/bash-validator';
+import type { PRReviewMcpSession } from './pr-review-mcp';
 
 // =============================================================================
 // Types
@@ -89,6 +90,15 @@ export interface ParallelOrchestratorConfig {
   model?: ModelShorthand;
   thinkingLevel?: ThinkingLevel;
   fastMode?: boolean;
+  /**
+   * zeenha fork: where the reviewers' file tools read: a checkout of the PR
+   * head (see pr-review-checkout.ts). Defaults to projectDir, the base branch.
+   */
+  reviewDir?: string;
+  /** zeenha fork: tells the reviewers which code their file tools show */
+  checkoutNote?: string;
+  /** zeenha fork: the project's MCP servers, per the AGENT_MCP_<agent>_ADD overrides */
+  mcp?: PRReviewMcpSession;
 }
 
 // =============================================================================
@@ -356,6 +366,17 @@ export class ParallelOrchestratorReviewer {
   private readonly registry: ToolRegistry;
   private readonly securityProfile: SecurityProfile;
 
+  /** zeenha fork: the folder the reviewers' tools read and run in */
+  private get readDir(): string {
+    return this.config.reviewDir ?? this.config.projectDir;
+  }
+
+  /** zeenha fork: MCP tools for one reviewer; built-in tools win a name clash */
+  private async withMcpTools(agentType: AgentType, tools: Record<string, AITool>): Promise<Record<string, AITool>> {
+    const mcpTools = (await this.config.mcp?.toolsFor(agentType)) ?? {};
+    return { ...mcpTools, ...tools };
+  }
+
   constructor(config: ParallelOrchestratorConfig, progressCallback?: ProgressCallback) {
     this.config = config;
     this.progressCallback = progressCallback;
@@ -546,21 +567,22 @@ export class ParallelOrchestratorReviewer {
 
     // Build tool set from agent config (Read, Grep, Glob)
     const toolContext: ToolContext = {
-      cwd: this.config.projectDir,
-      projectDir: this.config.projectDir,
+      cwd: this.readDir,
+      projectDir: this.readDir,
       specDir: '',
       securityProfile: this.securityProfile,
       abortSignal,
     };
 
-    const tools: Record<string, AITool> = {};
+    const builtinTools: Record<string, AITool> = {};
     const agentConfig = getAgentConfig(config.agentType);
     for (const toolName of agentConfig.tools) {
       const definedTool = this.registry.getTool(toolName);
       if (definedTool) {
-        tools[toolName] = definedTool.bind(toolContext);
+        builtinTools[toolName] = definedTool.bind(toolContext);
       }
     }
+    const tools = await this.withMcpTools(config.agentType, builtinTools);
 
     const boundToolNames = Object.keys(tools);
     this.reportProgress({
@@ -571,7 +593,7 @@ export class ParallelOrchestratorReviewer {
     });
 
     // Build PR context as user message
-    const userMessage = buildPRContextMessage(context);
+    const userMessage = buildPRContextMessage(context) + (this.config.checkoutNote ? `\n\n${this.config.checkoutNote}` : '');
 
     const client = await createSimpleClient({
       systemPrompt,
@@ -736,22 +758,23 @@ export class ParallelOrchestratorReviewer {
 
     // Build tools from pr_finding_validator config (ALL_BUILTIN_TOOLS excl SpawnSubagent)
     const toolContext: ToolContext = {
-      cwd: this.config.projectDir,
-      projectDir: this.config.projectDir,
+      cwd: this.readDir,
+      projectDir: this.readDir,
       specDir: '',
       securityProfile: this.securityProfile,
       abortSignal,
     };
 
-    const tools: Record<string, AITool> = {};
+    const builtinTools: Record<string, AITool> = {};
     const agentConfig = getAgentConfig('pr_finding_validator');
     for (const toolName of agentConfig.tools) {
       if (toolName === 'SpawnSubagent') continue;
       const definedTool = this.registry.getTool(toolName);
       if (definedTool) {
-        tools[toolName] = definedTool.bind(toolContext);
+        builtinTools[toolName] = definedTool.bind(toolContext);
       }
     }
+    const tools = await this.withMcpTools('pr_finding_validator', builtinTools);
 
     // Build validation request listing all findings
     const findingsList = findings
@@ -771,7 +794,7 @@ Changed files: ${changedFiles}
 
 ${findingsList}
 
-Validate each finding by reading the actual code at the specified file and line. Return a JSON array of validation results, one per finding.`;
+Validate each finding by reading the actual code at the specified file and line. Return a JSON array of validation results, one per finding.${this.config.checkoutNote ? `\n\n${this.config.checkoutNote}` : ''}`;
 
     const client = await createSimpleClient({
       systemPrompt,

@@ -110,14 +110,31 @@ vi.mock('../../../ai/runners/github/pr-review-engine', async (importOriginal) =>
 
 // Mock the parallel orchestrator reviewer (current PR review flow)
 const mockOrchestratorReview = vi.fn();
+const orchestratorConfigs: Array<Record<string, unknown>> = [];
 vi.mock('../../../ai/runners/github/parallel-orchestrator', () => {
   class MockParallelOrchestratorReviewer {
+    constructor(config: Record<string, unknown>) {
+      orchestratorConfigs.push(config);
+    }
     review(...args: unknown[]) {
       return mockOrchestratorReview(...args);
     }
   }
   return { ParallelOrchestratorReviewer: MockParallelOrchestratorReviewer };
 });
+
+// zeenha fork: the review checks out the PR head and opens an MCP session
+const mockCheckoutCleanup = vi.fn(async () => undefined);
+const mockPrepareCheckout = vi.fn();
+vi.mock('../../../ai/runners/github/pr-review-checkout', () => ({
+  preparePRReviewCheckout: (...args: unknown[]) => mockPrepareCheckout(...args),
+  checkoutNoteFor: (c: { kind: string }) => `NOTE ${c.kind}`,
+}));
+const mockMcpSession = { toolsFor: vi.fn(async () => ({})), close: vi.fn(async () => undefined) };
+const mockCreateMcpSession = vi.fn((..._args: unknown[]) => mockMcpSession);
+vi.mock('../../../ai/runners/github/pr-review-mcp', () => ({
+  createPRReviewMcpSession: (...args: unknown[]) => mockCreateMcpSession(...args),
+}));
 
 // Mock the TypeScript triage engine
 vi.mock('../../../ai/runners/github/triage-engine', () => ({
@@ -266,6 +283,8 @@ describe('GitHub TypeScript runner usage', () => {
     vi.clearAllMocks();
     mockIpcMain.reset();
     projectRef.current = createProject();
+    orchestratorConfigs.length = 0;
+    mockPrepareCheckout.mockResolvedValue({ kind: 'base', reason: 'test default' });
   });
 
   afterEach(() => {
@@ -330,6 +349,60 @@ describe('GitHub TypeScript runner usage', () => {
 
     // The handler should have called ParallelOrchestratorReviewer.review()
     expect(mockOrchestratorReview).toHaveBeenCalled();
+  });
+
+  describe('zeenha fork: the review reads the PR head and gets MCP tools', () => {
+    async function runReview() {
+      const { githubFetch } = await import('../utils');
+      vi.mocked(githubFetch).mockImplementation(async (_token: string, endpoint: string) => {
+        if (endpoint === '/user') return { login: 'testuser' };
+        if (endpoint.includes('/check-runs')) return { check_runs: [], total_count: 0 };
+        if (/\/(files|commits|comments|reviews)/.test(endpoint)) return [];
+        if (endpoint.includes('/pulls/')) return {
+          number: 123, title: 'Test PR', body: '', state: 'open', user: { login: 'author' },
+          head: { ref: 'feature', sha: 'abc123', repo: { full_name: 'owner/repo' } }, base: { ref: 'main' },
+          additions: 1, deletions: 0, changed_files: 1, diff_url: '', html_url: '',
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString(), labels: [],
+        };
+        return {};
+      });
+      const { registerPRHandlers } = await import('../pr-handlers');
+      registerPRHandlers(() => createMockWindow());
+      await mockIpcMain.emit(IPC_CHANNELS.GITHUB_PR_REVIEW, projectRef.current?.id, 123);
+    }
+
+    it('reviews in the PR-head checkout with the MCP session, then releases both', async () => {
+      mockPrepareCheckout.mockResolvedValue({ kind: 'pr-head', dir: '/wt/pr-123', sha: 'abc123', cleanup: mockCheckoutCleanup });
+      mockOrchestratorReview.mockResolvedValue({ findings: [], verdict: 'ready_to_merge', summary: '', agentsInvoked: [] });
+
+      await runReview();
+
+      expect(mockPrepareCheckout).toHaveBeenCalledWith(projectRef.current?.path, 123);
+      expect(mockCreateMcpSession.mock.calls[0][0]).toBe(projectRef.current?.path);
+      expect(orchestratorConfigs[0]).toMatchObject({ reviewDir: '/wt/pr-123', checkoutNote: 'NOTE pr-head', mcp: mockMcpSession });
+      expect(mockCheckoutCleanup).toHaveBeenCalledTimes(1);
+      expect(mockMcpSession.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases both when the review fails', async () => {
+      mockPrepareCheckout.mockResolvedValue({ kind: 'pr-head', dir: '/wt/pr-123', sha: 'abc123', cleanup: mockCheckoutCleanup });
+      mockOrchestratorReview.mockRejectedValue(new Error('provider down'));
+
+      await runReview();
+
+      expect(mockCheckoutCleanup).toHaveBeenCalledTimes(1);
+      expect(mockMcpSession.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to the project checkout, and tells the reviewers, when the PR cannot be checked out', async () => {
+      mockPrepareCheckout.mockResolvedValue({ kind: 'base', reason: 'could not fetch the PR head' });
+      mockOrchestratorReview.mockResolvedValue({ findings: [], verdict: 'ready_to_merge', summary: '', agentsInvoked: [] });
+
+      await runReview();
+
+      expect(orchestratorConfigs[0].reviewDir).toBeUndefined();
+      expect(orchestratorConfigs[0].checkoutNote).toBe('NOTE base');
+    });
   });
 
   it('calls TypeScript triageBatchIssues for triage', async () => {
@@ -423,6 +496,8 @@ describe('GITHUB_PR_MERGE and PR-only landing (zeenha fork)', () => {
     vi.clearAllMocks();
     mockIpcMain.reset();
     projectRef.current = createProject();
+    orchestratorConfigs.length = 0;
+    mockPrepareCheckout.mockResolvedValue({ kind: 'base', reason: 'test default' });
   });
 
   const ghMergeCalls = async () => {
