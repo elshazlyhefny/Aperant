@@ -11,6 +11,7 @@ import { ensureAbsolutePath } from './utils/path-helpers';
 import { writeFileAtomicSync } from './utils/atomic-file';
 import { updateRoadmapFeatureOutcome, revertRoadmapFeatureOutcome } from './utils/roadmap-utils';
 import { safeParseJson } from './utils/json-repair';
+import { readProjectRepoConfig } from './ai/worktree/project-repo-config';
 import { failedRunStatus, isFailedRun } from '../shared/utils/task-failure';
 import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
 
@@ -32,6 +33,15 @@ interface StoreData {
 interface TasksCacheEntry {
   tasks: Task[];
   timestamp: number;
+}
+
+/**
+ * zeenha fork: a base branch named in the repository's .aperant.json wins over
+ * the stored setting, so every consumer of settings.mainBranch agrees with it.
+ */
+function applyDeclaredBaseBranch(project: Project): void {
+  const declared = readProjectRepoConfig(project.path).baseBranch;
+  if (declared && project.settings) project.settings.mainBranch = declared;
 }
 
 /**
@@ -73,6 +83,7 @@ export class ProjectStore {
           createdAt: new Date(p.createdAt),
           updatedAt: new Date(p.updatedAt)
         }));
+        data.projects.forEach(applyDeclaredBaseBranch);
         return data;
       } catch {
         return { projects: [], settings: {} };
@@ -125,6 +136,7 @@ export class ProjectStore {
       createdAt: new Date(),
       updatedAt: new Date()
     };
+    applyDeclaredBaseBranch(project);
 
     this.data.projects.push(project);
     this.save();
@@ -272,6 +284,7 @@ export class ProjectStore {
     const project = this.data.projects.find((p) => p.id === projectId);
     if (project) {
       project.settings = { ...project.settings, ...settings };
+      applyDeclaredBaseBranch(project);
       project.updatedAt = new Date();
       this.save();
     }

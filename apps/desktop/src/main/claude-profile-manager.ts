@@ -225,7 +225,11 @@ export class ClaudeProfileManager {
     // This prevents interference with external Claude Code CLI which uses ~/.claude
     const initialProfileName = 'Primary';
     const sanitizedName = initialProfileName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const isolatedConfigDir = join(CLAUDE_PROFILES_DIR, sanitizedName);
+    // zeenha fork: a dev instance must not resolve the installed app's accounts.
+    const profilesDir = app.isPackaged === false
+      ? join(app.getPath('userData'), 'claude-profiles')
+      : CLAUDE_PROFILES_DIR;
+    const isolatedConfigDir = join(profilesDir, sanitizedName);
 
     const defaultProfile: ClaudeProfile = {
       id: sanitizedName,  // Use sanitized name as ID (e.g., 'primary')

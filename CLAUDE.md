@@ -6,6 +6,31 @@ Auto Claude is an autonomous multi-agent coding framework that plans, builds, an
 
 > **Deep-dive reference:** [ARCHITECTURE.md](shared_docs/ARCHITECTURE.md) | **Frontend contributing:** [apps/desktop/CONTRIBUTING.md](apps/desktop/CONTRIBUTING.md)
 
+## This Fork (zeenha)
+
+This repository is `elshazlyhefny/Aperant`, a fork that Aperant itself develops. Upstream (`AndyMik90/Aperant`) has paused for a 3.0 rebuild, so `zeenha` is the trunk.
+
+- **Base branch is `zeenha`.** Never target `develop` (a frozen copy of upstream) and never open anything against `AndyMik90/Aperant`. In a fresh clone run `gh repo set-default elshazlyhefny/Aperant`, because `gh` can otherwise pick the `upstream` remote.
+- **Land through pull requests into `zeenha`.** CI must pass and a human merges. Mark fork-specific code with a `zeenha fork:` comment that says why it exists.
+- **Do not touch the installed app.** Never modify, stop or start anything under `~/Applications/aperant-zeenha*` or `~/.config/aperant`. Only `scripts/zeenha-release.sh`, run by a human, replaces the installed app.
+- **A dev run is isolated.** An unpackaged app keeps its data and its default Claude profile in `apps/desktop/.dev-user-data/` (`src/main/dev-instance-isolation.ts`). It does not use the installed app's accounts, so use it to test the UI, not to run real agents. Start one dev instance at a time, because task worktrees share the Vite cache. If startup fails with `does not provide an export named 'app'`, run `unset ELECTRON_RUN_AS_NODE` first.
+- **Task worktrees share dependencies.** `.aperant.json` links `node_modules` and `apps/desktop/node_modules` to the main checkout, so never run `npm install` or `npm ci` through those links: it would change every other task's dependencies. If a task must change dependencies, first remove the two links in that worktree, then run `npm ci` there.
+
+Checks to run before finishing a task, from `apps/desktop`:
+
+```bash
+npm run typecheck
+npm run test:unit
+npm run lint
+```
+
+Release and rollback (human only):
+
+```bash
+scripts/zeenha-release.sh             # test, build, push, install the next zeenha.N
+scripts/zeenha-release.sh --rollback  # go back to the previous install
+```
+
 ## Product Overview
 
 Auto Claude is a desktop application (+ CLI) where users describe a goal and AI agents autonomously handle planning, implementation, and QA validation. All work happens in isolated git worktrees so the main branch stays safe.
@@ -34,11 +59,11 @@ Auto Claude is a desktop application (+ CLI) where users describe a goal and AI 
 
 **i18n required** — All frontend user-facing text uses `react-i18next` translation keys. Hardcoded strings in JSX/TSX break localization for non-English users. Add keys to both `en/*.json` and `fr/*.json`.
 
-**Platform abstraction** — Never use `process.platform` directly. Import from `apps/desktop/src/main/platform/`. CI tests all three platforms.
+**Platform abstraction** — Never use `process.platform` directly. Import from `apps/desktop/src/main/platform/`. This fork's CI runs Linux and macOS, so keep Windows paths working by inspection.
 
 **No time estimates** — Provide priority-based ordering instead of duration predictions.
 
-**PR target** — Always target the `develop` branch for PRs, not `main`. Main is reserved for releases.
+**PR target** — Always target the `zeenha` branch for PRs (see [This Fork](#this-fork-zeenha)).
 
 **No console.log in production code** — `console.log` output is invisible in bundled Electron apps. Use Sentry for error tracking in production; reserve `console.log` for development only.
 
@@ -152,12 +177,7 @@ cd apps/desktop && npm install
 | Frontend E2E | `cd apps/desktop && npm run test:e2e` | Playwright |
 
 ### Releases
-```bash
-node scripts/bump-version.js patch|minor|major  # Bump version
-git push && gh pr create --base main             # PR to main triggers release
-```
-
-See [RELEASE.md](RELEASE.md) for full release process.
+This fork releases with `scripts/zeenha-release.sh` (see [This Fork](#this-fork-zeenha)). [RELEASE.md](RELEASE.md) describes upstream's process and does not apply here.
 
 ## AI Agent Layer (`apps/desktop/src/main/ai/`)
 
@@ -323,7 +343,7 @@ When adding new UI text: add keys to ALL language files, use `namespace:section.
 
 ## Cross-Platform
 
-Supports Windows, macOS, Linux. CI tests all three.
+Supports Windows, macOS, Linux. This fork's CI tests Linux and macOS.
 
 **Platform modules:** `apps/desktop/src/main/platform/`
 

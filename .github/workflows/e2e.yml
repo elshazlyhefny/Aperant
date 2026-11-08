@@ -8,12 +8,12 @@ name: E2E
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, zeenha]
     paths:
       - 'apps/**'
       - '.github/workflows/e2e.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, zeenha]
     paths:
       - 'apps/**'
       - '.github/workflows/e2e.yml'

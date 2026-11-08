@@ -212,8 +212,11 @@ export function GitHubSetupModal({
       if (result.success && result.data) {
         setBranches(result.data);
 
-        // Detect recommended branch (main > master > develop > first)
-        const recommended = detectRecommendedBranch(result.data);
+        // Detect recommended branch (.aperant.json > main > master > develop > first)
+        const declared = await window.electronAPI
+          .detectMainBranch(project.path, { declaredOnly: true })
+          .catch(() => null);
+        const recommended = detectRecommendedBranch(result.data, declared?.data ?? null);
         setRecommendedBranch(recommended);
         setSelectedBranch(recommended);
       } else {
@@ -227,7 +230,8 @@ export function GitHubSetupModal({
   };
 
   // Detect recommended branch from list
-  const detectRecommendedBranch = (branchList: string[]): string | null => {
+  const detectRecommendedBranch = (branchList: string[], declared: string | null): string | null => {
+    if (declared && branchList.includes(declared)) return declared;
     const priorities = ['main', 'master', 'develop', 'dev'];
     for (const priority of priorities) {
       if (branchList.includes(priority)) {

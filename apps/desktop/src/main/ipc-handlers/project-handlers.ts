@@ -19,6 +19,7 @@ import {
   initializeGit
 } from '../project-initializer';
 import { getToolPath } from '../cli-tool-manager';
+import { readProjectRepoConfig } from '../ai/worktree/project-repo-config';
 import type { BrowserWindow } from 'electron';
 
 // ============================================
@@ -202,6 +203,12 @@ function getCurrentGitBranch(projectPath: string): string | null {
 function detectMainBranch(projectPath: string): string | null {
   const branches = getGitBranches(projectPath);
   if (branches.length === 0) return null;
+
+  // zeenha fork: a repository that names its base branch is not guessed at.
+  const declared = readProjectRepoConfig(projectPath).baseBranch;
+  if (declared && (branches.includes(declared) || branches.includes(`origin/${declared}`))) {
+    return declared;
+  }
 
   // Check for common main branch names in order of preference
   const mainBranchCandidates = ['main', 'master', 'develop', 'dev', 'trunk'];
@@ -485,10 +492,13 @@ export function registerProjectHandlers(
   // Auto-detect main branch for a project
   ipcMain.handle(
     IPC_CHANNELS.GIT_DETECT_MAIN_BRANCH,
-    async (_, projectPath: string): Promise<IPCResult<string | null>> => {
+    async (_, projectPath: string, options?: { declaredOnly?: boolean }): Promise<IPCResult<string | null>> => {
       try {
         if (!existsSync(projectPath)) {
           return { success: false, error: 'Directory does not exist' };
+        }
+        if (options?.declaredOnly) {
+          return { success: true, data: readProjectRepoConfig(projectPath).baseBranch ?? null };
         }
         const mainBranch = detectMainBranch(projectPath);
         return { success: true, data: mainBranch };

@@ -841,7 +841,7 @@ export interface ElectronAPI {
   /** Get branches with structured type information (local vs remote) */
   getGitBranchesWithInfo: (projectPath: string) => Promise<IPCResult<GitBranchDetail[]>>;
   getCurrentGitBranch: (projectPath: string) => Promise<IPCResult<string | null>>;
-  detectMainBranch: (projectPath: string) => Promise<IPCResult<string | null>>;
+  detectMainBranch: (projectPath: string, options?: { declaredOnly?: boolean }) => Promise<IPCResult<string | null>>;
   checkGitStatus: (projectPath: string) => Promise<IPCResult<GitStatus>>;
   initializeGit: (projectPath: string) => Promise<IPCResult<InitializationResult>>;
 
