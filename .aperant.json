@@ -1,0 +1,4 @@
+{
+  "baseBranch": "zeenha",
+  "linkDependencies": ["node_modules", "apps/desktop/node_modules"]
+}

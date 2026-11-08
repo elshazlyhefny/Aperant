@@ -5,13 +5,13 @@ name: Quality Security
 
 on:
   push:
-    branches: [main]
+    branches: [main, zeenha]
     paths:
       - 'apps/desktop/**'
       - 'package.json'
       - '.github/workflows/quality-security.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, zeenha]
     paths:
       - 'apps/desktop/**'
       - 'package.json'

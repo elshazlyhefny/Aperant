@@ -12,14 +12,13 @@ import { spawn, ChildProcess } from 'child_process';
 import { isWindows, GRACEFUL_KILL_TIMEOUT_MS } from '../platform';
 import { getTaskkillExePath } from '../utils/windows-paths';
 import { getIsShuttingDown } from './pty-manager';
+import { getPtySocketPath } from './pty-socket-path';
 
 // ESM-compatible __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const SOCKET_PATH = isWindows()
-  ? `\\\\.\\pipe\\auto-claude-pty-${process.getuid?.() || 'default'}`
-  : `/tmp/auto-claude-pty-${process.getuid?.() || 'default'}.sock`;
+const SOCKET_PATH = getPtySocketPath();
 
 interface DaemonResponseData {
   exitCode?: number;

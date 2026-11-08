@@ -22,6 +22,7 @@ import { join, resolve } from 'path';
 import { promisify } from 'util';
 
 import { getSpecsDir } from '../../../shared/constants';
+import { linkWorktreeDependencies } from './worktree-dependency-links';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -108,6 +109,7 @@ export async function createOrGetWorktree(
       console.warn(
         `[WorktreeManager] Using existing worktree: ${specId} on branch ${branchName}`,
       );
+      await linkWorktreeDependencies(projectPath, worktreePath);
       return { worktreePath: resolve(worktreePath), branch: branchName };
     }
 
@@ -267,6 +269,8 @@ export async function createOrGetWorktree(
       );
     }
   }
+
+  await linkWorktreeDependencies(projectPath, worktreePath);
 
   return { worktreePath: resolve(worktreePath), branch: branchName };
 }

@@ -6,6 +6,31 @@ Auto Claude is an autonomous multi-agent coding framework that plans, builds, an
 
 > **Deep-dive reference:** [ARCHITECTURE.md](shared_docs/ARCHITECTURE.md) | **Frontend contributing:** [apps/desktop/CONTRIBUTING.md](apps/desktop/CONTRIBUTING.md)
 
+## This Fork (zeenha)
+
+This repository is `elshazlyhefny/Aperant`, a fork that Aperant itself develops. Upstream (`AndyMik90/Aperant`) has paused for a 3.0 rebuild, so `zeenha` is the trunk.
+
+- **Base branch is `zeenha`.** Never target `develop` (a frozen copy of upstream) and never open anything against `AndyMik90/Aperant`. In a fresh clone run `gh repo set-default elshazlyhefny/Aperant`, because `gh` can otherwise pick the `upstream` remote.
+- **Land through pull requests into `zeenha`.** CI must pass and a human merges. Mark fork-specific code with a `zeenha fork:` comment that says why it exists.
+- **Do not touch the installed app.** Never modify, stop or start anything under `~/Applications/aperant-zeenha*` or `~/.config/aperant`. Only `scripts/zeenha-release.sh`, run by a human, replaces the installed app.
+- **A dev run is isolated.** An unpackaged app stores its data in `apps/desktop/.dev-user-data/` and uses its own terminal daemon (`src/main/dev-instance-isolation.ts`). It has no signed-in accounts, so it can test the UI but cannot run real agents. Do not point `APERANT_DEV_USER_DATA` at the real data folder. Start one dev instance at a time, because task worktrees share the Vite cache. If startup fails with `does not provide an export named 'app'`, run `unset ELECTRON_RUN_AS_NODE` first.
+- **Task worktrees share dependencies.** `.aperant.json` links `node_modules` and `apps/desktop/node_modules` to the main checkout, so never run `npm install` or `npm ci` through those links: it would change every other task's dependencies. If a task must change dependencies, first remove the two links in that worktree, then run `npm ci` there.
+
+Checks to run before finishing a task, from `apps/desktop`:
+
+```bash
+npm run typecheck
+npm run test:unit
+npm run lint
+```
+
+Release and rollback (human only):
+
+```bash
+scripts/zeenha-release.sh             # test, build, push, install the next zeenha.N
+scripts/zeenha-release.sh --rollback  # go back to the previous install
+```
+
 ## Product Overview
 
 Auto Claude is a desktop application (+ CLI) where users describe a goal and AI agents autonomously handle planning, implementation, and QA validation. All work happens in isolated git worktrees so the main branch stays safe.
@@ -152,12 +177,7 @@ cd apps/desktop && npm install
 | Frontend E2E | `cd apps/desktop && npm run test:e2e` | Playwright |
 
 ### Releases
-```bash
-node scripts/bump-version.js patch|minor|major  # Bump version
-git push && gh pr create --base main             # PR to main triggers release
-```
-
-See [RELEASE.md](RELEASE.md) for full release process.
+This fork releases with `scripts/zeenha-release.sh` (see [This Fork](#this-fork-zeenha)). [RELEASE.md](RELEASE.md) describes upstream's process and does not apply here.
 
 ## AI Agent Layer (`apps/desktop/src/main/ai/`)
 

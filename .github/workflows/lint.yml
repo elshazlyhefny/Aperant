@@ -2,14 +2,14 @@ name: Lint
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, zeenha]
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/lint.yml'
       - '.github/actions/**'
       - 'apps/desktop/biome.jsonc'
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, zeenha]
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/lint.yml'
