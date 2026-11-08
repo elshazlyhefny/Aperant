@@ -14,6 +14,7 @@ import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { Checkbox } from '../../ui/checkbox';
 import type { Task, WorktreeStatus, WorktreeCreatePRResult } from '../../../../shared/types';
+import { capPRTitle } from '../../../../shared/utils/pr-title';
 
 interface CreatePRDialogProps {
   open: boolean;
@@ -50,7 +51,9 @@ export function CreatePRDialog({
   useEffect(() => {
     if (open) {
       setTargetBranch(worktreeStatus?.baseBranch || '');
-      setPrTitle(task.title);
+      // zeenha fork: capped (first sentence / lead clause, ≤ 100) until the
+      // model's suggestion arrives; the raw task title can exceed GitHub's limit.
+      setPrTitle(capPRTitle(task.title));
       setIsDraft(false);
       setIsCreating(false);
       setResult(null);
@@ -260,7 +263,7 @@ export function CreatePRDialog({
                   titleEditedRef.current = true;
                   setPrTitle(e.target.value);
                 }}
-                placeholder={task.title}
+                placeholder={capPRTitle(task.title)}
               />
               <p className="text-xs text-muted-foreground">
                 {suggestingTitle ? (

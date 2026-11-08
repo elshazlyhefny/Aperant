@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { getAugmentedEnv } from '../../../env-utils';
 import { createSimpleClient } from '../../client/factory';
 import type { ModelShorthand, ThinkingLevel } from '../../config/types';
+import { capPRTitle } from '../../../../shared/utils/pr-title';
 
 // =============================================================================
 // Constants
@@ -774,7 +775,7 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
   // it (never Aperant's own .auto-claude files) before anything is counted or
   // pushed; otherwise the PR would be empty or refused.
   const typed = typedTitle?.trim() ? typedTitle : undefined;
-  const fallback = typed ?? (fallbackTitle?.trim() ? fallbackTitle : `auto-claude: ${specId}`);
+  const fallback = typed ?? (capPRTitle(fallbackTitle) || `auto-claude: ${specId}`);
   const commitError = await commitPendingWork(worktreePath, gitPath, fallback);
   if (commitError) {
     return { success: false, error: `Could not commit the task's changes: ${commitError}` };

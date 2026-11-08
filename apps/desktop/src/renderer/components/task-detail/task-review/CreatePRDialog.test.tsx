@@ -458,5 +458,28 @@ describe('CreatePRDialog', () => {
       await waitFor(() => expect(screen.queryByText(/suggesting a short title/i)).not.toBeInTheDocument());
       expect(screen.getByLabelText(/pr title/i)).toHaveValue('Implement user authentication');
     });
+
+    // Task 248 (2026-11-08): an Ideation task title is the spec's whole first
+    // line; sent as-is it failed "PR title exceeds maximum length of 256".
+    it('caps a spec-length task title when no suggestion is available, and submits the capped one', async () => {
+      api.suggestWorktreePRTitle = vi.fn().mockResolvedValue({ success: true, data: null });
+      const longTask = {
+        ...mockTask,
+        title: `Give support-chat guest tokens a lifetime: ${'a guest token keeps reading the transcript long after the chat ended, '.repeat(4)}`,
+      };
+      expect(longTask.title.length).toBeGreaterThan(256);
+
+      render(
+        <CreatePRDialog open={true} task={longTask} worktreeStatus={mockWorktreeStatus}
+          onOpenChange={mockOnOpenChange} onCreatePR={mockOnCreatePR} />
+      );
+
+      await waitFor(() => expect(screen.queryByText(/suggesting a short title/i)).not.toBeInTheDocument());
+      expect(screen.getByLabelText(/pr title/i)).toHaveValue('Give support-chat guest tokens a lifetime');
+
+      fireEvent.click(screen.getByRole('button', { name: /create pull request/i }));
+      await waitFor(() => expect(mockOnCreatePR).toHaveBeenCalled());
+      expect(mockOnCreatePR.mock.calls[0][0].title).toBe('Give support-chat guest tokens a lifetime');
+    });
   });
 });

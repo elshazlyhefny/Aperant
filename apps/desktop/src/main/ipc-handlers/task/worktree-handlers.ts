@@ -11,6 +11,7 @@ import { projectStore } from '../../project-store';
 import { MergeOrchestrator } from '../../ai/merge/orchestrator';
 import { createMergeResolverFn } from '../../ai/runners/merge-resolver';
 import { createPR, suggestPRTitleForWorktree } from '../../ai/runners/github/pr-creator';
+import { capPRTitle } from '../../../shared/utils/pr-title';
 import type { ModelShorthand } from '../../ai/config/types';
 import { findTaskAndProject } from './shared';
 import { updateRoadmapFeatureOutcome } from '../../utils/roadmap-utils';
@@ -3116,7 +3117,9 @@ export function registerWorktreeHandlers(
         // once the pending work is committed, then falls back to the task title.
         // It used to be `auto-claude: <specId>`.
         const typedTitle = options?.title || undefined;
-        const fallbackTitle = (task.title ?? '').slice(0, MAX_PR_TITLE_LENGTH) || `auto-claude: ${task.specId}`;
+        // The task title is often the spec's whole first line (200+ chars), so it
+        // is capped to its first sentence / lead clause (≤ 100, shared/utils/pr-title).
+        const fallbackTitle = capPRTitle(task.title) || `auto-claude: ${task.specId}`;
 
         if (taskBaseBranch) {
           debug('Using stored base branch:', taskBaseBranch);

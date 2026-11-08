@@ -345,6 +345,14 @@ describe('createPR suggests the title from the COMMITTED branch (zeenha fork)', 
     expect(create[create.indexOf('--title') + 1]).toBe('Add a View cart link');
   });
 
+  it('caps a spec-length task title used as the fallback', async () => {
+    generate.mockImplementation((async () => ({ text: 'not a conventional title' })) as unknown as typeof generateText);
+    const long = `Add a View cart link: ${'the storefront header has no way back to the cart from a product page, '.repeat(4)}`;
+    await createPR(config({ title: undefined, fallbackTitle: long }));
+    const create = createCalls()[0].args;
+    expect(create[create.indexOf('--title') + 1]).toBe('Add a View cart link');
+  });
+
   it('never asks the model when a title was typed', async () => {
     await createPR(config({ title: 'My own title' }));
     expect(prompts.some((p) => p.includes('Write the pull request title'))).toBe(false);
