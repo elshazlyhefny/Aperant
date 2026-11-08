@@ -381,7 +381,7 @@ export function WorktreeSelector({
               e.preventDefault();
               setDeleteWorktree(item.data);
             }}
-            className="ml-2 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+            className="ml-2 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity shrink-0"
             aria-label={t('common:delete')}
             title={t('common:delete')}
           >

@@ -341,7 +341,7 @@ export function QAFeedbackSection({
               {!isSubmitting && (
                 <button
                   type="button"
-                  className="absolute top-0.5 right-0.5 h-4 w-4 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-0.5 right-0.5 h-4 w-4 flex items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleRemoveImage(image.id);

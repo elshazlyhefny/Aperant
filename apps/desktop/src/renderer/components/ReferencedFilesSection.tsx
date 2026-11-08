@@ -162,7 +162,7 @@ export function ReferencedFilesSection({
                   variant="ghost"
                   size="icon"
                   className={cn(
-                    'h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity',
+                    'h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
                     'hover:bg-destructive/10 hover:text-destructive'
                   )}
                   onClick={() => onRemove(file.id)}

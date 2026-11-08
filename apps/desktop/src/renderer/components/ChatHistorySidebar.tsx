@@ -574,7 +574,7 @@ function SessionItem({
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 hover:bg-muted-foreground/20 transition-opacity"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 focus-visible:opacity-100 hover:bg-muted-foreground/20 transition-opacity"
               aria-label={t('accessibility.moreOptionsAriaLabel')}
             >
               <MoreVertical className="h-3.5 w-3.5" />
