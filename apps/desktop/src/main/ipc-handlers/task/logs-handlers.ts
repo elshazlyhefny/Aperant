@@ -1,6 +1,8 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { IPC_CHANNELS, getSpecsDir } from '../../../shared/constants';
 import type { IPCResult, TaskLogs, TaskLogStreamChunk } from '../../../shared/types';
+import type { RunMetricsSummary, SessionMetricsEntry } from '../../../shared/types/run-metrics';
+import { aggregateRunMetrics, readRunMetrics } from '../../ai/logging/run-metrics';
 import path from 'path';
 import { projectStore } from '../../project-store';
 import { taskLogService } from '../../task-log-service';
@@ -64,6 +66,48 @@ export function registerTaskLogsHandlers(getMainWindow: () => BrowserWindow | nu
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to get task logs'
+        };
+      }
+    }
+  );
+
+  /**
+   * Get per-session run metrics (run_metrics.json) from the main project's spec directory.
+   * Returns null data when no sessions have been recorded yet.
+   */
+  ipcMain.handle(
+    IPC_CHANNELS.TASK_RUN_METRICS_GET,
+    async (
+      _,
+      projectId: string,
+      specId: string
+    ): Promise<IPCResult<{ sessions: SessionMetricsEntry[]; summary: RunMetricsSummary } | null>> => {
+      try {
+        if (!isValidTaskId(specId)) {
+          return { success: false, error: 'Invalid spec ID' };
+        }
+
+        const project = projectStore.getProject(projectId);
+        if (!project) {
+          console.error('[TASK_RUN_METRICS_GET] Project not found:', projectId);
+          return { success: false, error: 'Project not found' };
+        }
+
+        const absoluteProjectPath = ensureAbsolutePath(project.path);
+        const specsRelPath = getSpecsDir(project.autoBuildPath);
+        const specDir = path.join(absoluteProjectPath, specsRelPath, specId);
+
+        // Don't fail if specDir doesn't exist — readRunMetrics returns [] for a missing file.
+        const sessions = readRunMetrics(specDir);
+        if (sessions.length === 0) {
+          return { success: true, data: null };
+        }
+        return { success: true, data: { sessions, summary: aggregateRunMetrics(sessions) } };
+      } catch (error) {
+        console.error('[TASK_RUN_METRICS_GET] Failed to get run metrics:', error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to get run metrics'
         };
       }
     }
