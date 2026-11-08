@@ -12,7 +12,8 @@ import type { Tool as AITool } from 'ai';
 
 import type { AgentType } from '../../config/agent-configs';
 import { connectMcpServers, closeAllMcpClients, mergeMcpTools, resolveMcpServersForAgent } from '../../mcp/client';
-import { mcpResolveOptionsForAgent, readProjectMcpOptions } from '../../mcp/project-settings';
+import { mcpResolveOptionsForAgent, readApprovedProjectMcpOptions } from '../../mcp/project-settings';
+import type { McpApprovals } from '../../mcp/mcp-approval';
 import type { McpClientResult } from '../../mcp/types';
 
 export interface PRReviewMcpSession {
@@ -24,8 +25,10 @@ export function createPRReviewMcpSession(
   projectPath: string,
   autoBuildPath = '.auto-claude',
   onLog?: (line: string) => void,
+  /** Omitted means nothing declared by the project is approved (fail closed). */
+  approvals?: McpApprovals,
 ): PRReviewMcpSession {
-  const settings = readProjectMcpOptions(projectPath, autoBuildPath);
+  const settings = readApprovedProjectMcpOptions(projectPath, autoBuildPath, approvals);
   const options = {
     context7Enabled: settings.context7Enabled,
     electronMcpEnabled: settings.electronMcpEnabled,

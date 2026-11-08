@@ -30,7 +30,8 @@ import { landsThroughPullRequestsOnly } from '../../shared/utils/landing-policy'
 import { readSettingsFile } from '../settings-utils';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
-import { readProjectMcpOptions } from '../ai/mcp/project-settings';
+import { getApprovals } from '../mcp-approval-store';
+import { readApprovedProjectMcpOptions } from '../ai/mcp/project-settings';
 
 /**
  * Main AgentManager - orchestrates agent process lifecycle
@@ -317,11 +318,17 @@ export class AgentManager extends EventEmitter {
    * zeenha fork: the project's MCP settings (the "MCP Server Overview" page) for
    * a worker. Upstream hardcoded Context7 on and ignored every other toggle,
    * per-agent override and custom server on that page. Always read from the
-   * PROJECT root, never a task worktree: `.auto-claude/.env` is untracked.
+   * PROJECT root, never a task worktree. `.auto-claude/.env` may be committed by
+   * a hostile repository, so only servers and a Chrome executable the user
+   * approved (stored outside the repo) reach the agent.
    */
   private mcpOptionsForProject(projectPath: string): NonNullable<SerializableSessionConfig['mcpOptions']> {
     const project = projectStore.getProjects().find((p) => p.path === projectPath);
-    const settings = readProjectMcpOptions(projectPath, project?.autoBuildPath || '.auto-claude');
+    const settings = readApprovedProjectMcpOptions(
+      projectPath,
+      project?.autoBuildPath || '.auto-claude',
+      getApprovals(projectPath),
+    );
     return {
       context7Enabled: settings.context7Enabled,
       memoryEnabled: !!process.env.GRAPHITI_MCP_URL,

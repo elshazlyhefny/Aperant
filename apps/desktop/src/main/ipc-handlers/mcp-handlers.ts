@@ -32,6 +32,7 @@ export function resolveForCheck(server: CustomMcpServer, projectId?: string): Cu
   if (!usesVars) return server;
   const project = projectId ? projectStore.getProjects().find((p) => p.id === projectId) : undefined;
   if (!project) return null;
+  // Deliberately the declared (unapproved) view: Test is an explicit user action.
   const expanded = readProjectMcpOptions(project.path, project.autoBuildPath || '.auto-claude')
     .customServers?.find((s) => s.id === server.id);
   return expanded ? { ...server, args: expanded.args, headers: expanded.headers } : null;
