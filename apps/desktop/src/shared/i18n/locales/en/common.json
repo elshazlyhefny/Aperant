@@ -1042,5 +1042,13 @@
       "failed": "#{{number}} not updated: {{error}}",
       "error": "Labels were not applied: {{error}}"
     }
+  },
+  "iconButtons": {
+    "send": "Send message",
+    "removeFile": "Remove file",
+    "removeImage": "Remove image",
+    "removeProject": "Remove project",
+    "investigate": "Investigate issue",
+    "openPullRequest": "Open pull request on GitHub (opens in new window)"
   }
 }

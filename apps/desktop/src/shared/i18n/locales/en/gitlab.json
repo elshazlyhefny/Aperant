@@ -11,7 +11,8 @@
   },
   "header": {
     "open": "open",
-    "searchPlaceholder": "Search issues..."
+    "searchPlaceholder": "Search issues...",
+    "refresh": "Refresh issues"
   },
   "filters": {
     "opened": "Open",

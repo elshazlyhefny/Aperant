@@ -64,7 +64,7 @@ export function PRHeader({ pr, isLoadingFiles = false }: PRHeaderProps) {
           asChild
           className="h-8 w-8 text-muted-foreground hover:text-foreground"
         >
-          <a href={pr.htmlUrl} target="_blank" rel="noopener noreferrer">
+          <a href={pr.htmlUrl} target="_blank" rel="noopener noreferrer" aria-label={t('iconButtons.openPullRequest')}>
             <ExternalLink className="h-4 w-4" />
           </a>
         </Button>

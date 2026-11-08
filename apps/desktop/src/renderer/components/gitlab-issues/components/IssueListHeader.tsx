@@ -49,6 +49,7 @@ export function IssueListHeader({
             size="icon"
             onClick={onRefresh}
             disabled={isLoading}
+            aria-label={t('header.refresh')}
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>

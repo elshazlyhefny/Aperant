@@ -588,6 +588,7 @@ export function Insights({ projectId }: InsightsProps) {
               onClick={() => setScreenshotOpen(true)}
               disabled={isLoading || !canAddMore}
               title={t('insights.images.screenshotButton')}
+              aria-label={t('insights.images.screenshotButton')}
             >
               <Camera className="h-4 w-4" />
             </Button>
@@ -596,6 +597,7 @@ export function Insights({ projectId }: InsightsProps) {
               disabled={(!inputValue.trim() && pendingImages.length === 0) || isLoading}
               className="h-9 w-9"
               size="icon"
+              aria-label={t('iconButtons.send')}
             >
               {isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

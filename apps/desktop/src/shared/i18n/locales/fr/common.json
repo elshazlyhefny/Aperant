@@ -1042,5 +1042,13 @@
       "failed": "#{{number}} non mis à jour : {{error}}",
       "error": "Les étiquettes n'ont pas été appliquées : {{error}}"
     }
+  },
+  "iconButtons": {
+    "send": "Envoyer le message",
+    "removeFile": "Retirer le fichier",
+    "removeImage": "Retirer l'image",
+    "removeProject": "Retirer le projet",
+    "investigate": "Analyser l'issue",
+    "openPullRequest": "Ouvrir la pull request sur GitHub (s'ouvre dans une nouvelle fenêtre)"
   }
 }

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { User, MessageCircle, Tag, Sparkles } from 'lucide-react';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
@@ -8,6 +9,7 @@ import {
 import type { IssueListItemProps } from '../types';
 
 export function IssueListItem({ issue, isSelected, onClick, onInvestigate }: IssueListItemProps) {
+  const { t } = useTranslation('common');
   return (
     <div
       className={`group p-3 rounded-lg cursor-pointer transition-colors ${
@@ -58,6 +60,7 @@ export function IssueListItem({ issue, isSelected, onClick, onInvestigate }: Iss
             e.stopPropagation();
             onInvestigate();
           }}
+          aria-label={t('iconButtons.investigate')}
         >
           <Sparkles className="h-4 w-4" />
         </Button>
