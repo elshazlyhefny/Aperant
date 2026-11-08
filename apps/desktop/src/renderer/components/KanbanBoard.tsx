@@ -5,6 +5,7 @@ import {
   DndContext,
   DragOverlay,
   closestCorners,
+  KeyboardCode,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -736,6 +737,11 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
       }
     }),
     useSensor(KeyboardSensor, {
+      keyboardCodes: {
+        start: [KeyboardCode.Space],
+        cancel: [KeyboardCode.Esc],
+        end: [KeyboardCode.Space, KeyboardCode.Enter, KeyboardCode.Tab]
+      },
       coordinateGetter: sortableKeyboardCoordinates
     })
   );

@@ -65,6 +65,7 @@
     "expandAriaLabel": "Expand",
     "collapseAriaLabel": "Collapse",
     "selectIdeaAriaLabel": "Select idea: {{title}}",
+    "investigateIssueAriaLabel": "Investigate issue",
     "convertToTaskAriaLabel": "Convert to task",
     "goToTaskAriaLabel": "Go to task",
     "reAuthenticateProfileAriaLabel": "Re-authenticate profile",
