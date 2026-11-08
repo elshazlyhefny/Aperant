@@ -520,6 +520,49 @@
     "conversionFailedDescription": "Failed to convert idea to task",
     "conversionError": "Conversion error",
     "conversionErrorDescription": "An error occurred while converting the idea",
+    "header": {
+      "title": "Ideation",
+      "subtitle": "AI-generated feature ideas for your project",
+      "ideasCount_one": "{{count}} idea",
+      "ideasCount_other": "{{count}} ideas",
+      "selectedCount": "{{count}} selected",
+      "delete": "Delete",
+      "addMore": "Add More"
+    },
+    "filters": {
+      "all": "All",
+      "code": "Code",
+      "uiux": "UI/UX",
+      "docs": "Docs",
+      "security": "Security",
+      "performance": "Performance",
+      "seo": "SEO"
+    },
+    "emptyState": {
+      "title": "No Ideas Yet",
+      "description": "Generate AI-powered feature ideas based on your project's context, existing patterns, and target audience.",
+      "enabledTypes": "Enabled Ideation Types",
+      "generateIdeas": "Generate Ideas",
+      "noProvider": "No AI provider configured. Add a provider account in Settings to generate ideas."
+    },
+    "dialogs": {
+      "configTitle": "Ideation Configuration",
+      "configDescription": "Configure which types of ideas to generate",
+      "ideationTypes": "Ideation Types",
+      "contextSources": "Context Sources",
+      "includeRoadmapContext": "Include Roadmap Context",
+      "includeKanbanContext": "Include Kanban Context",
+      "close": "Close",
+      "cancel": "Cancel",
+      "addMoreTitle": "Add More Ideas",
+      "addMoreDescription": "Select additional ideation types to generate. Your existing ideas will be preserved.",
+      "allGenerated": "You've already generated all ideation types!",
+      "regenerateHint": "Use \"Regenerate\" to refresh existing ideas.",
+      "selectedCount": "{{count}} selected",
+      "generateTypes": "Generate {{count}} Types",
+      "generateIdeas": "Generate Ideas"
+    },
+    "noIdeas": "No ideas to display",
     "types": {
       "code_improvements": "Code Improvements",
       "ui_ux_improvements": "UI/UX Improvements",

@@ -520,6 +520,52 @@
     "conversionFailedDescription": "Impossible de convertir l'idée en tâche",
     "conversionError": "Erreur de conversion",
     "conversionErrorDescription": "Une erreur s'est produite lors de la conversion de l'idée",
+    "header": {
+      "title": "Idéation",
+      "subtitle": "Idées de fonctionnalités générées par l'IA pour votre projet",
+      "ideasCount_one": "{{count}} idée",
+      "ideasCount_other": "{{count}} idées",
+      "selectedCount_one": "{{count}} sélectionnée",
+      "selectedCount_other": "{{count}} sélectionnées",
+      "delete": "Supprimer",
+      "addMore": "Ajouter"
+    },
+    "filters": {
+      "all": "Toutes",
+      "code": "Code",
+      "uiux": "UI/UX",
+      "docs": "Docs",
+      "security": "Sécurité",
+      "performance": "Performance",
+      "seo": "SEO"
+    },
+    "emptyState": {
+      "title": "Aucune idée pour l'instant",
+      "description": "Générez des idées de fonctionnalités propulsées par l'IA à partir du contexte de votre projet, des modèles existants et du public cible.",
+      "enabledTypes": "Types d'idéation activés",
+      "generateIdeas": "Générer des idées",
+      "noProvider": "Aucun fournisseur d'IA configuré. Ajoutez un compte de fournisseur dans les Paramètres pour générer des idées."
+    },
+    "dialogs": {
+      "configTitle": "Configuration de l'idéation",
+      "configDescription": "Choisissez les types d'idées à générer",
+      "ideationTypes": "Types d'idéation",
+      "contextSources": "Sources de contexte",
+      "includeRoadmapContext": "Inclure le contexte de la feuille de route",
+      "includeKanbanContext": "Inclure le contexte du Kanban",
+      "close": "Fermer",
+      "cancel": "Annuler",
+      "addMoreTitle": "Ajouter des idées",
+      "addMoreDescription": "Sélectionnez d'autres types d'idéation à générer. Vos idées existantes seront conservées.",
+      "allGenerated": "Vous avez déjà généré tous les types d'idéation !",
+      "regenerateHint": "Utilisez \"Régénérer\" pour actualiser les idées existantes.",
+      "selectedCount_one": "{{count}} sélectionné",
+      "selectedCount_other": "{{count}} sélectionnés",
+      "generateTypes_one": "Générer {{count}} type",
+      "generateTypes_other": "Générer {{count}} types",
+      "generateIdeas": "Générer des idées"
+    },
+    "noIdeas": "Aucune idée à afficher",
     "types": {
       "code_improvements": "Améliorations du code",
       "ui_ux_improvements": "Améliorations UI/UX",

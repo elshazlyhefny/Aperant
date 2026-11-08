@@ -159,7 +159,7 @@ export function Ideation({ projectId, onGoToTask }: IdeationProps) {
               ))}
               {activeIdeas.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
-                  No ideas to display
+                  {t('ideation.noIdeas')}
                 </div>
               )}
             </div>
