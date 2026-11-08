@@ -438,6 +438,7 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                     className="hover:bg-primary/10 hover:text-primary transition-colors"
                     onClick={() => state.setIsEditDialogOpen(true)}
                     disabled={state.isRunning && !state.isStuck}
+                    aria-label={t('tasks:edit.title')}
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
