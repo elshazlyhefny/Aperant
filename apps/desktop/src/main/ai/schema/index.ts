@@ -80,6 +80,14 @@ export {
   type ValidatedTaskSuggestion,
 } from './insight-extractor';
 
+export {
+  IdeaSchema,
+  validateIdeasData,
+  normalizeIdeaKeys,
+  IDEATION_SCHEMA_HINT,
+  type ValidatedIdea,
+} from './ideation';
+
 // Clean output schemas for AI SDK Output.object() constrained decoding
 export {
   ComplexityAssessmentOutputSchema,

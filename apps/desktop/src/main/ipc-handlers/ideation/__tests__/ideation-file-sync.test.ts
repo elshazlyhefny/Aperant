@@ -140,6 +140,18 @@ describe('ideation.json from the per-category files', () => {
     writeFileSync(path.join(dir, 'broken_ideas.json'), '{ not json');
     expect(readIdeasByType(dir).get('ui_ux_improvements')?.map((i) => i.id)).toEqual(['b']);
   });
+
+  it('reads a category file with a trailing comma', () => {
+    const good = JSON.stringify({ code_quality: [idea('cq-001', 'code_quality')] });
+    writeFileSync(path.join(dir, 'code_quality_ideas.json'), good.replace(/\]\}$/, '],}'));
+    expect(readIdeasByType(dir).get('code_quality')?.map((i) => i.id)).toEqual(['cq-001']);
+  });
+
+  it('skips an unrepairable file while still returning a valid one', () => {
+    writeFileSync(path.join(dir, 'broken_ideas.json'), '{{{ nope');
+    write('code_quality_ideas.json', { code_quality: [idea('cq-001', 'code_quality')] });
+    expect([...readIdeasByType(dir).keys()]).toEqual(['code_quality']);
+  });
 });
 
 describe('one field convention in ideation.json', () => {
@@ -148,6 +160,13 @@ describe('one field convention in ideation.json', () => {
     const out = normalizeIdea(raw, '2026-10-26T00:00:00.000Z');
     expect(out).toMatchObject({ affected_files: ['x'], current_state: 'kept', linked_task_id: '007-x', metrics: { lineCount: 3 } });
     expect(Object.keys(out).filter((k) => /[A-Z]/.test(k))).toEqual([]);
+  });
+
+  it('maps taskId to linked_task_id, snake_case winning on conflict, with defaults', () => {
+    const out = normalizeIdea({ id: 'a', type: 't', title: 'x', description: 'd', rationale: 'r', taskId: '1-a', filePath: 'camel', file_path: 'snake' }, 'now');
+    expect(out).toMatchObject({ linked_task_id: '1-a', file_path: 'snake', status: 'draft', created_at: 'now' });
+    expect(out).not.toHaveProperty('taskId');
+    expect(out).not.toHaveProperty('filePath');
   });
 
   it('fills a missing status and creation date, keeping ones that exist', () => {
