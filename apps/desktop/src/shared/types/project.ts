@@ -407,6 +407,12 @@ export interface ProjectEnvConfig {
 
   // Custom MCP servers defined by the user
   customMcpServers?: CustomMcpServer[];
+  /** zeenha fork: approval state per custom server id (absent = not launchable) */
+  customMcpServerTrust?: Record<string, { approved: boolean; hash: string }>;
+  /** zeenha fork: whether the declared Chrome executable is approved */
+  chromeDevtoolsExecutableApproved?: boolean;
+  /** zeenha fork: .auto-claude/.env is tracked by git */
+  envTrackedByGit?: boolean;
 }
 
 /**

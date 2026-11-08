@@ -5,6 +5,7 @@
  */
 
 import { ipcMain } from 'electron';
+import type { IPCResult } from '../../shared/types/common';
 import { IPC_CHANNELS } from '../../shared/constants/ipc';
 import type { CustomMcpServer, McpHealthCheckResult, McpHealthStatus, McpTestConnectionResult } from '../../shared/types/project';
 import { spawn } from 'child_process';
@@ -12,7 +13,8 @@ import { appLog } from '../app-logger';
 import { isWindows } from '../platform';
 import { getWhereExePath } from '../utils/windows-paths';
 import { projectStore } from '../project-store';
-import { readProjectMcpOptions } from '../ai/mcp/project-settings';
+import { describeProjectMcpTrust, readProjectMcpOptions } from '../ai/mcp/project-settings';
+import { approveChromeExecutable, approveServer, getApprovals } from '../mcp-approval-store';
 import { checkMcpCommand } from '../ai/mcp/command-policy';
 import { createMcpClient } from '../ai/mcp/client';
 import { customServerToConfig } from '../ai/mcp/registry';
@@ -280,10 +282,60 @@ async function testWithAgentClient(server: CustomMcpServer, startTime: number): 
   }
 }
 
+const CHANGED_MESSAGE = 'The MCP server definition changed since it was shown. Review it again before approving.';
+const CHROME_CHANGED_MESSAGE = 'The Chrome executable changed since it was shown. Review it again before approving.';
+
+function findProject(projectId: string) {
+  return projectStore.getProjects().find((p) => p.id === projectId);
+}
+
+/**
+ * zeenha fork: approve a declared server only if its CURRENT hash (recomputed
+ * from the .env now) equals the one the user was shown.
+ */
+export function approveServerIfUnchanged(projectId: string, serverId: string | undefined, expectedHash: string): IPCResult {
+  const project = findProject(projectId);
+  if (!project) return { success: false, error: 'Project not found' };
+  const trust = describeProjectMcpTrust(project.path, project.autoBuildPath || '.auto-claude', getApprovals(project.path));
+  const current = trust.servers.find((t) => t.hash === expectedHash && (serverId === undefined || t.server.id === serverId));
+  if (!current) return { success: false, error: CHANGED_MESSAGE };
+  approveServer(project.path, current.hash);
+  return { success: true };
+}
+
+export function approveChromeIfUnchanged(projectId: string, expectedPath: string): IPCResult {
+  const project = findProject(projectId);
+  if (!project) return { success: false, error: 'Project not found' };
+  const trust = describeProjectMcpTrust(project.path, project.autoBuildPath || '.auto-claude', getApprovals(project.path));
+  if (!trust.chromeExecutable || trust.chromeExecutable.path !== expectedPath) {
+    return { success: false, error: CHROME_CHANGED_MESSAGE };
+  }
+  approveChromeExecutable(project.path, trust.chromeExecutable.path);
+  return { success: true };
+}
+
 /**
  * Register MCP IPC handlers.
  */
 export function registerMcpHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.MCP_APPROVE_SERVER, async (_event, projectId: string, serverId: string | undefined, expectedHash: string): Promise<IPCResult> => {
+    try {
+      return approveServerIfUnchanged(projectId, serverId, expectedHash);
+    } catch (error) {
+      appLog.error('MCP approve server error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Approval failed' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.MCP_APPROVE_CHROME_EXECUTABLE, async (_event, projectId: string, expectedPath: string): Promise<IPCResult> => {
+    try {
+      return approveChromeIfUnchanged(projectId, expectedPath);
+    } catch (error) {
+      appLog.error('MCP approve Chrome executable error:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Approval failed' };
+    }
+  });
+
   // Quick health check
   ipcMain.handle(IPC_CHANNELS.MCP_CHECK_HEALTH, async (_event, rawServer: CustomMcpServer, projectId?: string) => {
     try {
