@@ -263,6 +263,46 @@ describe('ProjectStore', () => {
     });
   });
 
+  describe('declared base branch', () => {
+    function declareBase(projectPath: string, baseBranch: string): void {
+      writeFileSync(path.join(projectPath, '.aperant.json'), JSON.stringify({ baseBranch }));
+    }
+
+    it('uses the branch a repository declares when the project is added', async () => {
+      const projectPath = path.join(TEST_DIR, 'declared');
+      mkdirSync(projectPath, { recursive: true });
+      declareBase(projectPath, 'trunk');
+
+      const { projectStore } = await import('../project-store');
+      expect(projectStore.addProject(projectPath).settings.mainBranch).toBe('trunk');
+    });
+
+    it('keeps the declared branch when settings are updated', async () => {
+      const projectPath = path.join(TEST_DIR, 'declared-update');
+      mkdirSync(projectPath, { recursive: true });
+      declareBase(projectPath, 'trunk');
+
+      const { projectStore } = await import('../project-store');
+      const project = projectStore.addProject(projectPath);
+
+      expect(
+        projectStore.updateProjectSettings(project.id, { mainBranch: 'develop' })?.settings.mainBranch,
+      ).toBe('trunk');
+    });
+
+    it('leaves a project without a declaration on its stored branch', async () => {
+      const projectPath = path.join(TEST_DIR, 'undeclared');
+      mkdirSync(projectPath, { recursive: true });
+
+      const { projectStore } = await import('../project-store');
+      const project = projectStore.addProject(projectPath);
+
+      expect(
+        projectStore.updateProjectSettings(project.id, { mainBranch: 'develop' })?.settings.mainBranch,
+      ).toBe('develop');
+    });
+  });
+
   describe('getTasks', () => {
     it('should return empty array for non-existent project', async () => {
       const { ProjectStore } = await import('../project-store');

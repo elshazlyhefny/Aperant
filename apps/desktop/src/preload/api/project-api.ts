@@ -82,7 +82,7 @@ export interface ProjectAPI {
   /** Get branches with structured type information (local vs remote) */
   getGitBranchesWithInfo: (projectPath: string) => Promise<IPCResult<GitBranchDetail[]>>;
   getCurrentGitBranch: (projectPath: string) => Promise<IPCResult<string | null>>;
-  detectMainBranch: (projectPath: string) => Promise<IPCResult<string | null>>;
+  detectMainBranch: (projectPath: string, options?: { declaredOnly?: boolean }) => Promise<IPCResult<string | null>>;
   checkGitStatus: (projectPath: string) => Promise<IPCResult<GitStatus>>;
   initializeGit: (projectPath: string) => Promise<IPCResult<InitializationResult>>;
 
@@ -244,8 +244,8 @@ export const createProjectAPI = (): ProjectAPI => ({
   getCurrentGitBranch: (projectPath: string): Promise<IPCResult<string | null>> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_CURRENT_BRANCH, projectPath),
 
-  detectMainBranch: (projectPath: string): Promise<IPCResult<string | null>> =>
-    ipcRenderer.invoke(IPC_CHANNELS.GIT_DETECT_MAIN_BRANCH, projectPath),
+  detectMainBranch: (projectPath: string, options?: { declaredOnly?: boolean }): Promise<IPCResult<string | null>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_DETECT_MAIN_BRANCH, projectPath, options),
 
   checkGitStatus: (projectPath: string): Promise<IPCResult<GitStatus>> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_CHECK_STATUS, projectPath),

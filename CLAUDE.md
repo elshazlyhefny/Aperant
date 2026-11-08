@@ -13,7 +13,7 @@ This repository is `elshazlyhefny/Aperant`, a fork that Aperant itself develops.
 - **Base branch is `zeenha`.** Never target `develop` (a frozen copy of upstream) and never open anything against `AndyMik90/Aperant`. In a fresh clone run `gh repo set-default elshazlyhefny/Aperant`, because `gh` can otherwise pick the `upstream` remote.
 - **Land through pull requests into `zeenha`.** CI must pass and a human merges. Mark fork-specific code with a `zeenha fork:` comment that says why it exists.
 - **Do not touch the installed app.** Never modify, stop or start anything under `~/Applications/aperant-zeenha*` or `~/.config/aperant`. Only `scripts/zeenha-release.sh`, run by a human, replaces the installed app.
-- **A dev run is isolated.** An unpackaged app stores its data in `apps/desktop/.dev-user-data/` and uses its own terminal daemon (`src/main/dev-instance-isolation.ts`). It has no signed-in accounts, so it can test the UI but cannot run real agents. Do not point `APERANT_DEV_USER_DATA` at the real data folder. Start one dev instance at a time, because task worktrees share the Vite cache. If startup fails with `does not provide an export named 'app'`, run `unset ELECTRON_RUN_AS_NODE` first.
+- **A dev run is isolated.** An unpackaged app keeps its data and its default Claude profile in `apps/desktop/.dev-user-data/` (`src/main/dev-instance-isolation.ts`). It does not use the installed app's accounts, so use it to test the UI, not to run real agents. Start one dev instance at a time, because task worktrees share the Vite cache. If startup fails with `does not provide an export named 'app'`, run `unset ELECTRON_RUN_AS_NODE` first.
 - **Task worktrees share dependencies.** `.aperant.json` links `node_modules` and `apps/desktop/node_modules` to the main checkout, so never run `npm install` or `npm ci` through those links: it would change every other task's dependencies. If a task must change dependencies, first remove the two links in that worktree, then run `npm ci` there.
 
 Checks to run before finishing a task, from `apps/desktop`:
@@ -59,11 +59,11 @@ Auto Claude is a desktop application (+ CLI) where users describe a goal and AI 
 
 **i18n required** — All frontend user-facing text uses `react-i18next` translation keys. Hardcoded strings in JSX/TSX break localization for non-English users. Add keys to both `en/*.json` and `fr/*.json`.
 
-**Platform abstraction** — Never use `process.platform` directly. Import from `apps/desktop/src/main/platform/`. CI tests all three platforms.
+**Platform abstraction** — Never use `process.platform` directly. Import from `apps/desktop/src/main/platform/`. This fork's CI runs Linux and macOS, so keep Windows paths working by inspection.
 
 **No time estimates** — Provide priority-based ordering instead of duration predictions.
 
-**PR target** — Always target the `develop` branch for PRs, not `main`. Main is reserved for releases.
+**PR target** — Always target the `zeenha` branch for PRs (see [This Fork](#this-fork-zeenha)).
 
 **No console.log in production code** — `console.log` output is invisible in bundled Electron apps. Use Sentry for error tracking in production; reserve `console.log` for development only.
 
@@ -343,7 +343,7 @@ When adding new UI text: add keys to ALL language files, use `namespace:section.
 
 ## Cross-Platform
 
-Supports Windows, macOS, Linux. CI tests all three.
+Supports Windows, macOS, Linux. This fork's CI tests Linux and macOS.
 
 **Platform modules:** `apps/desktop/src/main/platform/`
 

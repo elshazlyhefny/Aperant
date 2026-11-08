@@ -12,9 +12,10 @@ import * as net from 'net';
 import * as fs from 'fs';
 import * as pty from '@lydell/node-pty';
 import { isWindows, isUnix } from '../platform';
-import { getPtySocketPath } from './pty-socket-path';
 
-const SOCKET_PATH = getPtySocketPath();
+const SOCKET_PATH = isWindows()
+  ? `\\\\.\\pipe\\auto-claude-pty-${process.getuid?.() || 'default'}`
+  : `/tmp/auto-claude-pty-${process.getuid?.() || 'default'}.sock`;
 
 // Maximum buffer size per PTY (100KB)
 const MAX_BUFFER_SIZE = 100_000;

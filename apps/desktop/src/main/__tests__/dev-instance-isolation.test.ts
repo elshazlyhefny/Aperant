@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('electron', () => ({ app: { isPackaged: true } }));
 
 import { DEV_USER_DATA_DIR, isolateDevInstance } from '../dev-instance-isolation';
-import { getPtySocketPath } from '../terminal/pty-socket-path';
 
 describe('isolateDevInstance', () => {
   let appPath: string;
@@ -25,54 +24,27 @@ describe('isolateDevInstance', () => {
     rmSync(appPath, { recursive: true, force: true });
   });
 
-  it('leaves a packaged app on its normal data folder and socket', () => {
+  it('leaves a packaged app on its normal data folder', () => {
     const target = devApp(true);
-    const env: NodeJS.ProcessEnv = {};
 
-    expect(isolateDevInstance(target as never, env)).toBeNull();
+    expect(isolateDevInstance(target as never)).toBeNull();
     expect(target.setPath).not.toHaveBeenCalled();
-    expect(env.APERANT_PTY_SOCKET).toBeUndefined();
   });
 
   it('moves a dev instance to a data folder inside its own checkout', () => {
     const target = devApp();
-    isolateDevInstance(target as never, {});
+    isolateDevInstance(target as never);
 
     expect(target.setPath).toHaveBeenCalledWith('userData', join(appPath, DEV_USER_DATA_DIR));
   });
 
-  it('gives a dev instance its own terminal daemon socket', () => {
-    const env: NodeJS.ProcessEnv = {};
-    isolateDevInstance(devApp() as never, env);
-
-    expect(env.APERANT_PTY_SOCKET).toContain('-dev-');
-    expect(getPtySocketPath(env)).toBe(env.APERANT_PTY_SOCKET);
-    expect(getPtySocketPath({})).not.toContain('-dev-');
-  });
-
-  it('keeps socket paths short enough for a deep worktree', () => {
-    appPath = join(appPath, 'x'.repeat(150));
-    const env: NodeJS.ProcessEnv = {};
-    isolateDevInstance(devApp() as never, env);
-
-    expect((env.APERANT_PTY_SOCKET ?? '').length).toBeLessThan(100);
-  });
-
-  it('honours APERANT_DEV_USER_DATA', () => {
-    const custom = join(appPath, 'custom');
-    const target = devApp();
-    isolateDevInstance(target as never, { APERANT_DEV_USER_DATA: custom });
-
-    expect(target.setPath).toHaveBeenCalledWith('userData', custom);
-  });
-
   it('skips onboarding for a new data folder without overwriting an existing one', () => {
-    isolateDevInstance(devApp() as never, {});
+    isolateDevInstance(devApp() as never);
     const settingsPath = join(appPath, DEV_USER_DATA_DIR, 'settings.json');
     expect(JSON.parse(readFileSync(settingsPath, 'utf-8'))).toEqual({ onboardingCompleted: true });
 
     writeFileSync(settingsPath, '{"theme":"dark"}');
-    isolateDevInstance(devApp() as never, {});
+    isolateDevInstance(devApp() as never);
     expect(readFileSync(settingsPath, 'utf-8')).toBe('{"theme":"dark"}');
   });
 

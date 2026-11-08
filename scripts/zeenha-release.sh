@@ -47,12 +47,11 @@ assert_clean_trunk() {
     || die "local $BRANCH differs from origin/$BRANCH; pull or push first"
 }
 
-# Task worktrees link to these folders, so they have to match the lockfile.
-sync_dependencies() {
-  if [[ "$REPO_ROOT/package-lock.json" -nt "$REPO_ROOT/node_modules/.package-lock.json" ]]; then
-    log "package-lock.json changed: reinstalling dependencies"
-    (cd "$REPO_ROOT" && npm ci --no-audit --no-fund)
-  fi
+# Task worktrees link to these folders, so an agent's stray `npm install` can
+# change them without touching the lockfile. Only a clean install is trustworthy.
+install_dependencies() {
+  log "Installing dependencies from package-lock.json"
+  (cd "$REPO_ROOT" && npm ci --no-audit --no-fund)
 }
 
 next_version() {
@@ -121,7 +120,7 @@ release() {
   local install="$1" from to build_log appimage
   assert_clean_trunk
   [[ "$install" == no ]] || assert_app_stopped
-  sync_dependencies
+  install_dependencies
 
   from="$(current_version)"
   to="$(next_version "$from")"

@@ -492,10 +492,13 @@ export function registerProjectHandlers(
   // Auto-detect main branch for a project
   ipcMain.handle(
     IPC_CHANNELS.GIT_DETECT_MAIN_BRANCH,
-    async (_, projectPath: string): Promise<IPCResult<string | null>> => {
+    async (_, projectPath: string, options?: { declaredOnly?: boolean }): Promise<IPCResult<string | null>> => {
       try {
         if (!existsSync(projectPath)) {
           return { success: false, error: 'Directory does not exist' };
+        }
+        if (options?.declaredOnly) {
+          return { success: true, data: readProjectRepoConfig(projectPath).baseBranch ?? null };
         }
         const mainBranch = detectMainBranch(projectPath);
         return { success: true, data: mainBranch };

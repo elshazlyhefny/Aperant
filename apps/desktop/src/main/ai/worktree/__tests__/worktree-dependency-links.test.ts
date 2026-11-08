@@ -4,12 +4,13 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
-  readlinkSync,
+  realpathSync,
+  symlinkSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { readProjectRepoConfig } from '../project-repo-config';
@@ -26,7 +27,8 @@ describe('project repo config and dependency links', () => {
     writeFileSync(join(project, '.aperant.json'), JSON.stringify(config));
 
   beforeEach(() => {
-    project = mkdtempSync(join(tmpdir(), 'worktree-links-'));
+    // realpath: macOS and Windows temp paths are aliases git reports differently.
+    project = realpathSync.native(mkdtempSync(join(tmpdir(), 'worktree-links-')));
     git(project, 'init', '-q', '-b', 'main');
     git(project, 'config', 'user.email', 'test@example.com');
     git(project, 'config', 'user.name', 'Test');
@@ -86,7 +88,7 @@ describe('project repo config and dependency links', () => {
       for (const rel of ['node_modules', 'apps/desktop/node_modules']) {
         const link = join(worktreePath, rel);
         expect(lstatSync(link).isSymbolicLink()).toBe(true);
-        expect(resolve(readlinkSync(link))).toBe(resolve(project, rel));
+        expect(realpathSync.native(link)).toBe(join(project, rel));
       }
     });
 
@@ -113,12 +115,24 @@ describe('project repo config and dependency links', () => {
       ({ worktreePath: worktree } = await createOrGetWorktree(project, '002-task', 'main', true, false));
     });
 
-    it('does not create a link git would commit', async () => {
+    it('keeps a link out of git when .gitignore only matches directories', async () => {
       mkdirSync(join(project, 'vendor'));
+      writeFileSync(join(project, '.gitignore'), 'vendor/\nnode_modules\napps/desktop/node_modules\n.auto-claude/\n');
+      git(project, 'add', '.gitignore');
+      git(project, 'commit', '-q', '-m', 'ignore vendor as a directory');
+      git(worktree, 'pull', '-q', '--no-rebase', project, 'main');
       declare({ linkDependencies: ['vendor'] });
 
-      expect(await linkWorktreeDependencies(project, worktree)).toEqual([]);
-      expect(existsSync(join(worktree, 'vendor'))).toBe(false);
+      expect(await linkWorktreeDependencies(project, worktree)).toEqual(['vendor']);
+      expect(git(worktree, 'status', '--porcelain')).toBe('');
+    });
+
+    it('repairs a dangling link', async () => {
+      symlinkSync(join(project, 'gone'), join(worktree, 'node_modules'), 'junction');
+      declare({ linkDependencies: ['node_modules'] });
+
+      expect(await linkWorktreeDependencies(project, worktree)).toEqual(['node_modules']);
+      expect(realpathSync.native(join(worktree, 'node_modules'))).toBe(join(project, 'node_modules'));
     });
 
     it('does not replace a real install in the worktree', async () => {
