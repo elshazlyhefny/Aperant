@@ -4,6 +4,8 @@
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import path from 'path';
+import { normalizeIdeaKeys } from '../../ai/schema/ideation';
+import { safeParseJson } from '../../utils/json-repair';
 import type { RawIdea, RawIdeationData } from './types';
 
 /**
@@ -87,6 +89,7 @@ function freeId(id: string, taken: ReadonlySet<string>, avoid: ReadonlySet<strin
   return `${id}-${n}`;
 }
 
+// Lenient on purpose: ideas saved earlier must not be dropped on read; the strict check happens at generation time in the runner.
 function isIdea(value: unknown): value is RawIdea {
   return (
     typeof value === 'object' &&
@@ -96,8 +99,6 @@ function isIdea(value: unknown): value is RawIdea {
     typeof (value as RawIdea).title === 'string'
   );
 }
-
-const toSnakeCase = (key: string): string => key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 
 /**
  * zeenha fork: one field convention in `ideation.json`. The prompts' schemas
@@ -110,12 +111,7 @@ const toSnakeCase = (key: string): string => key.replace(/[A-Z]/g, (c) => `_${c.
  * creation date is filled in. Nested values (e.g. `metrics`) are left alone.
  */
 export function normalizeIdea(idea: RawIdea, createdAt: string): RawIdea {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(idea)) {
-    const snake = key === 'taskId' ? 'linked_task_id' : toSnakeCase(key);
-    if (snake !== key && (idea[snake] !== undefined || out[snake] !== undefined)) continue;
-    out[snake] = value;
-  }
+  const out = normalizeIdeaKeys(idea);
   out.status ??= 'draft';
   out.created_at ??= createdAt;
   return out as RawIdea;
@@ -137,12 +133,14 @@ export function readIdeasByType(ideationDir: string): Map<string, RawIdea[]> {
 
   const byType = new Map<string, RawIdea[]>();
   for (const { name, mtime } of files) {
-    let data: unknown;
+    let raw: string;
     try {
-      data = JSON.parse(readFileSync(path.join(ideationDir, name), 'utf-8'));
+      raw = readFileSync(path.join(ideationDir, name), 'utf-8');
     } catch {
-      continue; // a half-written or invalid file must not block the others
+      continue; // an unreadable file must not block the others
     }
+    // Repairs trailing commas, fences and missing commas; an unrepairable file is skipped.
+    const data = safeParseJson<unknown>(raw);
     if (typeof data !== 'object' || data === null) continue;
     const fromFile = new Map<string, RawIdea[]>();
     for (const value of Object.values(data as Record<string, unknown>)) {
