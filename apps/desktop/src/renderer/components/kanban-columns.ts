@@ -9,7 +9,7 @@
  * failed only by failing).
  */
 import { TASK_STATUS_COLUMNS } from '../../shared/constants';
-import type { TaskStatus } from '../../shared/types';
+import type { Task, TaskStatus } from '../../shared/types';
 import { canMoveFailedTaskTo } from '../../shared/utils/task-failure';
 
 export const FAILED_COLUMN = 'error' as const;
@@ -41,4 +41,28 @@ export function canDropTask(from: TaskStatus, to: TaskStatus): boolean {
   if (getVisualColumn(to) === FAILED_COLUMN) return false;
   if (getVisualColumn(from) === FAILED_COLUMN) return canMoveFailedTaskTo(to);
   return true;
+}
+
+/** Whether a task matches the board search query (case-insensitive; matches title, description or spec ID). */
+export function taskMatchesSearch(
+  task: Pick<Task, 'title' | 'description' | 'specId'>,
+  query: string
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    (task.title ?? '').toLowerCase().includes(q) ||
+    (task.description ?? '').toLowerCase().includes(q) ||
+    (task.specId ?? '').toLowerCase().includes(q)
+  );
+}
+
+/** Filters every column by the search query; returns `columns` itself when the query is empty. */
+export function filterColumnsBySearch<T extends Record<string, Task[]>>(columns: T, query: string): T {
+  if (!query.trim()) return columns;
+  const result: Record<string, Task[]> = {};
+  for (const key of Object.keys(columns)) {
+    result[key] = columns[key].filter((task) => taskMatchesSearch(task, query));
+  }
+  return result as T;
 }
