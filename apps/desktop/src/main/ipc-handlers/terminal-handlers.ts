@@ -12,6 +12,7 @@ import { debugLog, } from '../../shared/utils/debug-logger';
 import { migrateSession } from '../claude-profile/session-utils';
 import { createProfileDirectory } from '../claude-profile/profile-utils';
 import { isValidConfigDir } from '../utils/config-path-validator';
+import { assertTrustedSender } from '../ipc-sender-validation';
 
 
 /**
@@ -28,7 +29,8 @@ export function registerTerminalHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_CREATE,
-    async (_, options: TerminalCreateOptions): Promise<IPCResult> => {
+    async (event, options: TerminalCreateOptions): Promise<IPCResult> => {
+      if (!assertTrustedSender(event, 'TERMINAL_CREATE')) return { success: false, error: 'Untrusted sender' };
       try {
         const result = await terminalManager.create(options);
         return result;
@@ -43,21 +45,24 @@ export function registerTerminalHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_DESTROY,
-    async (_, id: string): Promise<IPCResult> => {
+    async (event, id: string): Promise<IPCResult> => {
+      if (!assertTrustedSender(event, 'TERMINAL_DESTROY')) return { success: false, error: 'Untrusted sender' };
       return terminalManager.destroy(id);
     }
   );
 
   ipcMain.on(
     IPC_CHANNELS.TERMINAL_INPUT,
-    (_, id: string, data: string) => {
+    (event, id: string, data: string) => {
+      if (!assertTrustedSender(event, 'TERMINAL_INPUT')) return;
       terminalManager.write(id, data);
     }
   );
 
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_RESIZE,
-    async (_, id: string, cols: number, rows: number): Promise<IPCResult<{ success: boolean }>> => {
+    async (event, id: string, cols: number, rows: number): Promise<IPCResult<{ success: boolean }>> => {
+      if (!assertTrustedSender(event, 'TERMINAL_RESIZE')) return { success: false, error: 'Untrusted sender' };
       const success = terminalManager.resize(id, cols, rows);
       return { success, data: { success } };
     }
@@ -65,7 +70,8 @@ export function registerTerminalHandlers(
 
   ipcMain.on(
     IPC_CHANNELS.TERMINAL_INVOKE_CLI,
-    (_, id: string, cwd?: string) => {
+    (event, id: string, cwd?: string) => {
+      if (!assertTrustedSender(event, 'TERMINAL_INVOKE_CLI')) return;
       // Wrap in async IIFE to allow async settings read without blocking
       (async () => {
         // Read settings asynchronously to check for YOLO mode (dangerously skip permissions)
@@ -102,7 +108,8 @@ export function registerTerminalHandlers(
   // Set terminal title (user renamed terminal in renderer)
   ipcMain.on(
     IPC_CHANNELS.TERMINAL_SET_TITLE,
-    (_, id: string, title: string) => {
+    (event, id: string, title: string) => {
+      if (!assertTrustedSender(event, 'TERMINAL_SET_TITLE')) return;
       terminalManager.setTitle(id, title);
     }
   );
@@ -110,7 +117,8 @@ export function registerTerminalHandlers(
   // Set terminal worktree config (user changed worktree association in renderer)
   ipcMain.on(
     IPC_CHANNELS.TERMINAL_SET_WORKTREE_CONFIG,
-    (_, id: string, config: import('../../shared/types').TerminalWorktreeConfig | undefined) => {
+    (event, id: string, config: import('../../shared/types').TerminalWorktreeConfig | undefined) => {
+      if (!assertTrustedSender(event, 'TERMINAL_SET_WORKTREE_CONFIG')) return;
       terminalManager.setWorktreeConfig(id, config);
     }
   );

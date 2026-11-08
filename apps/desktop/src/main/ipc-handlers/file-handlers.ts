@@ -4,6 +4,7 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { IPCResult, FileNode } from '../../shared/types';
+import { assertTrustedSender } from '../ipc-sender-validation';
 
 // Maximum file size to read (1MB)
 const MAX_FILE_SIZE = 1024 * 1024;
@@ -49,7 +50,8 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.FILE_EXPLORER_LIST,
-    async (_, dirPath: string): Promise<IPCResult<FileNode[]>> => {
+    async (event, dirPath: string): Promise<IPCResult<FileNode[]>> => {
+      if (!assertTrustedSender(event, 'FILE_EXPLORER_LIST')) return { success: false, error: 'Untrusted sender' };
       try {
         // Validate and normalize path to prevent directory traversal
         const validation = validatePath(dirPath);
@@ -95,7 +97,8 @@ export function registerFileHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.FILE_EXPLORER_READ,
-    async (_, filePath: string): Promise<IPCResult<string>> => {
+    async (event, filePath: string): Promise<IPCResult<string>> => {
+      if (!assertTrustedSender(event, 'FILE_EXPLORER_READ')) return { success: false, error: 'Untrusted sender' };
       try {
         // Validate and normalize path
         const validation = validatePath(filePath);
