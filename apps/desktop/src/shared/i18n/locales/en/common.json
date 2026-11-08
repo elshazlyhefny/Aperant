@@ -537,7 +537,8 @@
       "subtitle": "AI-generated feature ideas for your project",
       "ideasCount_one": "{{count}} idea",
       "ideasCount_other": "{{count}} ideas",
-      "selectedCount": "{{count}} selected",
+      "selectedCount_one": "{{count}} selected",
+      "selectedCount_other": "{{count}} selected",
       "delete": "Delete",
       "addMore": "Add More"
     },
@@ -570,8 +571,10 @@
       "addMoreDescription": "Select additional ideation types to generate. Your existing ideas will be preserved.",
       "allGenerated": "You've already generated all ideation types!",
       "regenerateHint": "Use \"Regenerate\" to refresh existing ideas.",
-      "selectedCount": "{{count}} selected",
-      "generateTypes": "Generate {{count}} Types",
+      "selectedCount_one": "{{count}} selected",
+      "selectedCount_other": "{{count}} selected",
+      "generateTypes_one": "Generate {{count}} Type",
+      "generateTypes_other": "Generate {{count}} Types",
       "generateIdeas": "Generate Ideas"
     },
     "noIdeas": "No ideas to display",
