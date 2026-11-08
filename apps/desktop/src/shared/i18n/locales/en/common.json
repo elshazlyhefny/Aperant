@@ -519,7 +519,18 @@
     "conversionFailed": "Conversion failed",
     "conversionFailedDescription": "Failed to convert idea to task",
     "conversionError": "Conversion error",
-    "conversionErrorDescription": "An error occurred while converting the idea"
+    "conversionErrorDescription": "An error occurred while converting the idea",
+    "selectedCount_one": "{{count}} selected",
+    "selectedCount_other": "{{count}} selected",
+    "convertSelected": "Convert selected",
+    "convertSelectedAriaLabel": "Convert selected ideas to tasks",
+    "bulkConvertSuccess_one": "Converted {{count}} idea to a task",
+    "bulkConvertSuccess_other": "Converted {{count}} ideas to tasks",
+    "bulkConvertPartial": "Converted {{succeeded}} of {{total}} ideas. {{failed}} failed.",
+    "bulkConvertFailed_one": "Could not convert {{count}} idea",
+    "bulkConvertFailed_other": "Could not convert {{count}} ideas",
+    "bulkConvertTitle": "Convert selected",
+    "bulkConvertNoneEligible": "None of the selected ideas can be converted. Dismissed, archived and already converted ideas are skipped."
   },
   "issues": {
     "loadingMore": "Loading more...",

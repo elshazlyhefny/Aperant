@@ -519,7 +519,18 @@
     "conversionFailed": "Échec de la conversion",
     "conversionFailedDescription": "Impossible de convertir l'idée en tâche",
     "conversionError": "Erreur de conversion",
-    "conversionErrorDescription": "Une erreur s'est produite lors de la conversion de l'idée"
+    "conversionErrorDescription": "Une erreur s'est produite lors de la conversion de l'idée",
+    "selectedCount_one": "{{count}} sélectionnée",
+    "selectedCount_other": "{{count}} sélectionnées",
+    "convertSelected": "Convertir la sélection",
+    "convertSelectedAriaLabel": "Convertir les idées sélectionnées en tâches",
+    "bulkConvertSuccess_one": "{{count}} idée convertie en tâche",
+    "bulkConvertSuccess_other": "{{count}} idées converties en tâches",
+    "bulkConvertPartial": "{{succeeded}} idées sur {{total}} converties. {{failed}} en échec.",
+    "bulkConvertFailed_one": "Impossible de convertir {{count}} idée",
+    "bulkConvertFailed_other": "Impossible de convertir {{count}} idées",
+    "bulkConvertTitle": "Conversion de la sélection",
+    "bulkConvertNoneEligible": "Aucune des idées sélectionnées ne peut être convertie. Les idées rejetées, archivées ou déjà converties sont ignorées."
   },
   "issues": {
     "loadingMore": "Chargement...",
