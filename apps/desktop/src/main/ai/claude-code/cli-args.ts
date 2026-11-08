@@ -14,6 +14,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { isWindows } from '../../platform';
 
 /** MCP server name the tool bridge registers under; tools appear as `mcp__aperant__<name>`. */
 export const BRIDGE_SERVER_NAME = 'aperant';
@@ -39,7 +40,7 @@ export function resolveClaudeBinary(env: NodeJS.ProcessEnv = process.env): strin
   const override = env.APERANT_CLAUDE_PATH;
   if (override) return existsSync(override) ? override : null;
 
-  const name = process.platform === 'win32' ? 'claude.exe' : 'claude';
+  const name = isWindows() ? 'claude.exe' : 'claude';
   const home = homedir();
   const dirs = [
     ...(env.PATH ?? '').split(delimiter).filter(Boolean),
