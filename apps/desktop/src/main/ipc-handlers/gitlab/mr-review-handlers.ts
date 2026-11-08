@@ -24,6 +24,7 @@ import type {
   MRReviewProgress,
   NewCommitsCheck,
 } from './types';
+import { prepareMRReviewCheckout, type PRReviewCheckout } from '../../ai/runners/github/pr-review-checkout';
 import { createContextLogger } from '../github/utils/logger';
 import { withProjectOrNull } from '../github/utils/project-middleware';
 import { createIPCCommunicators } from '../github/utils/ipc-communicator';
@@ -266,6 +267,35 @@ function saveMRReviewResultToDisk(
 }
 
 /**
+ * zeenha fork: fetch the MR head into a detached worktree so the reviewer reads
+ * the MR's own code. Falls back to a 'base' result (diff-only review) on failure.
+ */
+async function prepareCheckoutForMR(
+  project: Project,
+  mrIid: number,
+  sendProgress: (update: MRReviewProgress) => void
+): Promise<PRReviewCheckout> {
+  const checkout = await prepareMRReviewCheckout(project.path, mrIid);
+  const message =
+    checkout.kind === 'pr-head'
+      ? `Reviewing a checkout of the MR head ${checkout.sha.slice(0, 12)}`
+      : `Could not check out the MR; reviewing the diff only: ${checkout.reason}`;
+  debugLog('MR review checkout prepared', { mrIid, kind: checkout.kind });
+  sendProgress({ phase: 'analyzing', mrIid, progress: 32, message });
+  return checkout;
+}
+
+/** zeenha fork: release a checkout; a cleanup failure must never mask the review outcome. */
+async function cleanupCheckout(checkout: PRReviewCheckout | null): Promise<void> {
+  if (checkout?.kind !== 'pr-head') return;
+  try {
+    await checkout.cleanup();
+  } catch (err) {
+    debugLog('MR review checkout cleanup failed', { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+/**
  * Run the TypeScript MR reviewer using MRReviewEngine
  */
 async function runMRReview(
@@ -309,12 +339,16 @@ async function runMRReview(
   runningReviews.set(reviewKey, abortController);
   debugLog('Registered review abort controller', { reviewKey });
 
+  // zeenha fork: review a checkout of the MR head, released in the finally below
+  let checkout: PRReviewCheckout | null = null;
   try {
+    checkout = await prepareCheckoutForMR(project, mrIid, sendProgress);
+
     const engine = new MRReviewEngine(reviewConfig, (update) => {
       sendProgress({ phase: 'analyzing', mrIid, progress: update.progress, message: update.message });
     });
 
-    const reviewResult = await engine.runReview(context, abortController.signal);
+    const reviewResult = await engine.runReview(context, abortController.signal, { checkout });
 
     // Map verdict to overallStatus
     const verdictToStatus: Record<string, MRReviewResult['overallStatus']> = {
@@ -346,6 +380,7 @@ async function runMRReview(
     }
     throw err;
   } finally {
+    await cleanupCheckout(checkout);
     runningReviews.delete(reviewKey);
     debugLog('Unregistered review abort controller', { reviewKey });
   }
@@ -911,12 +946,16 @@ export function registerMRReviewHandlers(
           runningReviews.set(reviewKey, abortController);
           debugLog('Registered follow-up review abort controller', { reviewKey });
 
+          // zeenha fork: review a checkout of the MR head, released in the finally below
+          let checkout: PRReviewCheckout | null = null;
           try {
+            checkout = await prepareCheckoutForMR(project, mrIid, sendProgress);
+
             const engine = new MRReviewEngine(reviewConfig, (update) => {
               sendProgress({ phase: 'analyzing', mrIid, progress: update.progress, message: update.message });
             });
 
-            const reviewResult = await engine.runReview(context, abortController.signal);
+            const reviewResult = await engine.runReview(context, abortController.signal, { checkout });
 
             const verdictToStatus: Record<string, MRReviewResult['overallStatus']> = {
               ready_to_merge: 'approve',
@@ -951,6 +990,7 @@ export function registerMRReviewHandlers(
 
             sendComplete(result);
           } finally {
+            await cleanupCheckout(checkout);
             runningReviews.delete(reviewKey);
             debugLog('Unregistered follow-up review', { reviewKey });
           }
