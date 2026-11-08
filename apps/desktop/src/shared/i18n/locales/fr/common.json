@@ -699,11 +699,8 @@
   },
   "profileCreated": {
     "title": "Le profil « {{profileName}} » a été créé.",
-    "instructions": "Pour authentifier ce profil :",
-    "step1": "Allez dans Paramètres > Intégrations",
-    "step2": "Trouvez le profil dans la section Comptes Claude",
-    "step3": "Cliquez sur « Authentifier » pour terminer la connexion",
-    "footer": "Le compte sera disponible une fois l'authentification terminée."
+    "description": "Ouvrez Paramètres > Comptes et cliquez sur Authentifier pour terminer la connexion.",
+    "goToAccounts": "Aller aux comptes"
   },
   "roadmap": {
     "taskCompleted": "Terminé",
