@@ -65,6 +65,7 @@
     "expandAriaLabel": "Développer",
     "collapseAriaLabel": "Réduire",
     "selectIdeaAriaLabel": "Sélectionner l'idée : {{title}}",
+    "investigateIssueAriaLabel": "Examiner le ticket",
     "convertToTaskAriaLabel": "Convertir en tâche",
     "goToTaskAriaLabel": "Aller à la tâche",
     "reAuthenticateProfileAriaLabel": "Ré-authentifier le profil",

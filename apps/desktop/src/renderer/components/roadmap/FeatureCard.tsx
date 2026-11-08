@@ -24,7 +24,18 @@ export function FeatureCard({
   const { t } = useTranslation('common');
 
   return (
-    <Card className="p-4 hover:bg-muted/50 cursor-pointer transition-colors" onClick={onClick}>
+    <Card
+      role="button"
+      tabIndex={0}
+      className="p-4 hover:bg-muted/50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
