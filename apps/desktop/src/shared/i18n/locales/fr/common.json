@@ -667,6 +667,41 @@
       "metrics": "Métriques",
       "estimatedEffort": "Effort estimé",
       "impactSuffix": "Impact {{impact}}"
+    },
+    "severity": {
+      "suggestion": "Suggestion",
+      "minor": "Mineure",
+      "major": "Majeure",
+      "critical": "Critique"
+    },
+    "effort": {
+      "trivial": "Trivial",
+      "small": "Faible",
+      "medium": "Moyen",
+      "large": "Élevé",
+      "complex": "Complexe"
+    },
+    "details": {
+      "codeQuality": {
+        "breakingChange": "Changement non rétrocompatible",
+        "breakingChangeWarning": "Ce refactoring peut casser le code ou les tests existants.",
+        "codeExample": "Exemple de code",
+        "lines": "Lignes",
+        "complexity": "Complexité",
+        "duplicateLines": "Lignes dupliquées",
+        "testCoverage": "Couverture de tests",
+        "bestPractice": "Bonne pratique",
+        "prerequisites": "Prérequis"
+      },
+      "codeImprovement": {
+        "buildsUpon": "S'appuie sur",
+        "implementationApproach": "Approche d'implémentation",
+        "patternsToFollow": "Patterns à suivre"
+      },
+      "uiux": {
+        "userBenefit": "Bénéfice utilisateur",
+        "affectedComponents": "Composants concernés"
+      }
     }
   },
   "issues": {
