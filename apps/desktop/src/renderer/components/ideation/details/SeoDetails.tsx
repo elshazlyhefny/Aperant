@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   Search,
   AlertCircle,
@@ -21,6 +22,7 @@ interface SeoDetailsProps {
 }
 
 export function SeoDetails({ idea }: SeoDetailsProps) {
+  const { t } = useTranslation('common');
   return (
     <>
       {/* Metrics */}
@@ -46,7 +48,9 @@ export function SeoDetails({ idea }: SeoDetailsProps) {
           Category
         </h3>
         <Badge variant="outline">
-          {SEO_CATEGORY_LABELS[idea.category] ?? idea.category}
+          {SEO_CATEGORY_LABELS[idea.category]
+            ? t(SEO_CATEGORY_LABELS[idea.category])
+            : idea.category}
         </Badge>
       </div>
 

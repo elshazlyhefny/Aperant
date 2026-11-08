@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   Shield,
   AlertTriangle,
@@ -19,6 +20,7 @@ interface SecurityHardeningDetailsProps {
 }
 
 export function SecurityHardeningDetails({ idea }: SecurityHardeningDetailsProps) {
+  const { t } = useTranslation('common');
   return (
     <>
       {/* Metrics */}
@@ -44,7 +46,7 @@ export function SecurityHardeningDetails({ idea }: SecurityHardeningDetailsProps
           Category
         </h3>
         <Badge variant="outline">
-          {SECURITY_CATEGORY_LABELS[idea.category]}
+          {t(SECURITY_CATEGORY_LABELS[idea.category])}
         </Badge>
       </div>
 

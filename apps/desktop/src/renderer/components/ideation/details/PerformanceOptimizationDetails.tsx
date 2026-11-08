@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   Gauge,
   Box,
@@ -40,6 +41,7 @@ function getCategoryIcon(category: string) {
 }
 
 export function PerformanceOptimizationDetails({ idea }: PerformanceOptimizationDetailsProps) {
+  const { t } = useTranslation('common');
   return (
     <>
       {/* Metrics */}
@@ -65,7 +67,7 @@ export function PerformanceOptimizationDetails({ idea }: PerformanceOptimization
           Category
         </h3>
         <Badge variant="outline">
-          {PERFORMANCE_CATEGORY_LABELS[idea.category]}
+          {t(PERFORMANCE_CATEGORY_LABELS[idea.category])}
         </Badge>
       </div>
 

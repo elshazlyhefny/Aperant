@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   Code2,
   AlertTriangle,
@@ -21,6 +22,7 @@ interface CodeQualityDetailsProps {
 }
 
 export function CodeQualityDetails({ idea }: CodeQualityDetailsProps) {
+  const { t } = useTranslation('common');
   return (
     <>
       {/* Metrics */}
@@ -46,7 +48,7 @@ export function CodeQualityDetails({ idea }: CodeQualityDetailsProps) {
           Category
         </h3>
         <Badge variant="outline">
-          {CODE_QUALITY_CATEGORY_LABELS[idea.category]}
+          {t(CODE_QUALITY_CATEGORY_LABELS[idea.category])}
         </Badge>
       </div>
 

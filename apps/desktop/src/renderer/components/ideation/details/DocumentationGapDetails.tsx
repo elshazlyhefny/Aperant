@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   Users,
   AlertCircle,
@@ -18,13 +19,14 @@ interface DocumentationGapDetailsProps {
 }
 
 export function DocumentationGapDetails({ idea }: DocumentationGapDetailsProps) {
+  const { t } = useTranslation('common');
   return (
     <>
       {/* Metrics */}
       <div className="grid grid-cols-2 gap-2">
         <Card className="p-3 text-center">
           <div className="text-lg font-semibold">
-            {DOCUMENTATION_CATEGORY_LABELS[idea.category]}
+            {t(DOCUMENTATION_CATEGORY_LABELS[idea.category])}
           </div>
           <div className="text-xs text-muted-foreground">Category</div>
         </Card>

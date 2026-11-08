@@ -86,7 +86,7 @@ export function IdeaCard({ idea, isSelected, onClick, onConvert, onGoToTask, onD
           <div className="flex items-center gap-2 mb-1">
             <Badge variant="outline" className={IDEATION_TYPE_COLORS[idea.type]}>
               <TypeIcon type={idea.type} />
-              <span className="ml-1">{IDEATION_TYPE_LABELS[idea.type]}</span>
+              <span className="ml-1">{t(IDEATION_TYPE_LABELS[idea.type])}</span>
             </Badge>
             {idea.status !== 'draft' && (
               <Badge variant="outline" className={IDEATION_STATUS_COLORS[idea.status]}>
@@ -100,12 +100,12 @@ export function IdeaCard({ idea, isSelected, onClick, onConvert, onGoToTask, onD
             )}
             {isUIUXIdea(idea) && typeof (idea as UIUXImprovementIdea).category === 'string' && (
               <Badge variant="outline">
-                {UIUX_CATEGORY_LABELS[(idea as UIUXImprovementIdea).category]}
+                {t(UIUX_CATEGORY_LABELS[(idea as UIUXImprovementIdea).category])}
               </Badge>
             )}
             {isDocumentationGapIdea(idea) && typeof (idea as DocumentationGapIdea).category === 'string' && (
               <Badge variant="outline">
-                {DOCUMENTATION_CATEGORY_LABELS[(idea as DocumentationGapIdea).category]}
+                {t(DOCUMENTATION_CATEGORY_LABELS[(idea as DocumentationGapIdea).category])}
               </Badge>
             )}
             {isSecurityHardeningIdea(idea) && typeof (idea as SecurityHardeningIdea).severity === 'string' && (
@@ -125,7 +125,7 @@ export function IdeaCard({ idea, isSelected, onClick, onConvert, onGoToTask, onD
             )}
             {isSeoIdea(idea) && typeof (idea as SeoIdea).category === 'string' && (
               <Badge variant="outline">
-                {SEO_CATEGORY_LABELS[(idea as SeoIdea).category]}
+                {t(SEO_CATEGORY_LABELS[(idea as SeoIdea).category])}
               </Badge>
             )}
           </div>

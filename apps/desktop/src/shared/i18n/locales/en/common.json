@@ -519,7 +519,97 @@
     "conversionFailed": "Conversion failed",
     "conversionFailedDescription": "Failed to convert idea to task",
     "conversionError": "Conversion error",
-    "conversionErrorDescription": "An error occurred while converting the idea"
+    "conversionErrorDescription": "An error occurred while converting the idea",
+    "types": {
+      "code_improvements": "Code Improvements",
+      "ui_ux_improvements": "UI/UX Improvements",
+      "documentation_gaps": "Documentation",
+      "security_hardening": "Security",
+      "performance_optimizations": "Performance",
+      "code_quality": "Code Quality",
+      "seo_improvements": "SEO"
+    },
+    "typeDescriptions": {
+      "code_improvements": "Code-revealed opportunities from patterns, architecture, and infrastructure analysis",
+      "ui_ux_improvements": "Visual and interaction improvements identified through app analysis",
+      "documentation_gaps": "Missing or outdated documentation that needs attention",
+      "security_hardening": "Security vulnerabilities and hardening opportunities",
+      "performance_optimizations": "Performance bottlenecks and optimization opportunities",
+      "code_quality": "Refactoring opportunities, large files, code smells, and best practice violations",
+      "seo_improvements": "Search visibility of public pages: metadata, structured data, crawlability, and multilingual indexing"
+    },
+    "categories": {
+      "uiux": {
+        "usability": "Usability",
+        "accessibility": "Accessibility",
+        "performance": "Performance",
+        "visual": "Visual Design",
+        "interaction": "Interaction"
+      },
+      "documentation": {
+        "readme": "README",
+        "api_docs": "API Documentation",
+        "inline_comments": "Inline Comments",
+        "examples": "Examples & Tutorials",
+        "architecture": "Architecture Docs",
+        "troubleshooting": "Troubleshooting Guide"
+      },
+      "security": {
+        "authentication": "Authentication",
+        "authorization": "Authorization",
+        "input_validation": "Input Validation",
+        "data_protection": "Data Protection",
+        "dependencies": "Dependencies",
+        "configuration": "Configuration",
+        "secrets_management": "Secrets Management"
+      },
+      "performance": {
+        "bundle_size": "Bundle Size",
+        "runtime": "Runtime Performance",
+        "memory": "Memory Usage",
+        "database": "Database Queries",
+        "network": "Network Requests",
+        "rendering": "Rendering",
+        "caching": "Caching"
+      },
+      "codeQuality": {
+        "large_files": "Large Files",
+        "code_smells": "Code Smells",
+        "complexity": "High Complexity",
+        "duplication": "Code Duplication",
+        "naming": "Naming Conventions",
+        "structure": "File Structure",
+        "linting": "Linting Issues",
+        "testing": "Test Coverage",
+        "types": "Type Safety",
+        "dependencies": "Dependency Issues",
+        "dead_code": "Dead Code",
+        "git_hygiene": "Git Hygiene"
+      },
+      "seo": {
+        "metadata": "Titles & Meta",
+        "structured_data": "Structured Data",
+        "crawlability": "Crawlability",
+        "indexing": "Indexing & Canonicals",
+        "internationalization": "Multilingual (hreflang)",
+        "social_sharing": "Social Sharing",
+        "page_experience": "Page Experience"
+      }
+    },
+    "labels": {
+      "severity": "Severity",
+      "effort": "Effort",
+      "impact": "Impact",
+      "category": "Category",
+      "currentState": "Current State",
+      "proposedChange": "Proposed Change",
+      "files": "Files",
+      "affectedFiles": "Affected Files",
+      "references": "References",
+      "metrics": "Metrics",
+      "estimatedEffort": "Estimated Effort",
+      "impactSuffix": "{{impact}} impact"
+    }
   },
   "issues": {
     "loadingMore": "Loading more...",

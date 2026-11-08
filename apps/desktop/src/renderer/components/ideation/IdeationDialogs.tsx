@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Plus } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
@@ -45,6 +46,7 @@ export function IdeationDialogs({
   onCloseAddMoreDialog,
   onConfirmAddMore
 }: IdeationDialogsProps) {
+  const { t } = useTranslation('common');
   return (
     <>
       {/* Configuration Dialog */}
@@ -69,9 +71,9 @@ export function IdeationDialogs({
                       <TypeIcon type={type} />
                     </div>
                     <div>
-                      <div className="font-medium text-sm">{IDEATION_TYPE_LABELS[type]}</div>
+                      <div className="font-medium text-sm">{t(IDEATION_TYPE_LABELS[type])}</div>
                       <div className="text-xs text-muted-foreground">
-                        {IDEATION_TYPE_DESCRIPTIONS[type]}
+                        {t(IDEATION_TYPE_DESCRIPTIONS[type])}
                       </div>
                     </div>
                   </div>
@@ -141,9 +143,9 @@ export function IdeationDialogs({
                       <TypeIcon type={type} />
                     </div>
                     <div>
-                      <div className="font-medium text-sm">{IDEATION_TYPE_LABELS[type]}</div>
+                      <div className="font-medium text-sm">{t(IDEATION_TYPE_LABELS[type])}</div>
                       <div className="text-xs text-muted-foreground">
-                        {IDEATION_TYPE_DESCRIPTIONS[type]}
+                        {t(IDEATION_TYPE_DESCRIPTIONS[type])}
                       </div>
                     </div>
                   </div>

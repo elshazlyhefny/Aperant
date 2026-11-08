@@ -519,7 +519,97 @@
     "conversionFailed": "Échec de la conversion",
     "conversionFailedDescription": "Impossible de convertir l'idée en tâche",
     "conversionError": "Erreur de conversion",
-    "conversionErrorDescription": "Une erreur s'est produite lors de la conversion de l'idée"
+    "conversionErrorDescription": "Une erreur s'est produite lors de la conversion de l'idée",
+    "types": {
+      "code_improvements": "Améliorations du code",
+      "ui_ux_improvements": "Améliorations UI/UX",
+      "documentation_gaps": "Documentation",
+      "security_hardening": "Sécurité",
+      "performance_optimizations": "Performance",
+      "code_quality": "Qualité du code",
+      "seo_improvements": "SEO"
+    },
+    "typeDescriptions": {
+      "code_improvements": "Opportunités révélées par le code : analyse des patterns, de l'architecture et de l'infrastructure",
+      "ui_ux_improvements": "Améliorations visuelles et d'interaction identifiées par l'analyse de l'application",
+      "documentation_gaps": "Documentation manquante ou obsolète nécessitant de l'attention",
+      "security_hardening": "Vulnérabilités de sécurité et opportunités de renforcement",
+      "performance_optimizations": "Goulots d'étranglement de performance et opportunités d'optimisation",
+      "code_quality": "Opportunités de refactorisation, fichiers volumineux, code smells et violations des bonnes pratiques",
+      "seo_improvements": "Visibilité des pages publiques dans les moteurs de recherche : métadonnées, données structurées, explorabilité et indexation multilingue"
+    },
+    "categories": {
+      "uiux": {
+        "usability": "Facilité d'utilisation",
+        "accessibility": "Accessibilité",
+        "performance": "Performance",
+        "visual": "Design visuel",
+        "interaction": "Interaction"
+      },
+      "documentation": {
+        "readme": "README",
+        "api_docs": "Documentation de l'API",
+        "inline_comments": "Commentaires en ligne",
+        "examples": "Exemples et tutoriels",
+        "architecture": "Documentation d'architecture",
+        "troubleshooting": "Guide de dépannage"
+      },
+      "security": {
+        "authentication": "Authentification",
+        "authorization": "Autorisation",
+        "input_validation": "Validation des entrées",
+        "data_protection": "Protection des données",
+        "dependencies": "Dépendances",
+        "configuration": "Configuration",
+        "secrets_management": "Gestion des secrets"
+      },
+      "performance": {
+        "bundle_size": "Taille du bundle",
+        "runtime": "Performance à l'exécution",
+        "memory": "Utilisation de la mémoire",
+        "database": "Requêtes de base de données",
+        "network": "Requêtes réseau",
+        "rendering": "Rendu",
+        "caching": "Mise en cache"
+      },
+      "codeQuality": {
+        "large_files": "Fichiers volumineux",
+        "code_smells": "Code smells",
+        "complexity": "Complexité élevée",
+        "duplication": "Duplication de code",
+        "naming": "Conventions de nommage",
+        "structure": "Structure des fichiers",
+        "linting": "Problèmes de linting",
+        "testing": "Couverture de tests",
+        "types": "Sûreté des types",
+        "dependencies": "Problèmes de dépendances",
+        "dead_code": "Code mort",
+        "git_hygiene": "Hygiène Git"
+      },
+      "seo": {
+        "metadata": "Titres et balises meta",
+        "structured_data": "Données structurées",
+        "crawlability": "Explorabilité",
+        "indexing": "Indexation et canoniques",
+        "internationalization": "Multilingue (hreflang)",
+        "social_sharing": "Partage social",
+        "page_experience": "Expérience de page"
+      }
+    },
+    "labels": {
+      "severity": "Gravité",
+      "effort": "Effort",
+      "impact": "Impact",
+      "category": "Catégorie",
+      "currentState": "État actuel",
+      "proposedChange": "Modification proposée",
+      "files": "Fichiers",
+      "affectedFiles": "Fichiers concernés",
+      "references": "Références",
+      "metrics": "Métriques",
+      "estimatedEffort": "Effort estimé",
+      "impactSuffix": "Impact {{impact}}"
+    }
   },
   "issues": {
     "loadingMore": "Chargement...",

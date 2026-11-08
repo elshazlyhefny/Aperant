@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
   CheckCircle2,
@@ -13,12 +14,13 @@ interface UIUXDetailsProps {
 }
 
 export function UIUXDetails({ idea }: UIUXDetailsProps) {
+  const { t } = useTranslation('common');
   return (
     <>
       {/* Category */}
       <div>
         <Badge variant="outline" className="text-sm">
-          {UIUX_CATEGORY_LABELS[idea.category]}
+          {t(UIUX_CATEGORY_LABELS[idea.category])}
         </Badge>
       </div>
 

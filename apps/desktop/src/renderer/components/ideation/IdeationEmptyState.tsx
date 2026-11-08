@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Lightbulb, Settings2, AlertCircle, Sparkles } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
@@ -26,6 +27,7 @@ export function IdeationEmptyState({
   onOpenConfig,
   onToggleIdeationType
 }: IdeationEmptyStateProps) {
+  const { t } = useTranslation('common');
   return (
     <div className="flex h-full items-center justify-center">
       <Card className="w-full max-w-lg p-8 text-center">
@@ -56,7 +58,7 @@ export function IdeationEmptyState({
               >
                 <div className="flex items-center gap-2">
                   <TypeIcon type={type} />
-                  <span className="text-sm">{IDEATION_TYPE_LABELS[type]}</span>
+                  <span className="text-sm">{t(IDEATION_TYPE_LABELS[type])}</span>
                 </div>
                 <Switch
                   checked={config.enabledTypes.includes(type)}
