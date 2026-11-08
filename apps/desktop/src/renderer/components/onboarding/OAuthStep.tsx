@@ -459,6 +459,7 @@ export function OAuthStep({ onNext, onBack, onSkip }: OAuthStepProps) {
                                   variant="ghost"
                                   size="icon"
                                   onClick={handleRenameProfile}
+                                  aria-label={t('common:buttons.save')}
                                   className="h-7 w-7 text-success hover:text-success hover:bg-success/10"
                                 >
                                   <Check className="h-3 w-3" />
@@ -467,6 +468,7 @@ export function OAuthStep({ onNext, onBack, onSkip }: OAuthStepProps) {
                                   variant="ghost"
                                   size="icon"
                                   onClick={cancelEditingProfile}
+                                  aria-label={t('common:buttons.cancel')}
                                   className="h-7 w-7 text-muted-foreground hover:text-foreground"
                                 >
                                   <X className="h-3 w-3" />

@@ -859,6 +859,7 @@
       "oauthFallback": "Use Terminal (Fallback)",
       "oauthFallbackDescription": "If browser login doesn't work, use the embedded terminal",
       "oauthNameRequired": "Enter an account name before authenticating",
+      "addModel": "Add model",
       "modelsDescription": "Add the model IDs available at this endpoint. These will appear in the model selector.",
       "fields": {
         "name": "Account Name",
