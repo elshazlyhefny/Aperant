@@ -12,7 +12,7 @@
 
 import { stepCountIs } from 'ai';
 import { streamText } from '../claude-code/sdk';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createSimpleClient } from '../client/factory';
@@ -196,12 +196,18 @@ export function checkIdeasFile(outputDir: string, ideationType: string, since: n
     if (!name.endsWith(IDEAS_FILE_SUFFIX)) continue;
     const file = join(outputDir, name);
     try {
-      if (statSync(file).mtimeMs < since) continue;
-      const data = safeParseJson<unknown>(readFileSync(file, 'utf-8'));
-      if (data === null) {
-        unparseable.push({ file, fileName: name });
-      } else if (holdsIdeasOfType(data, ideationType)) {
-        attributed.push({ file, fileName: name, data });
+      // One handle for both, so the age check and the content are the same file.
+      const fd = openSync(file, 'r');
+      try {
+        if (fstatSync(fd).mtimeMs < since) continue;
+        const data = safeParseJson<unknown>(readFileSync(fd, 'utf-8'));
+        if (data === null) {
+          unparseable.push({ file, fileName: name });
+        } else if (holdsIdeasOfType(data, ideationType)) {
+          attributed.push({ file, fileName: name, data });
+        }
+      } finally {
+        closeSync(fd);
       }
     } catch {
       // unreadable (half-written, removed): does not count

@@ -27,7 +27,10 @@ vi.mock('node:fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
   readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
-  statSync: (...args: unknown[]) => mockStatSync(...args),
+  // The path stands in for the file descriptor, so readFileSync still sees it.
+  openSync: (file: string) => file,
+  fstatSync: (...args: unknown[]) => mockStatSync(...args),
+  closeSync: () => undefined,
 }));
 
 /** The agent's output file: what a successful run leaves behind. */
