@@ -77,9 +77,11 @@ vi.mock('url', () => ({
 
 // Mock ProgressTracker
 const mockProcessEvent = vi.fn();
+const mockForcePhase = vi.fn();
 vi.mock('../../session/progress-tracker', () => ({
   ProgressTracker: class {
     processEvent = mockProcessEvent;
+    forcePhase = mockForcePhase;
     state = {
       currentPhase: 'initializing' as const,
       currentSubtask: null,
@@ -203,6 +205,16 @@ describe('WorkerBridge', () => {
       getWorker().emit('message', msg);
 
       expect(handler).toHaveBeenCalledWith('task-123', progressData, 'proj-456');
+    });
+
+    it('moves the progress tracker to the phase the worker reports', () => {
+      bridge.spawn(createConfig());
+
+      const progressData = { phase: 'qa_review' as const, phaseProgress: 0, overallProgress: 0, message: 'Running QA' };
+      const msg: WorkerMessage = { type: 'execution-progress', taskId: 'task-123', data: progressData as never, projectId: 'proj-456' };
+      getWorker().emit('message', msg);
+
+      expect(mockForcePhase).toHaveBeenCalledWith('qa_review', 'Running QA', undefined);
     });
 
     it('feeds stream-events to progress tracker and emits progress', () => {

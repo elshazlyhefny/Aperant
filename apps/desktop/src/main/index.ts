@@ -63,6 +63,7 @@ import { initializeAppUpdater, stopPeriodicUpdates } from './app-updater';
 import { DEFAULT_APP_SETTINGS, IPC_CHANNELS, SPELL_CHECK_LANGUAGE_MAP, DEFAULT_SPELL_CHECK_LANGUAGE, ADD_TO_DICTIONARY_LABELS } from '../shared/constants';
 import { getAppLanguage, initAppLanguage } from './app-language';
 import { readSettingsFile } from './settings-utils';
+import { projectStore } from './project-store';
 import { registerSettingsAccessor } from './ai/auth/resolver';
 import { appLog, setupErrorLogging } from './app-logger';
 import { initSentryMain } from './sentry';
@@ -445,6 +446,7 @@ app.whenReady().then(() => {
 
   // Initialize agent manager
   agentManager = new AgentManager();
+  projectStore.setTaskRunningCheck((taskId) => agentManager?.isRunning(taskId) ?? false);
 
   // Load settings and configure agent manager with Python and auto-claude paths
   // Uses EAFP pattern (try/catch) instead of LBYL (existsSync) to avoid TOCTOU race conditions
