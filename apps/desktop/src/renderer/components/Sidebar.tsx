@@ -437,12 +437,13 @@ export function Sidebar({
               </TooltipTrigger>
               <TooltipContent side={isCollapsed ? "right" : "top"}>{t('tooltips.settings')}</TooltipContent>
             </Tooltip>
+            {/* zeenha fork: upstream is paused for a 3.0 rebuild, so help requests go to this fork's issue tracker. */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => window.open('https://github.com/AndyMik90/Auto-Claude/issues', '_blank')}
+                  onClick={() => window.open('https://github.com/elshazlyhefny/Aperant/issues', '_blank')}
                   aria-label={t('tooltips.help')}
                 >
                   <HelpCircle className="h-4 w-4" />
