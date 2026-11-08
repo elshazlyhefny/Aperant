@@ -129,81 +129,15 @@ git add [verified-path]
 
 ## STEP 1: GET YOUR BEARINGS (MANDATORY)
 
-First, check your environment. The prompt should tell you your working directory and spec location.
-If not provided, discover it:
+Every subtask runs in a fresh session, so read what you need and no more. Your prompt gives the spec directory and working directory.
 
-```bash
-# 1. See your working directory (this is your filesystem root)
-pwd && ls -la
+1. `pwd`, to confirm where you are.
+2. Read `implementation_plan.json`. If your prompt ends with a **YOUR SUBTASK** section, you only need the plan's overall shape.
+3. Read `spec.md`.
+4. Read `context.json` and `build-progress.txt` if they exist.
+5. Use `search_memory` for anything about the area you are changing, if that tool is available.
 
-# 2. Find your spec directory (look for implementation_plan.json)
-find . -name "implementation_plan.json" -type f 2>/dev/null | head -5
-
-# 3. Set SPEC_DIR based on what you find (example - adjust path as needed)
-SPEC_DIR="./auto-claude/specs/YOUR-SPEC-NAME"  # Replace with actual path from step 2
-
-# 4. Read the implementation plan (your main source of truth)
-cat "$SPEC_DIR/implementation_plan.json"
-
-# 5. Read the project spec (requirements, patterns, scope)
-cat "$SPEC_DIR/spec.md"
-
-# 6. Read the project index (services, ports, commands)
-cat "$SPEC_DIR/project_index.json" 2>/dev/null || echo "No project index"
-
-# 7. Read the task context (files to modify, patterns to follow)
-cat "$SPEC_DIR/context.json" 2>/dev/null || echo "No context file"
-
-# 8. Read progress from previous sessions
-cat "$SPEC_DIR/build-progress.txt" 2>/dev/null || echo "No previous progress"
-
-# 9. Check recent git history
-git log --oneline -10
-
-# 10. Count progress
-echo "Completed subtasks: $(grep -c '"status": "completed"' "$SPEC_DIR/implementation_plan.json" 2>/dev/null || echo 0)"
-echo "Pending subtasks: $(grep -c '"status": "pending"' "$SPEC_DIR/implementation_plan.json" 2>/dev/null || echo 0)"
-
-# 11. READ SESSION MEMORY (CRITICAL - Learn from past sessions)
-echo "=== SESSION MEMORY ==="
-
-# Read codebase map (what files do what)
-if [ -f "$SPEC_DIR/memory/codebase_map.json" ]; then
-  echo "Codebase Map:"
-  cat "$SPEC_DIR/memory/codebase_map.json"
-else
-  echo "No codebase map yet (first session)"
-fi
-
-# Read patterns to follow
-if [ -f "$SPEC_DIR/memory/patterns.md" ]; then
-  echo -e "\nCode Patterns to Follow:"
-  cat "$SPEC_DIR/memory/patterns.md"
-else
-  echo "No patterns documented yet"
-fi
-
-# Read gotchas to avoid
-if [ -f "$SPEC_DIR/memory/gotchas.md" ]; then
-  echo -e "\nGotchas to Avoid:"
-  cat "$SPEC_DIR/memory/gotchas.md"
-else
-  echo "No gotchas documented yet"
-fi
-
-# Read recent session insights (last 3 sessions)
-if [ -d "$SPEC_DIR/memory/session_insights" ]; then
-  echo -e "\nRecent Session Insights:"
-  ls -t "$SPEC_DIR/memory/session_insights/session_*.json" 2>/dev/null | head -3 | while read file; do
-    echo "--- $file ---"
-    cat "$file"
-  done
-else
-  echo "No session insights yet (first session)"
-fi
-
-echo "=== END SESSION MEMORY ==="
-```
+Do not re-read files that the **YOUR SUBTASK** section lists as already changed unless your subtask touches them.
 
 ---
 
@@ -244,7 +178,9 @@ Phase 4: Integration [depends_on: ["phase-2", "phase-3"]] → Blocked until both
 
 ## STEP 3: FIND YOUR NEXT SUBTASK
 
-Scan `implementation_plan.json` in order:
+If your prompt ends with a **YOUR SUBTASK** section, that is your subtask. Skip the scan below.
+
+Otherwise, scan `implementation_plan.json` in order:
 
 1. **Find phases with satisfied dependencies** (all depends_on phases complete)
 2. **Within those phases**, find the first subtask with `"status": "pending"`
@@ -259,29 +195,9 @@ Scan `implementation_plan.json` in order:
 
 ---
 
-## STEP 4: START DEVELOPMENT ENVIRONMENT
+## STEP 4: START THE ENVIRONMENT ONLY IF NEEDED
 
-### 4.1: Run Setup
-
-```bash
-chmod +x init.sh && ./init.sh
-```
-
-Or start manually using `project_index.json`:
-```bash
-# Read service commands from project_index.json
-cat project_index.json | grep -A 5 '"dev_command"'
-```
-
-### 4.2: Verify Services Running
-
-```bash
-# Check what's listening
-lsof -iTCP -sTCP:LISTEN | grep -E "node|python|next|vite"
-
-# Test connectivity (ports from project_index.json)
-curl -s -o /dev/null -w "%{http_code}" http://localhost:[PORT]
-```
+Start services only if this work needs them, and only the way the project instructions above say. Most checks here (tests, static analysis, lint) need no running dev server.
 
 ---
 
@@ -361,103 +277,6 @@ If subtask says "Add Stripe payment integration":
 - Wrong function signatures
 - Missing required configuration
 - Security anti-patterns
-
----
-
-## STEP 5.5: GENERATE & REVIEW PRE-IMPLEMENTATION CHECKLIST
-
-**CRITICAL**: Before writing any code, generate a predictive bug prevention checklist.
-
-This step uses historical data and pattern analysis to predict likely issues BEFORE they happen.
-
-### Generate the Checklist
-
-Extract the subtask you're working on from implementation_plan.json, then generate the checklist:
-
-```python
-import json
-from pathlib import Path
-
-# Load implementation plan
-with open("implementation_plan.json") as f:
-    plan = json.load(f)
-
-# Find the subtask you're working on (the one you identified in Step 3)
-current_subtask = None
-for phase in plan.get("phases", []):
-    for subtask in phase.get("subtasks", []):
-        if subtask.get("status") == "pending":
-            current_subtask = subtask
-            break
-    if current_subtask:
-        break
-
-# Generate checklist
-if current_subtask:
-    import sys
-    sys.path.insert(0, str(Path.cwd().parent))
-    from prediction import generate_subtask_checklist
-
-    spec_dir = Path.cwd()  # You're in the spec directory
-    checklist = generate_subtask_checklist(spec_dir, current_subtask)
-    print(checklist)
-```
-
-The checklist will show:
-- **Predicted Issues**: Common bugs based on the type of work (API, frontend, database, etc.)
-- **Known Gotchas**: Project-specific pitfalls from memory/gotchas.md
-- **Patterns to Follow**: Successful patterns from previous sessions
-- **Files to Reference**: Example files to study before implementing
-- **Verification Reminders**: What you need to test
-
-### Review and Acknowledge
-
-**YOU MUST**:
-1. Read the entire checklist carefully
-2. Understand each predicted issue and how to prevent it
-3. Review the reference files mentioned in the checklist
-4. Acknowledge that you understand the high-likelihood issues
-
-**DO NOT** skip this step. The predictions are based on:
-- Similar subtasks that failed in the past
-- Common patterns that cause bugs
-- Known issues specific to this codebase
-
-**Example checklist items you might see**:
-- "CORS configuration missing" → Check existing CORS setup in similar endpoints
-- "Auth middleware not applied" → Verify @require_auth decorator is used
-- "Loading states not handled" → Add loading indicators for async operations
-- "SQL injection vulnerability" → Use parameterized queries, never concatenate user input
-
-### If No Memory Files Exist Yet
-
-If this is the first subtask, there won't be historical data yet. The predictor will still provide:
-- Common issues for the detected work type (API, frontend, database, etc.)
-- General security and performance best practices
-- Verification reminders
-
-As you complete more subtasks and document gotchas/patterns, the predictions will get better.
-
-### Document Your Review
-
-In your response, acknowledge the checklist:
-
-```
-## Pre-Implementation Checklist Review
-
-**Subtask:** [subtask-id]
-
-**Predicted Issues Reviewed:**
-- [Issue 1]: Understood - will prevent by [action]
-- [Issue 2]: Understood - will prevent by [action]
-- [Issue 3]: Understood - will prevent by [action]
-
-**Reference Files to Study:**
-- [file 1]: Will check for [pattern to follow]
-- [file 2]: Will check for [pattern to follow]
-
-**Ready to implement:** YES
-```
 
 ---
 
@@ -892,166 +711,15 @@ Continue with next pending subtask. Return to Step 5.
 
 ---
 
-## STEP 12: WRITE SESSION INSIGHTS (OPTIONAL)
+## STEP 12: RECORD WHAT THE NEXT SESSION NEEDS
 
-**BEFORE ending your session, document what you learned for the next session.**
-
-Use Python to write insights:
-
-```python
-import json
-from pathlib import Path
-from datetime import datetime, timezone
-
-# Determine session number (count existing session files + 1)
-memory_dir = Path("memory")
-session_insights_dir = memory_dir / "session_insights"
-session_insights_dir.mkdir(parents=True, exist_ok=True)
-
-existing_sessions = list(session_insights_dir.glob("session_*.json"))
-session_num = len(existing_sessions) + 1
-
-# Build your insights
-insights = {
-    "session_number": session_num,
-    "timestamp": datetime.now(timezone.utc).isoformat(),
-
-    # What subtasks did you complete?
-    "subtasks_completed": ["subtask-1", "subtask-2"],  # Replace with actual subtask IDs
-
-    # What did you discover about the codebase?
-    "discoveries": {
-        "files_understood": {
-            "path/to/file.py": "Brief description of what this file does",
-            # Add all key files you worked with
-        },
-        "patterns_found": [
-            "Error handling uses try/except with specific exceptions",
-            "All async functions use asyncio",
-            # Add patterns you noticed
-        ],
-        "gotchas_encountered": [
-            "Database connections must be closed explicitly",
-            "API rate limit is 100 req/min",
-            # Add pitfalls you encountered
-        ]
-    },
-
-    # What approaches worked well?
-    "what_worked": [
-        "Starting with unit tests helped catch edge cases early",
-        "Following existing pattern from auth.py made integration smooth",
-        # Add successful approaches
-    ],
-
-    # What approaches didn't work?
-    "what_failed": [
-        "Tried inline validation - should use middleware instead",
-        "Direct database access caused connection leaks",
-        # Add things that didn't work
-    ],
-
-    # What should the next session focus on?
-    "recommendations_for_next_session": [
-        "Focus on integration tests between services",
-        "Review error handling in worker service",
-        # Add recommendations
-    ]
-}
-
-# Save insights
-session_file = session_insights_dir / f"session_{session_num:03d}.json"
-with open(session_file, "w") as f:
-    json.dump(insights, f, indent=2)
-
-print(f"Session insights saved to: {session_file}")
-
-# Update codebase map
-if insights["discoveries"]["files_understood"]:
-    map_file = memory_dir / "codebase_map.json"
-
-    # Load existing map
-    if map_file.exists():
-        with open(map_file, "r") as f:
-            codebase_map = json.load(f)
-    else:
-        codebase_map = {}
-
-    # Merge new discoveries
-    codebase_map.update(insights["discoveries"]["files_understood"])
-
-    # Add metadata
-    if "_metadata" not in codebase_map:
-        codebase_map["_metadata"] = {}
-    codebase_map["_metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
-    codebase_map["_metadata"]["total_files"] = len([k for k in codebase_map if k != "_metadata"])
-
-    # Save
-    with open(map_file, "w") as f:
-        json.dump(codebase_map, f, indent=2, sort_keys=True)
-
-    print(f"Codebase map updated: {len(codebase_map) - 1} files mapped")
-
-# Append patterns
-patterns_file = memory_dir / "patterns.md"
-if insights["discoveries"]["patterns_found"]:
-    # Load existing patterns
-    existing_patterns = set()
-    if patterns_file.exists():
-        content = patterns_file.read_text(encoding="utf-8")
-        for line in content.split("\n"):
-            if line.strip().startswith("- "):
-                existing_patterns.add(line.strip()[2:])
-
-    # Add new patterns
-    with open(patterns_file, "a", encoding="utf-8") as f:
-        if patterns_file.stat().st_size == 0:
-            f.write("# Code Patterns\n\n")
-            f.write("Established patterns to follow in this codebase:\n\n")
-
-        for pattern in insights["discoveries"]["patterns_found"]:
-            if pattern not in existing_patterns:
-                f.write(f"- {pattern}\n")
-
-    print("Patterns updated")
-
-# Append gotchas
-gotchas_file = memory_dir / "gotchas.md"
-if insights["discoveries"]["gotchas_encountered"]:
-    # Load existing gotchas
-    existing_gotchas = set()
-    if gotchas_file.exists():
-        content = gotchas_file.read_text(encoding="utf-8")
-        for line in content.split("\n"):
-            if line.strip().startswith("- "):
-                existing_gotchas.add(line.strip()[2:])
-
-    # Add new gotchas
-    with open(gotchas_file, "a", encoding="utf-8") as f:
-        if gotchas_file.stat().st_size == 0:
-            f.write("# Gotchas and Pitfalls\n\n")
-            f.write("Things to watch out for in this codebase:\n\n")
-
-        for gotcha in insights["discoveries"]["gotchas_encountered"]:
-            if gotcha not in existing_gotchas:
-                f.write(f"- {gotcha}\n")
-
-    print("Gotchas updated")
-
-print("\n✓ Session memory updated successfully")
-```
-
-**Key points:**
-- Document EVERYTHING you learned - the next session has no memory
-- Be specific about file purposes and patterns
-- Include both successes and failures
-- Give concrete recommendations
+The next session has no memory of this one. If you learned something that is not obvious from the code, such as a gotcha or a project-specific pattern, save it with `record_memory` if that tool is available. Skip this if you learned nothing new.
 
 ## STEP 13: END SESSION CLEANLY
 
 Before context fills up:
 
-1. **Write session insights** - Document what you learned (Step 12, optional)
+1. **Record what the next session needs** - See Step 12
 2. **Commit all working code** - no uncommitted changes
 3. **Update build-progress.txt** - document what's next
 4. **Leave app working** - no broken state

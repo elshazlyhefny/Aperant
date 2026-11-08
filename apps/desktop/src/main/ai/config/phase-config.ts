@@ -199,6 +199,35 @@ export async function getPhaseModel(
 }
 
 /**
+ * zeenha fork: the model one session of a build should use.
+ *
+ * A build has one worker and one provider-resolved `modelId`, and every phase
+ * used to run on it, so a task's per-phase models were saved, shown in the UI
+ * and then ignored (per-phase thinking was honoured). The phase's model applies
+ * only when it cannot produce a provider mismatch: the worker is on Anthropic,
+ * the task says so for this phase, and the result is a Claude model.
+ */
+export async function resolveSessionModelId(
+  base: { modelId: string; provider: string },
+  specDir: string,
+  phase: Phase,
+): Promise<string> {
+  if (base.provider !== 'anthropic') return base.modelId;
+
+  const metadata = await loadTaskMetadata(specDir);
+  if (!metadata?.isAutoProfile || !metadata.phaseModels) return base.modelId;
+
+  const phaseProvider = metadata.phaseProviders?.[phase];
+  if (phaseProvider && phaseProvider !== 'anthropic') return base.modelId;
+
+  const shorthand = metadata.phaseModels[phase];
+  if (!shorthand) return base.modelId;
+
+  const resolved = resolveModelId(shorthand);
+  return resolved.startsWith('claude-') ? resolved : base.modelId;
+}
+
+/**
  * Get the thinking level for a specific execution phase.
  *
  * Priority:

@@ -163,3 +163,12 @@ describe('resolveMcpServers', () => {
     expect(configs[0].id).toBe('memory');
   });
 });
+
+describe('stdio servers started with npx (zeenha fork)', () => {
+  it('Context7 is pinned to a version, so a new publish cannot run here unreviewed', () => {
+    const server = getMcpServerConfig('context7', {});
+    const args = server?.transport.type === 'stdio' ? (server.transport.args ?? []) : [];
+    const pkg = args.find((arg) => arg.startsWith('@upstash/context7-mcp'));
+    expect(pkg).toMatch(/^@upstash\/context7-mcp@\d+\.\d+\.\d+$/);
+  });
+});

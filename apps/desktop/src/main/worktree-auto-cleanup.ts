@@ -58,6 +58,10 @@ export interface MergedCleanupDeps {
   /** Make every file in the folder deletable BEFORE anything is deleted; false (with why) if that is not possible. */
   ensureDeletable(worktreePath: string, projectPath: string): Promise<{ ok: boolean; detail?: string }>;
   remove(args: { worktreePath: string; projectPath: string; specId: string }): Promise<{ success: boolean; warnings: string[] }>;
+  /** The Docker volumes this worktree's test runs created; called while the folder still exists. */
+  dockerVolumesFor(worktreePath: string): string[];
+  /** Best effort, never throws. */
+  removeDockerVolumes(volumes: string[]): Promise<void>;
   /** Delete a local task branch whose worktree folder is already gone. */
   deleteBranch(projectPath: string, branch: string): Promise<{ success: boolean; detail?: string }>;
   invalidate(projectId: string): void;
@@ -188,11 +192,13 @@ export async function cleanupMergedWorktrees(
           continue;
         }
 
+        const volumes = deps.dockerVolumesFor(worktreePath);
         const result = await deps.remove({ worktreePath, projectPath: project.path, specId: task.specId });
         if (!result.success) {
           keep('cleanup_failed', result.warnings.join('; '));
           continue;
         }
+        await deps.removeDockerVolumes(volumes);
         removedAny = true;
         outcomes.push({ ...base, status: 'removed' });
       } catch (error) {

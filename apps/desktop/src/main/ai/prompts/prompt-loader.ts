@@ -192,6 +192,40 @@ export async function loadAgentsMd(projectDir: string): Promise<string | null> {
   return tryReadFile(join(projectDir, 'agents.md'));
 }
 
+/**
+ * zeenha fork: the agents whose real prompt the build worker loads.
+ *
+ * The worker's search list never included `resources/prompts`, so every packaged
+ * build ran on the one-paragraph fallback in worker.ts while the .md files were
+ * edited and tested. These four have been rewritten for this fork and run end to
+ * end. Other agents keep today's behaviour until their prompts have had the same
+ * review: turning a 20 KB prompt on for them is a behaviour change of its own.
+ */
+export const WORKER_PROMPTS_FROM_RESOURCES: ReadonlySet<string> = new Set(['planner', 'coder', 'qa_reviewer', 'qa_fixer']);
+
+/**
+ * Where the build worker looks for `<promptName>.md`, first match wins.
+ * `workerDir` is the worker's __dirname: `<resources>/app.asar/out/main/ai/agent`
+ * when packaged, `apps/desktop/out/main/ai/agent` in development.
+ */
+export function promptSearchDirs(promptName: string, workerDir: string, resourcesPath?: string): string[] {
+  const legacy = [
+    join(workerDir, '..', '..', 'prompts'),
+    join(workerDir, '..', '..', '..', 'apps', 'desktop', 'prompts'),
+    join(workerDir, '..', '..', '..', '..', 'apps', 'desktop', 'prompts'),
+    join(workerDir, 'prompts'),
+  ];
+  if (!WORKER_PROMPTS_FROM_RESOURCES.has(promptName)) return legacy;
+  return [
+    ...(resourcesPath ? [join(resourcesPath, 'prompts')] : []),
+    // Derived from the worker's own path too: process.resourcesPath is not
+    // guaranteed inside a worker thread.
+    join(workerDir, '..', '..', '..', '..', '..', 'prompts'),
+    join(workerDir, '..', '..', '..', '..', 'prompts'),
+    ...legacy,
+  ];
+}
+
 // =============================================================================
 // Context Injection
 // =============================================================================

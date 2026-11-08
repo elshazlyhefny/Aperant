@@ -180,7 +180,7 @@ function splitKey(key: string): [string, string] {
 
 export function v3Usage(usage: CliUsage): LanguageModelV3Usage {
   return {
-    inputTokens: { total: usage.inputTokens, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+    inputTokens: { total: usage.inputTokens, noCache: undefined, cacheRead: usage.cacheReadTokens, cacheWrite: usage.cacheCreationTokens },
     outputTokens: { total: usage.outputTokens, text: undefined, reasoning: undefined },
   };
 }

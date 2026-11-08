@@ -176,6 +176,19 @@ describe('createCliEventParser', () => {
   });
 });
 
+describe('createCliEventParser cache usage', () => {
+  it('splits cached input out of the total, across messages', () => {
+    const parser = createCliEventParser({ onPart: () => undefined });
+    const send = (event: Record<string, unknown>) => parser.handle({ type: 'stream_event', event });
+    send({ type: 'message_start', message: { id: 'a', usage: { input_tokens: 10, cache_read_input_tokens: 100, cache_creation_input_tokens: 20, output_tokens: 1 } } });
+    send({ type: 'message_stop' });
+    send({ type: 'message_start', message: { id: 'b', usage: { input_tokens: 5, cache_read_input_tokens: 130, cache_creation_input_tokens: 0, output_tokens: 1 } } });
+    send({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 5, cache_read_input_tokens: 140, cache_creation_input_tokens: 2, output_tokens: 9 } });
+    send({ type: 'message_stop' });
+    expect(parser.totalUsage).toMatchObject({ inputTokens: 277, outputTokens: 10, cacheReadTokens: 240, cacheCreationTokens: 22 });
+  });
+});
+
 describe('mapStopReason', () => {
   it('maps Anthropic stop reasons to AI SDK finish reasons', () => {
     expect(mapStopReason('end_turn')).toBe('stop');

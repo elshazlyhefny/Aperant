@@ -33,6 +33,7 @@ import {
 } from '../schema';
 import { safeParseJson } from '../../utils/json-repair';
 import type { SessionResult } from '../session/types';
+import { waitForHostLoad } from './host-load';
 import { iterateSubtasks } from './subtask-iterator';
 import type { SubtaskIteratorConfig, SubtaskResult } from './subtask-iterator';
 
@@ -48,6 +49,9 @@ const MAX_PLANNING_VALIDATION_RETRIES = 3;
 
 /** Maximum retries for a single subtask before marking stuck */
 const MAX_SUBTASK_RETRIES = 3;
+
+export const QA_NO_VERDICT_MESSAGE =
+  'QA review ended without a verdict twice, so the code was not judged. This usually means the machine was overloaded or the review was cut off. Restart QA when load is lower.';
 
 /** Delay before retrying after an error (ms) */
 const ERROR_RETRY_DELAY_MS = 5_000;
@@ -97,6 +101,8 @@ export interface BuildOrchestratorConfig {
   runSession: (config: SessionRunConfig) => Promise<SessionResult>;
   /** Optional callback for syncing spec to source (worktree mode) */
   syncSpecToSource?: (specDir: string, sourceSpecDir: string) => Promise<boolean>;
+  /** Waits before a QA review that ended with no verdict is retried. Injected by tests. */
+  waitBeforeQARetry?: (signal?: AbortSignal) => Promise<unknown>;
   /** Optional callback to get a resolved LanguageModel for lightweight repair calls */
   getModel?: (agentType: AgentType) => Promise<import('ai').LanguageModel | undefined>;
 }
@@ -500,6 +506,7 @@ export class BuildOrchestrator extends EventEmitter {
     this.transitionPhase('qa_review', 'Running QA review');
 
     const maxQACycles = 3;
+    let noVerdictRetried = false;
     for (let cycle = 0; cycle < maxQACycles; cycle++) {
       if (this.aborted) {
         return { success: false, error: 'Build cancelled' };
@@ -540,7 +547,25 @@ export class BuildOrchestrator extends EventEmitter {
         return { success: true };
       }
 
-      if ((qaStatus === 'failed' || qaStatus === 'unknown') && cycle < maxQACycles - 1) {
+      // zeenha fork: no verdict means the review never finished, usually because
+      // the machine was overloaded. There is nothing for a fixer to fix: it used
+      // to run anyway, and three of these reported "failed after maximum fix
+      // cycles" about code nobody had judged. Retry once when load drops, without
+      // spending a fix cycle.
+      if (qaStatus === 'unknown') {
+        if (noVerdictRetried) {
+          this.transitionPhase('failed', QA_NO_VERDICT_MESSAGE);
+          return { success: false, error: QA_NO_VERDICT_MESSAGE };
+        }
+        noVerdictRetried = true;
+        this.emitTyped('log', 'QA review ended without a verdict. Retrying once when the machine is quieter.');
+        await (this.config.waitBeforeQARetry ?? ((signal) => waitForHostLoad({ signal })))(this.config.abortSignal);
+        await this.resetQAReport();
+        cycle--;
+        continue;
+      }
+
+      if (qaStatus === 'failed' && cycle < maxQACycles - 1) {
         // Run QA fixer — mark qa_review completed BEFORE transitioning to qa_fixing
         // (the phase protocol requires qa_review in completedPhases for the transition)
         this.markPhaseCompleted('qa_review');

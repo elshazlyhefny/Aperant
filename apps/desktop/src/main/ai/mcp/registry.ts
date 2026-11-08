@@ -27,7 +27,9 @@ const CONTEXT7_SERVER: McpServerConfig = {
   transport: {
     type: 'stdio',
     command: 'npx',
-    args: ['-y', '@upstash/context7-mcp@latest'],
+    // zeenha fork: pinned, like chrome-devtools below. `@latest` re-resolved on
+    // every worker start and ran whatever had just been published.
+    args: ['-y', '@upstash/context7-mcp@4.4.4'],
   },
 };
 

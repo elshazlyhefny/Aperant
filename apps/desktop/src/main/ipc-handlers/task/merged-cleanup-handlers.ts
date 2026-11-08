@@ -13,6 +13,7 @@ import type { IPCResult, MergedCleanupOutcome } from '../../../shared/types';
 import { projectStore } from '../../project-store';
 import { cleanupWorktree } from '../../utils/worktree-cleanup';
 import { findTaskWorktree } from '../../worktree-paths';
+import { dockerVolumesForWorktree, removeDockerVolumes } from '../../worktree-docker-volumes';
 import {
   MERGED_CLEANUP_FIRST_RUN_MS,
   MERGED_CLEANUP_INTERVAL_MS,
@@ -51,6 +52,8 @@ export function createMergedCleanupDeps(agentManager: AgentManager): MergedClean
         deleteBranch: true,
         branchName: `auto-claude/${specId}`,
       }),
+    dockerVolumesFor: dockerVolumesForWorktree,
+    removeDockerVolumes,
     deleteBranch: deleteTaskBranch,
     invalidate: (projectId) => projectStore.invalidateTasksCache(projectId),
   };

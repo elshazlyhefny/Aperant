@@ -1,0 +1,117 @@
+/**
+ * zeenha fork: per-session cost records, in both spec directories, and a
+ * recorder that can never break the build it measures.
+ */
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import type { SessionResult, StreamEvent } from '../../session/types';
+import { appendRunMetrics, buildSessionEntry, redactDetail, RUN_METRICS_FILE, SessionMetricsCollector } from '../run-metrics';
+
+const call = (id: string, args: Record<string, unknown>): StreamEvent =>
+  ({ type: 'tool-call', toolName: 'Bash', toolCallId: id, args }) as StreamEvent;
+const done = (id: string, durationMs: number, isError = false, toolName = 'Bash'): StreamEvent =>
+  ({ type: 'tool-result', toolName, toolCallId: id, result: '', durationMs, isError }) as StreamEvent;
+
+const result: SessionResult = {
+  outcome: 'completed',
+  stepsExecuted: 4,
+  usage: { promptTokens: 1000, completionTokens: 50, totalTokens: 1050, cacheReadTokens: 800, cacheCreationTokens: 100 },
+  messages: [],
+  durationMs: 9000,
+  toolCallCount: 2,
+};
+
+describe('SessionMetricsCollector', () => {
+  it('totals time per tool and counts errors', () => {
+    const c = new SessionMetricsCollector();
+    c.observe(call('a', { command: 'one' }));
+    c.observe(done('a', 100));
+    c.observe(call('b', { command: 'two' }));
+    c.observe(done('b', 300, true));
+    expect(c.summary().tools.Bash).toEqual({ calls: 2, errors: 1, totalMs: 400 });
+    expect(c.summary().toolTimeMs).toBe(400);
+  });
+
+  it('keeps only the five slowest calls, slowest first, with what they ran', () => {
+    const c = new SessionMetricsCollector();
+    for (const [i, ms] of [10, 70, 20, 60, 30, 50].entries()) {
+      c.observe(call(`t${i}`, { command: `cmd-${ms}` }));
+      c.observe(done(`t${i}`, ms));
+    }
+    expect(c.summary().slowest.map((s) => s.ms)).toEqual([70, 60, 50, 30, 20]);
+    expect(c.summary().slowest[0].detail).toBe('cmd-70');
+  });
+
+  it('never stores a credential from a command', () => {
+    const c = new SessionMetricsCollector();
+    c.observe(call('a', { command: 'curl -H "Authorization: Bearer abc123" -d GITHUB_TOKEN=xyz789 url' }));
+    c.observe(done('a', 5));
+    const detail = c.summary().slowest[0].detail ?? '';
+    expect(detail).not.toContain('abc123');
+    expect(detail).not.toContain('xyz789');
+    expect(redactDetail('password: hunter2')).toBe('password: ***');
+  });
+});
+
+describe('buildSessionEntry', () => {
+  const base = { agentType: 'coder', phase: 'coding', model: 'claude-sonnet-5-5', startedAt: new Date('2026-11-08T10:00:00Z') };
+
+  it('records tokens including the cache split', () => {
+    const entry = buildSessionEntry({ ...base, result, collector: new SessionMetricsCollector() });
+    expect(entry.tokens).toEqual({ input: 1000, output: 50, cacheRead: 800, cacheCreation: 100 });
+    expect(entry.outcome).toBe('completed');
+    expect(entry.durationMs).toBe(9000);
+  });
+
+  it('marks a session that threw, using elapsed time', () => {
+    const entry = buildSessionEntry({
+      ...base,
+      result: null,
+      collector: new SessionMetricsCollector(),
+      now: new Date('2026-11-08T10:00:07Z'),
+    });
+    expect(entry.outcome).toBe('threw');
+    expect(entry.durationMs).toBe(7000);
+  });
+});
+
+describe('appendRunMetrics', () => {
+  let worktreeSpec: string;
+  let mainSpec: string;
+  const entry = buildSessionEntry({
+    agentType: 'coder', phase: 'coding', model: 'm', startedAt: new Date(), result, collector: new SessionMetricsCollector(),
+  });
+  const read = (dir: string) => JSON.parse(readFileSync(join(dir, RUN_METRICS_FILE), 'utf-8'));
+
+  beforeEach(() => {
+    worktreeSpec = mkdtempSync(join(tmpdir(), 'metrics-wt-'));
+    mainSpec = mkdtempSync(join(tmpdir(), 'metrics-main-'));
+  });
+  afterEach(() => {
+    rmSync(worktreeSpec, { recursive: true, force: true });
+    rmSync(mainSpec, { recursive: true, force: true });
+  });
+
+  it('appends to both directories, so the record outlives the worktree', () => {
+    appendRunMetrics([worktreeSpec, mainSpec], entry);
+    appendRunMetrics([worktreeSpec, mainSpec], entry);
+    expect(read(worktreeSpec).sessions).toHaveLength(2);
+    expect(read(mainSpec).sessions).toHaveLength(2);
+  });
+
+  it('writes once when both directories are the same', () => {
+    appendRunMetrics([mainSpec, mainSpec], entry);
+    expect(read(mainSpec).sessions).toHaveLength(1);
+  });
+
+  it('survives a corrupt file and a missing directory without throwing', () => {
+    writeFileSync(join(mainSpec, RUN_METRICS_FILE), '{not json');
+    expect(() => appendRunMetrics([mainSpec, join(mainSpec, 'gone'), undefined], entry)).not.toThrow();
+    expect(read(mainSpec).sessions).toHaveLength(1);
+    expect(existsSync(join(mainSpec, 'gone'))).toBe(false);
+  });
+});

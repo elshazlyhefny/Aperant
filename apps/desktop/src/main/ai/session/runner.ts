@@ -617,7 +617,8 @@ async function executeStream(
 
   // Get total usage from AI SDK result
   // AI SDK v6 uses inputTokens/outputTokens naming
-  let totalUsage: { inputTokens?: number; outputTokens?: number } | undefined;
+  // zeenha fork: the Claude Code engine also reports the cache split; other providers leave it unset.
+  let totalUsage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number } | undefined;
   try {
     totalUsage = await withTimeout(result.totalUsage, POST_STREAM_TIMEOUT_MS, 'result.totalUsage');
   } catch {
@@ -629,6 +630,8 @@ async function executeStream(
     totalTokens:
       (totalUsage?.inputTokens ?? 0) + (totalUsage?.outputTokens ?? 0) ||
       summary.usage.totalTokens,
+    ...(totalUsage?.cacheReadTokens ? { cacheReadTokens: totalUsage.cacheReadTokens } : {}),
+    ...(totalUsage?.cacheCreationTokens ? { cacheCreationTokens: totalUsage.cacheCreationTokens } : {}),
   };
 
   return {

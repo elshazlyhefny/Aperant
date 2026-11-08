@@ -25,6 +25,10 @@ export interface CliUsage {
   /** Same numbers under the names Aperant's stream handler reads. */
   promptTokens: number;
   completionTokens: number;
+  /** The part of inputTokens served from the prompt cache. */
+  cacheReadTokens: number;
+  /** The part of inputTokens written to the prompt cache. */
+  cacheCreationTokens: number;
 }
 
 export interface CliToolCallRef {
@@ -60,16 +64,18 @@ export interface CliFinalResult {
 }
 
 export function emptyUsage(): CliUsage {
-  return { inputTokens: 0, outputTokens: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0 };
+  return { inputTokens: 0, outputTokens: 0, totalTokens: 0, promptTokens: 0, completionTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
 }
 
-function makeUsage(input: number, output: number): CliUsage {
+function makeUsage(input: number, output: number, cacheRead: number, cacheCreation: number): CliUsage {
   return {
     inputTokens: input,
     outputTokens: output,
     totalTokens: input + output,
     promptTokens: input,
     completionTokens: output,
+    cacheReadTokens: cacheRead,
+    cacheCreationTokens: cacheCreation,
   };
 }
 
@@ -127,6 +133,8 @@ export function createCliEventParser(hooks: CliEventParserHooks): CliEventParser
   let stepTools: CliToolCallRef[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
   let stopReason: unknown = null;
 
   function startMessage(message: Record<string, unknown>): void {
@@ -140,18 +148,22 @@ export function createCliEventParser(hooks: CliEventParserHooks): CliEventParser
     inputTokens =
       num(usage.input_tokens) + num(usage.cache_creation_input_tokens) + num(usage.cache_read_input_tokens);
     outputTokens = num(usage.output_tokens);
+    cacheReadTokens = num(usage.cache_read_input_tokens);
+    cacheCreationTokens = num(usage.cache_creation_input_tokens);
     hooks.onPart({ type: 'start-step' });
   }
 
   function finishMessage(): void {
     if (!inMessage) return;
     inMessage = false;
-    const usage = makeUsage(inputTokens, outputTokens);
+    const usage = makeUsage(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens);
     total.inputTokens += usage.inputTokens;
     total.outputTokens += usage.outputTokens;
     total.totalTokens += usage.totalTokens;
     total.promptTokens += usage.promptTokens;
     total.completionTokens += usage.completionTokens;
+    total.cacheReadTokens += usage.cacheReadTokens;
+    total.cacheCreationTokens += usage.cacheCreationTokens;
     const finishReason = mapStopReason(stopReason);
     steps.push({ text: stepText, toolCalls: stepTools, finishReason, usage });
     hooks.onPart({ type: 'finish-step', finishReason, usage, toolCalls: stepTools, text: stepText });
@@ -193,7 +205,11 @@ export function createCliEventParser(hooks: CliEventParserHooks): CliEventParser
             num(event.usage.input_tokens) +
             num(event.usage.cache_creation_input_tokens) +
             num(event.usage.cache_read_input_tokens);
-          if (input > 0) inputTokens = input;
+          if (input > 0) {
+            inputTokens = input;
+            cacheReadTokens = num(event.usage.cache_read_input_tokens);
+            cacheCreationTokens = num(event.usage.cache_creation_input_tokens);
+          }
         }
         break;
       }

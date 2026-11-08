@@ -46,6 +46,8 @@ function setup(f: Fixture = {}) {
     branchTip: vi.fn(async () => ('branch' in f ? (f.branch ?? null) : HEAD)),
     isInPullRequest: vi.fn(async () => ('inPr' in f ? (f.inPr ?? null) : true)),
     ensureDeletable: vi.fn(async () => f.deletable ?? { ok: true }),
+    dockerVolumesFor: vi.fn(() => []),
+    removeDockerVolumes: vi.fn(async () => undefined),
     deleteBranch: vi.fn(async () => ({ success: true })),
     remove: vi.fn(async () => ({ success: f.removeOk ?? true, warnings: f.removeOk === false ? ['locked'] : [] })),
     invalidate: vi.fn(),
@@ -97,6 +99,31 @@ describe('cleanupMergedWorktrees', () => {
     expect(outcome).toMatchObject({ status: 'kept', reason });
     if (reason !== 'cleanup_failed') expect(deps.remove).not.toHaveBeenCalled();
     expect(deps.invalidate).not.toHaveBeenCalled();
+  });
+
+  it('names the Docker volumes while the folder exists, and removes them only after it is gone', async () => {
+    const { deps, run } = setup();
+    const order: string[] = [];
+    vi.mocked(deps.dockerVolumesFor).mockImplementation(() => {
+      order.push('name');
+      return ['vol'];
+    });
+    vi.mocked(deps.remove).mockImplementation(async () => {
+      order.push('remove');
+      return { success: true, warnings: [] };
+    });
+    vi.mocked(deps.removeDockerVolumes).mockImplementation(async () => {
+      order.push('volumes');
+    });
+    await run();
+    expect(order).toEqual(['name', 'remove', 'volumes']);
+    expect(deps.removeDockerVolumes).toHaveBeenCalledWith(['vol']);
+  });
+
+  it('keeps the Docker volumes when the worktree could not be removed', async () => {
+    const { deps, run } = setup({ removeOk: false });
+    await run();
+    expect(deps.removeDockerVolumes).not.toHaveBeenCalled();
   });
 
   it('removes a worktree that is BEHIND its PR head (commits were added on GitHub)', async () => {

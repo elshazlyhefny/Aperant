@@ -59,13 +59,7 @@ echo "In Progress: $(grep -c '"status": "in_progress"' implementation_plan.json)
 
 ## PHASE 2: START DEVELOPMENT ENVIRONMENT
 
-```bash
-# Start all services
-chmod +x init.sh && ./init.sh
-
-# Verify services are running
-lsof -iTCP -sTCP:LISTEN | grep -E "node|python|next|vite"
-```
+Start services only if this work needs them, and only the way the project instructions above say. Most checks here (tests, static analysis, lint) need no running dev server.
 
 Wait for all services to be healthy before proceeding.
 
@@ -368,12 +362,13 @@ CODE REVIEW:
 
 ## PHASE 7: REGRESSION CHECK
 
-### 7.1: Run Full Test Suite
+### 7.1: Run the Full Test Suite, Once
 
-```bash
-# Run ALL tests, not just new ones
-# This catches regressions
-```
+A full suite is the slowest and heaviest step in this review, so:
+
+1. **If a targeted test from PHASE 3 failed, do not run the full suite.** Record `Full test suite: NOT RUN (targeted tests failed)` and write your report. The fixer needs that failure first.
+2. **Otherwise run each of the project's full suites once, one at a time.** Never start two heavy suites or type checks together. Use the commands from the project instructions.
+3. **If a suite cannot finish for a reason outside the code** (killed, timed out, out of memory, database unavailable), do not count that as a code failure. Note what happened in the report and leave out the `Status:` line, so the orchestrator retries this review when the machine is quieter.
 
 ### 7.2: Check Key Existing Functionality
 

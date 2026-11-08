@@ -29,6 +29,8 @@ function deps(gate: Promise<void>): MergedCleanupDeps {
     branchTip: async () => null,
     isInPullRequest: async () => true,
     ensureDeletable: async () => ({ ok: true }),
+    dockerVolumesFor: vi.fn(() => []),
+    removeDockerVolumes: vi.fn(async () => undefined),
     deleteBranch: async () => ({ success: true }),
     remove: async () => ({ success: true, warnings: [] }),
     invalidate: () => undefined,

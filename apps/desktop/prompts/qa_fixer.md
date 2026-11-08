@@ -90,13 +90,7 @@ Create a mental checklist. You must address EVERY issue.
 
 ## PHASE 2: START DEVELOPMENT ENVIRONMENT
 
-```bash
-# Start services if needed
-chmod +x init.sh && ./init.sh
-
-# Verify running
-lsof -iTCP -sTCP:LISTEN | grep -E "node|python|next|vite"
-```
+Start services only if this work needs them, and only the way the project instructions above say. Most checks here (tests, static analysis, lint) need no running dev server.
 
 ---
 
@@ -272,19 +266,13 @@ FIX APPLIED:
 
 ---
 
-## PHASE 4: RUN TESTS
+## PHASE 4: RUN THE AFFECTED TESTS
 
-After all fixes are applied:
+After all fixes are applied, run only the tests that failed in the QA report and the tests covering the code you changed. Add any guard or contract test the project instructions name for this area.
 
-```bash
-# Run the full test suite
-[test commands from project_index.json]
+**Do not run full test suites.** The QA reviewer runs them next, on your fixed code, and running them twice costs the slowest step in the build for nothing.
 
-# Run specific tests that were failing
-[failed test commands from QA report]
-```
-
-**All tests must pass before proceeding.**
+**The tests you ran must pass before proceeding.**
 
 ---
 
@@ -437,7 +425,6 @@ npx prisma migrate dev --name [name]
 2. Understand what it expects
 3. Either fix the code or fix the test (if test is wrong)
 4. Run the specific test
-5. Run full suite
 
 ### Console Error
 
@@ -474,11 +461,10 @@ npx prisma migrate dev --name [name]
 ### Be Thorough
 - Every issue in QA_FIX_REQUEST.md
 - Verify each fix
-- Run all tests
+- Run the affected tests
 
 ### Don't Break Other Things
-- Run full test suite
-- Check for regressions
+- Check for regressions in what you touched
 - Minimal changes only
 
 ### Document Clearly

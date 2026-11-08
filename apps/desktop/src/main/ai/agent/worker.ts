@@ -42,9 +42,11 @@ import type { SpecPhase } from '../orchestration/spec-orchestrator';
 import type { AgentType } from '../config/agent-configs';
 import type { Phase } from '../config/types';
 import type { ExecutionPhase } from '../../../shared/constants/phase-protocol';
-import { getPhaseThinking } from '../config/phase-config';
+import { getPhaseThinking, resolveSessionModelId } from '../config/phase-config';
 import { TaskLogWriter, phaseEndMessage } from '../logging/task-log-writer';
-import { loadProjectInstructions, injectContext } from '../prompts/prompt-loader';
+import { loadProjectInstructions, injectContext, promptSearchDirs } from '../prompts/prompt-loader';
+import { buildSubtaskBrief } from '../prompts/subtask-brief';
+import { appendRunMetrics, buildSessionEntry, SessionMetricsCollector } from '../logging/run-metrics';
 import { connectMcpServers, resolveMcpServersForAgent, mergeMcpTools, closeAllMcpClients } from '../mcp/client';
 import { mcpResolveOptionsForAgent } from '../mcp/project-settings';
 import type { McpClientResult } from '../mcp/types';
@@ -197,16 +199,7 @@ function buildToolContext(session: SerializableSessionConfig, securityProfile: S
  * In dev and production, the worker sits in the main/ output folder.
  */
 function loadPrompt(promptName: string): string | null {
-  // Try to find the prompts directory relative to common locations
-  const candidateBases: string[] = [
-    // Standard: apps/desktop/prompts/ relative to project root
-    // The worker runs in the Electron main process — __dirname is in out/main/
-    // We need to traverse up to find apps/desktop/prompts/
-    join(__dirname, '..', '..', 'prompts'),
-    join(__dirname, '..', '..', '..', 'apps', 'desktop', 'prompts'),
-    join(__dirname, '..', '..', '..', '..', 'apps', 'desktop', 'prompts'),
-    join(__dirname, 'prompts'),
-  ];
+  const candidateBases = promptSearchDirs(promptName, __dirname, process.resourcesPath);
 
   for (const base of candidateBases) {
     const promptPath = join(base, `${promptName}.md`);
@@ -335,8 +328,32 @@ async function runSingleSession(
   // provider-specific model, e.g., 'gpt-5.3-codex' for OpenAI Codex).
   // getPhaseModel() only knows local shorthands (opus → claude-opus-4-6) and
   // would create a mismatch when the provider queue selected a non-Anthropic account.
-  const phaseModelId = baseSession.modelId;
+  // zeenha fork: a task's per-phase model now applies; see resolveSessionModelId.
+  const phaseModelId = await resolveSessionModelId(
+    { modelId: baseSession.modelId, provider: baseSession.provider },
+    specDir,
+    phase,
+  );
   const phaseThinking = await getPhaseThinking(specDir, phase);
+
+  const metrics = new SessionMetricsCollector();
+  const startedAt = new Date();
+  const recordMetrics = (result: SessionResult | null): void => {
+    appendRunMetrics(
+      [specDir, baseSession.sourceSpecDir],
+      buildSessionEntry({
+        agentType,
+        phase,
+        subtaskId,
+        sessionNumber,
+        model: phaseModelId,
+        thinkingLevel: phaseThinking,
+        startedAt,
+        result,
+        collector: metrics,
+      }),
+    );
+  };
 
   const model = createProvider({
     config: {
@@ -394,6 +411,7 @@ async function runSingleSession(
     tools,
     ...memoryContext(),
     onEvent: (event: StreamEvent) => {
+      metrics.observe(event);
       // Write stream events to task_logs.json for UI log display
       if (logWriter) {
         logWriter.processEvent(event, phase);
@@ -432,6 +450,7 @@ async function runSingleSession(
       claudeConfigDir: baseSession.configDir,
     });
   } catch (error) {
+    recordMetrics(null);
     // Ensure log cleanup happens on failure
     if (logWriter && !skipPhaseLogging) {
       logWriter.endPhase(phase, false, phaseEndMessage(phase, false, error instanceof Error ? error.message : String(error)));
@@ -439,6 +458,8 @@ async function runSingleSession(
     if (logWriter) logWriter.setSubtask(undefined);
     throw error;
   }
+
+  recordMetrics(sessionResult);
 
   // End phase logging — mark as completed or failed based on outcome (skip when orchestrator manages phases)
   if (logWriter && !skipPhaseLogging) {
@@ -649,6 +670,16 @@ async function runBuildOrchestrator(
       // Inject schema validation error feedback on retry so the planner knows what to fix
       if (context.planningRetryContext) {
         prompt += `\n\n${context.planningRetryContext}`;
+      }
+
+      // zeenha fork: last, so the stable prompt above stays one cacheable prefix.
+      if (agentType === 'coder' && context.subtask) {
+        prompt += `\n\n${await buildSubtaskBrief({
+          specDir: session.specDir,
+          projectDir: session.projectDir,
+          subtask: context.subtask,
+          attemptCount: context.attemptCount,
+        })}`;
       }
 
       return prompt;

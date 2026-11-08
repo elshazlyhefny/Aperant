@@ -244,6 +244,8 @@ describe('cleanupMergedWorktrees on a legacy .worktrees worktree (real git)', ()
       ensureDeletable: ensureWorktreeDeletable,
       remove: ({ worktreePath, projectPath, specId: id }) =>
         cleanupWorktree({ worktreePath, projectPath, specId: id, deleteBranch: true, branchName: `auto-claude/${id}` }),
+      dockerVolumesFor: vi.fn(() => []),
+      removeDockerVolumes: vi.fn(async () => undefined),
       deleteBranch: deleteTaskBranch,
       invalidate: () => undefined,
     });
