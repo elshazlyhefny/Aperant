@@ -153,7 +153,11 @@ export function OAuthStep({ onNext, onBack, onSkip }: OAuthStepProps) {
 
           console.warn('[OAuthStep] New profile auth terminal ready:', authResult.data);
         } else {
-          alert(t('oauth.alerts.profileCreatedAuthFailed', { error: authResult.error || t('oauth.toast.tryAgain') }));
+          toast({
+            variant: 'destructive',
+            title: t('oauth.toast.authStartFailed'),
+            description: t('oauth.alerts.profileCreatedAuthFailed', { error: authResult.error || t('oauth.toast.tryAgain') }),
+          });
         }
       }
     } catch (err) {
@@ -259,7 +263,11 @@ export function OAuthStep({ onNext, onBack, onSkip }: OAuthStepProps) {
       const result = await window.electronAPI.authenticateClaudeProfile(profileId);
 
       if (!result.success || !result.data) {
-        alert(t('oauth.alerts.authPrepareFailed', { error: result.error || t('oauth.toast.tryAgain') }));
+        toast({
+          variant: 'destructive',
+          title: t('oauth.toast.authStartFailed'),
+          description: t('oauth.alerts.authPrepareFailed', { error: result.error || t('oauth.toast.tryAgain') }),
+        });
         setAuthenticatingProfileId(null);
         return;
       }
@@ -275,7 +283,11 @@ export function OAuthStep({ onNext, onBack, onSkip }: OAuthStepProps) {
       console.warn('[OAuthStep] Auth terminal ready:', result.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to authenticate profile');
-      alert(t('oauth.alerts.authStartFailedMessage'));
+      toast({
+        variant: 'destructive',
+        title: t('oauth.toast.authStartFailed'),
+        description: t('oauth.alerts.authStartFailedMessage'),
+      });
       setAuthenticatingProfileId(null);
     }
   };

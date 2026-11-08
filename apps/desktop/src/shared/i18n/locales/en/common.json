@@ -711,11 +711,8 @@
   },
   "profileCreated": {
     "title": "Profile \"{{profileName}}\" has been created.",
-    "instructions": "To authenticate this profile:",
-    "step1": "Go to Settings > Integrations",
-    "step2": "Find the profile in the Claude Accounts section",
-    "step3": "Click \"Authenticate\" to complete login",
-    "footer": "The account will be available once you complete authentication."
+    "description": "Open Settings > Accounts and click Authenticate to finish logging in.",
+    "goToAccounts": "Go to Accounts"
   },
   "roadmap": {
     "taskCompleted": "Completed",
