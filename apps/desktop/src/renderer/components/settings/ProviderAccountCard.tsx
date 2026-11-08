@@ -175,6 +175,7 @@ export function ProviderAccountCard({ account, onEdit, onDelete, onReauth }: Pro
                 variant="ghost"
                 size="icon"
                 onClick={() => onEdit(account)}
+                aria-label={t('providers.card.edit')}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground"
               >
                 <Pencil className="h-3 w-3" />
@@ -189,6 +190,7 @@ export function ProviderAccountCard({ account, onEdit, onDelete, onReauth }: Pro
                   variant="ghost"
                   size="icon"
                   onClick={() => onReauth(account)}
+                  aria-label={t('providers.card.reauth')}
                   className="h-7 w-7 text-muted-foreground hover:text-foreground"
                 >
                   <RefreshCw className="h-3 w-3" />
@@ -203,6 +205,7 @@ export function ProviderAccountCard({ account, onEdit, onDelete, onReauth }: Pro
                 variant="ghost"
                 size="icon"
                 onClick={() => onDelete(account.id)}
+                aria-label={t('providers.card.delete')}
                 className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
               >
                 <Trash2 className="h-3 w-3" />

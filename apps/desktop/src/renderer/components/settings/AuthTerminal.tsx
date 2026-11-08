@@ -369,6 +369,7 @@ export function AuthTerminal({
           variant="ghost"
           size="icon"
           onClick={handleClose}
+          aria-label={t('buttons.close')}
           className="h-6 w-6"
         >
           <X className="h-4 w-4" />

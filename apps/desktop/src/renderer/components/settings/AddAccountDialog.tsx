@@ -725,6 +725,7 @@ export function AddAccountDialog({
                     size="icon"
                     className="h-8 w-8 shrink-0"
                     disabled={!newModelId.trim()}
+                    aria-label={t('providers.dialog.addModel')}
                     onClick={() => {
                       const id = newModelId.trim();
                       const label = newModelLabel.trim() || id;

@@ -78,6 +78,7 @@ export function ProactiveSwapListener() {
             size="icon"
             className="h-6 w-6 flex-shrink-0"
             onClick={handleDismiss}
+            aria-label={t('buttons.close')}
           >
             <X className="h-3 w-3" />
           </Button>

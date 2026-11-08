@@ -178,7 +178,8 @@
     "errorLoadingContent": "Failed to load file content",
     "retry": "Retry",
     "selectFile": "Select a file to view its contents",
-    "openInIDE": "Open in IDE"
+    "openInIDE": "Open in IDE",
+    "refresh": "Refresh files"
   },
   "metadata": {
     "fastMode": "Fast",

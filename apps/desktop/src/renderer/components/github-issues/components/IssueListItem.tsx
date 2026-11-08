@@ -64,7 +64,7 @@ export function IssueListItem({ issue, isSelected, onClick, onInvestigate }: Iss
         <Button
           variant="ghost"
           size="icon"
-          className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-8 w-8"
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity h-8 w-8"
           onClick={(e) => {
             e.stopPropagation();
             onInvestigate();

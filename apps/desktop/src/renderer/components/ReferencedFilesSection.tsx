@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { X, Folder, File, FileCode, FileJson, FileText, FileImage } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
@@ -98,6 +99,8 @@ export function ReferencedFilesSection({
   disabled = false,
   className
 }: ReferencedFilesSectionProps) {
+  const { t } = useTranslation('common');
+
   if (files.length === 0) {
     return null;
   }
@@ -159,10 +162,11 @@ export function ReferencedFilesSection({
                   variant="ghost"
                   size="icon"
                   className={cn(
-                    'h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity',
+                    'h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
                     'hover:bg-destructive/10 hover:text-destructive'
                   )}
                   onClick={() => onRemove(file.id)}
+                  aria-label={t('iconButtons.removeFile')}
                 >
                   <X className="h-3 w-3" />
                 </Button>

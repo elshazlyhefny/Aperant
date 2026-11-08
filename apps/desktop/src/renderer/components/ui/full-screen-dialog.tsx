@@ -1,6 +1,7 @@
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/utils';
 
 const FullScreenDialog = DialogPrimitive.Root;
@@ -31,7 +32,9 @@ FullScreenDialogOverlay.displayName = 'FullScreenDialogOverlay';
 const FullScreenDialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => {
+  const { t } = useTranslation('common');
+  return (
   <FullScreenDialogPortal>
     <FullScreenDialogOverlay />
     <DialogPrimitive.Content
@@ -59,11 +62,12 @@ const FullScreenDialogContent = React.forwardRef<
         )}
       >
         <X className="h-5 w-5" />
-        <span className="sr-only">Close</span>
+        <span className="sr-only">{t('buttons.close')}</span>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </FullScreenDialogPortal>
-));
+  );
+});
 FullScreenDialogContent.displayName = 'FullScreenDialogContent';
 
 const FullScreenDialogHeader = ({

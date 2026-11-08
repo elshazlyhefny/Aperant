@@ -859,6 +859,7 @@
       "oauthFallback": "Utiliser le terminal (secours)",
       "oauthFallbackDescription": "Si la connexion par navigateur ne fonctionne pas, utilisez le terminal intégré",
       "oauthNameRequired": "Entrez un nom de compte avant de vous authentifier",
+      "addModel": "Ajouter le modèle",
       "modelsDescription": "Ajoutez les identifiants de modèles disponibles sur cet endpoint. Ils apparaîtront dans le sélecteur de modèles.",
       "fields": {
         "name": "Nom du compte",

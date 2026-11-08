@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Upload, X, AlertCircle, Image as ImageIcon } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
@@ -128,6 +129,7 @@ export function ImageUpload({
   disabled = false,
   className
 }: ImageUploadProps) {
+  const { t } = useTranslation('common');
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -362,13 +364,14 @@ export function ImageUpload({
                   variant="destructive"
                   size="icon"
                   className={cn(
-                    'absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity',
+                    'absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
                     'rounded-full'
                   )}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleRemove(image.id);
                   }}
+                  aria-label={t('iconButtons.removeImage')}
                 >
                   <X className="h-3 w-3" />
                 </Button>

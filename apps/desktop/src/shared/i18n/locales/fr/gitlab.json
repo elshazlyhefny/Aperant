@@ -11,7 +11,8 @@
   },
   "header": {
     "open": "ouvertes",
-    "searchPlaceholder": "Rechercher des issues..."
+    "searchPlaceholder": "Rechercher des issues...",
+    "refresh": "Actualiser les issues"
   },
   "filters": {
     "opened": "Ouvertes",

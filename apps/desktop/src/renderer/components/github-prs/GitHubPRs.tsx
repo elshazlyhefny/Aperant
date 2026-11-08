@@ -223,7 +223,7 @@ export function GitHubPRs({ onOpenSettings, isActive = false }: GitHubPRsProps) 
             {prs.length} {t("prReview.open")}
           </span>
         </div>
-        <Button variant="ghost" size="icon" onClick={refresh} disabled={isLoading}>
+        <Button variant="ghost" size="icon" onClick={refresh} disabled={isLoading} aria-label={t("buttons.refresh")}>
           <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
         </Button>
       </div>
