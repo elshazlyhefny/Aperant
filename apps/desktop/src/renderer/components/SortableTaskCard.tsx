@@ -13,6 +13,8 @@ interface SortableTaskCardProps {
   isSelectable?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  // Disable dragging (e.g. while a search filter is active)
+  isDragDisabled?: boolean;
 }
 
 // Custom comparator - only re-render when task or onClick actually changed
@@ -28,11 +30,12 @@ function sortableTaskCardPropsAreEqual(
     prevProps.onStatusChange === nextProps.onStatusChange &&
     prevProps.isSelectable === nextProps.isSelectable &&
     prevProps.isSelected === nextProps.isSelected &&
-    prevProps.onToggleSelect === nextProps.onToggleSelect
+    prevProps.onToggleSelect === nextProps.onToggleSelect &&
+    prevProps.isDragDisabled === nextProps.isDragDisabled
   );
 }
 
-export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, onStatusChange, isSelectable, isSelected, onToggleSelect }: SortableTaskCardProps) {
+export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, onStatusChange, isSelectable, isSelected, onToggleSelect, isDragDisabled }: SortableTaskCardProps) {
   const {
     attributes,
     listeners,
@@ -43,7 +46,8 @@ export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, 
     isOver
   } = useSortable({
     id: task.id,
-    disabled: task.status === 'in_progress' // Prevent dragging tasks that are currently running or stuck
+    // Prevent dragging tasks that are currently running or stuck, or when dragging is disabled
+    disabled: task.status === 'in_progress' || !!isDragDisabled
   });
 
   const style = {

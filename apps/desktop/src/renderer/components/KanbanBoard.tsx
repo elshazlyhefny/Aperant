@@ -19,7 +19,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
-import { Plus, Inbox, Loader2, Eye, CheckCircle2, Archive, RefreshCw, GitPullRequest, X, Settings, ListPlus, ChevronLeft, ChevronRight, ChevronsRight, Lock, Unlock, Trash2 } from 'lucide-react';
+import { Plus, Inbox, Loader2, Eye, CheckCircle2, Archive, RefreshCw, GitPullRequest, X, Settings, ListPlus, ChevronLeft, ChevronRight, ChevronsRight, Lock, Unlock, Trash2, Search } from 'lucide-react';
 import { Checkbox } from './ui/checkbox';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
@@ -92,6 +92,9 @@ interface DroppableColumnProps {
   // Lock props
   isLocked?: boolean;
   onToggleLocked?: () => void;
+  // Search props
+  isDragDisabled?: boolean;
+  isSearchActive?: boolean;
 }
 
 /**
@@ -149,6 +152,8 @@ function droppableColumnPropsAreEqual(
   if (prevProps.onResizeEnd !== nextProps.onResizeEnd) return false;
   if (prevProps.isLocked !== nextProps.isLocked) return false;
   if (prevProps.onToggleLocked !== nextProps.onToggleLocked) return false;
+  if (prevProps.isDragDisabled !== nextProps.isDragDisabled) return false;
+  if (prevProps.isSearchActive !== nextProps.isSearchActive) return false;
 
   // Compare selection props
   const prevSelected = prevProps.selectedTaskIds;
@@ -219,7 +224,7 @@ const getEmptyStateContent = (status: TaskStatus, t: (key: string) => string): {
   }
 };
 
-const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskClick, onStatusChange, isOver, onAddClick, onArchiveAll, onQueueSettings, onQueueAll, maxParallelTasks, archivedCount, showArchived, onToggleArchived, selectedTaskIds, onSelectAll, onDeselectAll, onToggleSelect, isCollapsed, onToggleCollapsed, columnWidth, isResizing, onResizeStart, onResizeEnd, isLocked, onToggleLocked }: DroppableColumnProps) {
+const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskClick, onStatusChange, isOver, onAddClick, onArchiveAll, onQueueSettings, onQueueAll, maxParallelTasks, archivedCount, showArchived, onToggleArchived, selectedTaskIds, onSelectAll, onDeselectAll, onToggleSelect, isCollapsed, onToggleCollapsed, columnWidth, isResizing, onResizeStart, onResizeEnd, isLocked, onToggleLocked, isDragDisabled, isSearchActive }: DroppableColumnProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const { setNodeRef } = useDroppable({
     id: status
@@ -291,9 +296,10 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
         isSelectable={isSelectable}
         isSelected={isSelectable ? selectedTaskIds?.has(task.id) : undefined}
         onToggleSelect={onToggleSelectHandlers?.get(task.id)}
+        isDragDisabled={isDragDisabled}
       />
     ));
-  }, [tasks, onClickHandlers, onStatusChangeHandlers, onToggleSelectHandlers, selectedTaskIds]);
+  }, [tasks, onClickHandlers, onStatusChangeHandlers, onToggleSelectHandlers, selectedTaskIds, isDragDisabled]);
 
   const getColumnBorderColor = (): string => {
     switch (status) {
@@ -560,7 +566,14 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
                     isOver && 'active'
                   )}
                 >
-                  {isOver ? (
+                  {isSearchActive ? (
+                    <>
+                      <Search className="h-6 w-6 text-muted-foreground/30" />
+                      <span className="mt-2 text-sm font-medium text-muted-foreground/70">
+                        {t('kanban.noSearchMatches')}
+                      </span>
+                    </>
+                  ) : isOver ? (
                     <>
                       <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center mb-2">
                         <Plus className="h-4 w-4 text-primary" />
