@@ -118,6 +118,41 @@ describe('MRReviewEngine.runReview', () => {
     if (options) expect(progress.some((m) => m.includes('fetch failed'))).toBe(true);
   });
 
+  it('merges MCP tools under the built-in read tools', async () => {
+    const mcpTool = { name: 'mcp-x' };
+    const toolsFor = vi.fn(async () => ({
+      Read: { name: 'mcp-read' },
+      Glob: { name: 'mcp-glob' },
+      Grep: { name: 'mcp-grep' },
+      lookup: mcpTool,
+    }));
+    const progress: string[] = [];
+    await new MRReviewEngine({}, (u) => progress.push(u.message)).runReview(context, undefined, {
+      checkout: headCheckout,
+      mcp: { toolsFor, close: async () => undefined } as never,
+    });
+
+    expect(toolsFor).toHaveBeenCalledWith('pr_reviewer');
+    const call = state.streams[0] as StreamCall;
+    expect(Object.keys(call.tools).sort()).toEqual(['Glob', 'Grep', 'Read', 'lookup']);
+    expect(call.tools.Read.name).toBe('Read');
+    expect(call.tools.Glob.name).toBe('Glob');
+    expect(call.tools.Grep.name).toBe('Grep');
+    expect(call.tools.lookup).toBe(mcpTool);
+    expect(progress.some((m) => m.includes('lookup'))).toBe(true);
+  });
+
+  it('never asks MCP for tools with a base checkout', async () => {
+    const toolsFor = vi.fn(async () => ({ lookup: { name: 'mcp-x' } }));
+    await new MRReviewEngine({}).runReview(context, undefined, {
+      checkout: { kind: 'base' as const, reason: 'fetch failed' },
+      mcp: { toolsFor, close: async () => undefined } as never,
+    });
+
+    expect(toolsFor).not.toHaveBeenCalled();
+    expect(state.streams).toHaveLength(0);
+  });
+
   it('wraps a streamText failure', async () => {
     state.streamError = new Error('boom');
     await expect(

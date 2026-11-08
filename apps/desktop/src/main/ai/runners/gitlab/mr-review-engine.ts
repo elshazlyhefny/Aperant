@@ -26,6 +26,7 @@ import type { SecurityProfile } from '../../security/bash-validator';
 import { buildToolRegistry } from '../../tools/build-registry';
 import type { ToolContext } from '../../tools/types';
 import { checkoutNoteFor, type PRReviewCheckout } from '../github/pr-review-checkout';
+import type { PRReviewMcpSession } from '../github/pr-review-mcp';
 
 /** Step limit for the tool-using MR review loop. */
 export const MR_REVIEW_MAX_STEPS = 60;
@@ -218,7 +219,7 @@ export class MRReviewEngine {
   async runReview(
     context: MRContext,
     abortSignal?: AbortSignal,
-    options?: { checkout?: PRReviewCheckout },
+    options?: { checkout?: PRReviewCheckout; mcp?: PRReviewMcpSession },
   ): Promise<{
     findings: MRReviewFinding[];
     verdict: MergeVerdict;
@@ -305,6 +306,17 @@ ${diffContent}
         const definedTool = registry.getTool(name);
         if (definedTool) tools[name] = definedTool.bind(toolContext);
       }
+      // MCP tools only apply on the checkout path; built-in tools win a name clash.
+      const mcpTools = (await options?.mcp?.toolsFor('pr_reviewer')) ?? {};
+      for (const [name, mcpTool] of Object.entries(mcpTools)) {
+        if (!(name in tools)) tools[name] = mcpTool;
+      }
+      this.reportProgress(
+        'analyzing',
+        30,
+        `Review tools: ${Object.keys(tools).join(', ')}`,
+        context.mrIid,
+      );
       prompt += `\n\n${checkoutNoteFor(headCheckout, context.targetBranch, 'MR')}\n\n${MR_CHECKOUT_INSTRUCTIONS}`;
     }
 

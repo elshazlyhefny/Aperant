@@ -25,6 +25,7 @@ import type {
   NewCommitsCheck,
 } from './types';
 import { prepareMRReviewCheckout, type PRReviewCheckout } from '../../ai/runners/github/pr-review-checkout';
+import { createPRReviewMcpSession, type PRReviewMcpSession } from '../../ai/runners/github/pr-review-mcp';
 import { createContextLogger } from '../github/utils/logger';
 import { withProjectOrNull } from '../github/utils/project-middleware';
 import { createIPCCommunicators } from '../github/utils/ipc-communicator';
@@ -341,14 +342,16 @@ async function runMRReview(
 
   // zeenha fork: review a checkout of the MR head, released in the finally below
   let checkout: PRReviewCheckout | null = null;
+  let mcp: PRReviewMcpSession | null = null;
   try {
     checkout = await prepareCheckoutForMR(project, mrIid, sendProgress);
+    mcp = createPRReviewMcpSession(project.path, project.autoBuildPath || '.auto-claude', (line) => debugLog(line));
 
     const engine = new MRReviewEngine(reviewConfig, (update) => {
       sendProgress({ phase: 'analyzing', mrIid, progress: update.progress, message: update.message });
     });
 
-    const reviewResult = await engine.runReview(context, abortController.signal, { checkout });
+    const reviewResult = await engine.runReview(context, abortController.signal, { checkout, mcp: mcp ?? undefined });
 
     // Map verdict to overallStatus
     const verdictToStatus: Record<string, MRReviewResult['overallStatus']> = {
@@ -380,6 +383,7 @@ async function runMRReview(
     }
     throw err;
   } finally {
+    await mcp?.close().catch(() => undefined);
     await cleanupCheckout(checkout);
     runningReviews.delete(reviewKey);
     debugLog('Unregistered review abort controller', { reviewKey });
@@ -948,14 +952,16 @@ export function registerMRReviewHandlers(
 
           // zeenha fork: review a checkout of the MR head, released in the finally below
           let checkout: PRReviewCheckout | null = null;
+          let mcp: PRReviewMcpSession | null = null;
           try {
             checkout = await prepareCheckoutForMR(project, mrIid, sendProgress);
+            mcp = createPRReviewMcpSession(project.path, project.autoBuildPath || '.auto-claude', (line) => debugLog(line));
 
             const engine = new MRReviewEngine(reviewConfig, (update) => {
               sendProgress({ phase: 'analyzing', mrIid, progress: update.progress, message: update.message });
             });
 
-            const reviewResult = await engine.runReview(context, abortController.signal, { checkout });
+            const reviewResult = await engine.runReview(context, abortController.signal, { checkout, mcp: mcp ?? undefined });
 
             const verdictToStatus: Record<string, MRReviewResult['overallStatus']> = {
               ready_to_merge: 'approve',
@@ -990,6 +996,7 @@ export function registerMRReviewHandlers(
 
             sendComplete(result);
           } finally {
+            await mcp?.close().catch(() => undefined);
             await cleanupCheckout(checkout);
             runningReviews.delete(reviewKey);
             debugLog('Unregistered follow-up review', { reviewKey });
