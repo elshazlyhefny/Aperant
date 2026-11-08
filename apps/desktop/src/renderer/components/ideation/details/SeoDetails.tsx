@@ -29,15 +29,15 @@ export function SeoDetails({ idea }: SeoDetailsProps) {
       <div className="grid grid-cols-2 gap-2">
         <Card className="p-3 text-center">
           <div className={`text-lg font-semibold ${IDEATION_IMPACT_COLORS[idea.impact]}`}>
-            {idea.impact}
+            {t(`ideation.impact.${idea.impact}`, { defaultValue: idea.impact })}
           </div>
-          <div className="text-xs text-muted-foreground">Impact</div>
+          <div className="text-xs text-muted-foreground">{t('ideation.labels.impact')}</div>
         </Card>
         <Card className="p-3 text-center">
           <div className={`text-lg font-semibold ${IDEATION_EFFORT_COLORS[idea.estimatedEffort]}`}>
-            {idea.estimatedEffort}
+            {t(`ideation.effort.${idea.estimatedEffort}`, { defaultValue: idea.estimatedEffort })}
           </div>
-          <div className="text-xs text-muted-foreground">Effort</div>
+          <div className="text-xs text-muted-foreground">{t('ideation.labels.effort')}</div>
         </Card>
       </div>
 
@@ -45,11 +45,11 @@ export function SeoDetails({ idea }: SeoDetailsProps) {
       <div>
         <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
           <Search className="h-4 w-4" />
-          Category
+          {t('ideation.labels.category')}
         </h3>
         <Badge variant="outline">
           {SEO_CATEGORY_LABELS[idea.category]
-            ? t(SEO_CATEGORY_LABELS[idea.category])
+            ? t(SEO_CATEGORY_LABELS[idea.category], { defaultValue: idea.category })
             : idea.category}
         </Badge>
       </div>
@@ -59,7 +59,7 @@ export function SeoDetails({ idea }: SeoDetailsProps) {
         <div>
           <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
             <AlertCircle className="h-4 w-4" />
-            Current State
+            {t('ideation.labels.currentState')}
           </h3>
           <p className="text-sm text-muted-foreground">{idea.currentState}</p>
         </div>
@@ -70,7 +70,7 @@ export function SeoDetails({ idea }: SeoDetailsProps) {
         <div>
           <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
             <Wrench className="h-4 w-4" />
-            Proposed Change
+            {t('ideation.labels.proposedChange')}
           </h3>
           <p className="text-sm text-muted-foreground whitespace-pre-line">{idea.proposedChange}</p>
         </div>
@@ -81,7 +81,7 @@ export function SeoDetails({ idea }: SeoDetailsProps) {
         <div>
           <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-success" />
-            Expected Outcome
+            {t('ideation.details.seo.expectedOutcome')}
           </h3>
           <p className="text-sm text-muted-foreground">{idea.expectedOutcome}</p>
         </div>
@@ -92,7 +92,7 @@ export function SeoDetails({ idea }: SeoDetailsProps) {
         <div>
           <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
             <Globe className="h-4 w-4" />
-            Affected Pages
+            {t('ideation.details.seo.affectedPages')}
           </h3>
           <ul className="space-y-1">
             {idea.affectedPages.map((page, i) => (
@@ -109,7 +109,7 @@ export function SeoDetails({ idea }: SeoDetailsProps) {
         <div>
           <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
             <FileCode className="h-4 w-4" />
-            Affected Files
+            {t('ideation.labels.affectedFiles')}
           </h3>
           <ul className="space-y-1">
             {idea.affectedFiles.map((file, i) => (
@@ -126,7 +126,7 @@ export function SeoDetails({ idea }: SeoDetailsProps) {
         <div>
           <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
             <ExternalLink className="h-4 w-4" />
-            References
+            {t('ideation.labels.references')}
           </h3>
           <ul className="space-y-1">
             {idea.references.map((ref, i) => (

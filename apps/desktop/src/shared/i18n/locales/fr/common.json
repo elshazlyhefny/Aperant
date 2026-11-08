@@ -701,7 +701,42 @@
       "uiux": {
         "userBenefit": "Bénéfice utilisateur",
         "affectedComponents": "Composants concernés"
+      },
+      "security": {
+        "vulnerability": "Vulnérabilité",
+        "currentRisk": "Risque actuel",
+        "remediation": "Remédiation",
+        "compliance": "Conformité"
+      },
+      "seo": {
+        "expectedOutcome": "Résultat attendu",
+        "affectedPages": "Pages concernées"
+      },
+      "documentation": {
+        "targetAudience": "Public cible",
+        "currentDocumentation": "Documentation actuelle",
+        "proposedContent": "Contenu proposé",
+        "affectedAreas": "Zones concernées",
+        "priority": "Priorité",
+        "audience": {
+          "developers": "Développeurs",
+          "users": "Utilisateurs",
+          "contributors": "Contributeurs",
+          "maintainers": "Mainteneurs"
+        }
+      },
+      "performance": {
+        "expectedImprovement": "Amélioration attendue",
+        "implementation": "Implémentation",
+        "affectedAreas": "Zones concernées",
+        "tradeoffs": "Compromis"
       }
+    },
+    "impact": {
+      "low": "Faible",
+      "medium": "Moyen",
+      "high": "Élevé",
+      "critical": "Critique"
     }
   },
   "issues": {
