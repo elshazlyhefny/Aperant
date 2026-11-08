@@ -18,6 +18,7 @@ import type {
   WorktreeCreatePRResult,
   ImageAttachment
 } from '../../shared/types';
+import type { TaskRunMetrics } from '../../shared/types/run-metrics';
 
 export interface TaskAPI {
   // Task Operations
@@ -91,6 +92,7 @@ export interface TaskAPI {
 
   // Task Phase Logs
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
+  getTaskRunMetrics: (projectId: string, specId: string) => Promise<IPCResult<TaskRunMetrics | null>>;
   watchTaskLogs: (projectId: string, specId: string) => Promise<IPCResult>;
   unwatchTaskLogs: (specId: string) => Promise<IPCResult>;
   onTaskLogsChanged: (callback: (specId: string, logs: TaskLogs) => void) => () => void;
@@ -311,6 +313,9 @@ export const createTaskAPI = (): TaskAPI => ({
   // Task Phase Logs
   getTaskLogs: (projectId: string, specId: string): Promise<IPCResult<TaskLogs | null>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_LOGS_GET, projectId, specId),
+
+  getTaskRunMetrics: (projectId: string, specId: string): Promise<IPCResult<TaskRunMetrics | null>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_RUN_METRICS_GET, projectId, specId),
 
   watchTaskLogs: (projectId: string, specId: string): Promise<IPCResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_LOGS_WATCH, projectId, specId),
