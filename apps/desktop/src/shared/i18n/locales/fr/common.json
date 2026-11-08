@@ -511,6 +511,18 @@
     }
   },
   "ideation": {
+    "progress": {
+      "title": "Génération des idées",
+      "completeCount": "{{completed}}/{{total}} terminé",
+      "hideLogs": "Masquer les journaux",
+      "showLogs": "Afficher les journaux",
+      "stopping": "Arrêt en cours...",
+      "stop": "Arrêter",
+      "stopTooltip": "Arrêter la génération",
+      "waiting": "En attente de démarrage...",
+      "failed": "Échec de la génération d'idées pour cette catégorie",
+      "empty": "Aucune idée générée pour cette catégorie"
+    },
     "converting": "Conversion...",
     "convertToTask": "Convertir en tâche Auto-Build",
     "dismissIdea": "Ignorer l'idée",
@@ -521,6 +533,212 @@
     "conversionFailedDescription": "Impossible de convertir l'idée en tâche",
     "conversionError": "Erreur de conversion",
     "conversionErrorDescription": "Une erreur s'est produite lors de la conversion de l'idée",
+    "header": {
+      "title": "Idéation",
+      "subtitle": "Idées de fonctionnalités générées par l'IA pour votre projet",
+      "ideasCount_one": "{{count}} idée",
+      "ideasCount_other": "{{count}} idées",
+      "selectedCount_one": "{{count}} sélectionnée",
+      "selectedCount_other": "{{count}} sélectionnées",
+      "delete": "Supprimer",
+      "addMore": "Ajouter"
+    },
+    "filters": {
+      "all": "Toutes",
+      "code": "Code",
+      "uiux": "UI/UX",
+      "docs": "Docs",
+      "security": "Sécurité",
+      "performance": "Performance",
+      "seo": "SEO"
+    },
+    "emptyState": {
+      "title": "Aucune idée pour l'instant",
+      "description": "Générez des idées de fonctionnalités propulsées par l'IA à partir du contexte de votre projet, des modèles existants et du public cible.",
+      "enabledTypes": "Types d'idéation activés",
+      "generateIdeas": "Générer des idées",
+      "noProvider": "Aucun fournisseur d'IA configuré. Ajoutez un compte de fournisseur dans les Paramètres pour générer des idées."
+    },
+    "dialogs": {
+      "configTitle": "Configuration de l'idéation",
+      "configDescription": "Choisissez les types d'idées à générer",
+      "ideationTypes": "Types d'idéation",
+      "contextSources": "Sources de contexte",
+      "includeRoadmapContext": "Inclure le contexte de la feuille de route",
+      "includeKanbanContext": "Inclure le contexte du Kanban",
+      "close": "Fermer",
+      "cancel": "Annuler",
+      "addMoreTitle": "Ajouter des idées",
+      "addMoreDescription": "Sélectionnez d'autres types d'idéation à générer. Vos idées existantes seront conservées.",
+      "allGenerated": "Vous avez déjà généré tous les types d'idéation !",
+      "regenerateHint": "Utilisez \"Régénérer\" pour actualiser les idées existantes.",
+      "selectedCount_one": "{{count}} sélectionné",
+      "selectedCount_other": "{{count}} sélectionnés",
+      "generateTypes_one": "Générer {{count}} type",
+      "generateTypes_other": "Générer {{count}} types",
+      "generateIdeas": "Générer des idées"
+    },
+    "noIdeas": "Aucune idée à afficher",
+    "types": {
+      "code_improvements": "Améliorations du code",
+      "ui_ux_improvements": "Améliorations UI/UX",
+      "documentation_gaps": "Documentation",
+      "security_hardening": "Sécurité",
+      "performance_optimizations": "Performance",
+      "code_quality": "Qualité du code",
+      "seo_improvements": "SEO"
+    },
+    "typeDescriptions": {
+      "code_improvements": "Opportunités révélées par le code : analyse des patterns, de l'architecture et de l'infrastructure",
+      "ui_ux_improvements": "Améliorations visuelles et d'interaction identifiées par l'analyse de l'application",
+      "documentation_gaps": "Documentation manquante ou obsolète nécessitant de l'attention",
+      "security_hardening": "Vulnérabilités de sécurité et opportunités de renforcement",
+      "performance_optimizations": "Goulots d'étranglement de performance et opportunités d'optimisation",
+      "code_quality": "Opportunités de refactorisation, fichiers volumineux, code smells et violations des bonnes pratiques",
+      "seo_improvements": "Visibilité des pages publiques dans les moteurs de recherche : métadonnées, données structurées, explorabilité et indexation multilingue"
+    },
+    "categories": {
+      "uiux": {
+        "usability": "Facilité d'utilisation",
+        "accessibility": "Accessibilité",
+        "performance": "Performance",
+        "visual": "Design visuel",
+        "interaction": "Interaction"
+      },
+      "documentation": {
+        "readme": "README",
+        "api_docs": "Documentation de l'API",
+        "inline_comments": "Commentaires en ligne",
+        "examples": "Exemples et tutoriels",
+        "architecture": "Documentation d'architecture",
+        "troubleshooting": "Guide de dépannage"
+      },
+      "security": {
+        "authentication": "Authentification",
+        "authorization": "Autorisation",
+        "input_validation": "Validation des entrées",
+        "data_protection": "Protection des données",
+        "dependencies": "Dépendances",
+        "configuration": "Configuration",
+        "secrets_management": "Gestion des secrets"
+      },
+      "performance": {
+        "bundle_size": "Taille du bundle",
+        "runtime": "Performance à l'exécution",
+        "memory": "Utilisation de la mémoire",
+        "database": "Requêtes de base de données",
+        "network": "Requêtes réseau",
+        "rendering": "Rendu",
+        "caching": "Mise en cache"
+      },
+      "codeQuality": {
+        "large_files": "Fichiers volumineux",
+        "code_smells": "Code smells",
+        "complexity": "Complexité élevée",
+        "duplication": "Duplication de code",
+        "naming": "Conventions de nommage",
+        "structure": "Structure des fichiers",
+        "linting": "Problèmes de linting",
+        "testing": "Couverture de tests",
+        "types": "Sûreté des types",
+        "dependencies": "Problèmes de dépendances",
+        "dead_code": "Code mort",
+        "git_hygiene": "Hygiène Git"
+      },
+      "seo": {
+        "metadata": "Titres et balises meta",
+        "structured_data": "Données structurées",
+        "crawlability": "Explorabilité",
+        "indexing": "Indexation et canoniques",
+        "internationalization": "Multilingue (hreflang)",
+        "social_sharing": "Partage social",
+        "page_experience": "Expérience de page"
+      }
+    },
+    "labels": {
+      "severity": "Gravité",
+      "effort": "Effort",
+      "impact": "Impact",
+      "category": "Catégorie",
+      "currentState": "État actuel",
+      "proposedChange": "Modification proposée",
+      "files": "Fichiers",
+      "affectedFiles": "Fichiers concernés",
+      "references": "Références",
+      "metrics": "Métriques",
+      "estimatedEffort": "Effort estimé",
+      "impactSuffix": "Impact {{impact}}"
+    },
+    "severity": {
+      "suggestion": "Suggestion",
+      "minor": "Mineure",
+      "major": "Majeure",
+      "critical": "Critique"
+    },
+    "effort": {
+      "trivial": "Trivial",
+      "small": "Faible",
+      "medium": "Moyen",
+      "large": "Élevé",
+      "complex": "Complexe"
+    },
+    "details": {
+      "codeQuality": {
+        "breakingChange": "Changement non rétrocompatible",
+        "breakingChangeWarning": "Ce refactoring peut casser le code ou les tests existants.",
+        "codeExample": "Exemple de code",
+        "lines": "Lignes",
+        "complexity": "Complexité",
+        "duplicateLines": "Lignes dupliquées",
+        "testCoverage": "Couverture de tests",
+        "bestPractice": "Bonne pratique",
+        "prerequisites": "Prérequis"
+      },
+      "codeImprovement": {
+        "buildsUpon": "S'appuie sur",
+        "implementationApproach": "Approche d'implémentation",
+        "patternsToFollow": "Patterns à suivre"
+      },
+      "uiux": {
+        "userBenefit": "Bénéfice utilisateur",
+        "affectedComponents": "Composants concernés"
+      },
+      "security": {
+        "vulnerability": "Vulnérabilité",
+        "currentRisk": "Risque actuel",
+        "remediation": "Remédiation",
+        "compliance": "Conformité"
+      },
+      "seo": {
+        "expectedOutcome": "Résultat attendu",
+        "affectedPages": "Pages concernées"
+      },
+      "documentation": {
+        "targetAudience": "Public cible",
+        "currentDocumentation": "Documentation actuelle",
+        "proposedContent": "Contenu proposé",
+        "affectedAreas": "Zones concernées",
+        "priority": "Priorité",
+        "audience": {
+          "developers": "Développeurs",
+          "users": "Utilisateurs",
+          "contributors": "Contributeurs",
+          "maintainers": "Mainteneurs"
+        }
+      },
+      "performance": {
+        "expectedImprovement": "Amélioration attendue",
+        "implementation": "Implémentation",
+        "affectedAreas": "Zones concernées",
+        "tradeoffs": "Compromis"
+      }
+    },
+    "impact": {
+      "low": "Faible",
+      "medium": "Moyen",
+      "high": "Élevé",
+      "critical": "Critique"
+    },
     "selectedCount_one": "{{count}} sélectionnée",
     "selectedCount_other": "{{count}} sélectionnées",
     "convertSelected": "Convertir la sélection",

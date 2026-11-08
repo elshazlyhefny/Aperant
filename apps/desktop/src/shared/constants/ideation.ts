@@ -8,26 +8,27 @@
 // ============================================
 
 // Ideation type labels and descriptions
+// Values are i18n keys (common namespace); resolve them with t() at render time
 // Note: high_value_features removed - strategic features belong to Roadmap
 // low_hanging_fruit renamed to code_improvements to cover all code-revealed opportunities
 export const IDEATION_TYPE_LABELS: Record<string, string> = {
-  code_improvements: 'Code Improvements',
-  ui_ux_improvements: 'UI/UX Improvements',
-  documentation_gaps: 'Documentation',
-  security_hardening: 'Security',
-  performance_optimizations: 'Performance',
-  code_quality: 'Code Quality',
-  seo_improvements: 'SEO'
+  code_improvements: 'common:ideation.types.code_improvements',
+  ui_ux_improvements: 'common:ideation.types.ui_ux_improvements',
+  documentation_gaps: 'common:ideation.types.documentation_gaps',
+  security_hardening: 'common:ideation.types.security_hardening',
+  performance_optimizations: 'common:ideation.types.performance_optimizations',
+  code_quality: 'common:ideation.types.code_quality',
+  seo_improvements: 'common:ideation.types.seo_improvements'
 };
 
 export const IDEATION_TYPE_DESCRIPTIONS: Record<string, string> = {
-  code_improvements: 'Code-revealed opportunities from patterns, architecture, and infrastructure analysis',
-  ui_ux_improvements: 'Visual and interaction improvements identified through app analysis',
-  documentation_gaps: 'Missing or outdated documentation that needs attention',
-  security_hardening: 'Security vulnerabilities and hardening opportunities',
-  performance_optimizations: 'Performance bottlenecks and optimization opportunities',
-  code_quality: 'Refactoring opportunities, large files, code smells, and best practice violations',
-  seo_improvements: 'Search visibility of public pages: metadata, structured data, crawlability, and multilingual indexing'
+  code_improvements: 'common:ideation.typeDescriptions.code_improvements',
+  ui_ux_improvements: 'common:ideation.typeDescriptions.ui_ux_improvements',
+  documentation_gaps: 'common:ideation.typeDescriptions.documentation_gaps',
+  security_hardening: 'common:ideation.typeDescriptions.security_hardening',
+  performance_optimizations: 'common:ideation.typeDescriptions.performance_optimizations',
+  code_quality: 'common:ideation.typeDescriptions.code_quality',
+  seo_improvements: 'common:ideation.typeDescriptions.seo_improvements'
 };
 
 // Ideation type colors
@@ -100,72 +101,73 @@ export const SECURITY_SEVERITY_COLORS: Record<string, string> = {
   critical: 'bg-destructive/10 text-destructive'
 };
 
+// Category labels below are also i18n keys (common namespace)
 // UI/UX category labels
 export const UIUX_CATEGORY_LABELS: Record<string, string> = {
-  usability: 'Usability',
-  accessibility: 'Accessibility',
-  performance: 'Performance',
-  visual: 'Visual Design',
-  interaction: 'Interaction'
+  usability: 'common:ideation.categories.uiux.usability',
+  accessibility: 'common:ideation.categories.uiux.accessibility',
+  performance: 'common:ideation.categories.uiux.performance',
+  visual: 'common:ideation.categories.uiux.visual',
+  interaction: 'common:ideation.categories.uiux.interaction'
 };
 
 // Documentation category labels
 export const DOCUMENTATION_CATEGORY_LABELS: Record<string, string> = {
-  readme: 'README',
-  api_docs: 'API Documentation',
-  inline_comments: 'Inline Comments',
-  examples: 'Examples & Tutorials',
-  architecture: 'Architecture Docs',
-  troubleshooting: 'Troubleshooting Guide'
+  readme: 'common:ideation.categories.documentation.readme',
+  api_docs: 'common:ideation.categories.documentation.api_docs',
+  inline_comments: 'common:ideation.categories.documentation.inline_comments',
+  examples: 'common:ideation.categories.documentation.examples',
+  architecture: 'common:ideation.categories.documentation.architecture',
+  troubleshooting: 'common:ideation.categories.documentation.troubleshooting'
 };
 
 // Security category labels
 export const SECURITY_CATEGORY_LABELS: Record<string, string> = {
-  authentication: 'Authentication',
-  authorization: 'Authorization',
-  input_validation: 'Input Validation',
-  data_protection: 'Data Protection',
-  dependencies: 'Dependencies',
-  configuration: 'Configuration',
-  secrets_management: 'Secrets Management'
+  authentication: 'common:ideation.categories.security.authentication',
+  authorization: 'common:ideation.categories.security.authorization',
+  input_validation: 'common:ideation.categories.security.input_validation',
+  data_protection: 'common:ideation.categories.security.data_protection',
+  dependencies: 'common:ideation.categories.security.dependencies',
+  configuration: 'common:ideation.categories.security.configuration',
+  secrets_management: 'common:ideation.categories.security.secrets_management'
 };
 
 // Performance category labels
 export const PERFORMANCE_CATEGORY_LABELS: Record<string, string> = {
-  bundle_size: 'Bundle Size',
-  runtime: 'Runtime Performance',
-  memory: 'Memory Usage',
-  database: 'Database Queries',
-  network: 'Network Requests',
-  rendering: 'Rendering',
-  caching: 'Caching'
+  bundle_size: 'common:ideation.categories.performance.bundle_size',
+  runtime: 'common:ideation.categories.performance.runtime',
+  memory: 'common:ideation.categories.performance.memory',
+  database: 'common:ideation.categories.performance.database',
+  network: 'common:ideation.categories.performance.network',
+  rendering: 'common:ideation.categories.performance.rendering',
+  caching: 'common:ideation.categories.performance.caching'
 };
 
 // Code quality category labels
 export const CODE_QUALITY_CATEGORY_LABELS: Record<string, string> = {
-  large_files: 'Large Files',
-  code_smells: 'Code Smells',
-  complexity: 'High Complexity',
-  duplication: 'Code Duplication',
-  naming: 'Naming Conventions',
-  structure: 'File Structure',
-  linting: 'Linting Issues',
-  testing: 'Test Coverage',
-  types: 'Type Safety',
-  dependencies: 'Dependency Issues',
-  dead_code: 'Dead Code',
-  git_hygiene: 'Git Hygiene'
+  large_files: 'common:ideation.categories.codeQuality.large_files',
+  code_smells: 'common:ideation.categories.codeQuality.code_smells',
+  complexity: 'common:ideation.categories.codeQuality.complexity',
+  duplication: 'common:ideation.categories.codeQuality.duplication',
+  naming: 'common:ideation.categories.codeQuality.naming',
+  structure: 'common:ideation.categories.codeQuality.structure',
+  linting: 'common:ideation.categories.codeQuality.linting',
+  testing: 'common:ideation.categories.codeQuality.testing',
+  types: 'common:ideation.categories.codeQuality.types',
+  dependencies: 'common:ideation.categories.codeQuality.dependencies',
+  dead_code: 'common:ideation.categories.codeQuality.dead_code',
+  git_hygiene: 'common:ideation.categories.codeQuality.git_hygiene'
 };
 
 // SEO category labels
 export const SEO_CATEGORY_LABELS: Record<string, string> = {
-  metadata: 'Titles & Meta',
-  structured_data: 'Structured Data',
-  crawlability: 'Crawlability',
-  indexing: 'Indexing & Canonicals',
-  internationalization: 'Multilingual (hreflang)',
-  social_sharing: 'Social Sharing',
-  page_experience: 'Page Experience'
+  metadata: 'common:ideation.categories.seo.metadata',
+  structured_data: 'common:ideation.categories.seo.structured_data',
+  crawlability: 'common:ideation.categories.seo.crawlability',
+  indexing: 'common:ideation.categories.seo.indexing',
+  internationalization: 'common:ideation.categories.seo.internationalization',
+  social_sharing: 'common:ideation.categories.seo.social_sharing',
+  page_experience: 'common:ideation.categories.seo.page_experience'
 };
 
 // Code quality severity colors
