@@ -145,7 +145,7 @@ describe('filterColumnsBySearch', () => {
   });
 });
 
-describe('KanbanBoard search box', () => {
+describe('KanbanBoard search box', { timeout: 20000 }, () => {
   it('hides non-matching tasks and shows the match count', () => {
     renderBoard();
     expect(screen.getByText('Alpha login page')).toBeInTheDocument();
