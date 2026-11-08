@@ -52,6 +52,7 @@ export class ProjectStore {
   private data: StoreData;
   private tasksCache: Map<string, TasksCacheEntry> = new Map();
   private readonly CACHE_TTL_MS = 3000; // 3 seconds TTL for task cache
+  private isTaskRunning: (taskId: string) => boolean = () => false;
 
   constructor() {
     // Store in app's userData directory
@@ -65,6 +66,15 @@ export class ProjectStore {
 
     this.storePath = path.join(storeDir, 'projects.json');
     this.data = this.load();
+  }
+
+  /**
+   * zeenha fork: lets the stale-status correction tell a live agent from a
+   * task the app lost track of. Injected because the agent layer imports this
+   * store.
+   */
+  setTaskRunningCheck(check: (taskId: string) => boolean): void {
+    this.isTaskRunning = check;
   }
 
   /**
@@ -670,6 +680,12 @@ export class ProjectStore {
     // Only auto-correct if all subtasks are done and status is in an incomplete coding state.
     // Preserve ai_review (QA in progress), error (needs investigation), human_review, done, pr_created.
     if (!allCompleted || finalStatus === 'human_review' || finalStatus === 'done' || finalStatus === 'pr_created' || finalStatus === 'ai_review' || finalStatus === 'error') {
+      return { status: finalStatus, reviewReason: finalReviewReason };
+    }
+
+    // zeenha fork: a running agent is not stale, however long its last write was.
+    // A long QA test run used to trip the age check below and mark the task reviewable.
+    if (this.isTaskRunning(taskName)) {
       return { status: finalStatus, reviewReason: finalReviewReason };
     }
 

@@ -199,6 +199,14 @@ export class WorkerBridge extends EventEmitter {
         break;
 
       case 'execution-progress':
+        // zeenha fork: the orchestrator owns the phase. Without this the tracker
+        // never left the phase it guessed from early text, and every stream
+        // event re-persisted it, moving a task in QA back to in_progress.
+        this.progressTracker.forcePhase(
+          message.data.phase,
+          message.data.message ?? '',
+          message.data.currentSubtask,
+        );
         this.emitTyped('execution-progress', message.taskId, message.data, message.projectId);
         break;
 

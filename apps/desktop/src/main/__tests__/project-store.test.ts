@@ -451,6 +451,57 @@ describe('ProjectStore', () => {
       expect(tasks[0].status).toBe('ai_review');
     });
 
+    describe('stale status correction', () => {
+      const staleSpecId = '003-all-subtasks-done';
+      const planFile = () =>
+        path.join(TEST_PROJECT_PATH, '.auto-claude', 'specs', staleSpecId, 'implementation_plan.json');
+
+      beforeEach(() => {
+        mkdirSync(path.dirname(planFile()), { recursive: true });
+        writeFileSync(planFile(), JSON.stringify({
+          feature: 'Done coding',
+          workflow_type: 'feature',
+          services_involved: [],
+          status: 'in_progress',
+          xstateState: 'qa_review',
+          phases: [{
+            phase: 1,
+            name: 'Phase 1',
+            type: 'implementation',
+            subtasks: [{ id: 'subtask-1', description: 'Subtask 1', status: 'completed' }]
+          }],
+          final_acceptance: [],
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z',
+          spec_file: 'spec.md'
+        }));
+      });
+
+      it('leaves a task alone while its agent is running', async () => {
+        const { ProjectStore } = await import('../project-store');
+        const store = new ProjectStore();
+        store.setTaskRunningCheck((taskId) => taskId === staleSpecId);
+
+        const project = store.addProject(TEST_PROJECT_PATH);
+        const tasks = store.getTasks(project.id);
+
+        expect(tasks[0].status).toBe('in_progress');
+        expect(JSON.parse(readFileSync(planFile(), 'utf-8')).xstateState).toBe('qa_review');
+      });
+
+      it('corrects the task once no agent is running', async () => {
+        const { ProjectStore } = await import('../project-store');
+        const store = new ProjectStore();
+        store.setTaskRunningCheck(() => false);
+
+        const project = store.addProject(TEST_PROJECT_PATH);
+        const tasks = store.getTasks(project.id);
+
+        expect(tasks[0].status).toBe('human_review');
+        expect(JSON.parse(readFileSync(planFile(), 'utf-8')).xstateState).toBe('human_review');
+      });
+    });
+
     it('should determine status as human_review when plan status is human_review', async () => {
       const specsDir = path.join(TEST_PROJECT_PATH, '.auto-claude', 'specs', '004-rejected');
       mkdirSync(specsDir, { recursive: true });
