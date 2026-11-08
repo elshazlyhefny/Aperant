@@ -25,6 +25,7 @@ import type { APIProfile } from '../../shared/types/profile';
 import type { ClaudeProfile } from '../../shared/types/agent';
 import { loadProfilesFile } from '../utils/profile-manager';
 import { loadProfileStore } from '../claude-profile/profile-storage';
+import { isMacOS, isWindows } from '../platform';
 
 const settingsPath = getSettingsPath();
 
@@ -775,12 +776,10 @@ export function registerSettingsHandlers(
           };
         }
 
-        const platform = process.platform;
-
-        if (platform === 'darwin') {
+        if (isMacOS()) {
           // macOS: Use execFileSync with argument array to prevent injection
           execFileSync('open', ['-a', 'Terminal', resolvedPath], { stdio: 'ignore' });
-        } else if (platform === 'win32') {
+        } else if (isWindows()) {
           // Windows: Use cmd.exe directly with argument array
           // /C tells cmd to execute the command and terminate
           // /K keeps the window open after executing cd

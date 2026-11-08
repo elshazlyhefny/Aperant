@@ -18,6 +18,8 @@
  * exec.
  */
 
+import { isWindows } from '../../platform';
+
 export const SAFE_MCP_COMMANDS: ReadonlySet<string> = new Set([
   'npx', 'npm', 'node', 'python', 'python3', 'uv', 'uvx', 'docker',
 ]);
@@ -40,7 +42,7 @@ export type McpCommandVerdict =
 export function checkMcpCommand(
   command: string | undefined,
   args: readonly string[] | undefined,
-  windows = process.platform === 'win32',
+  windows = isWindows(),
 ): McpCommandVerdict {
   if (!command) return { ok: false, reason: 'No command configured' };
   if (command.includes('/') || command.includes('\\')) {
