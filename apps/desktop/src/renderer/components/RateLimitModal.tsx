@@ -23,6 +23,8 @@ import { Input } from './ui/input';
 import { useRateLimitStore } from '../stores/rate-limit-store';
 import { useClaudeProfileStore, loadClaudeProfiles, switchTerminalToProfile } from '../stores/claude-profile-store';
 import { useToast } from '../hooks/use-toast';
+import { ToastAction } from './ui/toast';
+import type { AppSection } from './settings/AppSettings';
 import { debugError } from '../../shared/utils/debug-logger';
 
 const CLAUDE_UPGRADE_URL = 'https://claude.ai/upgrade';
@@ -117,14 +119,23 @@ export function RateLimitModal() {
         hideRateLimitModal();
 
         // Direct user to Settings to complete authentication
-        alert(
-          `${t('profileCreated.title', { profileName })}\n\n` +
-          `${t('profileCreated.instructions')}\n` +
-          `1. ${t('profileCreated.step1')}\n` +
-          `2. ${t('profileCreated.step2')}\n` +
-          `3. ${t('profileCreated.step3')}\n\n` +
-          `${t('profileCreated.footer')}`
-        );
+        toast({
+          title: t('profileCreated.title', { profileName }),
+          description: t('profileCreated.description'),
+          duration: 15000,
+          action: (
+            <ToastAction
+              altText={t('profileCreated.goToAccounts')}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent<AppSection>('open-app-settings', { detail: 'accounts' })
+                )
+              }
+            >
+              {t('profileCreated.goToAccounts')}
+            </ToastAction>
+          ),
+        });
       }
     } catch (err) {
       debugError('[RateLimitModal] Failed to add profile:', err);

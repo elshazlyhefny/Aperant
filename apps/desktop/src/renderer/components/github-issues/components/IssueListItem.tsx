@@ -10,14 +10,23 @@ import type { IssueListItemProps } from '../types';
 
 export function IssueListItem({ issue, isSelected, onClick, onInvestigate }: IssueListItemProps) {
   const { t } = useTranslation('common');
+
   return (
     <div
-      className={`group p-3 rounded-lg cursor-pointer transition-colors ${
+      role="button"
+      tabIndex={0}
+      className={`group p-3 rounded-lg cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
         isSelected
           ? 'bg-accent/50 border border-accent'
           : 'hover:bg-muted/50 border border-transparent'
       }`}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+          e.preventDefault();
+          onClick();
+        }
+      }}
     >
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
@@ -60,7 +69,7 @@ export function IssueListItem({ issue, isSelected, onClick, onInvestigate }: Iss
             e.stopPropagation();
             onInvestigate();
           }}
-          aria-label={t('iconButtons.investigate')}
+          aria-label={t('accessibility.investigateIssueAriaLabel')}
         >
           <Sparkles className="h-4 w-4" />
         </Button>

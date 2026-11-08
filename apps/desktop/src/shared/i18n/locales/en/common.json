@@ -65,6 +65,7 @@
     "expandAriaLabel": "Expand",
     "collapseAriaLabel": "Collapse",
     "selectIdeaAriaLabel": "Select idea: {{title}}",
+    "investigateIssueAriaLabel": "Investigate issue",
     "convertToTaskAriaLabel": "Convert to task",
     "goToTaskAriaLabel": "Go to task",
     "reAuthenticateProfileAriaLabel": "Re-authenticate profile",
@@ -519,7 +520,18 @@
     "conversionFailed": "Conversion failed",
     "conversionFailedDescription": "Failed to convert idea to task",
     "conversionError": "Conversion error",
-    "conversionErrorDescription": "An error occurred while converting the idea"
+    "conversionErrorDescription": "An error occurred while converting the idea",
+    "selectedCount_one": "{{count}} selected",
+    "selectedCount_other": "{{count}} selected",
+    "convertSelected": "Convert selected",
+    "convertSelectedAriaLabel": "Convert selected ideas to tasks",
+    "bulkConvertSuccess_one": "Converted {{count}} idea to a task",
+    "bulkConvertSuccess_other": "Converted {{count}} ideas to tasks",
+    "bulkConvertPartial": "Converted {{succeeded}} of {{total}} ideas. {{failed}} failed.",
+    "bulkConvertFailed_one": "Could not convert {{count}} idea",
+    "bulkConvertFailed_other": "Could not convert {{count}} ideas",
+    "bulkConvertTitle": "Convert selected",
+    "bulkConvertNoneEligible": "None of the selected ideas can be converted. Dismissed, archived and already converted ideas are skipped."
   },
   "issues": {
     "loadingMore": "Loading more...",
@@ -699,11 +711,8 @@
   },
   "profileCreated": {
     "title": "Profile \"{{profileName}}\" has been created.",
-    "instructions": "To authenticate this profile:",
-    "step1": "Go to Settings > Integrations",
-    "step2": "Find the profile in the Claude Accounts section",
-    "step3": "Click \"Authenticate\" to complete login",
-    "footer": "The account will be available once you complete authentication."
+    "description": "Open Settings > Accounts and click Authenticate to finish logging in.",
+    "goToAccounts": "Go to Accounts"
   },
   "roadmap": {
     "taskCompleted": "Completed",

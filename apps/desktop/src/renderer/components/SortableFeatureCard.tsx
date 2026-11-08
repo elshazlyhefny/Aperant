@@ -69,12 +69,20 @@ export function SortableFeatureCard({
       ref={setNodeRef}
       style={style}
       className={cn(
-        'touch-none transition-all duration-200',
+        'touch-none transition-all duration-200 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         isDragging && 'dragging-placeholder opacity-40 scale-[0.98]',
         isOver && !isDragging && 'ring-2 ring-primary/30 ring-offset-2 ring-offset-background rounded-xl'
       )}
       {...attributes}
       {...listeners}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && e.target === e.currentTarget && !isDragging && !e.defaultPrevented) {
+          e.preventDefault();
+          onClick();
+          return;
+        }
+        listeners?.onKeyDown?.(e);
+      }}
     >
       <Card
         className="p-3 hover:bg-muted/50 cursor-pointer transition-colors"

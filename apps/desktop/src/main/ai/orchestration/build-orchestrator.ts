@@ -34,7 +34,7 @@ import {
 import { safeParseJson } from '../../utils/json-repair';
 import type { SessionResult } from '../session/types';
 import { waitForHostLoad } from './host-load';
-import { iterateSubtasks } from './subtask-iterator';
+import { delay, iterateSubtasks } from './subtask-iterator';
 import type { SubtaskIteratorConfig, SubtaskResult } from './subtask-iterator';
 
 // =============================================================================
@@ -46,6 +46,9 @@ const AUTO_CONTINUE_DELAY_MS = 3_000;
 
 /** Maximum planning validation retries before failing */
 const MAX_PLANNING_VALIDATION_RETRIES = 3;
+
+/** Maximum planner restarts after a temporary session error, such as a stalled stream */
+const MAX_PLANNING_TRANSIENT_RETRIES = 2;
 
 /** Maximum retries for a single subtask before marking stuck */
 const MAX_SUBTASK_RETRIES = 3;
@@ -319,6 +322,7 @@ export class BuildOrchestrator extends EventEmitter {
     this.transitionPhase('planning', 'Creating implementation plan');
     let planningRetryContext: string | undefined;
     let validationFailures = 0;
+    let transientFailures = 0;
 
     for (let attempt = 0; attempt < MAX_PLANNING_VALIDATION_RETRIES + 1; attempt++) {
       if (this.aborted) {
@@ -351,6 +355,24 @@ export class BuildOrchestrator extends EventEmitter {
 
       if (result.outcome === 'cancelled') {
         return { success: false, error: 'Build cancelled' };
+      }
+
+      // zeenha fork: coding retries a session that stalls, but planning failed the
+      // whole task on one 60s stream stall. Restart it; a stall says nothing about
+      // the plan, so it does not use up a validation attempt.
+      if (
+        result.outcome === 'error' &&
+        result.error?.retryable &&
+        transientFailures < MAX_PLANNING_TRANSIENT_RETRIES
+      ) {
+        transientFailures++;
+        this.emitTyped(
+          'log',
+          `Planning session interrupted (${result.error.message}). Restarting planner (${transientFailures}/${MAX_PLANNING_TRANSIENT_RETRIES}).`,
+        );
+        await delay(ERROR_RETRY_DELAY_MS, this.config.abortSignal);
+        attempt--;
+        continue;
       }
 
       if (result.outcome === 'error' || result.outcome === 'auth_failure' || result.outcome === 'rate_limited') {

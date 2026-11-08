@@ -8,3 +8,4 @@ export { TaskSubtasks } from './TaskSubtasks';
 export { TaskLogs } from './TaskLogs';
 export { TaskReview } from './TaskReview';
 export { useTaskDetail } from './hooks/useTaskDetail';
+export { TaskUsage } from './TaskUsage';

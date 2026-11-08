@@ -42,6 +42,7 @@ import { TaskWarnings } from './TaskWarnings';
 import { TaskSubtasks } from './TaskSubtasks';
 import { TaskLogs } from './TaskLogs';
 import { TaskFiles } from './TaskFiles';
+import { TaskUsage } from './TaskUsage';
 import { TaskReview } from './TaskReview';
 import { FailedTaskPanel } from './FailedTaskPanel';
 import type { Task, WorktreeCreatePROptions } from '../../../shared/types';
@@ -508,6 +509,12 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                       {t('tasks:files.tab')}
                     </TabsTrigger>
                   )}
+                  <TabsTrigger
+                    value="usage"
+                    className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 py-2.5 text-sm"
+                  >
+                    {t('tasks:usage.tab')}
+                  </TabsTrigger>
                 </TabsList>
 
                 {/* Overview Tab */}
@@ -600,6 +607,11 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                     <TaskFiles task={task} />
                   </TabsContent>
                 )}
+
+                {/* Usage Tab */}
+                <TabsContent value="usage" className="flex-1 min-h-0 overflow-hidden mt-0">
+                  <TaskUsage task={task} />
+                </TabsContent>
               </Tabs>
             </div>
 

@@ -514,7 +514,7 @@ async function extractInsightsAfterSession(
 /**
  * Delay with abort signal support.
  */
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
+export function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     if (signal?.aborted) {
       resolve();

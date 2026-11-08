@@ -13,6 +13,8 @@ interface SortableTaskCardProps {
   isSelectable?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  // Disable dragging (e.g. while a search filter is active)
+  isDragDisabled?: boolean;
 }
 
 // Custom comparator - only re-render when task or onClick actually changed
@@ -28,11 +30,12 @@ function sortableTaskCardPropsAreEqual(
     prevProps.onStatusChange === nextProps.onStatusChange &&
     prevProps.isSelectable === nextProps.isSelectable &&
     prevProps.isSelected === nextProps.isSelected &&
-    prevProps.onToggleSelect === nextProps.onToggleSelect
+    prevProps.onToggleSelect === nextProps.onToggleSelect &&
+    prevProps.isDragDisabled === nextProps.isDragDisabled
   );
 }
 
-export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, onStatusChange, isSelectable, isSelected, onToggleSelect }: SortableTaskCardProps) {
+export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, onStatusChange, isSelectable, isSelected, onToggleSelect, isDragDisabled }: SortableTaskCardProps) {
   const {
     attributes,
     listeners,
@@ -43,7 +46,8 @@ export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, 
     isOver
   } = useSortable({
     id: task.id,
-    disabled: task.status === 'in_progress' // Prevent dragging tasks that are currently running or stuck
+    // Prevent dragging tasks that are currently running or stuck, or when dragging is disabled
+    disabled: task.status === 'in_progress' || !!isDragDisabled
   });
 
   const style = {
@@ -63,12 +67,20 @@ export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, 
       ref={setNodeRef}
       style={style}
       className={cn(
-        'touch-none transition-all duration-200',
+        'touch-none transition-all duration-200 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         isDragging && 'dragging-placeholder opacity-40 scale-[0.98]',
         isOver && !isDragging && 'ring-2 ring-primary/30 ring-offset-2 ring-offset-background rounded-xl'
       )}
       {...attributes}
       {...listeners}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && e.target === e.currentTarget && !isDragging && !e.defaultPrevented) {
+          e.preventDefault();
+          handleClick();
+          return;
+        }
+        listeners?.onKeyDown?.(e);
+      }}
     >
       <TaskCard
         task={task}
