@@ -1,10 +1,12 @@
 import { ipcMain } from 'electron';
 import { readdirSync } from 'fs';
-import { readFile } from 'fs/promises';
+import { readFile, realpath } from 'fs/promises';
 import path from 'path';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { IPCResult, FileNode } from '../../shared/types';
 import { assertTrustedSender } from '../ipc-sender-validation';
+import { projectStore } from '../project-store';
+import { isPathWithinBase } from '../worktree-paths';
 
 // Maximum file size to read (1MB)
 const MAX_FILE_SIZE = 1024 * 1024;
@@ -32,6 +34,33 @@ function validatePath(filePath: string): { valid: true; path: string } | { valid
   return { valid: true, path: resolvedPath };
 }
 
+async function realpathOrSelf(p: string): Promise<string> {
+  try {
+    return await realpath(p);
+  } catch {
+    return p;
+  }
+}
+
+/**
+ * zeenha fork: file explorer access is limited to registered project folders.
+ * Symlinks are resolved on both sides so a link inside a project cannot escape it.
+ */
+async function validateProjectPath(
+  filePath: string
+): Promise<{ valid: true; path: string } | { valid: false; error: string }> {
+  const validation = validatePath(filePath);
+  if (!validation.valid) return validation;
+
+  const target = await realpathOrSelf(validation.path);
+  for (const project of projectStore.getProjects()) {
+    if (!project.path) continue;
+    const root = await realpathOrSelf(path.resolve(project.path));
+    if (isPathWithinBase(target, root)) return validation;
+  }
+  return { valid: false, error: 'Path is outside registered projects' };
+}
+
 // Directories to ignore when listing
 const IGNORED_DIRS = new Set([
   'node_modules', '.git', '__pycache__', 'dist', 'build',
@@ -54,7 +83,7 @@ export function registerFileHandlers(): void {
       if (!assertTrustedSender(event, 'FILE_EXPLORER_LIST')) return { success: false, error: 'Untrusted sender' };
       try {
         // Validate and normalize path to prevent directory traversal
-        const validation = validatePath(dirPath);
+        const validation = await validateProjectPath(dirPath);
         if (!validation.valid) {
           return { success: false, error: validation.error };
         }
@@ -101,7 +130,7 @@ export function registerFileHandlers(): void {
       if (!assertTrustedSender(event, 'FILE_EXPLORER_READ')) return { success: false, error: 'Untrusted sender' };
       try {
         // Validate and normalize path
-        const validation = validatePath(filePath);
+        const validation = await validateProjectPath(filePath);
         if (!validation.valid) {
           return { success: false, error: validation.error };
         }
