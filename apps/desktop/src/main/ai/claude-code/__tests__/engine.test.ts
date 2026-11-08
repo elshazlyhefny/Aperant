@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,7 +17,8 @@ import type { ClaudeCodeLanguageModel } from '../model';
  * A fake `claude`: records what it was given, then plays back a scenario.
  * Real spawning, real stdin/stdout, no subscription used.
  */
-const dir = mkdtempSync(join(tmpdir(), 'fake-claude-'));
+// realpath: macOS reports the temp folder's /private path to the child process.
+const dir = realpathSync(mkdtempSync(join(tmpdir(), 'fake-claude-')));
 const fake = join(dir, 'claude');
 writeFileSync(
   fake,

@@ -44,7 +44,8 @@ beforeEach(() => {
   mkdirSync(spec, { recursive: true });
   writeFileSync(path.join(spec, 'spec.md'), '# Draft stock orders from low-stock products\n');
 });
-afterEach(() => rmSync(project, { recursive: true, force: true }));
+// Retries: the queue can still be writing here when the test ends.
+afterEach(() => rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
 const stub = () => new Proxy({}, { get: (_t, key) => (key === 'generateSpawnId' ? () => 1 : vi.fn()) });
 
