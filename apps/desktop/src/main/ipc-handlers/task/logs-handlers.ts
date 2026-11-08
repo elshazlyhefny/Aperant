@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { IPC_CHANNELS, getSpecsDir } from '../../../shared/constants';
 import type { IPCResult, TaskLogs, TaskLogStreamChunk } from '../../../shared/types';
-import type { RunMetricsSummary, SessionMetricsEntry } from '../../../shared/types/run-metrics';
+import type { TaskRunMetrics } from '../../../shared/types/run-metrics';
 import { aggregateRunMetrics, readRunMetrics } from '../../ai/logging/run-metrics';
 import path from 'path';
 import { projectStore } from '../../project-store';
@@ -81,7 +81,7 @@ export function registerTaskLogsHandlers(getMainWindow: () => BrowserWindow | nu
       _,
       projectId: string,
       specId: string
-    ): Promise<IPCResult<{ sessions: SessionMetricsEntry[]; summary: RunMetricsSummary } | null>> => {
+    ): Promise<IPCResult<TaskRunMetrics | null>> => {
       try {
         if (!isValidTaskId(specId)) {
           return { success: false, error: 'Invalid spec ID' };

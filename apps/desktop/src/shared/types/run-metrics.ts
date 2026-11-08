@@ -66,3 +66,8 @@ export interface RunMetricsSummary {
   byTool: Array<{ tool: string; calls: number; errors: number; totalMs: number }>;
   slowest: Array<SlowToolCall & { agentType: string; phase: string }>;
 }
+
+export interface TaskRunMetrics {
+  sessions: SessionMetricsEntry[];
+  summary: RunMetricsSummary;
+}
