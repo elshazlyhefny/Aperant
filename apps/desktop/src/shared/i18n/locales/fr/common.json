@@ -65,6 +65,7 @@
     "expandAriaLabel": "Développer",
     "collapseAriaLabel": "Réduire",
     "selectIdeaAriaLabel": "Sélectionner l'idée : {{title}}",
+    "investigateIssueAriaLabel": "Examiner le ticket",
     "convertToTaskAriaLabel": "Convertir en tâche",
     "goToTaskAriaLabel": "Aller à la tâche",
     "reAuthenticateProfileAriaLabel": "Ré-authentifier le profil",
@@ -737,7 +738,18 @@
       "medium": "Moyen",
       "high": "Élevé",
       "critical": "Critique"
-    }
+    },
+    "selectedCount_one": "{{count}} sélectionnée",
+    "selectedCount_other": "{{count}} sélectionnées",
+    "convertSelected": "Convertir la sélection",
+    "convertSelectedAriaLabel": "Convertir les idées sélectionnées en tâches",
+    "bulkConvertSuccess_one": "{{count}} idée convertie en tâche",
+    "bulkConvertSuccess_other": "{{count}} idées converties en tâches",
+    "bulkConvertPartial": "{{succeeded}} idées sur {{total}} converties. {{failed}} en échec.",
+    "bulkConvertFailed_one": "Impossible de convertir {{count}} idée",
+    "bulkConvertFailed_other": "Impossible de convertir {{count}} idées",
+    "bulkConvertTitle": "Conversion de la sélection",
+    "bulkConvertNoneEligible": "Aucune des idées sélectionnées ne peut être convertie. Les idées rejetées, archivées ou déjà converties sont ignorées."
   },
   "issues": {
     "loadingMore": "Chargement...",
@@ -917,11 +929,8 @@
   },
   "profileCreated": {
     "title": "Le profil « {{profileName}} » a été créé.",
-    "instructions": "Pour authentifier ce profil :",
-    "step1": "Allez dans Paramètres > Intégrations",
-    "step2": "Trouvez le profil dans la section Comptes Claude",
-    "step3": "Cliquez sur « Authentifier » pour terminer la connexion",
-    "footer": "Le compte sera disponible une fois l'authentification terminée."
+    "description": "Ouvrez Paramètres > Comptes et cliquez sur Authentifier pour terminer la connexion.",
+    "goToAccounts": "Aller aux comptes"
   },
   "roadmap": {
     "taskCompleted": "Terminé",

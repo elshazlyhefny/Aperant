@@ -14,6 +14,13 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import type {
+  RunMetricsGroup,
+  RunMetricsSummary,
+  SessionMetricsEntry,
+  SlowToolCall,
+  ToolMetrics,
+} from '../../../shared/types/run-metrics';
 import type { SessionResult, StreamEvent } from '../session/types';
 
 export const RUN_METRICS_FILE = 'run_metrics.json';
@@ -21,42 +28,7 @@ export const RUN_METRICS_FILE = 'run_metrics.json';
 const SLOWEST_KEPT = 5;
 const DETAIL_MAX_CHARS = 120;
 
-export interface ToolMetrics {
-  calls: number;
-  errors: number;
-  totalMs: number;
-}
-
-export interface SlowToolCall {
-  tool: string;
-  ms: number;
-  detail?: string;
-}
-
-export interface SessionMetricsEntry {
-  agentType: string;
-  phase: string;
-  subtaskId?: string;
-  sessionNumber?: number;
-  model: string;
-  thinkingLevel?: string;
-  startedAt: string;
-  durationMs: number;
-  /** Wall time inside tools; `durationMs` minus this is roughly model time. */
-  toolTimeMs: number;
-  outcome: string;
-  steps: number;
-  toolCalls: number;
-  tokens: {
-    /** All input, including cached input. */
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheCreation: number;
-  };
-  tools: Record<string, ToolMetrics>;
-  slowest: SlowToolCall[];
-}
+export type { SessionMetricsEntry, SlowToolCall, ToolMetrics };
 
 interface RunMetricsFile {
   version: 1;
@@ -150,10 +122,88 @@ export function buildSessionEntry(input: SessionMetricsInput): SessionMetricsEnt
 function readSessions(path: string): SessionMetricsEntry[] {
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Partial<RunMetricsFile>;
-    return Array.isArray(parsed.sessions) ? parsed.sessions : [];
+    if (!parsed || !Array.isArray(parsed.sessions)) return [];
+    return parsed.sessions.filter((s) => s !== null && typeof s === 'object' && !Array.isArray(s));
   } catch {
     return [];
   }
+}
+
+/** Read a spec directory's recorded sessions; a missing or corrupt file gives []. */
+export function readRunMetrics(directory: string): SessionMetricsEntry[] {
+  return readSessions(join(directory, RUN_METRICS_FILE));
+}
+
+const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+
+const emptyTokens = () => ({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
+
+function addGroup(groups: Map<string, RunMetricsGroup>, key: string, entry: SessionMetricsEntry): void {
+  const group =
+    groups.get(key) ?? { key, sessions: 0, durationMs: 0, toolTimeMs: 0, tokens: emptyTokens() };
+  group.sessions += 1;
+  group.durationMs += num(entry.durationMs);
+  group.toolTimeMs += num(entry.toolTimeMs);
+  group.tokens.input += num(entry.tokens?.input);
+  group.tokens.output += num(entry.tokens?.output);
+  group.tokens.cacheRead += num(entry.tokens?.cacheRead);
+  group.tokens.cacheCreation += num(entry.tokens?.cacheCreation);
+  groups.set(key, group);
+}
+
+/** Pure aggregate of a task's sessions. Tolerates entries with missing fields. */
+export function aggregateRunMetrics(entries: SessionMetricsEntry[]): RunMetricsSummary {
+  const phases = new Map<string, RunMetricsGroup>();
+  const agents = new Map<string, RunMetricsGroup>();
+  const tools = new Map<string, { tool: string; calls: number; errors: number; totalMs: number }>();
+  const slowest: RunMetricsSummary['slowest'] = [];
+  const summary: RunMetricsSummary = {
+    sessionCount: 0,
+    durationMs: 0,
+    toolTimeMs: 0,
+    tokens: emptyTokens(),
+    byPhase: [],
+    byAgent: [],
+    byTool: [],
+    slowest: [],
+  };
+
+  for (const entry of entries) {
+    summary.sessionCount += 1;
+    summary.durationMs += num(entry.durationMs);
+    summary.toolTimeMs += num(entry.toolTimeMs);
+    summary.tokens.input += num(entry.tokens?.input);
+    summary.tokens.output += num(entry.tokens?.output);
+    summary.tokens.cacheRead += num(entry.tokens?.cacheRead);
+    summary.tokens.cacheCreation += num(entry.tokens?.cacheCreation);
+
+    const phase = typeof entry.phase === 'string' ? entry.phase : 'unknown';
+    const agentType = typeof entry.agentType === 'string' ? entry.agentType : 'unknown';
+    addGroup(phases, phase, entry);
+    addGroup(agents, agentType, entry);
+
+    for (const [tool, metrics] of Object.entries(entry.tools ?? {})) {
+      const merged = tools.get(tool) ?? { tool, calls: 0, errors: 0, totalMs: 0 };
+      merged.calls += num(metrics?.calls);
+      merged.errors += num(metrics?.errors);
+      merged.totalMs += num(metrics?.totalMs);
+      tools.set(tool, merged);
+    }
+
+    if (Array.isArray(entry.slowest)) {
+      for (const call of entry.slowest) {
+        if (call && typeof call.tool === 'string') {
+          slowest.push({ ...call, ms: num(call.ms), agentType, phase });
+        }
+      }
+    }
+  }
+
+  summary.byPhase = [...phases.values()];
+  summary.byAgent = [...agents.values()];
+  summary.byTool = [...tools.values()].sort((a, b) => b.totalMs - a.totalMs);
+  summary.slowest = slowest.sort((a, b) => b.ms - a.ms).slice(0, SLOWEST_KEPT);
+  return summary;
 }
 
 /**

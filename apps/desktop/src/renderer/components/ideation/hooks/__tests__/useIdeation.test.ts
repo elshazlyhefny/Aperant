@@ -22,6 +22,14 @@ const mockAuthState = vi.hoisted(() => ({
   isLoading: false,
 }));
 const mockToast = vi.hoisted(() => vi.fn());
+const mockLoadTasks = vi.hoisted(() => vi.fn());
+const mockSetIdeaTaskId = vi.hoisted(() => vi.fn());
+const mockClearSelection = vi.hoisted(() => vi.fn());
+const mockConvertIdeaToTask = vi.hoisted(() => vi.fn());
+const mockStoreState = vi.hoisted(() => ({
+  session: null as { ideas: Array<{ id: string; status: string }> } | null,
+  selectedIds: new Set<string>()
+}));
 
 vi.mock('../useIdeationAuth', () => ({
   useIdeationAuth: () => mockAuthState
@@ -32,7 +40,7 @@ vi.mock('../../../../hooks/use-toast', () => ({
 }));
 
 vi.mock('../../../../stores/task-store', () => ({
-  loadTasks: vi.fn()
+  loadTasks: mockLoadTasks
 }));
 
 vi.mock('../../../../stores/ideation-store', () => {
@@ -51,8 +59,20 @@ vi.mock('../../../../stores/ideation-store', () => {
     selectedIds: new Set()
   };
 
+  const useIdeationStore = Object.assign(
+    (selector: (s: typeof state) => unknown) => selector(state),
+    {
+      getState: () => ({
+        session: mockStoreState.session,
+        selectedIds: mockStoreState.selectedIds,
+        setIdeaTaskId: mockSetIdeaTaskId,
+        clearSelection: mockClearSelection
+      })
+    }
+  );
+
   return {
-    useIdeationStore: (selector: (s: typeof state) => unknown) => selector(state),
+    useIdeationStore,
     loadIdeation: mockLoadIdeation,
     generateIdeation: mockGenerateIdeation,
     refreshIdeation: mockRefreshIdeation,
@@ -71,6 +91,11 @@ vi.mock('../../../../stores/ideation-store', () => {
 describe('useIdeation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStoreState.session = null;
+    mockStoreState.selectedIds = new Set<string>();
+    (window as unknown as { electronAPI: unknown }).electronAPI = {
+      convertIdeaToTask: mockConvertIdeaToTask
+    } as never;
   });
 
   it('should set up and clean up listeners on unmount', () => {
@@ -193,5 +218,158 @@ describe('useIdeation', () => {
     expect('showEnvConfigModal' in result.current).toBe(false);
     expect('handleEnvConfigured' in result.current).toBe(false);
     expect('setShowEnvConfigModal' in result.current).toBe(false);
+  });
+
+  describe('handleConvertSelected', () => {
+    const setIdeas = (statuses: Record<string, string>, selected: string[]) => {
+      mockStoreState.session = {
+        ideas: Object.entries(statuses).map(([id, status]) => ({ id, status }))
+      };
+      mockStoreState.selectedIds = new Set(selected);
+    };
+    const ok = (id: string) => ({ success: true, data: { id: `task-${id}` } });
+
+    it('converts only eligible selected ideas', async () => {
+      setIdeas(
+        { draft: 'draft', gone: 'dismissed', old: 'archived', done: 'converted' },
+        ['draft', 'gone', 'old', 'done']
+      );
+      mockConvertIdeaToTask.mockResolvedValue(ok('draft'));
+      const { result } = renderHook(() => useIdeation('project-1'));
+
+      await act(async () => {
+        await result.current.handleConvertSelected();
+      });
+
+      expect(mockConvertIdeaToTask).toHaveBeenCalledTimes(1);
+      expect(mockConvertIdeaToTask).toHaveBeenCalledWith('project-1', 'draft');
+    });
+
+    it('converts sequentially', async () => {
+      setIdeas({ a: 'draft', b: 'draft' }, ['a', 'b']);
+      let resolveFirst: (v: unknown) => void = () => {};
+      mockConvertIdeaToTask
+        .mockImplementationOnce(() => new Promise((r) => { resolveFirst = r; }))
+        .mockResolvedValueOnce(ok('b'));
+      const { result } = renderHook(() => useIdeation('project-1'));
+
+      let promise: Promise<void> = Promise.resolve();
+      act(() => {
+        promise = result.current.handleConvertSelected();
+      });
+      expect(mockConvertIdeaToTask).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveFirst(ok('a'));
+        await promise;
+      });
+      expect(mockConvertIdeaToTask).toHaveBeenCalledTimes(2);
+      expect(mockConvertIdeaToTask).toHaveBeenNthCalledWith(2, 'project-1', 'b');
+    });
+
+    it('reloads tasks, clears selection and shows one success toast', async () => {
+      setIdeas({ a: 'draft', b: 'draft', c: 'draft' }, ['a', 'b', 'c']);
+      mockConvertIdeaToTask.mockImplementation((_p: string, id: string) => Promise.resolve(ok(id)));
+      const { result } = renderHook(() => useIdeation('project-1'));
+
+      await act(async () => {
+        await result.current.handleConvertSelected();
+      });
+
+      expect(mockLoadTasks).toHaveBeenCalledTimes(1);
+      expect(mockClearSelection).toHaveBeenCalledTimes(1);
+      expect(mockToast).toHaveBeenCalledTimes(1);
+      expect(mockToast.mock.calls[0][0].variant).not.toBe('destructive');
+    });
+
+    it('reports a partial failure with a destructive toast', async () => {
+      setIdeas({ a: 'draft', b: 'draft' }, ['a', 'b']);
+      mockConvertIdeaToTask
+        .mockResolvedValueOnce(ok('a'))
+        .mockResolvedValueOnce({ success: false, error: 'boom' });
+      const { result } = renderHook(() => useIdeation('project-1'));
+
+      await act(async () => {
+        await result.current.handleConvertSelected();
+      });
+
+      expect(mockToast).toHaveBeenCalledTimes(1);
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: 'destructive',
+          description: 'ideation.bulkConvertPartial'
+        })
+      );
+      expect(mockLoadTasks).toHaveBeenCalledTimes(1);
+      expect(mockClearSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not reload tasks when all conversions fail', async () => {
+      setIdeas({ a: 'draft', b: 'draft' }, ['a', 'b']);
+      mockConvertIdeaToTask.mockResolvedValue({ success: false, error: 'nope' });
+      const { result } = renderHook(() => useIdeation('project-1'));
+
+      await act(async () => {
+        await result.current.handleConvertSelected();
+      });
+
+      expect(mockToast).toHaveBeenCalledTimes(1);
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: 'destructive',
+          description: 'ideation.bulkConvertFailed'
+        })
+      );
+      expect(mockLoadTasks).not.toHaveBeenCalled();
+    });
+
+    it('counts a thrown error as a failure and continues', async () => {
+      setIdeas({ a: 'draft', b: 'draft' }, ['a', 'b']);
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockConvertIdeaToTask
+        .mockRejectedValueOnce(new Error('ipc down'))
+        .mockResolvedValueOnce(ok('b'));
+      const { result } = renderHook(() => useIdeation('project-1'));
+
+      await act(async () => {
+        await result.current.handleConvertSelected();
+      });
+      errorSpy.mockRestore();
+
+      expect(mockConvertIdeaToTask).toHaveBeenCalledTimes(2);
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: 'destructive',
+          description: 'ideation.bulkConvertPartial'
+        })
+      );
+    });
+
+    it('shows a toast and keeps the selection when nothing is eligible', async () => {
+      setIdeas({ gone: 'dismissed', done: 'converted' }, ['gone', 'done']);
+      const { result } = renderHook(() => useIdeation('project-1'));
+
+      await act(async () => {
+        await result.current.handleConvertSelected();
+      });
+
+      expect(mockConvertIdeaToTask).not.toHaveBeenCalled();
+      expect(mockToast).toHaveBeenCalledTimes(1);
+      expect(mockToast.mock.calls[0][0].variant).not.toBe('destructive');
+      expect(mockClearSelection).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the selection is empty', async () => {
+      setIdeas({ a: 'draft' }, []);
+      const { result } = renderHook(() => useIdeation('project-1'));
+
+      await act(async () => {
+        await result.current.handleConvertSelected();
+      });
+
+      expect(mockConvertIdeaToTask).not.toHaveBeenCalled();
+      expect(mockToast).not.toHaveBeenCalled();
+      expect(mockClearSelection).not.toHaveBeenCalled();
+    });
   });
 });

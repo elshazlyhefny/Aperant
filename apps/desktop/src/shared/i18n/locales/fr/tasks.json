@@ -118,7 +118,12 @@
     "lockColumn": "Verrouiller la largeur de la colonne",
     "unlockColumn": "Déverrouiller la largeur de la colonne",
     "columnLocked": "La largeur de la colonne est verrouillée",
-    "expandAll": "Développer toutes les colonnes"
+    "expandAll": "Développer toutes les colonnes",
+    "searchPlaceholder": "Rechercher des tâches par titre, description ou ID...",
+    "searchAriaLabel": "Rechercher des tâches",
+    "clearSearch": "Effacer la recherche",
+    "searchMatchCount": "{{matched}} sur {{total}} tâches",
+    "noSearchMatches": "Aucune tâche correspondante"
   },
   "queue": {
     "limitReached": "Limite de tâches parallèles atteinte ({{current}}/{{max}}). Tâche déplacée vers la file d'attente.",
@@ -373,5 +378,43 @@
     "dropZone": "Déposez des images ici, collez-les avec {{shortcut}} ou cliquez pour choisir des fichiers",
     "title": "Images de référence (facultatif)",
     "description": "Ajoutez des références visuelles comme des captures d'écran ou des conceptions pour aider l'IA à comprendre vos exigences."
+  },
+  "usage": {
+    "tab": "Utilisation",
+    "title": "Utilisation de l'exécution",
+    "refresh": "Actualiser",
+    "loading": "Chargement de l'utilisation...",
+    "error": "Impossible de charger les métriques d'utilisation",
+    "retry": "Réessayer",
+    "empty": "Aucune utilisation enregistrée pour l'instant",
+    "emptyHint": "Les métriques apparaissent après l'exécution d'une session d'agent pour cette tâche.",
+    "totals": {
+      "sessions": "Sessions",
+      "duration": "Durée totale",
+      "toolTime": "Temps des outils"
+    },
+    "byPhase": "Par phase",
+    "byAgent": "Par type d'agent",
+    "byTool": "Temps par outil",
+    "slowest": "Appels d'outils les plus lents",
+    "columns": {
+      "phase": "Phase",
+      "agent": "Agent",
+      "tool": "Outil",
+      "sessions": "Sessions",
+      "duration": "Durée",
+      "tokens": "Jetons (entrée / sortie)",
+      "calls": "Appels",
+      "errors": "Erreurs",
+      "totalTime": "Temps total",
+      "detail": "Détail"
+    },
+    "tokens": {
+      "input": "Jetons d'entrée",
+      "output": "Jetons de sortie",
+      "cacheRead": "Jetons lus du cache",
+      "cacheCreation": "Jetons de création du cache"
+    },
+    "note": "Les entrées ne contiennent que des jetons et des durées ; aucun coût monétaire n'est affiché."
   }
 }

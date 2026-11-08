@@ -5,6 +5,7 @@ import {
   DndContext,
   DragOverlay,
   closestCorners,
+  KeyboardCode,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -19,10 +20,11 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
-import { Plus, Inbox, Loader2, Eye, CheckCircle2, Archive, RefreshCw, GitPullRequest, X, Settings, ListPlus, ChevronLeft, ChevronRight, ChevronsRight, Lock, Unlock, Trash2 } from 'lucide-react';
+import { Plus, Inbox, Loader2, Eye, CheckCircle2, Archive, RefreshCw, GitPullRequest, X, Settings, ListPlus, ChevronLeft, ChevronRight, ChevronsRight, Lock, Unlock, Trash2, Search } from 'lucide-react';
 import { Checkbox } from './ui/checkbox';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { TaskCard } from './TaskCard';
 import { SortableTaskCard } from './SortableTaskCard';
@@ -46,7 +48,7 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import type { Task, TaskStatus, TaskOrderState } from '../../shared/types';
-import { FAILED_COLUMN, canDropTask, getBoardColumns, getVisualColumn, type BoardColumn as BoardColumnKey } from './kanban-columns';
+import { FAILED_COLUMN, canDropTask, filterColumnsBySearch, getBoardColumns, getVisualColumn, type BoardColumn as BoardColumnKey } from './kanban-columns';
 
 // Type guard for valid drop column targets - preserves literal type from TASK_STATUS_COLUMNS
 const VALID_DROP_COLUMNS = new Set<string>(TASK_STATUS_COLUMNS);
@@ -92,6 +94,9 @@ interface DroppableColumnProps {
   // Lock props
   isLocked?: boolean;
   onToggleLocked?: () => void;
+  // Search props
+  isDragDisabled?: boolean;
+  isSearchActive?: boolean;
 }
 
 /**
@@ -149,6 +154,8 @@ function droppableColumnPropsAreEqual(
   if (prevProps.onResizeEnd !== nextProps.onResizeEnd) return false;
   if (prevProps.isLocked !== nextProps.isLocked) return false;
   if (prevProps.onToggleLocked !== nextProps.onToggleLocked) return false;
+  if (prevProps.isDragDisabled !== nextProps.isDragDisabled) return false;
+  if (prevProps.isSearchActive !== nextProps.isSearchActive) return false;
 
   // Compare selection props
   const prevSelected = prevProps.selectedTaskIds;
@@ -219,7 +226,7 @@ const getEmptyStateContent = (status: TaskStatus, t: (key: string) => string): {
   }
 };
 
-const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskClick, onStatusChange, isOver, onAddClick, onArchiveAll, onQueueSettings, onQueueAll, maxParallelTasks, archivedCount, showArchived, onToggleArchived, selectedTaskIds, onSelectAll, onDeselectAll, onToggleSelect, isCollapsed, onToggleCollapsed, columnWidth, isResizing, onResizeStart, onResizeEnd, isLocked, onToggleLocked }: DroppableColumnProps) {
+const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskClick, onStatusChange, isOver, onAddClick, onArchiveAll, onQueueSettings, onQueueAll, maxParallelTasks, archivedCount, showArchived, onToggleArchived, selectedTaskIds, onSelectAll, onDeselectAll, onToggleSelect, isCollapsed, onToggleCollapsed, columnWidth, isResizing, onResizeStart, onResizeEnd, isLocked, onToggleLocked, isDragDisabled, isSearchActive }: DroppableColumnProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const { setNodeRef } = useDroppable({
     id: status
@@ -291,9 +298,10 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
         isSelectable={isSelectable}
         isSelected={isSelectable ? selectedTaskIds?.has(task.id) : undefined}
         onToggleSelect={onToggleSelectHandlers?.get(task.id)}
+        isDragDisabled={isDragDisabled}
       />
     ));
-  }, [tasks, onClickHandlers, onStatusChangeHandlers, onToggleSelectHandlers, selectedTaskIds]);
+  }, [tasks, onClickHandlers, onStatusChangeHandlers, onToggleSelectHandlers, selectedTaskIds, isDragDisabled]);
 
   const getColumnBorderColor = (): string => {
     switch (status) {
@@ -560,7 +568,14 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
                     isOver && 'active'
                   )}
                 >
-                  {isOver ? (
+                  {isSearchActive ? (
+                    <>
+                      <Search className="h-6 w-6 text-muted-foreground/30" />
+                      <span className="mt-2 text-sm font-medium text-muted-foreground/70">
+                        {t('kanban.noSearchMatches')}
+                      </span>
+                    </>
+                  ) : isOver ? (
                     <>
                       <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center mb-2">
                         <Plus className="h-4 w-4 text-primary" />
@@ -631,6 +646,8 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
   const { showArchived, toggleShowArchived } = useViewState();
+  const [searchQuery, setSearchQuery] = useState('');
+  const isSearchActive = searchQuery.trim().length > 0;
 
   // Project store for queue settings
   const projects = useProjectStore((state) => state.projects);
@@ -720,6 +737,11 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
       }
     }),
     useSensor(KeyboardSensor, {
+      keyboardCodes: {
+        start: [KeyboardCode.Space],
+        cancel: [KeyboardCode.Esc],
+        end: [KeyboardCode.Space, KeyboardCode.Enter, KeyboardCode.Tab]
+      },
       coordinateGetter: sortableKeyboardCoordinates
     })
   );
@@ -794,6 +816,20 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     return grouped;
   }, [filteredTasks, taskOrder]);
 
+  const visibleTasksByStatus = useMemo(
+    () => filterColumnsBySearch(tasksByStatus, searchQuery),
+    [tasksByStatus, searchQuery]
+  );
+
+  const totalTaskCount = useMemo(
+    () => Object.values(tasksByStatus).reduce((sum, col) => sum + col.length, 0),
+    [tasksByStatus]
+  );
+  const matchedTaskCount = useMemo(
+    () => Object.values(visibleTasksByStatus).reduce((sum, col) => sum + col.length, 0),
+    [visibleTasksByStatus]
+  );
+
   // Prune stale IDs when tasks are deleted or filtered out
   useEffect(() => {
     const allTaskIds = new Set(filteredTasks.map(t => t.id));
@@ -819,7 +855,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
   const selectAllTasks = useCallback((columnStatus?: typeof TASK_STATUS_COLUMNS[number]) => {
     if (columnStatus) {
       // Select all in specific column
-      const columnTasks = tasksByStatus[columnStatus] || [];
+      const columnTasks = visibleTasksByStatus[columnStatus] || [];
       const columnIds = new Set(columnTasks.map((t: Task) => t.id));
       setSelectedTaskIds(prev => new Set<string>([...prev, ...columnIds]));
     } else {
@@ -827,7 +863,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
       const allIds = new Set(filteredTasks.map(t => t.id));
       setSelectedTaskIds(allIds);
     }
-  }, [tasksByStatus, filteredTasks]);
+  }, [visibleTasksByStatus, filteredTasks]);
 
   const deselectAllTasks = useCallback(() => {
     setSelectedTaskIds(new Set());
@@ -906,6 +942,11 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
+    if (isSearchActive) {
+      setActiveTask(null);
+      setOverColumnId(null);
+      return;
+    }
     const task = tasks.find((t) => t.id === active.id);
     if (task) {
       setActiveTask(task);
@@ -1347,6 +1388,9 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     setActiveTask(null);
     setOverColumnId(null);
 
+    // Reordering against a partial (searched) column would corrupt the saved order
+    if (isSearchActive) return;
+
     if (!over) return;
 
     const activeTaskId = active.id as string;
@@ -1432,9 +1476,42 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
   return (
     <div className="flex h-full flex-col">
       {/* Kanban header with refresh button and expand all */}
-      {(onRefresh || collapsedColumnCount >= 3) && (
-        <div className="flex items-center justify-between px-6 pt-4 pb-2">
-          <div className="flex items-center gap-2">
+      {
+        <div className="flex items-center justify-between gap-4 px-6 pt-4 pb-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="relative w-full max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && searchQuery) {
+                    e.preventDefault();
+                    setSearchQuery('');
+                  }
+                }}
+                placeholder={t('tasks:kanban.searchPlaceholder')}
+                aria-label={t('tasks:kanban.searchAriaLabel')}
+                className="pl-9 pr-9 h-9"
+              />
+              {isSearchActive && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSearchQuery('')}
+                  aria-label={t('tasks:kanban.clearSearch')}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            {isSearchActive && (
+              <span aria-live="polite" className="whitespace-nowrap text-sm text-muted-foreground">
+                {t('tasks:kanban.searchMatchCount', { matched: matchedTaskCount, total: totalTaskCount })}
+              </span>
+            )}
             {/* Expand All button - appears when 3+ columns are collapsed */}
             {collapsedColumnCount >= 3 && (
               <Button
@@ -1463,7 +1540,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
             )}
           </div>
         </div>
-      )}
+      }
       {/* Kanban columns */}
       <DndContext
         sensors={sensors}
@@ -1478,16 +1555,20 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
             <DroppableColumn
               key={status}
               status={status}
-              tasks={tasksByStatus[status]}
+              tasks={visibleTasksByStatus[status]}
               onTaskClick={onTaskClick}
               onStatusChange={handleStatusChange}
               isOver={false}
+              isDragDisabled={isSearchActive}
+              isSearchActive={isSearchActive}
             />
           ) : (
             <DroppableColumn
               key={status}
               status={status}
-              tasks={tasksByStatus[status]}
+              tasks={visibleTasksByStatus[status]}
+              isDragDisabled={isSearchActive}
+              isSearchActive={isSearchActive}
               onTaskClick={onTaskClick}
               onStatusChange={handleStatusChange}
               isOver={overColumnId === status}

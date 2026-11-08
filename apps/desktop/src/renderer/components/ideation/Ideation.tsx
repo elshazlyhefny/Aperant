@@ -54,6 +54,8 @@ export function Ideation({ projectId, onGoToTask }: IdeationProps) {
     handleStop,
     handleDismissAll,
     handleDeleteSelected,
+    handleConvertSelected,
+    isConvertingSelected,
     handleSelectAll,
     getAvailableTypesToAdd,
     handleAddMoreIdeas,
@@ -132,6 +134,8 @@ export function Ideation({ projectId, onGoToTask }: IdeationProps) {
         }}
         onDismissAll={handleDismissAll}
         onDeleteSelected={handleDeleteSelected}
+        onConvertSelected={handleConvertSelected}
+        isConvertingSelected={isConvertingSelected}
         onSelectAll={() => handleSelectAll(activeIdeas)}
         onClearSelection={clearSelection}
         onRefresh={handleRefresh}

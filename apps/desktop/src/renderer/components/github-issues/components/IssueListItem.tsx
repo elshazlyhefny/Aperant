@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { User, MessageCircle, Tag, Sparkles } from 'lucide-react';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
@@ -8,14 +9,24 @@ import {
 import type { IssueListItemProps } from '../types';
 
 export function IssueListItem({ issue, isSelected, onClick, onInvestigate }: IssueListItemProps) {
+  const { t } = useTranslation('common');
+
   return (
     <div
-      className={`group p-3 rounded-lg cursor-pointer transition-colors ${
+      role="button"
+      tabIndex={0}
+      className={`group p-3 rounded-lg cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
         isSelected
           ? 'bg-accent/50 border border-accent'
           : 'hover:bg-muted/50 border border-transparent'
       }`}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+          e.preventDefault();
+          onClick();
+        }
+      }}
     >
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
@@ -53,11 +64,12 @@ export function IssueListItem({ issue, isSelected, onClick, onInvestigate }: Iss
         <Button
           variant="ghost"
           size="icon"
-          className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8"
+          className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-8 w-8"
           onClick={(e) => {
             e.stopPropagation();
             onInvestigate();
           }}
+          aria-label={t('accessibility.investigateIssueAriaLabel')}
         >
           <Sparkles className="h-4 w-4" />
         </Button>

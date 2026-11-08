@@ -59,10 +59,18 @@ export function IdeaCard({ idea, isSelected, onClick, onConvert, onGoToTask, onD
 
   return (
     <Card
-      className={`p-4 hover:bg-muted/50 cursor-pointer transition-colors ${
+      role="button"
+      tabIndex={0}
+      className={`p-4 hover:bg-muted/50 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
         isInactive ? 'opacity-50' : ''
       } ${isSelected ? 'ring-2 ring-primary bg-primary/5' : ''}`}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+          e.preventDefault();
+          onClick();
+        }
+      }}
     >
       <div className="flex items-start gap-3">
         {/* Selection checkbox */}

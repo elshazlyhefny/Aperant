@@ -41,28 +41,45 @@ export function prReviewRef(prNumber: number): string {
 }
 
 /**
- * Check out PR `prNumber`'s head for review. Never throws: when it cannot, the
- * review falls back to the project checkout and `reason` says why.
+ * zeenha fork: GitLab exposes every merge request's head as
+ * `refs/merge-requests/<iid>/head`, the same way GitHub exposes `refs/pull/<N>/head`.
+ * The private ref is namespaced `mr-<iid>` so a PR and an MR with the same
+ * number never collide.
  */
-export async function preparePRReviewCheckout(projectDir: string, prNumber: number, remote = 'origin'): Promise<PRReviewCheckout> {
-  if (!Number.isInteger(prNumber) || prNumber <= 0) return { kind: 'base', reason: `invalid PR number ${prNumber}` };
-  const ref = prReviewRef(prNumber);
+export function mrReviewRef(mrIid: number): string {
+  return `refs/aperant/pr-review/mr-${mrIid}`;
+}
+
+interface CheckoutSpec {
+  number: number;
+  sourceRef: string;
+  privateRef: string;
+  label: 'PR' | 'MR';
+  dirPrefix: string;
+}
+
+async function prepareReviewCheckout(
+  projectDir: string,
+  remote: string,
+  { number, sourceRef, privateRef: ref, label, dirPrefix }: CheckoutSpec,
+): Promise<PRReviewCheckout> {
+  if (!Number.isInteger(number) || number <= 0) return { kind: 'base', reason: `invalid ${label} number ${number}` };
   try {
-    await git(['fetch', '--quiet', '--no-tags', remote, `+refs/pull/${prNumber}/head:${ref}`], projectDir, FETCH_TIMEOUT_MS);
+    await git(['fetch', '--quiet', '--no-tags', remote, `+${sourceRef}:${ref}`], projectDir, FETCH_TIMEOUT_MS);
   } catch (error) {
-    return { kind: 'base', reason: `could not fetch the PR head (${(error as Error).message.split('\n')[0]})` };
+    return { kind: 'base', reason: `could not fetch the ${label} head (${(error as Error).message.split('\n')[0]})` };
   }
 
   let sha: string;
   try {
     sha = (await git(['rev-parse', '--verify', `${ref}^{commit}`], projectDir)).trim();
   } catch {
-    return { kind: 'base', reason: 'the fetched PR head is not a commit' };
+    return { kind: 'base', reason: `the fetched ${label} head is not a commit` };
   }
 
   const root = path.join(projectDir, PR_REVIEW_DIR);
   mkdirSync(root, { recursive: true });
-  const dir = path.join(root, `pr-${prNumber}-${sha.slice(0, 8)}-${Date.now().toString(36)}`);
+  const dir = path.join(root, `${dirPrefix}-${number}-${sha.slice(0, 8)}-${Date.now().toString(36)}`);
 
   const cleanup = async () => {
     // `worktree remove` refuses a folder git does not list as a worktree, so it
@@ -87,7 +104,7 @@ export async function preparePRReviewCheckout(projectDir: string, prNumber: numb
     const head = (await git(['rev-parse', 'HEAD'], dir)).trim();
     if (!existsSync(dir) || realpathSync(top) !== realpathSync(dir) || head !== sha) {
       await cleanup();
-      return { kind: 'base', reason: 'the review worktree did not check out the PR head' };
+      return { kind: 'base', reason: `the review worktree did not check out the ${label} head` };
     }
   } catch (error) {
     await cleanup();
@@ -97,10 +114,35 @@ export async function preparePRReviewCheckout(projectDir: string, prNumber: numb
   return { kind: 'pr-head', dir, sha, cleanup };
 }
 
+/**
+ * Check out PR `prNumber`'s head for review. Never throws: when it cannot, the
+ * review falls back to the project checkout and `reason` says why.
+ */
+export function preparePRReviewCheckout(projectDir: string, prNumber: number, remote = 'origin'): Promise<PRReviewCheckout> {
+  return prepareReviewCheckout(projectDir, remote, {
+    number: prNumber,
+    sourceRef: `refs/pull/${prNumber}/head`,
+    privateRef: prReviewRef(prNumber),
+    label: 'PR',
+    dirPrefix: 'pr',
+  });
+}
+
+/** Same as {@link preparePRReviewCheckout} for a GitLab merge request (by iid). */
+export function prepareMRReviewCheckout(projectDir: string, mrIid: number, remote = 'origin'): Promise<PRReviewCheckout> {
+  return prepareReviewCheckout(projectDir, remote, {
+    number: mrIid,
+    sourceRef: `refs/merge-requests/${mrIid}/head`,
+    privateRef: mrReviewRef(mrIid),
+    label: 'MR',
+    dirPrefix: 'mr',
+  });
+}
+
 /** What the reviewers are told about the files their tools read. */
-export function checkoutNoteFor(checkout: PRReviewCheckout, baseBranch: string): string {
+export function checkoutNoteFor(checkout: PRReviewCheckout, baseBranch: string, subject: 'PR' | 'MR' = 'PR'): string {
   if (checkout.kind === 'pr-head') {
-    return `## Files you can read\nYour working directory is a checkout of this PR's head commit (${checkout.sha.slice(0, 12)}): files you read show the code WITH the PR's changes applied, so you can read a changed file in full and confirm a finding against the line as the PR leaves it.`;
+    return `## Files you can read\nYour working directory is a checkout of this ${subject}'s head commit (${checkout.sha.slice(0, 12)}): files you read show the code WITH the ${subject}'s changes applied, so you can read a changed file in full and confirm a finding against the line as the ${subject} leaves it.`;
   }
-  return `## Files you can read\nWARNING: the PR could not be checked out (${checkout.reason}). Files you read are the BASE branch (${baseBranch}), WITHOUT this PR's changes. Judge changed code from the diff above, and never confirm or dismiss a finding about a changed line from what the file on disk shows.`;
+  return `## Files you can read\nWARNING: the ${subject} could not be checked out (${checkout.reason}). Files you read are the BASE branch (${baseBranch}), WITHOUT this ${subject}'s changes. Judge changed code from the diff above, and never confirm or dismiss a finding about a changed line from what the file on disk shows.`;
 }

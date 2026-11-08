@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Lightbulb, Eye, EyeOff, Settings2, Plus, Trash2, RefreshCw, CheckSquare, X } from 'lucide-react';
+import { Lightbulb, Eye, EyeOff, Settings2, Plus, Trash2, RefreshCw, CheckSquare, X, Play } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
@@ -17,6 +17,8 @@ interface IdeationHeaderProps {
   onOpenAddMore: () => void;
   onDismissAll: () => void;
   onDeleteSelected: () => void;
+  onConvertSelected: () => void;
+  isConvertingSelected: boolean;
   onSelectAll: () => void;
   onClearSelection: () => void;
   onRefresh: () => void;
@@ -34,6 +36,8 @@ export function IdeationHeader({
   onOpenAddMore,
   onDismissAll,
   onDeleteSelected,
+  onConvertSelected,
+  isConvertingSelected,
   onSelectAll,
   onClearSelection,
   onRefresh,
@@ -62,6 +66,16 @@ export function IdeationHeader({
               <Badge variant="secondary" className="mr-1">
                 {t('ideation.header.selectedCount', { count: selectedCount })}
               </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onConvertSelected}
+                disabled={isConvertingSelected}
+                aria-label={t('ideation.convertSelectedAriaLabel')}
+              >
+                <Play className="h-4 w-4 mr-1" />
+                {isConvertingSelected ? t('ideation.converting') : t('ideation.convertSelected')}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
