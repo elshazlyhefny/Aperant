@@ -510,6 +510,18 @@
     }
   },
   "ideation": {
+    "progress": {
+      "title": "Génération des idées",
+      "completeCount": "{{completed}}/{{total}} terminé",
+      "hideLogs": "Masquer les journaux",
+      "showLogs": "Afficher les journaux",
+      "stopping": "Arrêt en cours...",
+      "stop": "Arrêter",
+      "stopTooltip": "Arrêter la génération",
+      "waiting": "En attente de démarrage...",
+      "failed": "Échec de la génération d'idées pour cette catégorie",
+      "empty": "Aucune idée générée pour cette catégorie"
+    },
     "converting": "Conversion...",
     "convertToTask": "Convertir en tâche Auto-Build",
     "dismissIdea": "Ignorer l'idée",

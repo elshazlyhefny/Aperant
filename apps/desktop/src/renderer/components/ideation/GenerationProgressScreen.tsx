@@ -97,9 +97,9 @@ export function GenerationProgressScreen({
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Sparkles className="h-5 w-5 text-primary animate-pulse" />
-              <h2 className="text-lg font-semibold">Generating Ideas</h2>
+              <h2 className="text-lg font-semibold">{t('ideation.progress.title')}</h2>
               <Badge variant="outline">
-                {completedCount}/{enabledTypes.length} complete
+                {t('ideation.progress.completeCount', { completed: completedCount, total: enabledTypes.length })}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">{generationStatus.message}</p>
@@ -111,7 +111,7 @@ export function GenerationProgressScreen({
               onClick={() => setShowLogs(!showLogs)}
             >
               <FileCode className="h-4 w-4 mr-1" />
-              {showLogs ? 'Hide' : 'Show'} Logs
+              {showLogs ? t('ideation.progress.hideLogs') : t('ideation.progress.showLogs')}
             </Button>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -122,10 +122,10 @@ export function GenerationProgressScreen({
                   disabled={isStopping}
                 >
                   <Square className="h-4 w-4 mr-1" />
-                  {isStopping ? 'Stopping...' : 'Stop'}
+                  {isStopping ? t('ideation.progress.stopping') : t('ideation.progress.stop')}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Stop generation</TooltipContent>
+              <TooltipContent>{t('ideation.progress.stopTooltip')}</TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -201,7 +201,7 @@ export function GenerationProgressScreen({
                   <TypeStateIcon state={state} />
                   {ideas.length > 0 && (
                     <Badge variant="outline" className="ml-auto">
-                      {ideas.length} ideas
+                      {t('ideation.header.ideasCount', { count: ideas.length })}
                     </Badge>
                   )}
                 </div>
@@ -232,21 +232,21 @@ export function GenerationProgressScreen({
                   {/* Show pending message */}
                   {state === 'pending' && (
                     <div className="text-sm text-muted-foreground py-2">
-                      Waiting to start...
+                      {t('ideation.progress.waiting')}
                     </div>
                   )}
 
                   {/* Show failed message */}
                   {state === 'failed' && ideas.length === 0 && (
                     <div className="text-sm text-destructive py-2">
-                      Failed to generate ideas for this category
+                      {t('ideation.progress.failed')}
                     </div>
                   )}
 
                   {/* Show empty message if completed with no ideas */}
                   {state === 'completed' && ideas.length === 0 && (
                     <div className="text-sm text-muted-foreground py-2">
-                      No ideas generated for this category
+                      {t('ideation.progress.empty')}
                     </div>
                   )}
                 </div>

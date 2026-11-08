@@ -510,6 +510,18 @@
     }
   },
   "ideation": {
+    "progress": {
+      "title": "Generating Ideas",
+      "completeCount": "{{completed}}/{{total}} complete",
+      "hideLogs": "Hide Logs",
+      "showLogs": "Show Logs",
+      "stopping": "Stopping...",
+      "stop": "Stop",
+      "stopTooltip": "Stop generation",
+      "waiting": "Waiting to start...",
+      "failed": "Failed to generate ideas for this category",
+      "empty": "No ideas generated for this category"
+    },
     "converting": "Converting...",
     "convertToTask": "Convert to Auto-Build Task",
     "dismissIdea": "Dismiss Idea",
