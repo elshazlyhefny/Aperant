@@ -33,7 +33,23 @@ vi.mock('node:fs', () => ({
 /** The agent's output file: what a successful run leaves behind. */
 let ideasFile: { name: string; mtimeMs: number; content: string } | null;
 function agentWrote(type: string, name = `${type}_ideas.json`, mtimeMs = Date.now() + 60_000) {
-  ideasFile = { name, mtimeMs, content: JSON.stringify({ [type]: [{ id: 'x-001', type, title: 'An idea' }] }) };
+  ideasFile = {
+    name,
+    mtimeMs,
+    content: JSON.stringify({
+      [type]: [{ id: 'x-001', type, title: 'An idea', description: 'What it is', rationale: 'Why it matters' }],
+    }),
+  };
+}
+
+/** A stream that, while running, leaves `file` behind as the agent's output. */
+function streamThatWrites(file: { name: string; content: string } | null, parts: Array<Record<string, unknown>> = []) {
+  return {
+    fullStream: (async function* () {
+      if (file) ideasFile = { name: file.name, mtimeMs: Date.now() + 60_000, content: file.content };
+      for (const part of parts) yield part;
+    })(),
+  };
 }
 
 // Mock the tool registry so we don't need real tool initialization
@@ -136,6 +152,113 @@ describe('runIdeation', () => {
     mockStreamText.mockReturnValue(makeStream([]));
     agentWrote('ui_ux_improvements', 'ui_ux_ideas.json');
     expect((await runIdeation(baseConfig({ ideationType: 'ui_ux_improvements' }))).success).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Ideas file validation with one retry
+  // ---------------------------------------------------------------------------
+
+  const goodIdea = (type: string) => ({ id: 'x-001', type, title: 'T', description: 'D', rationale: 'R' });
+  const goodFile = (type: string) => JSON.stringify({ [type]: [goodIdea(type)] });
+  const noRationaleFile = (type: string) =>
+    JSON.stringify({ [type]: [{ id: 'x-001', type, title: 'T', description: 'D' }] });
+
+  it('repairs a trailing comma without a second agent run', async () => {
+    ideasFile = null;
+    const withComma = `{"code_improvements": [{"id": "x-001", "type": "code_improvements", "title": "T", "description": "D", "rationale": "R",}],}`;
+    mockStreamText.mockReturnValue(streamThatWrites({ name: 'code_improvements_ideas.json', content: withComma }));
+
+    const result = await runIdeation(baseConfig());
+
+    expect(result.success).toBe(true);
+    expect(mockStreamText).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries once when an idea lacks a rationale, and succeeds once the file is rewritten', async () => {
+    ideasFile = null;
+    const name = 'code_improvements_ideas.json';
+    mockStreamText
+      .mockReturnValueOnce(streamThatWrites({ name, content: noRationaleFile('code_improvements') }, [{ type: 'text-delta', text: 'one ' }]))
+      .mockReturnValueOnce(streamThatWrites({ name, content: goodFile('code_improvements') }, [{ type: 'text-delta', text: 'two' }]));
+
+    const result = await runIdeation(baseConfig());
+
+    expect(mockStreamText).toHaveBeenCalledTimes(2);
+    const retryPrompt = mockStreamText.mock.calls[1][0].prompt as string;
+    expect(retryPrompt).toContain(name);
+    expect(retryPrompt).toContain('rationale');
+    expect(retryPrompt).toContain('/project/.auto-claude/ideation');
+    expect(result.success).toBe(true);
+    expect(result.text).toBe('one two');
+  });
+
+  it('fails with a distinct error when the file is still invalid after the retry', async () => {
+    ideasFile = null;
+    const name = 'code_improvements_ideas.json';
+    mockStreamText.mockImplementation(() =>
+      streamThatWrites({ name, content: noRationaleFile('code_improvements') }),
+    );
+    const events: IdeationStreamEvent[] = [];
+
+    const result = await runIdeation(baseConfig(), (e) => events.push(e));
+
+    expect(mockStreamText).toHaveBeenCalledTimes(2);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain(`wrote ${name} but it is still invalid after one retry`);
+    expect(result.error).toContain('rationale');
+    expect(result.error).not.toContain('run out of steps');
+    expect(events.some((e) => e.type === 'error' && e.error === result.error)).toBe(true);
+  });
+
+  it('does not retry when no file was written', async () => {
+    ideasFile = null;
+    mockStreamText.mockReturnValue(makeStream([]));
+
+    const result = await runIdeation(baseConfig());
+
+    expect(mockStreamText).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('run out of steps');
+  });
+
+  it('sends an unparseable file named after the category through the retry path', async () => {
+    ideasFile = null;
+    const name = 'code_improvements_ideas.json';
+    mockStreamText
+      .mockReturnValueOnce(streamThatWrites({ name, content: 'this is not json at all' }))
+      .mockReturnValueOnce(streamThatWrites({ name, content: goodFile('code_improvements') }));
+
+    const result = await runIdeation(baseConfig());
+
+    expect(mockStreamText).toHaveBeenCalledTimes(2);
+    expect(mockStreamText.mock.calls[1][0].prompt).toContain('Invalid JSON syntax');
+    expect(result.success).toBe(true);
+  });
+
+  it('does not claim another category\'s unparseable file', async () => {
+    ideasFile = null;
+    mockStreamText.mockReturnValue(
+      streamThatWrites({ name: 'code_quality_ideas.json', content: 'this is not json at all' }),
+    );
+
+    const result = await runIdeation(baseConfig());
+
+    expect(mockStreamText).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('run out of steps');
+  });
+
+  it('ignores another category\'s invalid idea in a mixed-type file', async () => {
+    ideasFile = null;
+    const content = JSON.stringify({
+      ideas: [goodIdea('code_improvements'), { id: 'y-001', type: 'code_quality', title: 'no description' }],
+    });
+    mockStreamText.mockReturnValue(streamThatWrites({ name: 'code_improvements_ideas.json', content }));
+
+    const result = await runIdeation(baseConfig());
+
+    expect(mockStreamText).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
   });
 
   it('gives the agent the raised step budget and tells it so', async () => {
