@@ -11,6 +11,7 @@ import { execFile } from 'node:child_process';
 import { z } from 'zod/v3';
 
 import { findExecutable, isWindows, killProcessGracefully } from '../../../platform/index';
+import { buildChildEnv } from '../../security/child-env';
 import { bashSecurityHook } from '../../security/bash-validator';
 import { Tool } from '../define';
 import { ToolPermission } from '../types';
@@ -66,6 +67,7 @@ function executeCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
+  env: NodeJS.ProcessEnv,
   abortSignal?: AbortSignal,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const shell = resolveShell();
@@ -79,6 +81,7 @@ function executeCommand(
       args,
       {
         cwd,
+        env,
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: abortSignal,
@@ -141,10 +144,14 @@ export const bashTool = Tool.define({
     }
 
     const timeoutMs = Math.min(timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+    // zeenha fork: commands run without credential variables unless the project allows them.
+    const env = buildChildEnv(process.env, {
+      passthrough: context.securityProfile.envPassthrough,
+    });
 
     if (run_in_background) {
       // Fire-and-forget for background commands
-      executeCommand(command, context.cwd, timeoutMs, context.abortSignal);
+      executeCommand(command, context.cwd, timeoutMs, env, context.abortSignal);
       return `Command started in background: ${command}`;
     }
 
@@ -152,6 +159,7 @@ export const bashTool = Tool.define({
       command,
       context.cwd,
       timeoutMs,
+      env,
       context.abortSignal,
     );
 

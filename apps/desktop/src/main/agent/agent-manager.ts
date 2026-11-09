@@ -24,6 +24,7 @@ import { resolveModelEquivalent } from '../../shared/constants/models';
 import type { BuiltinProvider } from '../../shared/types/provider-account';
 import type { AgentExecutorConfig, SerializableSessionConfig, SerializedSecurityProfile } from '../ai/agent/types';
 import { getSecurityProfile } from '../ai/security/security-profile';
+import { parseEnvPassthrough } from '../ai/security/child-env';
 import { createOrGetWorktree } from '../ai/worktree';
 import { findTaskWorktree } from '../worktree-paths';
 import { landsThroughPullRequestsOnly } from '../../shared/utils/landing-policy';
@@ -431,6 +432,9 @@ export class AgentManager extends EventEmitter {
           landsThroughPullRequestsOnly(
             projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath)?.settings,
           ),
+          parseEnvPassthrough(
+            projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath)?.settings?.envPassthrough,
+          ),
         ),
       },
     };
@@ -560,7 +564,7 @@ export class AgentManager extends EventEmitter {
         projectDir: effectiveProjectDir,
         specDir: worktreeSpecDir,
         // zeenha fork: carry PR-only landing into the worker's Bash validator.
-        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings)),
+        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough)),
       },
     };
 
@@ -665,7 +669,7 @@ export class AgentManager extends EventEmitter {
         projectDir: effectiveProjectDir,
         specDir: effectiveSpecDir,
         // zeenha fork: carry PR-only landing into the worker's Bash validator.
-        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings)),
+        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough)),
       },
     };
 
@@ -953,11 +957,12 @@ export class AgentManager extends EventEmitter {
    * Serialize a project's SecurityProfile (Sets) into a SerializedSecurityProfile (arrays)
    * for transfer across worker thread boundaries.
    */
-  private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean): SerializedSecurityProfile {
+  private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean, envPassthrough: string[]): SerializedSecurityProfile {
     const profile = getSecurityProfile(projectDir);
     return {
       // zeenha fork: the worker cannot read the project store, so the setting travels here.
       prOnlyLanding,
+      envPassthrough,
       baseCommands: [...profile.baseCommands],
       stackCommands: [...profile.stackCommands],
       scriptCommands: [...profile.scriptCommands],

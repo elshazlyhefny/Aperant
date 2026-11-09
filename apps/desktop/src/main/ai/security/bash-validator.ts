@@ -74,6 +74,8 @@ export interface SecurityProfile {
    * store). Absent means ON: an unknown setting fails closed.
    */
   prOnlyLanding?: boolean;
+  /** zeenha fork: env var names that stay visible to Bash commands despite looking like credentials. */
+  envPassthrough?: string[];
 }
 
 /**

@@ -36,6 +36,12 @@ export interface ProjectSettings {
    * See main/worktree-auto-cleanup.ts for the checks.
    */
   autoCleanupMergedWorktrees?: boolean;
+  /**
+   * zeenha fork: names of environment variables an agent's Bash commands may
+   * still see, even though they look like credentials (default: none). Only list
+   * what a build really needs. See main/ai/security/child-env.ts.
+   */
+  envPassthrough?: string[];
 }
 
 export interface NotificationSettings {
