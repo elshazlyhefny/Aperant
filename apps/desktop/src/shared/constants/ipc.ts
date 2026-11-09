@@ -594,5 +594,14 @@ export const IPC_CHANNELS = {
   // Queue routing events (main -> renderer)
   QUEUE_PROFILE_SWAPPED: 'queue:profileSwapped',      // Task switched to different profile
   QUEUE_SESSION_CAPTURED: 'queue:sessionCaptured',    // Session ID captured from running task
-  QUEUE_BLOCKED_NO_PROFILES: 'queue:blockedNoProfiles' // All profiles unavailable
+  QUEUE_BLOCKED_NO_PROFILES: 'queue:blockedNoProfiles', // All profiles unavailable
+
+  // Recurring schedules (zeenha fork)
+  SCHEDULE_LIST: 'schedule:list',
+  SCHEDULE_CREATE: 'schedule:create',
+  SCHEDULE_UPDATE: 'schedule:update',
+  SCHEDULE_DELETE: 'schedule:delete',
+  SCHEDULE_SET_ENABLED: 'schedule:setEnabled',
+  SCHEDULE_ACK_REPORTS: 'schedule:ackReports',
+  SCHEDULE_CHANGED: 'schedule:changed' // main -> renderer push
 } as const;

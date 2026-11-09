@@ -27,3 +27,4 @@ export * from './run-metrics';
 
 // IPC types (must be last to use types from other modules)
 export * from './ipc';
+export * from './schedule';

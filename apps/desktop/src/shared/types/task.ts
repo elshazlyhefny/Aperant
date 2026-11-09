@@ -166,7 +166,10 @@ export type TaskCategory =
 
 export interface TaskMetadata {
   // Origin tracking
-  sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab';
+  sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab' | 'schedule';
+  scheduleId?: string;  // Recurring schedule that created this task
+  scheduledFor?: number;  // Epoch ms of the schedule occurrence
+  tokenBudget?: number;  // Token cap (input + output) for scheduled runs
   ideationType?: string;  // e.g., 'code_improvements', 'security_hardening'
   ideaId?: string;  // Reference to original idea if converted
   featureId?: string;  // Reference to roadmap feature if from roadmap
