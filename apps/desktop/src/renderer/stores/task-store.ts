@@ -5,8 +5,10 @@ import { debugLog, debugWarn } from '../../shared/utils/debug-logger';
 import { useProjectStore } from './project-store';
 import { useTaskLogsStore, MAX_LOG_ENTRIES } from './task-logs-store';
 
-/** Default max parallel tasks when no project setting is configured */
-export const DEFAULT_MAX_PARALLEL_TASKS = 3;
+import { DEFAULT_MAX_PARALLEL_TASKS } from '../../shared/constants/queue';
+
+// Re-exported so existing imports keep working (value lives in shared/constants/queue)
+export { DEFAULT_MAX_PARALLEL_TASKS };
 
 
 // Re-exported so existing imports keep working (logs live in task-logs-store)
