@@ -26,7 +26,8 @@
       "connectedAs": "Connected as {{name}}",
       "notConnected": "Not connected",
       "invalidSiteUrl": "Invalid site URL. Use a URL like https://your-company.atlassian.net"
-    }
+    },
+    "importButton": "Import issues from Jira"
   },
   "import": {
     "title": "Import from Jira",

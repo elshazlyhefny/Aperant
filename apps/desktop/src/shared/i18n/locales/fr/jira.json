@@ -26,7 +26,8 @@
       "connectedAs": "Connecté en tant que {{name}}",
       "notConnected": "Non connecté",
       "invalidSiteUrl": "URL du site invalide. Utilisez une URL comme https://votre-entreprise.atlassian.net"
-    }
+    },
+    "importButton": "Importer des tickets depuis Jira"
   },
   "import": {
     "title": "Importer depuis Jira",

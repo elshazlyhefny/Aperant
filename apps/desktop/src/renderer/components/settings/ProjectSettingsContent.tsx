@@ -10,7 +10,7 @@ import { SectionRouter } from './sections/SectionRouter';
 import { createHookProxy } from './utils/hookProxyFactory';
 import type { Project } from '../../../shared/types';
 
-export type ProjectSettingsSection = 'general' | 'linear' | 'github' | 'gitlab' | 'memory';
+export type ProjectSettingsSection = 'general' | 'linear' | 'github' | 'gitlab' | 'jira' | 'memory';
 
 interface ProjectSettingsContentProps {
   project: Project | undefined;
@@ -111,6 +111,11 @@ function ProjectSettingsContentInner({
     setShowLinearImportModal,
     linearConnectionStatus,
     isCheckingLinear,
+    showJiraToken,
+    setShowJiraToken,
+    setShowJiraImportModal,
+    jiraConnectionStatus,
+    isCheckingJira,
     handleInitialize,
     error
   } = hook;
@@ -153,8 +158,13 @@ function ProjectSettingsContentInner({
         isCheckingGitLab={isCheckingGitLab}
         linearConnectionStatus={linearConnectionStatus}
         isCheckingLinear={isCheckingLinear}
+        showJiraToken={showJiraToken}
+        setShowJiraToken={setShowJiraToken}
+        jiraConnectionStatus={jiraConnectionStatus}
+        isCheckingJira={isCheckingJira}
         handleInitialize={handleInitialize}
         onOpenLinearImport={() => setShowLinearImportModal(true)}
+        onOpenJiraImport={() => setShowJiraImportModal(true)}
         appMemoryEnabled={appMemoryEnabled}
         onAppMemoryEnabledChange={onAppMemoryEnabledChange}
       />

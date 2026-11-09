@@ -1,11 +1,12 @@
 import { useTranslation } from 'react-i18next';
-import type { Project, ProjectSettings as ProjectSettingsType, AutoBuildVersionInfo, ProjectEnvConfig, LinearSyncStatus, GitHubSyncStatus, GitLabSyncStatus } from '../../../../shared/types';
+import type { Project, ProjectSettings as ProjectSettingsType, AutoBuildVersionInfo, ProjectEnvConfig, LinearSyncStatus, JiraSyncStatus, GitHubSyncStatus, GitLabSyncStatus } from '../../../../shared/types';
 import { SettingsSection } from '../SettingsSection';
 import { GeneralSettings } from '../../project-settings/GeneralSettings';
 import { AgentMemorySettings } from '../../project-settings/AgentMemorySettings';
 import { LinearIntegration } from '../integrations/LinearIntegration';
 import { GitHubIntegration } from '../integrations/GitHubIntegration';
 import { GitLabIntegration } from '../integrations/GitLabIntegration';
+import { JiraIntegration } from '../integrations/JiraIntegration';
 import { InitializationGuard } from '../common/InitializationGuard';
 import type { ProjectSettingsSection } from '../ProjectSettingsContent';
 
@@ -33,8 +34,13 @@ interface SectionRouterProps {
   isCheckingGitLab: boolean;
   linearConnectionStatus: LinearSyncStatus | null;
   isCheckingLinear: boolean;
+  showJiraToken: boolean;
+  setShowJiraToken: React.Dispatch<React.SetStateAction<boolean>>;
+  jiraConnectionStatus: JiraSyncStatus | null;
+  isCheckingJira: boolean;
   handleInitialize: () => Promise<void>;
   onOpenLinearImport: () => void;
+  onOpenJiraImport: () => void;
   appMemoryEnabled: boolean | undefined;
   onAppMemoryEnabledChange: (enabled: boolean) => void;
 }
@@ -67,8 +73,13 @@ export function SectionRouter({
   isCheckingGitLab,
   linearConnectionStatus,
   isCheckingLinear,
+  showJiraToken,
+  setShowJiraToken,
+  jiraConnectionStatus,
+  isCheckingJira,
   handleInitialize,
   onOpenLinearImport,
+  onOpenJiraImport,
   appMemoryEnabled,
   onAppMemoryEnabledChange
 }: SectionRouterProps) {
@@ -164,6 +175,30 @@ export function SectionRouter({
               projectPath={project.path}
               settings={settings}
               setSettings={setSettings}
+            />
+          </InitializationGuard>
+        </SettingsSection>
+      );
+
+    case 'jira':
+      return (
+        <SettingsSection
+          title={t('projectSections.jira.integrationTitle')}
+          description={t('projectSections.jira.integrationDescription')}
+        >
+          <InitializationGuard
+            initialized={!!project.autoBuildPath}
+            title={t('projectSections.jira.integrationTitle')}
+            description={t('projectSections.jira.syncDescription')}
+          >
+            <JiraIntegration
+              envConfig={envConfig}
+              updateEnvConfig={updateEnvConfig}
+              showJiraToken={showJiraToken}
+              setShowJiraToken={setShowJiraToken}
+              jiraConnectionStatus={jiraConnectionStatus}
+              isCheckingJira={isCheckingJira}
+              onOpenJiraImport={onOpenJiraImport}
             />
           </InitializationGuard>
         </SettingsSection>
