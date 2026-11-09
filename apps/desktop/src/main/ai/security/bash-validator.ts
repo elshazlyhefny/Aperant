@@ -5,7 +5,8 @@
  * Pre-tool-use hook that validates bash commands for security.
  * Main enforcement point for the security system.
  *
- * Security model: DENYLIST-based (allow-by-default)
+ * Security model: DENYLIST-based (allow-by-default). This is a guardrail, not
+ * a sandbox; the opt-in OS sandbox (see sandbox.ts) is the real isolation.
  * - All commands are allowed unless explicitly blocked
  * - A static set of truly dangerous commands (BLOCKED_COMMANDS) is always denied
  * - Per-command validators run for known sensitive commands to validate
