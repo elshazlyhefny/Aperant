@@ -45,3 +45,20 @@ export function budgetPercent(used: number, limit?: number): number {
   if (!limit || limit <= 0 || !Number.isFinite(limit)) return 0;
   return Math.max(0, Math.floor((used / limit) * 100));
 }
+
+/**
+ * Normalises a per-task budget override. 0 is kept (explicit "no limit for
+ * this task"), a positive number is floored, anything else is dropped so the
+ * task inherits the project default.
+ */
+export function normalizeTaskTokenBudget(value: unknown): number | undefined {
+  if (value === 0) return 0;
+  return parseTokenBudget(value);
+}
+
+/** Parses the task form field text: blank or invalid -> undefined (inherit), "0" -> 0 (no limit). */
+export function parseTokenBudgetText(text: string): number | undefined {
+  const trimmed = text.trim();
+  if (trimmed === '') return undefined;
+  return normalizeTaskTokenBudget(Number(trimmed));
+}

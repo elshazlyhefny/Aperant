@@ -269,6 +269,12 @@
     "fastModeLabel": "Mode Rapide",
     "fastModeDescription": "Même modèle Opus 4.6 avec une sortie plus rapide. Coût plus élevé par token.",
     "fastModeNotice": "Nécessite « utilisation supplémentaire » activée sur votre abonnement Claude.",
+    "tokenBudgetLabel": "Budget de tokens",
+    "tokenBudgetDescription": "Met cette tâche en pause quand elle a utilisé ce nombre de tokens (entrée + sortie). Laissez vide pour utiliser la valeur par défaut du projet.",
+    "tokenBudgetInherited": "Valeur par défaut du projet : {{value}} tokens",
+    "tokenBudgetInheritedNone": "Valeur par défaut du projet : aucune",
+    "tokenBudgetPlaceholder": "ex. 500000",
+    "tokenBudgetNoLimit": "Aucune limite pour cette tâche",
     "errors": {
       "descriptionRequired": "Veuillez fournir une description",
       "maxImagesReached": "Maximum de 5 images autorisé",

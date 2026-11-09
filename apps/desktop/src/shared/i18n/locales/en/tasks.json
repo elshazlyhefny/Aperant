@@ -268,6 +268,12 @@
     "fastModeLabel": "Fast Mode",
     "fastModeDescription": "Same Opus 4.6 model with faster output. Higher cost per token.",
     "fastModeNotice": "Requires \"extra usage\" enabled on your Claude subscription.",
+    "tokenBudgetLabel": "Token budget",
+    "tokenBudgetDescription": "Pause this task when it has used this many input + output tokens. Leave blank to use the project default.",
+    "tokenBudgetInherited": "Project default: {{value}} tokens",
+    "tokenBudgetInheritedNone": "Project default: none",
+    "tokenBudgetPlaceholder": "e.g. 500000",
+    "tokenBudgetNoLimit": "No limit for this task",
     "errors": {
       "descriptionRequired": "Please provide a description",
       "maxImagesReached": "Maximum of 5 images allowed",

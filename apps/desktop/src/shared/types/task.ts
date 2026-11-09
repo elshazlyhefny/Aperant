@@ -143,6 +143,7 @@ export interface TaskDraft {
   requireReviewBeforeCoding?: boolean;
   fastMode?: boolean;
   pushNewBranches?: boolean;
+  tokenBudget?: number;  // Per-task token budget override (0 = no limit, undefined = inherit)
   savedAt: Date;
 }
 
