@@ -404,7 +404,7 @@
         },
         "bashSandbox": {
           "label": "Shell command sandbox",
-          "description": "Needs bubblewrap (Linux) or sandbox-exec (macOS). If the sandbox is unavailable, agent shell commands are refused rather than run unsandboxed.",
+          "description": "Needs bubblewrap (Linux), sandbox-exec (macOS) or an AppContainer (Windows). If the sandbox is unavailable, agent shell commands are refused rather than run unsandboxed.",
           "options": {
             "off": "Off",
             "homeHidden": "Home directory hidden",

@@ -404,7 +404,7 @@
         },
         "bashSandbox": {
           "label": "Bac à sable des commandes shell",
-          "description": "Nécessite bubblewrap (Linux) ou sandbox-exec (macOS). Si le bac à sable est indisponible, les commandes shell de l'agent sont refusées au lieu d'être exécutées sans isolation.",
+          "description": "Nécessite bubblewrap (Linux), sandbox-exec (macOS) ou un AppContainer (Windows). Si le bac à sable est indisponible, les commandes shell de l'agent sont refusées au lieu d'être exécutées sans isolation.",
           "options": {
             "off": "Désactivé",
             "homeHidden": "Répertoire personnel masqué",

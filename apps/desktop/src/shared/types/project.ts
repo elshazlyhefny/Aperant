@@ -44,7 +44,7 @@ export interface ProjectSettings {
   envPassthrough?: string[];
   /**
    * zeenha fork: run agent Bash commands in an OS sandbox that hides the home
-   * directory (bubblewrap on Linux, sandbox-exec on macOS). 'home-hidden-no-network'
+   * directory (bubblewrap on Linux, sandbox-exec on macOS, an AppContainer on Windows). 'home-hidden-no-network'
    * also blocks network access. Default 'off'. See main/ai/security/sandbox.ts.
    */
   bashSandbox?: 'off' | 'home-hidden' | 'home-hidden-no-network';

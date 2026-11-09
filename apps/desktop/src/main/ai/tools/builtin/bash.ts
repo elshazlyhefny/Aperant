@@ -9,7 +9,9 @@
  * NOTE: Commands run via execFile in the task cwd with the user's permissions
  * and are NOT covered by path-containment.ts. The child process gets a scrubbed
  * environment (credential variables removed), and the real isolation control is
- * the opt-in OS sandbox (bubblewrap/sandbox-exec).
+ * the opt-in OS sandbox (bubblewrap on Linux, sandbox-exec on macOS, an
+ * AppContainer launcher on Windows). Foreground and background runs share the
+ * same wrapped file/args, and the tool fails closed when the sandbox is unavailable.
  * Supports timeouts, background execution, and descriptive metadata.
  */
 
@@ -64,8 +66,12 @@ function truncateOutput(output: string): string {
 
 function resolveShell(): string {
   if (isWindows()) {
-    // Prefer Git Bash on Windows; fall back to cmd.exe
-    return findExecutable('bash') ?? (process.env.ComSpec || 'cmd.exe');
+    // Prefer Git Bash on Windows; fall back to cmd.exe. Always an absolute path,
+    // because the Windows AppContainer sandbox needs to grant access to the shell.
+    return (
+      findExecutable('bash') ??
+      (process.env.ComSpec || `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\cmd.exe`)
+    );
   }
   return '/bin/bash';
 }
