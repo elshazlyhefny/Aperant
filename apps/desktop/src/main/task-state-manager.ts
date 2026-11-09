@@ -194,6 +194,18 @@ export class TaskStateManager {
     this.lastSequenceByTask.delete(taskId);
   }
 
+  /**
+   * zeenha fork: begin a PR follow-up run. A task with a PR is `done` (final) or
+   * `pr_created`; neither can re-enter coding on a fresh actor, so the actor is
+   * rebuilt in `pr_created` and then sent PR_FOLLOWUP_STARTED (-> coding).
+   */
+  startPRFollowUp(taskId: string, task: Task, project: Project): void {
+    this.clearTask(taskId);
+    const asPrCreated: Task = { ...task, status: 'pr_created' };
+    this.handleUiEvent(taskId, { type: 'PR_CREATED', prUrl: task.metadata?.prUrl ?? '' }, asPrCreated, project);
+    this.handleUiEvent(taskId, { type: 'PR_FOLLOWUP_STARTED' }, asPrCreated, project);
+  }
+
   clearTask(taskId: string): void {
     this.lastSequenceByTask.delete(taskId);
     this.lastStateByTask.delete(taskId);
