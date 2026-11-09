@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code when working with this repository.
 
-Auto Claude is an autonomous multi-agent coding framework that plans, builds, and validates software for you. It's a TypeScript-first Electron desktop application with a self-contained AI agent layer (Vercel AI SDK v6). A lightweight Python sidecar provides the optional Graphiti memory system.
+Auto Claude is an autonomous multi-agent coding framework that plans, builds, and validates software for you. It's a TypeScript-first Electron desktop application with a self-contained AI agent layer (Vercel AI SDK v6). The memory system runs in-process in the Electron main process (libSQL), with no Python component.
 
 > **Deep-dive reference:** [ARCHITECTURE.md](shared_docs/ARCHITECTURE.md) | **Frontend contributing:** [apps/desktop/CONTRIBUTING.md](apps/desktop/CONTRIBUTING.md)
 
@@ -47,7 +47,7 @@ Auto Claude is a desktop application (+ CLI) where users describe a goal and AI 
 - **Ideation** — Discover improvements, performance issues, and security vulnerabilities
 - **GitHub/GitLab Integration** — Import issues, AI-powered investigation, PR/MR review and creation
 - **Changelog** — Generate release notes from completed tasks
-- **Memory System** — Graphiti-based knowledge graph retains insights across sessions
+- **Memory System** — local libSQL memory database retains insights across sessions
 - **Isolated Workspaces** — Git worktree isolation for every build; AI-powered semantic merge
 - **Flexible Authentication** — Use a Claude Code subscription (OAuth) or API profiles with any Anthropic-compatible endpoint (e.g., Anthropic API, z.ai for GLM models)
 - **Multi-Account Swapping** — Register multiple Claude accounts; when one hits a rate limit, Auto Claude automatically switches to an available account
@@ -239,9 +239,9 @@ const readTool = tool({
 
 Each spec in `.auto-claude/specs/XXX-name/` contains: `spec.md`, `requirements.json`, `context.json`, `implementation_plan.json`, `qa_report.md`, `QA_FIX_REQUEST.md`
 
-### Memory System (Graphiti)
+### Memory System
 
-Graph-based semantic memory accessed via a Python MCP sidecar (lives outside `apps/desktop/`). The AI layer connects to it via `createMCPClient` from `@ai-sdk/mcp`. Configured through the Electron app's onboarding/settings UI. See [ARCHITECTURE.md](shared_docs/ARCHITECTURE.md#memory-system) for details.
+Runs in-process in the Electron main process, in `apps/desktop/src/main/ai/memory/`. It stores everything in one libSQL file at `userData/memory.db`. It is on by default and is switched off by the `memoryEnabled` app setting (`isAgentMemoryEnabled` in `ipc-handlers/context/memory-service-factory.ts`). `WorkerBridge.startMemory()` attaches it to agent workers. The `GRAPHITI_*` env var names are legacy, kept for backward compatibility. The Graphiti MCP path is active only when `GRAPHITI_MCP_URL` is set externally to a server the user runs. See [memory/README.md](apps/desktop/src/main/ai/memory/README.md) for details.
 
 ## Frontend Development
 
