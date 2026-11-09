@@ -1,0 +1,44 @@
+[
+  {
+    "id": "GHSA-9f4c-93c8-jc8g",
+    "package": "electron",
+    "reason": "needs major Electron upgrade (Electron 41.10.3), tracked as follow-up.",
+    "reviewed": "2026-11-09",
+    "scope": "runtime"
+  },
+  {
+    "id": "GHSA-hq2x-r82h-9wj4",
+    "package": "electron",
+    "reason": "needs major Electron upgrade (Electron 41.10.4), tracked as follow-up.",
+    "reviewed": "2026-11-09",
+    "scope": "runtime"
+  },
+  {
+    "id": "GHSA-gr2m-v5gq-v685",
+    "package": "electron",
+    "reason": "needs major Electron upgrade (Electron 41.10.6), tracked as follow-up.",
+    "reviewed": "2026-11-09",
+    "scope": "runtime"
+  },
+  {
+    "id": "GHSA-j84w-jfhq-vhvj",
+    "package": "electron",
+    "reason": "needs major Electron upgrade (Electron 41.10.6), tracked as follow-up.",
+    "reviewed": "2026-11-09",
+    "scope": "runtime"
+  },
+  {
+    "id": "GHSA-9qh4-3jw8-366w",
+    "package": "electron",
+    "reason": "needs major Electron upgrade (Electron 41.10.6), tracked as follow-up.",
+    "reviewed": "2026-11-09",
+    "scope": "runtime"
+  },
+  {
+    "id": "GHSA-jr5w-w6x2-84p9",
+    "package": "electron",
+    "reason": "needs major Electron upgrade (Electron 42.11.16), tracked as follow-up.",
+    "reviewed": "2026-11-09",
+    "scope": "runtime"
+  }
+]
