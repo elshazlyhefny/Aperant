@@ -60,12 +60,17 @@ npm run dev
 
 ## Security
 
-This project maintains **0 vulnerabilities**. Run `npm audit` to verify.
+Run the reviewed audit gate from `apps/desktop`. It covers devDependencies, including Electron, and fails on high and critical advisories that are not in the exceptions file:
 
 ```bash
-npm audit
-# Expected output: found 0 vulnerabilities
+npm run audit:gate
 ```
+
+For the full report, run plain `npm audit` from the repo root.
+
+Do not use `npm audit --omit=dev` to judge the app. Electron is a devDependency that ships as the runtime, so `--omit=dev` hides it.
+
+Accepted advisories are listed with reasons in `scripts/audit-exceptions.json`.
 
 ## Architecture
 
@@ -129,7 +134,7 @@ src/
 | `npm run lint` | Check for lint errors |
 | `npm run lint:fix` | Auto-fix lint errors |
 | `npm run typecheck` | Type check TypeScript |
-| `npm audit` | Check for security vulnerabilities |
+| `npm run audit:gate` | Reviewed security audit gate (high and critical, with exceptions) |
 
 ## Development Guidelines
 
@@ -202,7 +207,7 @@ Runs before each commit:
 - **lint-staged**: Lints staged `.ts`/`.tsx` files
 - **typecheck**: TypeScript type checking
 - **lint**: ESLint checks
-- **npm audit**: Security vulnerability check (high severity)
+- **audit gate**: Security check for high and critical advisories, with reviewed exceptions in `scripts/audit-exceptions.json`
 
 ### Commit Message Format
 

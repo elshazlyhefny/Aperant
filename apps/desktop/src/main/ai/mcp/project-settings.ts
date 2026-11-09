@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import type { CustomMcpServerDefinition } from './types';
 import { checkMcpCommand } from './command-policy';
+import { hashMcpServer, isChromeExecutableApproved, isServerApproved, type McpApprovals } from './mcp-approval';
 import type { McpServerResolveOptions } from '../config/agent-configs';
 
 export interface ProjectMcpOptions {
@@ -171,6 +172,10 @@ export function parseProjectMcpOptions(content: string): ProjectMcpOptions {
 /**
  * Read a project's MCP settings. Missing or unreadable file → upstream defaults
  * (Context7 on, browsers off, nothing custom).
+ *
+ * zeenha fork: this is the full DECLARED view and is UNTRUSTED. The .env may be
+ * committed by anyone, so its custom servers and Chrome executable must not
+ * feed agents directly: use readApprovedProjectMcpOptions().
  */
 export function readProjectMcpOptions(projectPath: string, autoBuildPath = '.auto-claude'): ProjectMcpOptions {
   const envPath = path.join(projectPath, autoBuildPath, '.env');
@@ -180,6 +185,55 @@ export function readProjectMcpOptions(projectPath: string, autoBuildPath = '.aut
   } catch {
     return parseProjectMcpOptions('');
   }
+}
+
+/**
+ * The options an agent may use: custom servers are kept only when the user
+ * approved their exact hash, and the Chrome executable only when approved.
+ * `undefined` approvals fail closed (nothing custom, no executable).
+ */
+export function readApprovedProjectMcpOptions(
+  projectPath: string,
+  autoBuildPath: string | undefined,
+  approvals: McpApprovals | undefined,
+): ProjectMcpOptions {
+  const declared = readProjectMcpOptions(projectPath, autoBuildPath);
+  const { customServers, chromeDevtoolsExecutable, ...rest } = declared;
+  const options: ProjectMcpOptions = { ...rest };
+  const approved = (customServers ?? []).filter((s) => isServerApproved(s, approvals));
+  if (approved.length > 0) options.customServers = approved;
+  if (chromeDevtoolsExecutable && isChromeExecutableApproved(chromeDevtoolsExecutable, approvals)) {
+    options.chromeDevtoolsExecutable = chromeDevtoolsExecutable;
+  }
+  return options;
+}
+
+export interface McpTrustDescription {
+  servers: Array<{ server: CustomMcpServerDefinition; hash: string; approved: boolean }>;
+  chromeExecutable?: { path: string; approved: boolean };
+}
+
+/** What the project declares and whether each item is approved (for the IPC layer). */
+export function describeProjectMcpTrust(
+  projectPath: string,
+  autoBuildPath: string | undefined,
+  approvals: McpApprovals | undefined,
+): McpTrustDescription {
+  const declared = readProjectMcpOptions(projectPath, autoBuildPath);
+  const result: McpTrustDescription = {
+    servers: (declared.customServers ?? []).map((server) => ({
+      server,
+      hash: hashMcpServer(server),
+      approved: isServerApproved(server, approvals),
+    })),
+  };
+  if (declared.chromeDevtoolsExecutable) {
+    result.chromeExecutable = {
+      path: declared.chromeDevtoolsExecutable,
+      approved: isChromeExecutableApproved(declared.chromeDevtoolsExecutable, approvals),
+    };
+  }
+  return result;
 }
 
 /** The worker's serialized MCP options (SerializableSessionConfig['mcpOptions']). */

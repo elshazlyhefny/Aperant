@@ -5,7 +5,15 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { mcpResolveOptionsForAgent, parseProjectMcpOptions, parseSecureOrigins, readProjectMcpOptions } from '../project-settings';
+import {
+  describeProjectMcpTrust,
+  mcpResolveOptionsForAgent,
+  parseProjectMcpOptions,
+  parseSecureOrigins,
+  readApprovedProjectMcpOptions,
+  readProjectMcpOptions,
+} from '../project-settings';
+import { hashMcpServer } from '../mcp-approval';
 import { getRequiredMcpServers } from '../../config/agent-configs';
 import { getMcpServerConfig } from '../registry';
 
@@ -121,6 +129,61 @@ describe('readProjectMcpOptions', () => {
 
   it('falls back to defaults when the file is missing', () => {
     expect(readProjectMcpOptions('/nonexistent/project').context7Enabled).toBe(true);
+  });
+});
+
+describe('readApprovedProjectMcpOptions', () => {
+  let dir: string | undefined;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = undefined;
+  });
+
+  const payload = { id: 'payload', type: 'command' as const, command: 'node', args: ['tools/payload.js'] };
+  const attacker = { id: 'attacker', type: 'command' as const, command: 'npx', args: ['attacker-package'] };
+
+  function project(extra = ''): string {
+    dir = mkdtempSync(path.join(tmpdir(), 'mcp-approved-'));
+    mkdirSync(path.join(dir, '.auto-claude'));
+    writeFileSync(
+      path.join(dir, '.auto-claude', '.env'),
+      `CHROME_DEVTOOLS_MCP_ENABLED=true\nCHROME_DEVTOOLS_EXECUTABLE=/opt/evil/chrome\nCUSTOM_MCP_SERVERS=${JSON.stringify([payload, attacker])}\n${extra}`,
+    );
+    return dir;
+  }
+
+  it('drops unapproved servers and executable, keeping the enabled flag', () => {
+    const p = project();
+    const opts = readApprovedProjectMcpOptions(p, '.auto-claude', { servers: [], chromeExecutables: [] });
+    expect(opts.customServers).toBeUndefined();
+    expect(opts.chromeDevtoolsExecutable).toBeUndefined();
+    expect(opts.chromeDevtoolsMcpEnabled).toBe(true);
+    // They do pass the command policy: only approval stops them.
+    expect(readProjectMcpOptions(p).customServers?.map((s) => s.id)).toEqual(['payload', 'attacker']);
+  });
+
+  it('undefined approvals fail closed', () => {
+    const opts = readApprovedProjectMcpOptions(project(), '.auto-claude', undefined);
+    expect(opts.customServers).toBeUndefined();
+    expect(opts.chromeDevtoolsExecutable).toBeUndefined();
+  });
+
+  it('keeps approved servers and executable only', () => {
+    const p = project();
+    const opts = readApprovedProjectMcpOptions(p, '.auto-claude', {
+      servers: [hashMcpServer(payload)],
+      chromeExecutables: ['/opt/evil/chrome'],
+    });
+    expect(opts.customServers?.map((s) => s.id)).toEqual(['payload']);
+    expect(opts.chromeDevtoolsExecutable).toBe('/opt/evil/chrome');
+  });
+
+  it('describeProjectMcpTrust reports hash and approval state', () => {
+    const p = project();
+    const trust = describeProjectMcpTrust(p, '.auto-claude', { servers: [hashMcpServer(attacker)], chromeExecutables: [] });
+    expect(trust.servers.map((s) => [s.server.id, s.approved])).toEqual([['payload', false], ['attacker', true]]);
+    expect(trust.servers[0].hash).toBe(hashMcpServer(payload));
+    expect(trust.chromeExecutable).toEqual({ path: '/opt/evil/chrome', approved: false });
   });
 });
 

@@ -24,13 +24,16 @@ import { resolveModelEquivalent } from '../../shared/constants/models';
 import type { BuiltinProvider } from '../../shared/types/provider-account';
 import type { AgentExecutorConfig, SerializableSessionConfig, SerializedSecurityProfile } from '../ai/agent/types';
 import { getSecurityProfile } from '../ai/security/security-profile';
+import { parseEnvPassthrough } from '../ai/security/child-env';
+import { parseSandboxMode } from '../ai/security/sandbox';
 import { createOrGetWorktree } from '../ai/worktree';
 import { findTaskWorktree } from '../worktree-paths';
 import { landsThroughPullRequestsOnly } from '../../shared/utils/landing-policy';
 import { readSettingsFile } from '../settings-utils';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
-import { readProjectMcpOptions } from '../ai/mcp/project-settings';
+import { getApprovals } from '../mcp-approval-store';
+import { readApprovedProjectMcpOptions } from '../ai/mcp/project-settings';
 
 /**
  * Main AgentManager - orchestrates agent process lifecycle
@@ -317,11 +320,17 @@ export class AgentManager extends EventEmitter {
    * zeenha fork: the project's MCP settings (the "MCP Server Overview" page) for
    * a worker. Upstream hardcoded Context7 on and ignored every other toggle,
    * per-agent override and custom server on that page. Always read from the
-   * PROJECT root, never a task worktree: `.auto-claude/.env` is untracked.
+   * PROJECT root, never a task worktree. `.auto-claude/.env` may be committed by
+   * a hostile repository, so only servers and a Chrome executable the user
+   * approved (stored outside the repo) reach the agent.
    */
   private mcpOptionsForProject(projectPath: string): NonNullable<SerializableSessionConfig['mcpOptions']> {
     const project = projectStore.getProjects().find((p) => p.path === projectPath);
-    const settings = readProjectMcpOptions(projectPath, project?.autoBuildPath || '.auto-claude');
+    const settings = readApprovedProjectMcpOptions(
+      projectPath,
+      project?.autoBuildPath || '.auto-claude',
+      getApprovals(projectPath),
+    );
     return {
       context7Enabled: settings.context7Enabled,
       memoryEnabled: !!process.env.GRAPHITI_MCP_URL,
@@ -430,6 +439,12 @@ export class AgentManager extends EventEmitter {
           projectPath,
           landsThroughPullRequestsOnly(
             projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath)?.settings,
+          ),
+          parseEnvPassthrough(
+            projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath)?.settings?.envPassthrough,
+          ),
+          parseSandboxMode(
+            projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath)?.settings?.bashSandbox,
           ),
         ),
       },
@@ -560,7 +575,7 @@ export class AgentManager extends EventEmitter {
         projectDir: effectiveProjectDir,
         specDir: worktreeSpecDir,
         // zeenha fork: carry PR-only landing into the worker's Bash validator.
-        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings)),
+        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough), parseSandboxMode(project?.settings?.bashSandbox)),
       },
     };
 
@@ -665,7 +680,7 @@ export class AgentManager extends EventEmitter {
         projectDir: effectiveProjectDir,
         specDir: effectiveSpecDir,
         // zeenha fork: carry PR-only landing into the worker's Bash validator.
-        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings)),
+        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough), parseSandboxMode(project?.settings?.bashSandbox)),
       },
     };
 
@@ -953,11 +968,13 @@ export class AgentManager extends EventEmitter {
    * Serialize a project's SecurityProfile (Sets) into a SerializedSecurityProfile (arrays)
    * for transfer across worker thread boundaries.
    */
-  private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean): SerializedSecurityProfile {
+  private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean, envPassthrough: string[], bashSandbox: string): SerializedSecurityProfile {
     const profile = getSecurityProfile(projectDir);
     return {
       // zeenha fork: the worker cannot read the project store, so the setting travels here.
       prOnlyLanding,
+      envPassthrough,
+      bashSandbox,
       baseCommands: [...profile.baseCommands],
       stackCommands: [...profile.stackCommands],
       scriptCommands: [...profile.scriptCommands],

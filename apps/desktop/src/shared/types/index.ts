@@ -21,6 +21,7 @@ export * from './integrations';
 export * from './app-update';
 export * from './cli';
 export * from './pr-status';
+export * from './pr-review';
 export * from './provider-account';
 export * from './run-metrics';
 

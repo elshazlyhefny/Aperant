@@ -5,6 +5,7 @@ import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { Switch } from '../../ui/switch';
 import { Separator } from '../../ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { Button } from '../../ui/button';
 import { Combobox } from '../../ui/combobox';
 import { GitHubOAuthFlow } from '../../project-settings/GitHubOAuthFlow';
@@ -23,6 +24,24 @@ function debugLog(message: string, data?: unknown) {
       console.warn(`[GitHubIntegration] ${message}`);
     }
   }
+}
+
+type BashSandboxMode = NonNullable<ProjectSettings['bashSandbox']>;
+
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Split a comma/space separated list into valid (de-duplicated) and invalid env var names. */
+function parseEnvNames(text: string): { valid: string[]; invalid: string[] } {
+  const valid: string[] = [];
+  const invalid: string[] = [];
+  for (const name of text.split(/[\s,]+/).filter(Boolean)) {
+    if (!ENV_NAME_RE.test(name)) {
+      if (!invalid.includes(name)) invalid.push(name);
+    } else if (!valid.includes(name)) {
+      valid.push(name);
+    }
+  }
+  return { valid, invalid };
 }
 
 interface GitHubRepo {
@@ -70,6 +89,7 @@ export function GitHubIntegration({
   const [branches, setBranches] = useState<GitBranchDetail[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [branchesError, setBranchesError] = useState<string | null>(null);
+  const [envPassthroughText, setEnvPassthroughText] = useState(() => (settings?.envPassthrough ?? []).join(', '));
 
   debugLog('Render - authMode:', authMode);
   debugLog('Render - projectPath:', projectPath);
@@ -229,6 +249,9 @@ export function GitHubIntegration({
   const prOnlyLanding = settings?.prOnlyLanding !== false;
   // zeenha fork: remove worktrees once their PR merged (default on) — main/worktree-auto-cleanup.ts
   const autoCleanupMerged = cleansUpMergedWorktrees(settings);
+  // zeenha fork: credential isolation (envPassthrough / bashSandbox)
+  const bashSandbox: BashSandboxMode = settings?.bashSandbox ?? 'off';
+  const invalidEnvNames = parseEnvNames(envPassthroughText).invalid;
 
   return (
     <div className="space-y-4">
@@ -461,6 +484,68 @@ export function GitHubIntegration({
                   checked={autoCleanupMerged}
                   onCheckedChange={(checked) => setSettings(prev => ({ ...prev, autoCleanupMergedWorktrees: checked }))}
                 />
+              </div>
+
+              {/* zeenha fork: credential isolation for agent shell commands */}
+              <Separator />
+              <div className="space-y-4">
+                <Label className="text-sm font-medium text-foreground">
+                  {t('settings:projectSections.github.credentialIsolation.title')}
+                </Label>
+
+                <div className="space-y-2">
+                  <Label className="font-normal text-foreground">
+                    {t('settings:projectSections.github.credentialIsolation.envPassthrough.label')}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:projectSections.github.credentialIsolation.envPassthrough.description')}
+                  </p>
+                  <Input
+                    value={envPassthroughText}
+                    placeholder={t('settings:projectSections.github.credentialIsolation.envPassthrough.placeholder')}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      setEnvPassthroughText(text);
+                      const { valid } = parseEnvNames(text);
+                      setSettings(prev => ({ ...prev, envPassthrough: valid }));
+                    }}
+                  />
+                  {invalidEnvNames.length > 0 && (
+                    <p className="text-xs text-destructive">
+                      {t('settings:projectSections.github.credentialIsolation.envPassthrough.invalid', {
+                        names: invalidEnvNames.join(', ')
+                      })}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="font-normal text-foreground">
+                    {t('settings:projectSections.github.credentialIsolation.bashSandbox.label')}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:projectSections.github.credentialIsolation.bashSandbox.description')}
+                  </p>
+                  <Select
+                    value={bashSandbox}
+                    onValueChange={(value) => setSettings(prev => ({ ...prev, bashSandbox: value as BashSandboxMode }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="off">
+                        {t('settings:projectSections.github.credentialIsolation.bashSandbox.options.off')}
+                      </SelectItem>
+                      <SelectItem value="home-hidden">
+                        {t('settings:projectSections.github.credentialIsolation.bashSandbox.options.homeHidden')}
+                      </SelectItem>
+                      <SelectItem value="home-hidden-no-network">
+                        {t('settings:projectSections.github.credentialIsolation.bashSandbox.options.homeHiddenNoNetwork')}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </>
           )}

@@ -1,7 +1,6 @@
 ## Base Branch
 
-- [ ] This PR targets the `develop` branch (required for all feature/fix PRs)
-- [ ] This PR targets `main` (hotfix only - maintainers)
+- [ ] This PR targets the `zeenha` branch (required for all PRs)
 
 ## Description
 
@@ -50,7 +49,7 @@ Follow conventional commits: `<type>: <subject>`
 
 ## Checklist
 
-- [ ] I've synced with `develop` branch
+- [ ] I've synced with `zeenha` branch
 - [ ] I've tested my changes locally
 - [ ] I've followed the code principles (SOLID, DRY, KISS)
 - [ ] My PR is small and focused (< 400 lines ideally)

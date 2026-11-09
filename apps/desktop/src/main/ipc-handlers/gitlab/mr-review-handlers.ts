@@ -25,6 +25,7 @@ import type {
   NewCommitsCheck,
 } from './types';
 import { prepareMRReviewCheckout, type PRReviewCheckout } from '../../ai/runners/github/pr-review-checkout';
+import { getApprovals } from '../../mcp-approval-store';
 import { createPRReviewMcpSession, type PRReviewMcpSession } from '../../ai/runners/github/pr-review-mcp';
 import { createContextLogger } from '../github/utils/logger';
 import { withProjectOrNull } from '../github/utils/project-middleware';
@@ -345,7 +346,7 @@ async function runMRReview(
   let mcp: PRReviewMcpSession | null = null;
   try {
     checkout = await prepareCheckoutForMR(project, mrIid, sendProgress);
-    mcp = createPRReviewMcpSession(project.path, project.autoBuildPath || '.auto-claude', (line) => debugLog(line));
+    mcp = createPRReviewMcpSession(project.path, project.autoBuildPath || '.auto-claude', (line) => debugLog(line), getApprovals(project.path));
 
     const engine = new MRReviewEngine(reviewConfig, (update) => {
       sendProgress({ phase: 'analyzing', mrIid, progress: update.progress, message: update.message });
@@ -955,7 +956,7 @@ export function registerMRReviewHandlers(
           let mcp: PRReviewMcpSession | null = null;
           try {
             checkout = await prepareCheckoutForMR(project, mrIid, sendProgress);
-            mcp = createPRReviewMcpSession(project.path, project.autoBuildPath || '.auto-claude', (line) => debugLog(line));
+            mcp = createPRReviewMcpSession(project.path, project.autoBuildPath || '.auto-claude', (line) => debugLog(line), getApprovals(project.path));
 
             const engine = new MRReviewEngine(reviewConfig, (update) => {
               sendProgress({ phase: 'analyzing', mrIid, progress: update.progress, message: update.message });

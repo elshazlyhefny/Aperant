@@ -2,12 +2,23 @@
 
 Thank you for your interest in contributing to Auto Claude! This document provides guidelines and instructions for contributing to the project.
 
+## This Fork
+
+This repository is `elshazlyhefny/Aperant`, a fork that Aperant itself develops. Upstream (`AndyMik90/Aperant`) has paused for a 3.0 rebuild, so `zeenha` is the trunk.
+
+- **Base branch is `zeenha`.** Never target upstream's frozen `develop` branch and never open anything against `AndyMik90/Aperant`.
+- **Set the default repo.** In a fresh clone run `gh repo set-default elshazlyhefny/Aperant`, because `gh` can otherwise pick the `upstream` remote.
+- **CI must pass and a human merges.** Land work through pull requests into `zeenha`.
+- **Mark fork-specific code** with a `zeenha fork:` comment that says why it exists.
+
+> ⚠️ **Important:** Every PR targets `zeenha`.
+
 ## How to Contribute
 
 | What you want to do | Where to start |
 |----------------------|----------------|
 | Bug fixes & small improvements | Open a PR directly |
-| New features / architecture changes | Start a [GitHub Discussion](https://github.com/AndyMik90/Auto-Claude/discussions) or ask in [Discord](https://discord.com/channels/1448614759996854284/1451298184612548779) first |
+| New features / architecture changes | Start a [GitHub Issue](https://github.com/elshazlyhefny/Aperant/issues) or ask in [Discord](https://discord.com/channels/1448614759996854284/1451298184612548779) first |
 | Questions & setup help | [Discord #setup-help](https://discord.com/channels/1448614759996854284/1451298184612548779) |
 
 ## AI-Assisted Contributions
@@ -25,6 +36,7 @@ AI-assisted PRs go through the same review process as any other contribution. Tr
 
 ## Table of Contents
 
+- [This Fork](#this-fork)
 - [How to Contribute](#how-to-contribute)
 - [AI-Assisted Contributions](#ai-assisted-contributions)
 - [Contributor License Agreement (CLA)](#contributor-license-agreement-cla)
@@ -43,7 +55,7 @@ AI-assisted PRs go through the same review process as any other contribution. Tr
   - [Branch Naming](#branch-naming)
   - [Where to Branch From](#where-to-branch-from)
   - [Pull Request Targets](#pull-request-targets)
-  - [Release Process](#release-process-maintainers)
+  - [Releases](#releases-maintainers)
   - [Commit Messages](#commit-messages)
   - [PR Hygiene](#pr-hygiene)
 - [Pull Request Process](#pull-request-process)
@@ -129,8 +141,8 @@ The fastest way to get started:
 
 ```bash
 # Clone the repository
-git clone https://github.com/AndyMik90/Auto-Claude.git
-cd Auto-Claude
+git clone https://github.com/elshazlyhefny/Aperant.git
+cd Aperant
 
 # Install all dependencies (cross-platform)
 npm run install:all
@@ -179,7 +191,7 @@ Auto Claude automatically downloads prebuilt binaries for Windows. If prebuilts 
 
 </details>
 
-> **Note:** For regular usage, we recommend downloading the pre-built releases from [GitHub Releases](https://github.com/AndyMik90/Auto-Claude/releases). Running from source is primarily for contributors and those testing unreleased features.
+> **Note:** For regular usage, we recommend downloading the pre-built releases from [GitHub Releases](https://github.com/elshazlyhefny/Aperant/releases). Running from source is primarily for contributors and those testing unreleased features.
 
 ## Pre-commit Hooks
 
@@ -319,41 +331,43 @@ npm run typecheck
 
 ## Git Workflow
 
-We use a **Git Flow** branching strategy to manage releases and parallel development.
+This fork uses a **trunk-based** workflow. Branch from `zeenha`, open a pull request back into `zeenha`, and a human merges it once CI passes.
 
 ### Working with Forks
 
-When contributing to Auto Claude, you'll typically fork the repository first. Proper fork configuration is essential to avoid sync issues.
+If you contribute from your own fork of `elshazlyhefny/Aperant`, configure it carefully to avoid sync issues.
 
 #### Initial Fork Setup
 
 ```bash
-# 1. Fork on GitHub (click the Fork button on the repo page)
+# 1. Fork elshazlyhefny/Aperant on GitHub (click the Fork button on the repo page)
 
 # 2. Clone YOUR fork (not the original repo)
-git clone https://github.com/YOUR-USERNAME/Auto-Claude.git
-cd Auto-Claude
+git clone https://github.com/YOUR-USERNAME/Aperant.git
+cd Aperant
 
 # 3. Verify your remotes point to YOUR fork
 git remote -v
 # Should show:
-# origin  https://github.com/YOUR-USERNAME/Auto-Claude.git (fetch)
-# origin  https://github.com/YOUR-USERNAME/Auto-Claude.git (push)
+# origin  https://github.com/YOUR-USERNAME/Aperant.git (fetch)
+# origin  https://github.com/YOUR-USERNAME/Aperant.git (push)
 
-# 4. Add upstream remote to sync with the original repo
-git remote add upstream https://github.com/AndyMik90/Auto-Claude.git
+# 4. Add this fork's repo as the upstream remote to sync with it
+git remote add upstream https://github.com/elshazlyhefny/Aperant.git
+
+# 5. Make gh target the fork, not AndyMik90/Aperant
+gh repo set-default elshazlyhefny/Aperant
 ```
 
 #### Keeping Your Fork Updated
 
 ```bash
-# Fetch latest changes from upstream
+# Fetch latest changes from upstream (elshazlyhefny/Aperant)
 git fetch upstream
 
-# Sync your develop branch with upstream
-git checkout develop
-git merge upstream/develop
-git push origin develop
+# Sync your local zeenha branch
+git checkout zeenha
+git merge --ff-only upstream/zeenha
 ```
 
 #### Converting a Fork to Standalone
@@ -374,8 +388,7 @@ git remote -v
 # Should only show your standalone repo as origin
 
 # 4. Update your default branch tracking if needed
-git branch --set-upstream-to=origin/main main
-git branch --set-upstream-to=origin/develop develop
+git branch --set-upstream-to=origin/zeenha zeenha
 ```
 
 #### Troubleshooting Fork Issues
@@ -384,37 +397,38 @@ git branch --set-upstream-to=origin/develop develop
 |---------|-------|----------|
 | `Permission denied` on push | Origin points to upstream repo | `git remote set-url origin <your-fork-url>` |
 | `Repository not found` | Fork was deleted or made standalone | Update remote URL to current repo location |
-| Can't push to develop | Local branch tracks wrong remote | `git branch --set-upstream-to=origin/develop` |
+| Can't push your branch | Local branch tracks wrong remote | `git branch --set-upstream-to=origin/zeenha zeenha` |
+| `gh pr create` targets the wrong repo | `gh` picked the `upstream` remote | `gh repo set-default elshazlyhefny/Aperant` |
 | Commits show wrong author | Git config not set | `git config user.email "you@example.com"` |
 
 ### Branch Overview
 
 ```
-main (stable)          ← Only released, tested code (tagged versions)
-  │
-develop                ← Integration branch - all PRs merge here first
+zeenha (trunk)         ← Default branch - all PRs merge here
   │
 ├── feature/xxx        ← New features
 ├── fix/xxx            ← Bug fixes
-├── release/vX.Y.Z     ← Release preparation
-└── hotfix/xxx         ← Emergency production fixes
+├── docs/xxx           ← Documentation
+└── ...                ← See Branch Naming
 ```
 
 ### Main Branches
 
 | Branch | Purpose | Protected |
 |--------|---------|-----------|
-| `main` | Production-ready code. Only receives merges from `release/*` or `hotfix/*` branches. Every merge is tagged (v2.7.0, v2.8.0, etc.) | ✅ Yes |
-| `develop` | Integration branch where all features and fixes are combined. This is the default target for all PRs. | ✅ Yes |
+| `zeenha` | Trunk. Every feature and fix lands here through a pull request, and releases are cut from it. | ✅ Yes |
+
+> ⚠️ Upstream's frozen `develop` branch is a copy of the old upstream state. Never branch from it or target it.
 
 ### Supporting Branches
 
 | Branch Type | Branch From | Merge To | Purpose |
 |-------------|-------------|----------|---------|
-| `feature/*` | `develop` | `develop` | New features and enhancements |
-| `fix/*` | `develop` | `develop` | Bug fixes (non-critical) |
-| `release/*` | `develop` | `main` + `develop` | Release preparation and final testing |
-| `hotfix/*` | `main` | `main` + `develop` | Critical production bug fixes |
+| `feature/*` | `zeenha` | `zeenha` | New features and enhancements |
+| `fix/*` | `zeenha` | `zeenha` | Bug fixes |
+| `docs/*`, `refactor/*`, `test/*`, `chore/*` | `zeenha` | `zeenha` | Other changes |
+
+Upstream's `release/*` and `hotfix/*` branches are upstream-only and are not used in this fork.
 
 ### Branch Naming
 
@@ -424,146 +438,45 @@ Use descriptive branch names with a prefix indicating the type of change:
 |--------|---------|---------|
 | `feature/` | New feature | `feature/add-dark-mode` |
 | `fix/` | Bug fix | `fix/memory-leak-in-worker` |
-| `hotfix/` | Urgent production fix | `hotfix/critical-crash-fix` |
 | `docs/` | Documentation | `docs/update-readme` |
 | `refactor/` | Code refactoring | `refactor/simplify-auth-flow` |
 | `test/` | Test additions/fixes | `test/add-integration-tests` |
 | `chore/` | Maintenance tasks | `chore/update-dependencies` |
-| `release/` | Release preparation | `release/v2.8.0` |
-| `hotfix/` | Emergency fixes | `hotfix/critical-auth-bug` |
 
 ### Where to Branch From
 
 ```bash
-# For features and bug fixes - ALWAYS branch from develop
-git checkout develop
-git pull origin develop
+# For every change - ALWAYS branch from zeenha
+git checkout zeenha
+git pull origin zeenha
 git checkout -b feature/my-new-feature
-
-# For hotfixes only - branch from main
-git checkout main
-git pull origin main
-git checkout -b hotfix/critical-fix
 ```
 
 ### Pull Request Targets
 
-> ⚠️ **Important:** All PRs should target `develop`, NOT `main`!
+> ⚠️ **Important:** All PRs must target `zeenha`. Never target upstream's frozen `develop` branch, and never open anything against `AndyMik90/Aperant`.
 
 | Your Branch Type | Target Branch |
 |------------------|---------------|
-| `feature/*` | `develop` |
-| `fix/*` | `develop` |
-| `docs/*` | `develop` |
-| `refactor/*` | `develop` |
-| `test/*` | `develop` |
-| `chore/*` | `develop` |
-| `hotfix/*` | `main` (maintainers only) |
-| `release/*` | `main` (maintainers only) |
+| `feature/*` | `zeenha` |
+| `fix/*` | `zeenha` |
+| `docs/*` | `zeenha` |
+| `refactor/*` | `zeenha` |
+| `test/*` | `zeenha` |
+| `chore/*` | `zeenha` |
 
-### Release Process (Maintainers)
 
-When ready to release a new version:
+### Releases (Maintainers)
 
-```bash
-# 1. Create release branch from develop
-git checkout develop
-git pull origin develop
-git checkout -b release/v2.8.0
-
-# 2. Update version numbers, CHANGELOG, final fixes only
-# No new features allowed in release branches!
-
-# 3. Merge to main and tag
-git checkout main
-git merge release/v2.8.0
-git tag v2.8.0
-git push origin main --tags
-
-# 4. Merge back to develop (important!)
-git checkout develop
-git merge release/v2.8.0
-git push origin develop
-
-# 5. Delete release branch
-git branch -d release/v2.8.0
-git push origin --delete release/v2.8.0
-```
-
-### Beta Release Process (Maintainers)
-
-Beta releases allow users to test new features before they're included in a stable release. Beta releases are published from the `develop` branch.
-
-**Creating a Beta Release:**
-
-1. Go to **Actions** → **Beta Release** workflow in GitHub
-2. Click **Run workflow**
-3. Enter the beta version (e.g., `2.8.0-beta.1`)
-4. Optionally enable dry run to test without publishing
-5. Click **Run workflow**
-
-The workflow will:
-- Validate the version format
-- Update `package.json` on develop
-- Create and push a tag (e.g., `v2.8.0-beta.1`)
-- Build installers for all platforms
-- Create a GitHub pre-release
-
-**Version Format:**
-```
-X.Y.Z-beta.N   (e.g., 2.8.0-beta.1, 2.8.0-beta.2)
-X.Y.Z-alpha.N  (e.g., 2.8.0-alpha.1)
-X.Y.Z-rc.N     (e.g., 2.8.0-rc.1)
-```
-
-**For Users:**
-Users can opt into beta updates in Settings → Updates → "Beta Updates" toggle. When enabled, the app will check for and install beta versions. Users can switch back to stable at any time.
-
-### Hotfix Workflow
-
-For urgent production fixes that can't wait for the normal release cycle:
-
-**1. Create hotfix from main**
+Releases of this fork use `scripts/zeenha-release.sh`. It is run by a human only: it tests, builds, pushes and installs the next `zeenha.N`. See [RELEASE.md](RELEASE.md).
 
 ```bash
-git checkout main
-git pull origin main
-git checkout -b hotfix/150-critical-fix
+scripts/zeenha-release.sh             # test, build, push, install the next zeenha.N
+scripts/zeenha-release.sh --rollback  # go back to the previous install
 ```
 
-**2. Fix the issue**
+> ⚠️ **Note:** The old upstream release, beta and hotfix flow (`release/*` and `hotfix/*` branches, the Beta Release workflow) no longer applies here. Contributors never cut releases: merge to `zeenha` and a maintainer releases from there.
 
-```bash
-# ... make changes ...
-git commit -m "hotfix: fix critical crash on startup"
-```
-
-**3. Open PR to main (fast-track review)**
-
-```bash
-gh pr create --base main --title "hotfix: fix critical crash on startup"
-```
-
-**4. After merge to main, sync to develop**
-
-```bash
-git checkout develop
-git pull origin develop
-git merge main
-git push origin develop
-```
-
-```
-main ─────●─────●─────●─────●───── (production)
-          ↑     ↑     ↑     ↑
-develop ──●─────●─────●─────●───── (integration)
-          ↑     ↑     ↑
-feature/123 ────●
-feature/124 ──────────●
-hotfix/125 ─────────────────●───── (from main, merge to both)
-```
-
-> **Note:** Hotfixes branch FROM `main` and merge TO `main` first, then sync back to `develop` to keep branches aligned.
 
 ### Commit Messages
 
@@ -598,8 +511,8 @@ git commit -m "WIP"
 ### PR Hygiene
 
 **Rebasing:**
-- **Rebase onto develop** before opening a PR and before merge to maintain linear history
-- Use `git fetch origin && git rebase origin/develop` to sync your branch
+- **Rebase onto zeenha** before opening a PR and before merge to maintain linear history
+- Use `git fetch origin && git rebase origin/zeenha` to sync your branch
 - Use `--force-with-lease` when force-pushing rebased branches (safer than `--force`)
 - Notify reviewers after force-pushing during active review
 - **Exception:** Never rebase after PR is approved and others have reviewed specific commits
@@ -612,11 +525,11 @@ git commit -m "WIP"
 
 **Before requesting review:**
 ```bash
-# Ensure up-to-date with develop
-git fetch origin && git rebase origin/develop
+# Ensure up-to-date with zeenha
+git fetch origin && git rebase origin/zeenha
 
 # Clean up commit history (squash fixups, reword messages)
-git rebase -i origin/develop
+git rebase -i origin/zeenha
 
 # Force push with safety check
 git push --force-with-lease
@@ -631,11 +544,11 @@ cd apps/desktop && npm test && npm run lint && npm run typecheck
 
 ## Pull Request Process
 
-1. **Fork the repository** and create your branch from `develop` (not main!)
+1. **Fork the repository** and create your branch from `zeenha`
 
    ```bash
-   git checkout develop
-   git pull origin develop
+   git checkout zeenha
+   git pull origin zeenha
    git checkout -b feature/your-feature-name
    ```
 

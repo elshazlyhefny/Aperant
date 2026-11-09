@@ -1376,6 +1376,16 @@ body {
    Enhanced Task Card Styling
    ============================================ */
 
+/* Skip layout/paint of off-screen Kanban cards. `auto <height>` makes the browser
+   remember the real height once rendered, so scroll height stays stable; 140px is
+   a typical measured TaskCard height. content-visibility:auto implies paint
+   containment, so the wrapper using this class carries padding + equal negative
+   margin to keep rings and hover glow from being clipped. */
+.kanban-card-offscreen-skip {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
+}
+
 /* Task card enhanced hover effect */
 .task-card-enhanced {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);

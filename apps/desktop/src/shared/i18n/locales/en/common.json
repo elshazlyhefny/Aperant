@@ -357,6 +357,10 @@
       "quality": "Quality",
       "performance": "Performance",
       "style": "Style",
+      "test": "Test",
+      "docs": "Documentation",
+      "pattern": "Pattern",
+      "verification_failed": "Verification failed",
       "documentation": "Documentation",
       "testing": "Testing",
       "other": "Other"

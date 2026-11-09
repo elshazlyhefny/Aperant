@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EXTERNAL_REVIEW_TIMEOUT_ERROR, PRReviewStateManager } from '../pr-review-state-manager';
-import type { PRReviewResult, PRReviewProgress } from '../../preload/api/modules/github-api';
+import type { PRReviewResult, PRReviewProgress } from '../../shared/types/pr-review';
 
 // Mock dependencies
 const mockSafeSendToRenderer = vi.fn();

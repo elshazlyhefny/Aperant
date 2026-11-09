@@ -18,7 +18,7 @@ import type {
 import { isWindows } from '../platform';
 import { debugLog, debugError } from '../../shared/utils/debug-logger';
 import { safeSendToRenderer } from '../ipc-handlers/utils';
-import { getClaudeCodeEnv } from '../claude-code-settings';
+import { getClaudeCodeEnvWithReport, formatDroppedEnvNotice } from '../claude-code-settings';
 
 /**
  * Options for terminal restoration
@@ -66,7 +66,7 @@ export async function createTerminal(
     const profileEnv = skipOAuthToken ? {} : PtyManager.getActiveProfileEnv();
 
     // Read env vars from Claude Code CLI settings files (.claude/settings.json hierarchy)
-    const claudeCodeEnv = getClaudeCodeEnv(projectPath);
+    const { env: claudeCodeEnv, dropped: droppedEnv } = getClaudeCodeEnvWithReport(projectPath);
     if (Object.keys(claudeCodeEnv).length > 0) {
       debugLog('[TerminalLifecycle] Injecting Claude Code settings env vars:', Object.keys(claudeCodeEnv));
     }
@@ -125,6 +125,15 @@ export async function createTerminal(
       (term, data) => dataHandler(term, data),
       (term) => handleTerminalExit(term, terminals)
     );
+
+    // Tell the user which project env vars were ignored. Written to the
+    // renderer output (and the replay buffer), never to the PTY stdin.
+    const dropNotice = formatDroppedEnvNotice(droppedEnv);
+    if (dropNotice) {
+      const line = `${dropNotice}\r\n`;
+      terminal.outputBuffer += line;
+      safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OUTPUT, id, line);
+    }
 
     if (projectPath) {
       SessionHandler.persistSessionAsync(terminal);

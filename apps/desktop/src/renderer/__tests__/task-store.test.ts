@@ -3,7 +3,8 @@
  * Tests Zustand store for task state management
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useTaskStore, hasRecentActivity, clearTaskActivity } from '../stores/task-store';
+import { useTaskStore, hasRecentActivity, clearTaskActivity, deleteTask } from '../stores/task-store';
+import { useTaskLogsStore } from '../stores/task-logs-store';
 import type { Task, TaskStatus, ImplementationPlan } from '../../shared/types';
 
 // Helper to create test tasks
@@ -50,6 +51,7 @@ function createTestPlan(overrides: Partial<ImplementationPlan> = {}): Implementa
 
 describe('Task Store', () => {
   beforeEach(() => {
+    useTaskLogsStore.getState().clearAllLogs();
     // Reset store to initial state before each test
     useTaskStore.setState({
       tasks: [],
@@ -360,9 +362,7 @@ describe('Task Store', () => {
       useTaskStore.getState().appendLog('task-1', 'First log');
       useTaskStore.getState().appendLog('task-1', 'Second log');
 
-      expect(useTaskStore.getState().tasks[0].logs).toHaveLength(2);
-      expect(useTaskStore.getState().tasks[0].logs[0]).toBe('First log');
-      expect(useTaskStore.getState().tasks[0].logs[1]).toBe('Second log');
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toEqual(['First log', 'Second log']);
     });
 
     it('should append log to task by specId', () => {
@@ -372,19 +372,66 @@ describe('Task Store', () => {
 
       useTaskStore.getState().appendLog('spec-001', 'Log message');
 
-      expect(useTaskStore.getState().tasks[0].logs).toContain('Log message');
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toContain('Log message');
+      expect(useTaskLogsStore.getState().logsByTaskId['spec-001']).toBeUndefined();
     });
 
     it('should accumulate logs correctly', () => {
       useTaskStore.setState({
-        tasks: [createTestTask({ id: 'task-1', logs: ['existing log'] })]
+        tasks: [createTestTask({ id: 'task-1', logs: [] })]
       });
+      useTaskLogsStore.getState().seedLogs('task-1', ['existing log']);
 
       useTaskStore.getState().appendLog('task-1', 'new log');
 
-      expect(useTaskStore.getState().tasks[0].logs).toHaveLength(2);
-      expect(useTaskStore.getState().tasks[0].logs[0]).toBe('existing log');
-      expect(useTaskStore.getState().tasks[0].logs[1]).toBe('new log');
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toEqual(['existing log', 'new log']);
+    });
+  });
+
+  describe('log isolation from tasks store', () => {
+    it('should not notify task subscribers or replace tasks on log appends', () => {
+      useTaskStore.setState({
+        tasks: [createTestTask({ id: 'task-1', status: 'in_progress' })]
+      });
+      const tasksBefore = useTaskStore.getState().tasks;
+      const subscriber = vi.fn();
+      const unsubscribe = useTaskStore.subscribe(subscriber);
+
+      useTaskStore.getState().batchAppendLogs('task-1', ['a', 'b']);
+      useTaskStore.getState().appendLog('task-1', 'c');
+
+      unsubscribe();
+      expect(subscriber).not.toHaveBeenCalled();
+      expect(useTaskStore.getState().tasks).toBe(tasksBefore);
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toEqual(['a', 'b', 'c']);
+    });
+
+    it('should empty the logs store on clearTasks', () => {
+      useTaskStore.setState({ tasks: [createTestTask({ id: 'task-1' })] });
+      useTaskStore.getState().appendLog('task-1', 'x');
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toHaveLength(1);
+
+      useTaskStore.getState().clearTasks();
+
+      expect(useTaskLogsStore.getState().logsByTaskId).toEqual({});
+    });
+
+    it('should clear the deleted task bucket on deleteTask', async () => {
+      const deleteMock = vi.fn().mockResolvedValue({ success: true });
+      (globalThis as any).window = Object.assign((globalThis as any).window ?? {}, {
+        electronAPI: { ...((globalThis as any).window?.electronAPI ?? {}), deleteTask: deleteMock }
+      });
+      useTaskStore.setState({
+        tasks: [createTestTask({ id: 'task-1' }), createTestTask({ id: 'task-2' })]
+      });
+      useTaskStore.getState().appendLog('task-1', 'one');
+      useTaskStore.getState().appendLog('task-2', 'two');
+
+      const result = await deleteTask('task-1');
+
+      expect(result.success).toBe(true);
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toBeUndefined();
+      expect(useTaskLogsStore.getState().logsByTaskId['task-2']).toEqual(['two']);
     });
   });
 
