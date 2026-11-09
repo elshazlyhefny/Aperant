@@ -417,5 +417,8 @@
       "cacheCreation": "Cache creation tokens"
     },
     "note": "Entries carry tokens and durations only; no monetary cost is shown."
+  },
+  "overlap": {
+    "heldToast": "Task \"{{title}}\" is held in the queue until the overlapping task finishes."
   }
 }

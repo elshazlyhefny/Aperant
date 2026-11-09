@@ -1,4 +1,5 @@
 import { debugLog } from '@shared/utils/debug-logger';
+import { isHoldActive, FINISHED_TASK_STATUSES } from '@shared/utils/file-overlap';
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useViewState } from '../contexts/ViewStateContext';
@@ -1000,6 +1001,11 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
       debugLog('[Queue] In Progress full, redirecting task to Queue');
       newStatus = 'queue';
     }
+    // zeenha fork: a task held until an overlapping task finishes cannot start yet
+    if (newStatus === 'in_progress' && task && isHoldActive(task, useTaskStore.getState().tasks)) {
+      debugLog('[Queue] Task has an active overlap hold, redirecting to Queue');
+      newStatus = 'queue';
+    }
 
     const oldStatus = task?.status;
     const result = await persistTaskStatus(taskId, newStatus);
@@ -1137,6 +1143,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
         ).length;
         const queuedTasks = currentTasks.filter((t) =>
           t.status === 'queue' && !t.metadata?.archivedAt && !attemptedTaskIds.has(t.id)
+          && !isHoldActive(t, currentTasks)
         );
 
         // Stop if no capacity, no queued tasks, or too many consecutive failures
@@ -1185,8 +1192,12 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     const unregister = useTaskStore.getState().registerTaskStatusChangeListener(
       (taskId, oldStatus, newStatus) => {
         // When a task leaves in_progress (e.g., goes to human_review), process the queue
-        if (oldStatus === 'in_progress' && newStatus !== 'in_progress') {
-          debugLog(`[Queue] Task ${taskId} left in_progress, processing queue to fill slot`);
+        // zeenha fork: a task reaching a finished status also releases tasks held on it
+        if (
+          (oldStatus === 'in_progress' && newStatus !== 'in_progress') ||
+          FINISHED_TASK_STATUSES.includes(newStatus)
+        ) {
+          debugLog(`[Queue] Task ${taskId} left in_progress or finished, processing queue`);
           processQueue();
         }
       }
@@ -1195,6 +1206,19 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     // Cleanup: unregister listener when component unmounts
     return unregister;
   }, [processQueue]);
+
+  // zeenha fork: when a hold is cleared (or its blocker disappears), release the queued task.
+  const heldQueueKey = tasks
+    .filter((t) => t.status === 'queue' && isHoldActive(t, tasks))
+    .map((t) => t.id)
+    .join(',');
+  const prevHeldQueueKey = useRef(heldQueueKey);
+  useEffect(() => {
+    if (prevHeldQueueKey.current !== heldQueueKey) {
+      prevHeldQueueKey.current = heldQueueKey;
+      processQueue();
+    }
+  }, [heldQueueKey, processQueue]);
 
   // Get task order actions from store
   const reorderTasksInColumn = useTaskStore((state) => state.reorderTasksInColumn);
