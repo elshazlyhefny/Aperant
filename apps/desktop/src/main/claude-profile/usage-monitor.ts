@@ -21,7 +21,6 @@ import { reactiveTokenRefresh, ensureValidToken } from './token-refresh';
 import { isProfileRateLimited } from './rate-limit-manager';
 import { getOperationRegistry } from './operation-registry';
 import { ensureValidCodexToken } from '../ai/auth/codex-oauth';
-import { fetchCodexUsage, normalizeCodexResponse } from './codex-usage-fetcher';
 import { readSettingsFileAsync, writeSettingsFile } from '../settings-utils';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 
@@ -29,6 +28,7 @@ import { appLog } from '../app-logger';
 import type { ActiveProfileResult } from './usage/types';
 import { getCredentialFingerprint, createUsageLogger } from './usage/usage-log';
 import { calculateAvailabilityScore } from './usage/availability-score';
+import { appendProviderAccountUsage, codexUsageSource, zaiUsageSource } from './usage/provider-accounts';
 // Re-export for backward compatibility
 export type { ApiProvider };
 
@@ -791,86 +791,10 @@ export class UsageMonitor extends EventEmitter {
    * so they must be added separately.
    */
   private async appendCodexAccounts(allProfiles: ProfileUsageSummary[]): Promise<void> {
-    try {
-      const appSettings = await readSettingsFileAsync();
-      if (!appSettings) return;
-
-      const providerAccounts = (appSettings.providerAccounts as ProviderAccount[] | undefined) ?? [];
-
-      for (const account of providerAccounts) {
-        if (account.provider !== 'openai' || account.authType !== 'oauth') continue;
-        // Skip if already present
-        if (allProfiles.some(p => p.profileId === account.id)) continue;
-
-        // If this account matches currentUsage, use that data
-        if (this.currentUsage && this.currentUsage.profileId === account.id) {
-          const s = this.currentUsage;
-          allProfiles.push({
-            profileId: s.profileId,
-            profileName: s.profileName || account.name,
-            profileEmail: s.profileEmail,
-            sessionPercent: s.sessionPercent,
-            weeklyPercent: s.weeklyPercent,
-            sessionResetTimestamp: s.sessionResetTimestamp,
-            weeklyResetTimestamp: s.weeklyResetTimestamp,
-            isAuthenticated: true,
-            isRateLimited: s.sessionPercent >= 95 || s.weeklyPercent >= 95,
-            rateLimitType: s.limitType,
-            availabilityScore: this.calculateAvailabilityScore(s.sessionPercent, s.weeklyPercent, false, undefined, true),
-            isActive: true,
-            lastFetchedAt: s.fetchedAt instanceof Date ? s.fetchedAt.toISOString() : undefined,
-            needsReauthentication: s.needsReauthentication,
-          });
-          continue;
-        }
-
-        // Inactive Codex account — try to fetch its usage
-        try {
-          const token = await ensureValidCodexToken();
-          if (token) {
-            const { getCodexAccountId } = await import('./codex-usage-fetcher');
-            const codexAccountId = getCodexAccountId(token);
-            const rawData = await fetchCodexUsage(token, codexAccountId);
-            if (rawData) {
-              const n = normalizeCodexResponse(rawData, account.id, account.name);
-              allProfiles.push({
-                profileId: account.id,
-                profileName: account.name,
-                profileEmail: n.profileEmail,
-                sessionPercent: n.sessionPercent,
-                weeklyPercent: n.weeklyPercent,
-                sessionResetTimestamp: n.sessionResetTimestamp,
-                weeklyResetTimestamp: n.weeklyResetTimestamp,
-                isAuthenticated: true,
-                isRateLimited: n.sessionPercent >= 95 || n.weeklyPercent >= 95,
-                rateLimitType: n.limitType,
-                availabilityScore: this.calculateAvailabilityScore(n.sessionPercent, n.weeklyPercent, false, undefined, true),
-                isActive: false,
-                lastFetchedAt: new Date().toISOString(),
-                needsReauthentication: false,
-              });
-              continue;
-            }
-          }
-        } catch {
-          // Fetch failed — add minimal entry below
-        }
-
-        // No data available — add minimal entry so the account appears in the list
-        allProfiles.push({
-          profileId: account.id,
-          profileName: account.name,
-          sessionPercent: 0,
-          weeklyPercent: 0,
-          isAuthenticated: true,
-          isRateLimited: false,
-          availabilityScore: 100,
-          isActive: false,
-        });
-      }
-    } catch (error) {
-      this.debugLog('[UsageMonitor] Failed to append Codex accounts:', error);
-    }
+    await appendProviderAccountUsage(allProfiles, codexUsageSource, {
+      currentUsage: this.currentUsage,
+      log: (message, data) => this.debugLog(message, data),
+    });
   }
 
   /**
@@ -878,92 +802,10 @@ export class UsageMonitor extends EventEmitter {
    * Z.AI accounts use API keys and have a quota/limit monitoring API.
    */
   private async appendZAIAccounts(allProfiles: ProfileUsageSummary[]): Promise<void> {
-    try {
-      const appSettings = await readSettingsFileAsync();
-      if (!appSettings) return;
-
-      const providerAccounts = (appSettings.providerAccounts as ProviderAccount[] | undefined) ?? [];
-
-      for (const account of providerAccounts) {
-        if (account.provider !== 'zai' || !account.apiKey) continue;
-        // Skip if already present
-        if (allProfiles.some(p => p.profileId === account.id)) continue;
-
-        // If this account matches currentUsage, use that data
-        if (this.currentUsage && this.currentUsage.profileId === account.id) {
-          const s = this.currentUsage;
-          allProfiles.push({
-            profileId: s.profileId,
-            profileName: s.profileName || account.name,
-            profileEmail: s.profileEmail,
-            sessionPercent: s.sessionPercent,
-            weeklyPercent: s.weeklyPercent,
-            sessionResetTimestamp: s.sessionResetTimestamp,
-            weeklyResetTimestamp: s.weeklyResetTimestamp,
-            isAuthenticated: true,
-            isRateLimited: s.sessionPercent >= 95 || s.weeklyPercent >= 95,
-            rateLimitType: s.limitType,
-            availabilityScore: this.calculateAvailabilityScore(s.sessionPercent, s.weeklyPercent, false, undefined, true),
-            isActive: true,
-            lastFetchedAt: s.fetchedAt instanceof Date ? s.fetchedAt.toISOString() : undefined,
-            needsReauthentication: false,
-          });
-          continue;
-        }
-
-        // Inactive Z.AI account — try to fetch its usage
-        try {
-          // CodeQL: file data in outbound request - validate API key is a non-empty string before use
-          const safeApiKey = typeof account.apiKey === 'string' && account.apiKey.length > 0 ? account.apiKey : '';
-          const response = await fetch('https://api.z.ai/api/monitor/usage/quota/limit', {
-            headers: {
-              'Authorization': safeApiKey,
-            },
-          });
-          if (response.ok) {
-            const json = await response.json();
-            // Z.AI wraps response in a data field
-            const rawData = json.data ?? json;
-            const normalized = this.normalizeZAIResponse(rawData, account.id, account.name);
-            if (normalized) {
-              allProfiles.push({
-                profileId: account.id,
-                profileName: account.name,
-                profileEmail: normalized.profileEmail,
-                sessionPercent: normalized.sessionPercent,
-                weeklyPercent: normalized.weeklyPercent,
-                sessionResetTimestamp: normalized.sessionResetTimestamp,
-                weeklyResetTimestamp: normalized.weeklyResetTimestamp,
-                isAuthenticated: true,
-                isRateLimited: normalized.sessionPercent >= 95 || normalized.weeklyPercent >= 95,
-                rateLimitType: normalized.limitType,
-                availabilityScore: this.calculateAvailabilityScore(normalized.sessionPercent, normalized.weeklyPercent, false, undefined, true),
-                isActive: false,
-                lastFetchedAt: new Date().toISOString(),
-                needsReauthentication: false,
-              });
-              continue;
-            }
-          }
-        } catch {
-          // Fetch failed — add minimal entry below
-        }
-
-        // No data available — add minimal entry so the account appears in the list
-        allProfiles.push({
-          profileId: account.id,
-          profileName: account.name,
-          sessionPercent: 0,
-          weeklyPercent: 0,
-          isAuthenticated: true,
-          isRateLimited: false,
-          availabilityScore: 100,
-          isActive: false,
-        });
-      }
-    } catch (error) {
-      this.debugLog('[UsageMonitor] Failed to append Z.AI accounts:', error);
-    }
+    await appendProviderAccountUsage(allProfiles, zaiUsageSource, {
+      currentUsage: this.currentUsage,
+      log: (message, data) => this.debugLog(message, data),
+    });
   }
 
   /**
