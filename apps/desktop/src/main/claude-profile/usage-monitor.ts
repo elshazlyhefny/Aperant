@@ -27,6 +27,7 @@ import type { ProviderAccount } from '../../shared/types/provider-account';
 import { appLog } from '../app-logger';
 import type { ActiveProfileResult } from './usage/types';
 import { getCredentialFingerprint, createUsageLogger } from './usage/usage-log';
+import { resolveActiveCredential, resolveInactiveProfileToken } from './usage/credential-resolver';
 import { calculateAvailabilityScore } from './usage/availability-score';
 import { appendProviderAccountUsage, codexUsageSource, zaiUsageSource } from './usage/provider-accounts';
 // Re-export for backward compatibility
@@ -90,6 +91,10 @@ export class UsageMonitor extends EventEmitter {
   private readonly isVerbose = process.env.VERBOSE === 'true';
 
   private readonly logger = createUsageLogger();
+  private readonly credentialLog = {
+    debugLog: (message: string, data?: unknown): void => this.debugLog(message, data),
+    traceLog: (message: string, data?: unknown): void => this.traceLog(message, data)
+  };
 
   /**
    * Debug log helper - only logs when DEBUG=true
@@ -621,77 +626,15 @@ export class UsageMonitor extends EventEmitter {
         ? profile.configDir.replace(/^~/, homedir())
         : profile.configDir;
 
-      // Use ensureValidToken to proactively refresh the token if near expiry
-      // This is critical for inactive profiles whose tokens may have expired
-      let token: string | null = null;
-      let wasRefreshed = false;
-
-      try {
-        const tokenResult = await ensureValidToken(expandedConfigDir);
-
-        if (tokenResult.wasRefreshed) {
-          this.debugLog('[UsageMonitor] Proactively refreshed token for inactive profile: ' + profile.name, {
-            tokenFingerprint: getCredentialFingerprint(tokenResult.token)
-          });
-          wasRefreshed = true;
-
-          // Check if token refresh succeeded but persistence failed
-          // The token works for this session but will be lost on restart
-          if (tokenResult.persistenceFailed) {
-            console.warn('[UsageMonitor] Token refreshed but persistence failed for profile: ' + profile.name +
-              ' - user should re-authenticate to avoid auth errors on next restart');
-            this.needsReauthProfiles.add(profile.id);
-          } else {
-            // Token was refreshed and persisted successfully - clear from needsReauth if present
-            this.needsReauthProfiles.delete(profile.id);
-          }
-        }
-
-        token = tokenResult.token;
-
-        // If we got a valid token (regardless of refresh), clear the needs-reauth flag.
-        // This handles the case where the startup null-check in getAllProfilesUsage()
-        // incorrectly marked the profile (sync keychain read returned null, but async
-        // ensureValidToken succeeds later).
-        if (token && !tokenResult.persistenceFailed) {
-          this.needsReauthProfiles.delete(profile.id);
-        }
-
-        if (tokenResult.error) {
-          this.debugLog('[UsageMonitor] Token validation failed for inactive profile: ' + profile.name, tokenResult.error);
-
-          // Check for invalid_grant error - indicates refresh token is invalid
-          // and user needs to manually re-authenticate
-          if (tokenResult.errorCode === 'invalid_grant') {
-            this.debugLog('[UsageMonitor] Profile needs re-authentication (invalid refresh token): ' + profile.name);
-            this.needsReauthProfiles.add(profile.id);
-          }
-
-          // Check for missing_credentials error - indicates no token in credential store
-          // User needs to authenticate via /login
-          if (tokenResult.errorCode === 'missing_credentials') {
-            this.debugLog('[UsageMonitor] Profile needs authentication (no credentials found): ' + profile.name);
-            this.needsReauthProfiles.add(profile.id);
-          }
-        }
-      } catch (error) {
-        this.debugLog('[UsageMonitor] ensureValidToken failed for inactive profile: ' + profile.name, error);
+      const resolved = await resolveInactiveProfileToken(
+        { needsReauthProfiles: this.needsReauthProfiles, log: this.credentialLog },
+        profile,
+        expandedConfigDir
+      );
+      if (!resolved) {
+        return null;
       }
-
-      // Fallback: Try direct keychain read if ensureValidToken failed
-      if (!token) {
-        const keychainCreds = getCredentialsFromKeychain(expandedConfigDir);
-        token = keychainCreds.token;
-
-        if (!token) {
-          this.debugLog('[UsageMonitor] No keychain credentials for inactive profile: ' + profile.name);
-          // Mark profile as needing re-authentication since credentials are missing
-          this.needsReauthProfiles.add(profile.id);
-          return null;
-        }
-        // Got a valid token from keychain fallback — clear stale needs-reauth flag
-        this.needsReauthProfiles.delete(profile.id);
-      }
+      const { token, wasRefreshed } = resolved;
 
       this.traceLog('[UsageMonitor] Fetching usage for inactive profile:', {
         profileId: profile.id,
@@ -824,134 +767,10 @@ export class UsageMonitor extends EventEmitter {
    * @returns The credential string or undefined if none available
    */
   private async getCredential(): Promise<string | undefined> {
-    // Try API profile first (highest priority)
-    try {
-      const profilesFile = await loadProfilesFile();
-      if (profilesFile.activeProfileId) {
-        const activeProfile = profilesFile.profiles.find(
-          (p) => p.id === profilesFile.activeProfileId
-        );
-        if (activeProfile?.apiKey) {
-          this.traceLog('[UsageMonitor:TRACE] Using API profile credential: ' + activeProfile.name);
-          return activeProfile.apiKey;
-        }
-      }
-    } catch (error) {
-      // API profile loading failed, fall through to OAuth
-      this.traceLog('[UsageMonitor:TRACE] Failed to load API profiles, falling back to OAuth:', error);
-    }
-
-    // Check for Codex OAuth token (OpenAI)
-    try {
-      const settings = await readSettingsFileAsync();
-      if (settings) {
-        const providerAccounts = (settings.providerAccounts as ProviderAccount[] | undefined) ?? [];
-        const queue = (settings.globalPriorityOrder as string[] | undefined) ?? [];
-        for (const accountId of queue) {
-          const account = providerAccounts.find(a => a.id === accountId);
-          if (account?.provider === 'openai' && account.authType === 'oauth') {
-            const codexToken = await ensureValidCodexToken();
-            if (codexToken) {
-              this.traceLog('[UsageMonitor:TRACE] Using Codex OAuth token', {
-                tokenFingerprint: getCredentialFingerprint(codexToken)
-              });
-              return codexToken;
-            }
-            this.traceLog('[UsageMonitor:TRACE] Codex OAuth token not available');
-            break;
-          }
-        }
-      }
-    } catch (error) {
-      this.traceLog('[UsageMonitor:TRACE] Failed to get Codex token, falling back to Claude OAuth:', error);
-    }
-
-    // Fall back to Claude OAuth profile - use ensureValidToken for proactive refresh
-    const profileManager = getClaudeProfileManager();
-    const activeProfile = profileManager.getActiveProfile();
-    if (activeProfile) {
-      // Use ensureValidToken to proactively refresh tokens before they expire
-      // This prevents 401 errors during overnight autonomous operation
-      try {
-        const tokenResult = await ensureValidToken(activeProfile.configDir);
-
-        if (tokenResult.wasRefreshed) {
-          this.debugLog('[UsageMonitor] Proactively refreshed token for profile: ' + activeProfile.name, {
-            tokenFingerprint: getCredentialFingerprint(tokenResult.token)
-          });
-
-          // Check if token refresh succeeded but persistence failed
-          // The token works for this session but will be lost on restart
-          if (tokenResult.persistenceFailed) {
-            console.warn('[UsageMonitor] Token refreshed but persistence failed for profile: ' + activeProfile.name +
-              ' - user should re-authenticate to avoid auth errors on next restart');
-            this.needsReauthProfiles.add(activeProfile.id);
-          } else {
-            // Token was refreshed and persisted successfully - clear from needsReauth if present
-            this.needsReauthProfiles.delete(activeProfile.id);
-          }
-        }
-
-        if (tokenResult.token) {
-          // Valid token obtained — clear any stale needs-reauth flag
-          if (!tokenResult.persistenceFailed) {
-            this.needsReauthProfiles.delete(activeProfile.id);
-          }
-          this.traceLog('[UsageMonitor:TRACE] Using OAuth token for profile: ' + activeProfile.name, {
-            tokenFingerprint: getCredentialFingerprint(tokenResult.token),
-            wasRefreshed: tokenResult.wasRefreshed
-          });
-          return tokenResult.token;
-        }
-
-        // Token unavailable - log the error
-        if (tokenResult.error) {
-          this.traceLog('[UsageMonitor:TRACE] Token validation failed:', tokenResult.error);
-
-          // Check for invalid_grant error - indicates refresh token is permanently invalid
-          // and user needs to manually re-authenticate
-          if (tokenResult.errorCode === 'invalid_grant') {
-            this.traceLog('[UsageMonitor:TRACE] Profile needs re-authentication (invalid refresh token): ' + activeProfile.name);
-            this.needsReauthProfiles.add(activeProfile.id);
-          }
-
-          // Check for missing_credentials error - indicates no token in credential store
-          // User needs to authenticate via /login
-          if (tokenResult.errorCode === 'missing_credentials') {
-            this.traceLog('[UsageMonitor:TRACE] Profile needs authentication (no credentials found): ' + activeProfile.name);
-            this.needsReauthProfiles.add(activeProfile.id);
-          }
-        }
-      } catch (error) {
-        console.error('[UsageMonitor] ensureValidToken threw error:', error);
-      }
-
-      // Fallback: Try direct keychain read (e.g., if refresh token unavailable)
-      const keychainCreds = getCredentialsFromKeychain(activeProfile.configDir);
-      if (keychainCreds.token) {
-        // Got a valid token from keychain fallback — clear stale needs-reauth flag
-        this.needsReauthProfiles.delete(activeProfile.id);
-        this.traceLog('[UsageMonitor:TRACE] Using fallback OAuth token from Keychain for profile: ' + activeProfile.name, {
-          tokenFingerprint: getCredentialFingerprint(keychainCreds.token)
-        });
-        return keychainCreds.token;
-      }
-
-      // Keychain read also failed
-      if (keychainCreds.error) {
-        this.traceLog('[UsageMonitor:TRACE] Keychain access failed:', keychainCreds.error);
-      } else {
-        this.traceLog('[UsageMonitor:TRACE] No token in Keychain for profile: ' + activeProfile.name +
-          ' - user may need to re-authenticate with claude /login');
-      }
-
-      // Mark profile as needing re-authentication since credentials are missing
-      this.needsReauthProfiles.add(activeProfile.id);
-    }
-
-    // No credential available
-    this.traceLog('[UsageMonitor:TRACE] No credential available (no API or OAuth profile active)');
-    return undefined;
+    return resolveActiveCredential({
+      needsReauthProfiles: this.needsReauthProfiles,
+      log: this.credentialLog
+    });
   }
 
   /**
