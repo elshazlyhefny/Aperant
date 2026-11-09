@@ -79,5 +79,10 @@
   },
   "errors": {
     "saveFailed": "Impossible d'enregistrer la planification"
-  }
+  },
+  "banner": {
+    "title": "Nécessite votre attention"
+  },
+  "lastTask": "Dernière tâche : {{id}}",
+  "badgeLabel": "Rapports non lus"
 }

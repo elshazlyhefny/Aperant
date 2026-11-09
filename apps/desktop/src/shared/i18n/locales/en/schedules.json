@@ -79,5 +79,10 @@
   },
   "errors": {
     "saveFailed": "Could not save the schedule"
-  }
+  },
+  "banner": {
+    "title": "Needs your attention"
+  },
+  "lastTask": "Last task: {{id}}",
+  "badgeLabel": "Unread reports"
 }

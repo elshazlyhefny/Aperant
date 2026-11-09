@@ -45,6 +45,7 @@ import { ProactiveSwapListener } from './components/ProactiveSwapListener';
 import { GitHubSetupModal } from './components/GitHubSetupModal';
 import { useProjectStore, loadProjects, addProject, initializeProject, removeProject } from './stores/project-store';
 import { useTaskStore, loadTasks } from './stores/task-store';
+import { useScheduleStore, subscribeToScheduleChanges } from './stores/schedule-store';
 import { useSettingsStore, loadSettings, loadProfiles, saveSettings } from './stores/settings-store';
 import { useClaudeProfileStore, loadClaudeProfiles } from './stores/claude-profile-store';
 import { useTerminalStore, restoreTerminalSessions } from './stores/terminal-store';
@@ -72,6 +73,7 @@ const GitLabMergeRequests = lazy(() =>
   import('./components/gitlab-merge-requests').then((m) => ({ default: m.GitLabMergeRequests }))
 );
 const Changelog = lazy(() => import('./components/Changelog').then((m) => ({ default: m.Changelog })));
+const Schedules = lazy(() => import('./components/Schedules').then((m) => ({ default: m.Schedules })));
 const Worktrees = lazy(() => import('./components/Worktrees').then((m) => ({ default: m.Worktrees })));
 const AgentTools = lazy(() => import('./components/AgentTools').then((m) => ({ default: m.AgentTools })));
 const AppSettingsDialog = lazy(() =>
@@ -202,6 +204,16 @@ export function App() {
   // Get tabs and selected project
   const projectTabs = getProjectTabs();
   const selectedProject = projects.find((p) => p.id === (activeProjectId || selectedProjectId));
+
+  // zeenha fork: keep schedules loaded for the active project so the sidebar badge works
+  useEffect(() => {
+    const unsubscribe = subscribeToScheduleChanges();
+    return unsubscribe;
+  }, []);
+  useEffect(() => {
+    const projectId = activeProjectId || selectedProjectId;
+    if (projectId) void useScheduleStore.getState().loadSchedules(projectId);
+  }, [activeProjectId, selectedProjectId]);
 
   // Initial load
   useEffect(() => {
@@ -973,6 +985,9 @@ export function App() {
                 )}
                 {activeView === 'worktrees' && (activeProjectId || selectedProjectId) && (
                   <Worktrees projectId={activeProjectId || selectedProjectId!} />
+                )}
+                {activeView === 'schedules' && (activeProjectId || selectedProjectId) && (
+                  <Schedules projectId={activeProjectId || selectedProjectId!} />
                 )}
                 {activeView === 'agent-tools' && <AgentTools />}
                 </Suspense>
