@@ -1047,6 +1047,71 @@ describe('ProjectStore', () => {
     });
   });
 
+  describe('getProjectIdsForTask', () => {
+    function writeSpec(name: string): string {
+      const dir = path.join(TEST_PROJECT_PATH, '.auto-claude', 'specs', name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        path.join(dir, 'implementation_plan.json'),
+        JSON.stringify({
+          feature: name,
+          workflow_type: 'feature',
+          services_involved: [],
+          phases: [],
+          final_acceptance: [],
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z',
+          spec_file: 'spec.md'
+        })
+      );
+      return dir;
+    }
+
+    it('is filled after getTasks', async () => {
+      writeSpec('007-index-test');
+      const { ProjectStore } = await import('../project-store');
+      const store = new ProjectStore();
+      const project = store.addProject(TEST_PROJECT_PATH);
+
+      expect(store.getProjectIdsForTask('007-index-test')).toEqual([]);
+      store.getTasks(project.id);
+      expect(store.getProjectIdsForTask('007-index-test')).toEqual([project.id]);
+      expect(store.getProjectIdsForTask('unknown')).toEqual([]);
+    });
+
+    it('is replaced after a spec is removed and the cache invalidated', async () => {
+      const dir = writeSpec('008-gone');
+      writeSpec('009-stays');
+      const { ProjectStore } = await import('../project-store');
+      const store = new ProjectStore();
+      const project = store.addProject(TEST_PROJECT_PATH);
+
+      store.getTasks(project.id);
+      expect(store.getProjectIdsForTask('008-gone')).toEqual([project.id]);
+
+      rmSync(dir, { recursive: true, force: true });
+      store.invalidateTasksCache(project.id);
+      // The hint survives invalidation until the next scan
+      expect(store.getProjectIdsForTask('008-gone')).toEqual([project.id]);
+
+      store.getTasks(project.id);
+      expect(store.getProjectIdsForTask('008-gone')).toEqual([]);
+      expect(store.getProjectIdsForTask('009-stays')).toEqual([project.id]);
+    });
+
+    it('is cleared by removeProject', async () => {
+      writeSpec('010-removed');
+      const { ProjectStore } = await import('../project-store');
+      const store = new ProjectStore();
+      const project = store.addProject(TEST_PROJECT_PATH);
+
+      store.getTasks(project.id);
+      expect(store.getProjectIdsForTask('010-removed')).toEqual([project.id]);
+      store.removeProject(project.id);
+      expect(store.getProjectIdsForTask('010-removed')).toEqual([]);
+    });
+  });
+
   describe('getTasks - worktree deduplication', () => {
     it('should not duplicate tasks that exist in both main and worktree', async () => {
       // Create same task in both main and worktree

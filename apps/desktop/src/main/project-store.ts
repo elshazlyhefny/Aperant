@@ -78,6 +78,8 @@ export class ProjectStore {
   private storePath: string;
   private data: StoreData;
   private tasksCache: Map<string, TasksCacheEntry> = new Map();
+  /** zeenha fork: task ids (id and specId) per project from its last scan; a lookup hint only. */
+  private taskIdsByProject: Map<string, Set<string>> = new Map();
   private readonly CACHE_TTL_MS = 3000; // 3 seconds TTL for task cache
   private isTaskRunning: (taskId: string) => boolean = () => false;
   // zeenha fork: file-level cache of parsed spec files, reused across scans while
@@ -205,6 +207,7 @@ export class ProjectStore {
    */
   removeProject(projectId: string): boolean {
     this.evictProjectFileCache(projectId);
+    this.taskIdsByProject.delete(projectId);
     const index = this.data.projects.findIndex((p) => p.id === projectId);
     if (index !== -1) {
       this.data.projects.splice(index, 1);
@@ -464,7 +467,26 @@ export class ProjectStore {
     // Update cache
     this.tasksCache.set(projectId, { tasks, timestamp: now });
 
+    // zeenha fork: replace this project's task id index with the scan result
+    const ids = new Set<string>();
+    for (const task of tasks) {
+      ids.add(task.id);
+      ids.add(task.specId);
+    }
+    this.taskIdsByProject.set(projectId, ids);
+
     return tasks;
+  }
+
+  /**
+   * zeenha fork: ids of known projects (in project list order) whose last scan
+   * contained taskId. Only a hint for lookups: it is not dropped when the tasks
+   * cache is invalidated, so callers must verify against getTasks().
+   */
+  getProjectIdsForTask(taskId: string): string[] {
+    return this.data.projects
+      .filter((p) => this.taskIdsByProject.get(p.id)?.has(taskId))
+      .map((p) => p.id);
   }
 
   /**

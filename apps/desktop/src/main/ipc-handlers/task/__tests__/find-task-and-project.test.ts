@@ -10,11 +10,16 @@ import type { Task, Project } from '../../../../shared/types';
 // Mock projectStore
 const mockProjects: Project[] = [];
 const mockTasksByProject: Map<string, Task[]> = new Map();
+const { getTasksSpy, mockHints } = vi.hoisted(() => ({
+  getTasksSpy: vi.fn<(projectId: string) => unknown[]>(),
+  mockHints: vi.fn<(taskId: string) => string[]>()
+}));
 
 vi.mock('../../../project-store', () => ({
   projectStore: {
     getProjects: () => mockProjects,
-    getTasks: (projectId: string) => mockTasksByProject.get(projectId) || []
+    getTasks: (projectId: string) => getTasksSpy(projectId),
+    getProjectIdsForTask: (taskId: string) => mockHints(taskId)
   }
 }));
 
@@ -49,6 +54,64 @@ describe('findTaskAndProject', () => {
   beforeEach(() => {
     mockProjects.length = 0;
     mockTasksByProject.clear();
+    getTasksSpy.mockReset();
+    getTasksSpy.mockImplementation((projectId: string) => mockTasksByProject.get(projectId) || []);
+    mockHints.mockReset();
+    mockHints.mockReturnValue([]);
+  });
+
+  describe('task index hints', () => {
+    function setupTwoProjects() {
+      const projectA = createProject({ id: 'proj-a' });
+      const projectB = createProject({ id: 'proj-b' });
+      const taskB = createTask({ id: 'task-b', specId: 'spec-b', projectId: 'proj-b' });
+      mockProjects.push(projectA, projectB);
+      mockTasksByProject.set('proj-a', []);
+      mockTasksByProject.set('proj-b', [taskB]);
+      return { projectA, projectB, taskB };
+    }
+
+    it('does not query other projects on a hint hit', () => {
+      const { projectB, taskB } = setupTwoProjects();
+      mockHints.mockReturnValue(['proj-b']);
+
+      const result = findTaskAndProject('spec-b');
+      expect(result.task).toBe(taskB);
+      expect(result.project).toBe(projectB);
+      expect(getTasksSpy).toHaveBeenCalledTimes(1);
+      expect(getTasksSpy).toHaveBeenCalledWith('proj-b');
+    });
+
+    it('falls back to the full walk when the hint is stale', () => {
+      const { projectB, taskB } = setupTwoProjects();
+      mockHints.mockReturnValue(['proj-a']);
+
+      const result = findTaskAndProject('spec-b');
+      expect(result.task).toBe(taskB);
+      expect(result.project).toBe(projectB);
+      expect(getTasksSpy).toHaveBeenCalledWith('proj-a');
+      expect(getTasksSpy).toHaveBeenCalledWith('proj-b');
+    });
+
+    it('falls back to the full walk without a hint', () => {
+      const { projectB, taskB } = setupTwoProjects();
+
+      const result = findTaskAndProject('spec-b');
+      expect(result.task).toBe(taskB);
+      expect(result.project).toBe(projectB);
+      expect(getTasksSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not use hints when projectId is given', () => {
+      setupTwoProjects();
+      mockHints.mockReturnValue(['proj-b']);
+
+      const result = findTaskAndProject('spec-b', 'proj-a');
+      expect(result.task).toBeUndefined();
+      expect(mockHints).not.toHaveBeenCalled();
+      expect(getTasksSpy).toHaveBeenCalledTimes(1);
+      expect(getTasksSpy).toHaveBeenCalledWith('proj-a');
+    });
   });
 
   it('should find task by specId without projectId (backward compatibility)', () => {
