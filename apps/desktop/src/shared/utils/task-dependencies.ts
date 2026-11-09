@@ -32,7 +32,11 @@ export type DependencyValidation =
 
 type TaskLike = Pick<Task, 'id' | 'specId' | 'title' | 'status' | 'reviewReason' | 'metadata' | 'executionProgress'>;
 
-/** True ONLY when the task is Done. */
+/**
+ * zeenha fork: keep in sync with guides/task-dependencies.md ("When is a
+ * dependency finished?"). Change the rule here and the guide together.
+ * True ONLY when the task is Done.
+ */
 export function isDependencyFinished(task: Pick<Task, 'status'>): boolean {
   return task.status === 'done';
 }
