@@ -533,6 +533,9 @@ export const IPC_CHANNELS = {
   APP_UPDATE_GET_VERSION: 'app-update:get-version',
   APP_UPDATE_GET_DOWNLOADED: 'app-update:get-downloaded',  // Get downloaded update info (for showing Install button on Settings open)
 
+  // Desktop notification click -> open project and task (main -> renderer)
+  NOTIFICATION_OPEN_TASK: 'notification:openTask',
+
   // App auto-update events (main -> renderer)
   APP_UPDATE_AVAILABLE: 'app-update:available',
   APP_UPDATE_DOWNLOADED: 'app-update:downloaded',

@@ -712,6 +712,11 @@ export interface ElectronAPI {
   installAppUpdate: () => void;
   getDownloadedAppUpdate: () => Promise<IPCResult<AppUpdateInfo | null>>;
 
+  // Desktop notification click: open project and task
+  onNotificationOpenTask: (
+    callback: (target: { projectId: string; taskId: string }) => void
+  ) => () => void;
+
   // Electron app update event listeners
   onAppUpdateAvailable: (
     callback: (info: AppUpdateAvailableEvent) => void

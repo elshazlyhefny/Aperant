@@ -50,6 +50,8 @@ export const settingsMock = {
   installAppUpdate: () => { console.warn('[browser-mock] installAppUpdate called'); },
   getDownloadedAppUpdate: async () => ({ success: true, data: null }),
 
+  onNotificationOpenTask: () => () => {},
+
   // App Update Event Listeners (no-op in browser mode)
   onAppUpdateAvailable: () => () => {},
   onAppUpdateDownloaded: () => () => {},

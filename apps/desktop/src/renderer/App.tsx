@@ -472,6 +472,36 @@ export function App() {
     }
   }, [activeProjectId, selectedProjectId, selectedProject?.path]);
 
+  // Desktop notification click: open the project and remember the task to select
+  const [pendingTaskTarget, setPendingTaskTarget] = useState<{ projectId: string; taskId: string } | null>(null);
+  useEffect(() => {
+    const cleanup = window.electronAPI.onNotificationOpenTask?.(({ projectId, taskId }) => {
+      if (!useProjectStore.getState().projects.some((p) => p.id === projectId)) {
+        return; // Project was removed
+      }
+      openProjectTab(projectId);
+      setActiveProject(projectId);
+      setActiveView('kanban');
+      setPendingTaskTarget({ projectId, taskId });
+    });
+    return () => cleanup?.();
+  }, [openProjectTab, setActiveProject]);
+
+  // Select the pending task once it is loaded for the target project.
+  // Declared after the 'load tasks on project change' effect so it runs after the selection reset.
+  useEffect(() => {
+    if (!pendingTaskTarget) return;
+    const currentProjectId = activeProjectId || selectedProjectId;
+    if (currentProjectId !== pendingTaskTarget.projectId) return;
+    const task = tasks.find(
+      (t) => t.id === pendingTaskTarget.taskId || t.specId === pendingTaskTarget.taskId
+    );
+    if (task) {
+      setSelectedTask(task);
+      setPendingTaskTarget(null);
+    }
+  }, [pendingTaskTarget, tasks, activeProjectId, selectedProjectId]);
+
   // Apply theme on load
   useEffect(() => {
     const root = document.documentElement;
