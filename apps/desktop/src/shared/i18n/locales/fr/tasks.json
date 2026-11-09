@@ -1,4 +1,15 @@
 {
+  "dependencies": {
+    "title": "Dépend de",
+    "add": "Ajouter la dépendance : {{title}}",
+    "addButton": "Ajouter",
+    "remove": "Retirer la dépendance : {{title}}",
+    "none": "Aucune dépendance",
+    "cycleError": "Cela créerait un cycle de dépendances : {{path}}",
+    "selfError": "Une tâche ne peut pas dépendre d'elle-même.",
+    "unknownError": "Une des dépendances sélectionnées n'existe plus.",
+    "searchPlaceholder": "Rechercher des tâches..."
+  },
   "untitled": "Sans titre",
   "refreshTasks": "Actualiser les tâches",
   "status": {

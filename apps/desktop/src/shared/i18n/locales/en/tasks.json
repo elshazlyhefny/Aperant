@@ -1,4 +1,15 @@
 {
+  "dependencies": {
+    "title": "Depends on",
+    "add": "Add dependency: {{title}}",
+    "addButton": "Add",
+    "remove": "Remove dependency: {{title}}",
+    "none": "No dependencies",
+    "cycleError": "This would create a dependency cycle: {{path}}",
+    "selfError": "A task cannot depend on itself.",
+    "unknownError": "One of the selected dependencies no longer exists.",
+    "searchPlaceholder": "Search tasks..."
+  },
   "refreshTasks": "Refresh Tasks",
   "status": {
     "backlog": "Backlog",

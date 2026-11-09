@@ -32,8 +32,9 @@ import { Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { TaskModalLayout } from './task-form/TaskModalLayout';
 import { TaskFormFields } from './task-form/TaskFormFields';
+import { TaskDependencyPicker, mapDependencyError } from './task-form/TaskDependencyPicker';
 import { type FileReferenceData } from './task-form/useImageUpload';
-import { persistUpdateTask } from '../stores/task-store';
+import { persistUpdateTask, useTaskStore } from '../stores/task-store';
 import { useProjectStore } from '../stores/project-store';
 import type { Task, ImageAttachment, TaskCategory, TaskPriority, TaskComplexity, TaskImpact, ModelType, ThinkingLevel } from '../../shared/types';
 import {
@@ -90,6 +91,9 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
   const [description, setDescription] = useState(task.description);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [taskDependencies, setTaskDependencies] = useState<string[]>(task.metadata?.taskDependencies || []);
+  const allTasks = useTaskStore((state) => state.tasks);
+  const projectTasks = useMemo(() => allTasks.filter((x) => x.projectId === task.projectId), [allTasks, task.projectId]);
   const [showClassification, setShowClassification] = useState(false);
 
   // Classification fields
@@ -186,6 +190,7 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
       setImages(task.metadata?.attachedImages || []);
       setRequireReviewBeforeCoding(task.metadata?.requireReviewBeforeCoding ?? false);
       setFastMode(task.metadata?.fastMode ?? false);
+      setTaskDependencies(task.metadata?.taskDependencies || []);
       setError(null);
 
       // Auto-expand classification if it has content
@@ -231,6 +236,7 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
       thinkingLevel !== (task.metadata?.thinkingLevel || '') ||
       requireReviewBeforeCoding !== (task.metadata?.requireReviewBeforeCoding ?? false) ||
       fastMode !== (task.metadata?.fastMode ?? false) ||
+      JSON.stringify(taskDependencies) !== JSON.stringify(task.metadata?.taskDependencies || []) ||
       JSON.stringify(images) !== JSON.stringify(task.metadata?.attachedImages || []) ||
       JSON.stringify(phaseModels) !== JSON.stringify(task.metadata?.phaseModels || DEFAULT_PHASE_MODELS) ||
       JSON.stringify(phaseThinking) !== JSON.stringify(task.metadata?.phaseThinking || DEFAULT_PHASE_THINKING);
@@ -261,6 +267,7 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     metadataUpdates.attachedImages = images.length > 0 ? images : [];
     metadataUpdates.requireReviewBeforeCoding = requireReviewBeforeCoding;
     metadataUpdates.fastMode = fastMode;
+    metadataUpdates.taskDependencies = taskDependencies;
 
     const success = await persistUpdateTask(task.id, {
       title: trimmedTitle,
@@ -272,7 +279,7 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
       onOpenChange(false);
       onSaved?.();
     } else {
-      setError(t('tasks:edit.errors.updateFailed'));
+      setError(mapDependencyError(useTaskStore.getState().error, t) ?? t('tasks:edit.errors.updateFailed'));
     }
 
     setIsSaving(false);
@@ -347,6 +354,14 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
         error={error}
         onError={setError}
         onFileReferenceDrop={handleFileReferenceDrop}
+        idPrefix="edit"
+      />
+      <TaskDependencyPicker
+        value={taskDependencies}
+        onChange={setTaskDependencies}
+        tasks={projectTasks}
+        excludeTaskId={task.id}
+        disabled={isSaving}
         idPrefix="edit"
       />
     </TaskModalLayout>
