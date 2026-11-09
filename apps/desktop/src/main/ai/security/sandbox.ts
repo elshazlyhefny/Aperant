@@ -2,7 +2,8 @@
  * Optional OS-level sandbox for the Bash tool.
  *
  * zeenha fork: wraps the shell invocation with bubblewrap (Linux) or
- * sandbox-exec (macOS) so the home directory (and its credentials) is hidden.
+ * sandbox-exec (macOS), or a Windows AppContainer (via a PowerShell launcher,
+ * see sandbox-windows.ts), so the home directory (and its credentials) is hidden.
  * Fails closed: if a sandbox is requested but cannot be built, the caller must
  * refuse to run the command instead of running it unsandboxed.
  */
@@ -11,6 +12,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { findExecutable, isLinux, isMacOS } from '../../platform/index';
+import { buildWindows, resolvePowerShell } from './sandbox-windows';
 
 export type SandboxMode = 'off' | 'home-hidden' | 'home-hidden-no-network';
 
@@ -134,5 +136,10 @@ export function wrapForSandbox(
     }
     return buildMac(shell, shellArgs, options, home, exec);
   }
-  return { ok: false, reason: 'Bash sandbox is not supported on Windows. Disable the sandbox to run commands.' };
+  // zeenha fork: Windows uses an AppContainer launched through PowerShell.
+  const powershell = resolvePowerShell(find);
+  if (!powershell) {
+    return { ok: false, reason: 'Bash sandbox requested but powershell.exe was not found on Windows. Disable the sandbox to run commands.' };
+  }
+  return buildWindows(shell, shellArgs, options, home, powershell);
 }
