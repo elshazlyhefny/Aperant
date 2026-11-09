@@ -393,6 +393,24 @@
       "autoCleanupMergedWorktrees": {
         "label": "Clean up worktrees after merge",
         "description": "Remove a task's worktree and local branch once its pull request has merged. A worktree with uncommitted changes, or commits made after the merge, is kept."
+      },
+      "credentialIsolation": {
+        "title": "Credential isolation",
+        "envPassthrough": {
+          "label": "Environment variables passed to agent commands",
+          "description": "Comma or space separated variable names. Variables matching *_TOKEN, *_API_KEY, *_SECRET, *_PASSWORD and AWS_* are hidden from agent shell commands by default; list a name here to let it through.",
+          "placeholder": "NPM_TOKEN, MY_SERVICE_URL",
+          "invalid": "Invalid variable names ignored: {{names}}"
+        },
+        "bashSandbox": {
+          "label": "Shell command sandbox",
+          "description": "Needs bubblewrap (Linux) or sandbox-exec (macOS). If the sandbox is unavailable, agent shell commands are refused rather than run unsandboxed.",
+          "options": {
+            "off": "Off",
+            "homeHidden": "Home directory hidden",
+            "homeHiddenNoNetwork": "Home directory hidden and no network"
+          }
+        }
       }
     },
     "gitlab": {
