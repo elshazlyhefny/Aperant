@@ -89,53 +89,225 @@ function findFunctionInsertPosition(content: string): number | null {
   return null;
 }
 
-/** Returns null when the class is not found or its braces are unbalanced. */
-function insertMethodsIntoClass(content: string, className: string, methods: string[]): string | null {
-  const classPattern = new RegExp(`class\\s+${escapeRegex(className)}\\s*(?:extends\\s+\\w+)?\\s*\\{`);
-  const match = classPattern.exec(content);
+// -----------------------------------------------------------------------------
+// Source scanning helpers
+//
+// Small hand-written walkers are used instead of regexes with nested quantifiers
+// so that user content can never trigger catastrophic backtracking, and so that
+// strings, template literals and comments are skipped while counting brackets.
+// -----------------------------------------------------------------------------
 
-  if (!match) return null;
+/** If a string, template literal or comment starts at `i`, return the index just after it; otherwise `i`. */
+function skipNonCode(content: string, i: number): number {
+  const ch = content[i];
+  const next = content[i + 1];
 
-  const start = match.index + match[0].length;
-  let braceCount = 1;
-  let pos = start;
+  if (ch === '/' && next === '/') {
+    const eol = content.indexOf('\n', i);
+    return eol === -1 ? content.length : eol;
+  }
+  if (ch === '/' && next === '*') {
+    const end = content.indexOf('*/', i + 2);
+    return end === -1 ? content.length : end + 2;
+  }
+  if (ch === '"' || ch === "'") {
+    let pos = i + 1;
+    while (pos < content.length) {
+      const c = content[pos];
+      if (c === '\\') pos += 2;
+      else if (c === ch) return pos + 1;
+      else if (c === '\n') return pos;
+      else pos++;
+    }
+    return content.length;
+  }
+  if (ch === '`') return skipTemplate(content, i);
+  return i;
+}
 
-  while (pos < content.length && braceCount > 0) {
-    if (content[pos] === '{') braceCount++;
-    else if (content[pos] === '}') braceCount--;
+function skipTemplate(content: string, start: number): number {
+  let pos = start + 1;
+  while (pos < content.length) {
+    const c = content[pos];
+    if (c === '\\') {
+      pos += 2;
+    } else if (c === '`') {
+      return pos + 1;
+    } else if (c === '$' && content[pos + 1] === '{') {
+      pos = findMatchingBrace(content, pos + 1) ?? content.length;
+      if (pos < content.length) pos++;
+    } else {
+      pos++;
+    }
+  }
+  return content.length;
+}
+
+/** Index of the `}` matching the `{` at `openIdx`, ignoring strings, templates and comments. */
+function findMatchingBrace(content: string, openIdx: number): number | null {
+  let depth = 0;
+  let pos = openIdx;
+  while (pos < content.length) {
+    const skipped = skipNonCode(content, pos);
+    if (skipped !== pos) {
+      pos = skipped;
+      continue;
+    }
+    const c = content[pos];
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return pos;
+    }
     pos++;
   }
+  return null;
+}
 
-  if (braceCount === 0) {
-    const insertPos = pos - 1;
-    const methodText = '\n\n  ' + methods.join('\n\n  ');
-    return content.slice(0, insertPos) + methodText + content.slice(insertPos);
+/** Index just after the group closed by the bracket matching `content[openIdx]` (one of `(`, `[`, `<`, `{`). */
+function skipBalanced(content: string, openIdx: number): number | null {
+  const open = content[openIdx];
+  const close = open === '(' ? ')' : open === '[' ? ']' : open === '<' ? '>' : '}';
+  let depth = 0;
+  let pos = openIdx;
+  while (pos < content.length) {
+    const skipped = skipNonCode(content, pos);
+    if (skipped !== pos) {
+      pos = skipped;
+      continue;
+    }
+    const c = content[pos];
+    if (c === '=' && content[pos + 1] === '>') {
+      pos += 2;
+      continue;
+    }
+    if (c === open) depth++;
+    else if (c === close) {
+      depth--;
+      if (depth === 0) return pos + 1;
+    }
+    pos++;
+  }
+  return null;
+}
+
+function skipWhitespace(content: string, i: number): number {
+  let pos = i;
+  while (pos < content.length) {
+    const skipped = skipNonCode(content, pos);
+    if (skipped !== pos && content[pos] === '/') {
+      pos = skipped;
+    } else if (/\s/.test(content[pos])) {
+      pos++;
+    } else {
+      break;
+    }
+  }
+  return pos;
+}
+
+type ScanStop = 'brace' | 'arrow' | 'equals';
+
+/**
+ * Walk forward from `from` at bracket depth 0 (over `()`, `[]`, `<>`, `{}`) until one of the
+ * `stops` is reached. Returns the index of the stop token, or null on `;` / end of input.
+ */
+function scanToToken(content: string, from: number, stops: ScanStop[]): number | null {
+  let depth = 0;
+  let pos = from;
+  while (pos < content.length) {
+    const skipped = skipNonCode(content, pos);
+    if (skipped !== pos) {
+      pos = skipped;
+      continue;
+    }
+    const c = content[pos];
+    if (c === '=' && content[pos + 1] === '>') {
+      if (depth === 0 && stops.includes('arrow')) return pos;
+      pos += 2;
+      continue;
+    }
+    if (depth === 0) {
+      if (c === ';') return null;
+      if (c === '{' && stops.includes('brace')) return pos;
+      if (c === '=' && stops.includes('equals') && content[pos + 1] !== '=') return pos;
+    }
+    if (c === '(' || c === '[' || c === '<' || c === '{') {
+      const end = skipBalanced(content, pos);
+      if (end === null) return null;
+      pos = end;
+      continue;
+    }
+    pos++;
+  }
+  return null;
+}
+
+/** Index of the `{` that opens a function body, starting right after the name. */
+function findFunctionBodyBrace(content: string, afterName: number): number | null {
+  return scanToToken(content, afterName, ['brace']);
+}
+
+/** Index of the `{` opening an arrow function's block body, starting after `=`. */
+function findArrowBodyBrace(content: string, afterEquals: number): number | null {
+  let pos = skipWhitespace(content, afterEquals);
+  if (/^async\b/.test(content.slice(pos, pos + 6))) pos = skipWhitespace(content, pos + 5);
+  if (/^function\b/.test(content.slice(pos, pos + 9))) {
+    return findFunctionBodyBrace(content, pos + 8);
+  }
+  const arrow = scanToToken(content, pos, ['arrow']);
+  if (arrow === null) return null;
+  const body = skipWhitespace(content, arrow + 2);
+  return content[body] === '{' ? body : null;
+}
+
+/** Position just after the `{` that opens the body of function `funcName`, or null. */
+function findFunctionBodyStart(content: string, funcName: string): number | null {
+  const name = escapeRegex(funcName);
+
+  const declaration = new RegExp(`(?<![\\w$.])function\\s*\\*?\\s*${name}(?![\\w$])`, 'g');
+  for (const m of content.matchAll(declaration)) {
+    const brace = findFunctionBodyBrace(content, m.index + m[0].length);
+    if (brace !== null) return brace + 1;
+  }
+
+  const variable = new RegExp(`(?<![\\w$.])(?:const|let|var)\\s+${name}(?![\\w$])`, 'g');
+  for (const m of content.matchAll(variable)) {
+    const equals = scanToToken(content, m.index + m[0].length, ['equals']);
+    if (equals === null) continue;
+    const brace = findArrowBodyBrace(content, equals + 1);
+    if (brace !== null) return brace + 1;
   }
 
   return null;
 }
 
+/** Position of the closing `}` of class `className`'s body, or null. */
+function findClassBodyEnd(content: string, className: string): number | null {
+  const declaration = new RegExp(`(?<![\\w$.])class\\s+${escapeRegex(className)}(?![\\w$])`, 'g');
+  for (const m of content.matchAll(declaration)) {
+    const brace = scanToToken(content, m.index + m[0].length, ['brace']);
+    if (brace === null) continue;
+    const close = findMatchingBrace(content, brace);
+    if (close !== null) return close;
+  }
+  return null;
+}
+
+/** Returns null when the class is not found or its braces are unbalanced. */
+function insertMethodsIntoClass(content: string, className: string, methods: string[]): string | null {
+  const insertPos = findClassBodyEnd(content, className);
+  if (insertPos === null) return null;
+  const methodText = '\n\n  ' + methods.join('\n\n  ');
+  return content.slice(0, insertPos) + methodText + content.slice(insertPos);
+}
+
 /** Returns null when the function signature is not found. */
 function insertHooksIntoFunction(content: string, funcName: string, hooks: string[]): string | null {
-  const patterns = [
-    // function Component() {
-    new RegExp(`(function\\s+${escapeRegex(funcName)}\\s*\\([^)]*\\)\\s*\\{)`),
-    // const Component = () => {
-    new RegExp(`((?:const|let|var)\\s+${escapeRegex(funcName)}\\s*=\\s*(?:async\\s+)?(?:\\([^)]*\\)|[^=]+)\\s*=>\\s*\\{)`),
-    // const Component = function() {
-    new RegExp(`((?:const|let|var)\\s+${escapeRegex(funcName)}\\s*=\\s*function\\s*\\([^)]*\\)\\s*\\{)`),
-  ];
-
-  for (const pattern of patterns) {
-    const match = pattern.exec(content);
-    if (match) {
-      const insertPos = match.index + match[0].length;
-      const hookText = '\n  ' + hooks.join('\n  ');
-      return content.slice(0, insertPos) + hookText + content.slice(insertPos);
-    }
-  }
-
-  return null;
+  const insertPos = findFunctionBodyStart(content, funcName);
+  if (insertPos === null) return null;
+  const hookText = '\n  ' + hooks.join('\n  ');
+  return content.slice(0, insertPos) + hookText + content.slice(insertPos);
 }
 
 /** Returns null when no `return (<jsx>` was found to wrap. */

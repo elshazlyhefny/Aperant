@@ -214,10 +214,15 @@ interface HookBaseline {
 
 const HOOK_BASELINES: HookBaseline[] = [
   { name: 'plain function', opening: 'function App() {', failsToday: false },
-  { name: 'function with return type', opening: 'function App(): JSX.Element {', failsToday: true },
-  { name: 'typed arrow component', opening: 'const App: FC = () => {', failsToday: true },
-  { name: 'destructured default param', opening: 'function App({ onClick = () => {} }) {', failsToday: true },
+  { name: 'function with return type', opening: 'function App(): JSX.Element {', failsToday: false },
+  { name: 'typed arrow component', opening: 'const App: FC = () => {', failsToday: false },
+  { name: 'destructured default param', opening: 'function App({ onClick = () => {} }) {', failsToday: false },
   { name: 'function expression', opening: 'const App = function() {', failsToday: false },
+  { name: 'generic function with return type', opening: 'function App<T>(props: P): R {', failsToday: false },
+  { name: 'typed variable with generic annotation', opening: 'const App: FC<Props> = (props) => {', failsToday: false },
+  { name: 'async function declaration', opening: 'export async function App() {', failsToday: false },
+  { name: 'export default async function', opening: 'export default async function App() {', failsToday: false },
+  { name: 'generic arrow', opening: 'const App = <T,>(props: T): JSX.Element => {', failsToday: false },
   { name: 'export default function', opening: 'export default function App() {', failsToday: false },
   {
     name: 'async arrow with return type',
@@ -443,14 +448,14 @@ interface ClassBaseline {
 
 const CLASS_BASELINES: ClassBaseline[] = [
   { name: 'plain class', opening: 'class Foo {', failsToday: false },
-  { name: 'generic class', opening: 'class Foo<T> {', failsToday: true },
+  { name: 'generic class', opening: 'class Foo<T> {', failsToday: false },
   { name: 'extends', opening: 'class Foo extends Base {', failsToday: false },
-  { name: 'extends generic base', opening: 'class Foo extends Base<T> {', failsToday: true },
-  { name: 'implements', opening: 'class Foo implements Bar {', failsToday: true },
+  { name: 'extends generic base', opening: 'class Foo extends Base<T> {', failsToday: false },
+  { name: 'implements', opening: 'class Foo implements Bar {', failsToday: false },
   {
     name: 'generics + extends + implements',
     opening: 'class Foo<T> extends Base<T> implements Bar, Baz {',
-    failsToday: true,
+    failsToday: false,
   },
   { name: 'exported class', opening: 'export class Foo {', failsToday: false },
 ];
@@ -478,6 +483,39 @@ describe('APPEND_METHODS', () => {
       expect(merged).toMatch(/newMethod\(\) \{\n {4}return 1;\n {2}\}\s*\}\n\nconst after = 1;/);
     });
   }
+
+  it('ignores braces inside strings, templates and comments when finding the class end', () => {
+    const baseline = [
+      'class Foo {',
+      '  existing() {',
+      "    const a = '}';",
+      '    const b = "}";',
+      '    const c = `}${1}`;',
+      '    // }',
+      '    /* } */',
+      '    return a;',
+      '  }',
+      '}',
+      '',
+      'const after = 1;',
+      '',
+    ].join('\n');
+    const ctx = makeContext(baseline, [makeSnapshot('t1', [addMethod])], { location: 'class:Foo' });
+    const result = merger.merge(ctx, MergeStrategy.APPEND_METHODS);
+    expect(result.decision).toBe(MergeDecision.AUTO_MERGED);
+    const merged = result.mergedContent!;
+    expect(merged.indexOf('newMethod()')).toBeGreaterThan(merged.indexOf('return a;'));
+    expect(merged.indexOf('newMethod()')).toBeLessThan(merged.indexOf('const after = 1;'));
+  });
+
+  it('inserts into abstract and default-exported classes', () => {
+    for (const opening of ['export abstract class Foo {', 'export default class Foo {']) {
+      const ctx = makeContext(`${opening}\n}\n`, [makeSnapshot('t1', [addMethod])], { location: 'class:Foo' });
+      const result = merger.merge(ctx, MergeStrategy.APPEND_METHODS);
+      expect(result.decision).toBe(MergeDecision.AUTO_MERGED);
+      expect(result.mergedContent).toContain('newMethod()');
+    }
+  });
 
   it('fails when no ADD_METHOD change carries a class prefix', () => {
     const bare = makeChange({ changeType: ChangeType.ADD_METHOD, target: 'bar', contentAfter: 'bar() {}' });
