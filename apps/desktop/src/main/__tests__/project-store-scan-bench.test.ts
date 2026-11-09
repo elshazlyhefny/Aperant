@@ -3,7 +3,7 @@
  * Skipped unless SCAN_BENCH is set: `SCAN_BENCH=1 npx vitest run project-store-scan-bench`
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readdirSync, utimesSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
@@ -63,6 +63,16 @@ function writeSpec(specsDir: string, id: string, i: number): void {
   );
 }
 
+/** Backdate files so they are outside the cache's racy-write window, like real, settled specs. */
+function ageFiles(dir: string): void {
+  const past = new Date(Date.now() - 60_000);
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) ageFiles(full);
+    else utimesSync(full, past, past);
+  }
+}
+
 describe.skipIf(!process.env.SCAN_BENCH)('ProjectStore.getTasks scan benchmark', () => {
   beforeEach(() => {
     TEST_DIR = mkdtempSync(path.join(tmpdir(), 'project-store-bench-'));
@@ -99,10 +109,16 @@ describe.skipIf(!process.env.SCAN_BENCH)('ProjectStore.getTasks scan benchmark',
       }
     }
 
+    ageFiles(TEST_PROJECT_PATH);
+    ageFiles(worktreesDir);
+
+    const cache = (store as unknown as { fileCache: { stats: { hits: number; misses: number } } }).fileCache;
     const coldStart = performance.now();
     const cold = store.getTasks(project.id);
     const coldMs = performance.now() - coldStart;
     expect(cold.length).toBe(SPEC_COUNT);
+
+    const coldStats = { ...cache.stats };
 
     let total = 0;
     for (let r = 0; r < WARM_RUNS; r++) {
@@ -114,7 +130,9 @@ describe.skipIf(!process.env.SCAN_BENCH)('ProjectStore.getTasks scan benchmark',
     const avgMs = total / WARM_RUNS;
 
     console.info(
-      `[scan-bench] specs=${SPEC_COUNT} worktrees=${WORKTREE_COUNT} cold=${coldMs.toFixed(1)}ms invalidated-avg(${WARM_RUNS})=${avgMs.toFixed(1)}ms`
+      `[scan-bench] specs=${SPEC_COUNT} worktrees=${WORKTREE_COUNT} cold=${coldMs.toFixed(1)}ms invalidated-avg(${WARM_RUNS})=${avgMs.toFixed(1)}ms ` +
+        `cold-cache hits=${coldStats.hits} misses=${coldStats.misses} ` +
+        `warm-cache hits=${cache.stats.hits - coldStats.hits} misses=${cache.stats.misses - coldStats.misses}`
     );
   });
 });
