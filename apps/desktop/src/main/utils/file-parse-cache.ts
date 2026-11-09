@@ -3,7 +3,7 @@
  * validated by mtimeMs + size, so repeated scans reuse unchanged spec files
  * instead of re-reading and re-parsing them.
  */
-import { readFileSync, statSync } from 'fs';
+import { closeSync, fstatSync, openSync, readFileSync } from 'fs';
 import path from 'path';
 
 interface CacheEntry {
@@ -33,9 +33,11 @@ export class FileParseCache {
    * parse that throws is not cached and the error is rethrown.
    */
   read<T>(filePath: string, parse: (raw: string) => T): T | undefined {
-    let st: ReturnType<typeof statSync>;
+    // One descriptor for the stat and the read, so both see the same file even
+    // if the path is replaced in between.
+    let fd: number;
     try {
-      st = statSync(filePath);
+      fd = openSync(filePath, 'r');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         this.entries.delete(filePath);
@@ -44,20 +46,25 @@ export class FileParseCache {
       throw error;
     }
 
-    const cached = this.entries.get(filePath);
-    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
-      this.stats.hits++;
-      return cached.value as T;
-    }
+    try {
+      const st = fstatSync(fd);
+      const cached = this.entries.get(filePath);
+      if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+        this.stats.hits++;
+        return cached.value as T;
+      }
 
-    this.stats.misses++;
-    const value = parse(readFileSync(filePath, 'utf-8'));
-    if (Date.now() - st.mtimeMs > RACY_WINDOW_MS) {
-      this.entries.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, value });
-    } else {
-      this.entries.delete(filePath);
+      this.stats.misses++;
+      const value = parse(readFileSync(fd, 'utf-8'));
+      if (Date.now() - st.mtimeMs > RACY_WINDOW_MS) {
+        this.entries.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, value });
+      } else {
+        this.entries.delete(filePath);
+      }
+      return value;
+    } finally {
+      closeSync(fd);
     }
-    return value;
   }
 
   invalidate(filePath: string): void {
