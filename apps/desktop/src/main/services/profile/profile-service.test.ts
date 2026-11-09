@@ -80,8 +80,8 @@ vi.mock('@anthropic-ai/sdk', () => {
   };
 });
 
-// Mock profile-manager
-vi.mock('./profile-manager', () => ({
+// Mock api-profile-store
+vi.mock('./api-profile-store', () => ({
   loadProfilesFile: vi.fn(),
   saveProfilesFile: vi.fn(),
   generateProfileId: vi.fn(() => 'mock-uuid-1234'),
@@ -89,7 +89,7 @@ vi.mock('./profile-manager', () => ({
   getProfilesFilePath: vi.fn(() => '/mock/profiles.json'),
   atomicModifyProfiles: vi.fn(async (modifier: (file: ProfilesFile) => ProfilesFile) => {
     // Get the current mock file from loadProfilesFile
-    const { loadProfilesFile, saveProfilesFile } = await import('./profile-manager');
+    const { loadProfilesFile, saveProfilesFile } = await import('./api-profile-store');
     const file = await loadProfilesFile();
     const modified = modifier(file);
     await saveProfilesFile(modified);
@@ -168,7 +168,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await validateProfileNameUnique('New Profile');
@@ -191,7 +191,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await validateProfileNameUnique('Existing Profile');
@@ -214,7 +214,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result1 = await validateProfileNameUnique('my profile');
@@ -239,7 +239,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await validateProfileNameUnique('  My Profile  ');
@@ -256,7 +256,7 @@ describe('profile-service', () => {
       };
 
       const { loadProfilesFile, saveProfilesFile, generateProfileId } =
-        await import('./profile-manager');
+        await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
       vi.mocked(saveProfilesFile).mockResolvedValue(undefined);
       vi.mocked(generateProfileId).mockReturnValue('generated-id-123');
@@ -287,7 +287,7 @@ describe('profile-service', () => {
     });
 
     it('should throw error for invalid base URL', async () => {
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue({
         profiles: [],
         activeProfileId: null,
@@ -304,7 +304,7 @@ describe('profile-service', () => {
     });
 
     it('should throw error for invalid API key', async () => {
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue({
         profiles: [],
         activeProfileId: null,
@@ -336,7 +336,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const input = {
@@ -368,7 +368,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile, saveProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile, saveProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
       vi.mocked(saveProfilesFile).mockResolvedValue(undefined);
 
@@ -406,7 +406,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile, saveProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile, saveProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
       vi.mocked(saveProfilesFile).mockResolvedValue(undefined);
 
@@ -446,7 +446,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const input = {
@@ -477,7 +477,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const input = {
@@ -506,7 +506,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const input = {
@@ -526,7 +526,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const input = {
@@ -557,7 +557,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -586,7 +586,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -622,7 +622,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -652,7 +652,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -676,7 +676,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -711,7 +711,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -759,7 +759,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -787,7 +787,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -812,7 +812,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -843,7 +843,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();

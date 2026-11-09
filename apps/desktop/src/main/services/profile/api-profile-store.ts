@@ -1,5 +1,5 @@
 /**
- * Profile Manager - File I/O for API profiles
+ * API Profile Store - File I/O for API profiles
  *
  * Handles loading and saving profiles.json from the auto-claude directory.
  * Provides graceful handling for missing or corrupted files.

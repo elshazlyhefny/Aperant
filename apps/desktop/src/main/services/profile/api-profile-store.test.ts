@@ -1,5 +1,5 @@
 /**
- * Tests for profile-manager.ts
+ * Tests for api-profile-store.ts
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -8,7 +8,7 @@ import {
   saveProfilesFile,
   generateProfileId,
   validateFilePermissions
-} from './profile-manager';
+} from './api-profile-store';
 import type { ProfilesFile } from '@shared/types/profile';
 
 // Use vi.hoisted to define mock functions that need to be accessible in vi.mock
@@ -56,7 +56,7 @@ vi.mock('fs', () => ({
   }
 }));
 
-describe('profile-manager', () => {
+describe('api-profile-store', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Setup default mocks to resolve

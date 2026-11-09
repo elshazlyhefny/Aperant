@@ -14,7 +14,7 @@ export {
   getProfilesFilePath,
   withProfilesLock,
   atomicModifyProfiles
-} from './profile-manager';
+} from './api-profile-store';
 
 // Profile Service
 export {

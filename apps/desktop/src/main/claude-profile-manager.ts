@@ -46,7 +46,7 @@ import {
   getBestAvailableUnifiedAccount
 } from './claude-profile/profile-scorer';
 import { getCredentialsFromKeychain, normalizeWindowsPath, updateProfileSubscriptionMetadata } from './claude-profile/credential-utils';
-import { loadProfilesFile } from './services/profile/profile-manager';
+import { loadProfilesFile } from './services/profile/api-profile-store';
 import {
   CLAUDE_PROFILES_DIR,
   generateProfileId as generateProfileIdImpl,

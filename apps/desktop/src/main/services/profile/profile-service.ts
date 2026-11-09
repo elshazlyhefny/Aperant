@@ -13,7 +13,7 @@ import Anthropic, {
   APIConnectionTimeoutError
 } from '@anthropic-ai/sdk';
 
-import { loadProfilesFile, generateProfileId, atomicModifyProfiles } from './profile-manager';
+import { loadProfilesFile, generateProfileId, atomicModifyProfiles } from './api-profile-store';
 import type { APIProfile, TestConnectionResult, ModelInfo, DiscoverModelsResult } from '@shared/types/profile';
 
 /**
