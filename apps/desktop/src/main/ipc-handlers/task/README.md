@@ -8,16 +8,21 @@ This directory contains the refactored task-related IPC handlers, previously con
 
 | Module | Lines | Responsibility |
 |--------|-------|----------------|
-| `crud-handlers.ts` | ~428 | Task CRUD operations (Create, Read, Update, Delete, List) |
-| `execution-handlers.ts` | ~553 | Task execution lifecycle (Start, Stop, Review, Status, Recovery) |
-| `worktree-handlers.ts` | ~759 | Git worktree management (Status, Diff, Merge, Preview, Discard, List) |
-| `logs-handlers.ts` | ~111 | Task logs operations (Get, Watch, Unwatch) |
-| `shared.ts` | ~22 | Shared utilities and helper functions |
-| `index.ts` | ~41 | Main module exports and registration |
+| `crud-handlers.ts` | ~795 | Task CRUD operations (Create, Read, Update, Delete, List) |
+| `execution-handlers.ts` | ~1407 | Task execution lifecycle (Start, Stop, Review, Status, Recovery) |
+| `worktree-handlers.ts` | ~1062 | Git worktree management (Status, Diff, Discard, List) and handler registration |
+| `worktree-merge.ts` | ~606 | Worktree merge and merge preview |
+| `worktree-pr.ts` | ~252 | Worktree pull request creation |
+| `worktree-git-utils.ts` | ~272 | Git helpers shared by the worktree modules |
+| `tool-handlers.ts` | ~85 | IDE/terminal detection and launch IPC handlers for worktrees |
+| `tool-detection/` | ~1170 (5 files) | Pure IDE/terminal detection tables, detection, launch and path safety logic |
+| `logs-handlers.ts` | ~198 | Task logs operations (Get, Watch, Unwatch) |
+| `shared.ts` | small | Shared utilities and helper functions |
+| `index.ts` | ~52 | Main module exports and registration |
 
 ### Main Entry Point
 
-The main `task-handlers.ts` file (now 22 lines) serves as a simple re-export of the modular implementation.
+The main `task-handlers.ts` file (a few lines) serves as a simple re-export of the modular implementation.
 
 ## Module Responsibilities
 
@@ -57,6 +62,8 @@ Manages git worktree operations:
 - **TASK_WORKTREE_MERGE_PREVIEW** - Preview merge conflicts
 - **TASK_WORKTREE_DISCARD** - Discard worktree and branch
 - **TASK_LIST_WORKTREES** - List all project worktrees
+
+The three tool channels (`TASK_WORKTREE_DETECT_TOOLS`, `TASK_WORKTREE_OPEN_IN_IDE`, `TASK_WORKTREE_OPEN_IN_TERMINAL`) live in `tool-handlers.ts`, backed by `tool-detection/`.
 
 Features:
 - Per-spec worktree architecture (`.worktrees/{spec-name}/`)
@@ -110,9 +117,8 @@ registerTaskHandlers(agentManager, pythonEnvManager, getMainWindow);
 | Metric | Before | After |
 |--------|--------|-------|
 | Main file size | 1,885 lines | 22 lines |
-| Number of files | 1 | 7 (6 + index) |
-| Largest module | 1,885 lines | 759 lines |
-| Average module | 1,885 lines | ~314 lines |
+| Number of files | 1 | 12 handler/helper files + `tool-detection/` |
+| Largest module | 1,885 lines | ~1,407 lines (execution-handlers.ts) |
 
 ## Dependencies
 
