@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   PROJECT_ADD: 'project:add',
   PROJECT_REMOVE: 'project:remove',
   PROJECT_LIST: 'project:list',
+  SANDBOX_GET_AVAILABILITY: 'sandbox:getAvailability',
   PROJECT_UPDATE_SETTINGS: 'project:updateSettings',
   PROJECT_INITIALIZE: 'project:initialize',
   PROJECT_CHECK_VERSION: 'project:checkVersion',

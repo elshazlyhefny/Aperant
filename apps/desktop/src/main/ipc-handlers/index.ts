@@ -29,6 +29,7 @@ import { registerMemoryHandlers } from './memory-handlers';
 import { registerAppUpdateHandlers } from './app-update-handlers';
 import { registerDebugHandlers } from './debug-handlers';
 import { registerClaudeCodeHandlers } from './claude-code-handlers';
+import { registerSandboxHandlers } from './sandbox-handlers';
 import { registerMcpHandlers } from './mcp-handlers';
 import { registerProfileHandlers } from './profile-handlers';
 import { registerScreenshotHandlers } from './screenshot-handlers';
@@ -115,6 +116,9 @@ export function setupIpcHandlers(
   // Claude Code CLI handlers (version checking, installation)
   registerClaudeCodeHandlers();
 
+  // Bash sandbox availability
+  registerSandboxHandlers();
+
   // MCP server health check handlers
   registerMcpHandlers();
 
@@ -152,6 +156,7 @@ export {
   registerAppUpdateHandlers,
   registerDebugHandlers,
   registerClaudeCodeHandlers,
+  registerSandboxHandlers,
   registerMcpHandlers,
   registerProfileHandlers,
   registerScreenshotHandlers,
