@@ -1,0 +1,218 @@
+/**
+ * zeenha fork: scheduler for recurring tasks. Runs in the main process (the
+ * renderer queue may not be mounted). Every 30s it adds one queued task for
+ * each due schedule, then starts schedule-owned queued tasks while the project
+ * is under its parallel limit. Dependencies are injected so it can be tested.
+ */
+import { randomUUID } from 'node:crypto';
+import type { Project, Task } from '../shared/types';
+import type { RecurringSchedule, ScheduleRunRecord, ScheduleTemplate } from '../shared/types/schedule';
+import { advancePast, computeNextRun } from '../shared/utils/schedule-time';
+
+/** Same default as the renderer queue (renderer/stores/task-store.ts). */
+const DEFAULT_MAX_PARALLEL_TASKS = 3;
+const TICK_INTERVAL_MS = 30_000;
+const FIRST_TICK_DELAY_MS = 10_000;
+/** A run later than this after its due time counts as a missed run (app was closed). */
+export const MISSED_GRACE_MS = 5 * 60_000;
+
+const FINISHED_STATUSES = new Set(['done', 'pr_created', 'error']);
+
+export interface ScheduleServiceDeps {
+  now(): number;
+  listSchedules(): RecurringSchedule[];
+  saveSchedule(schedule: RecurringSchedule): void;
+  getProject(projectId: string): Project | undefined;
+  listTasks(projectId: string): Task[];
+  /** Create the spec in status 'queue'; returns the new task id. */
+  createTask(projectId: string, template: ScheduleTemplate, scheduleId: string, scheduledFor: number): Promise<string>;
+  startTask(taskId: string): Promise<void>;
+  isRunning(taskId: string): boolean;
+  notifyChanged(projectId: string): void;
+}
+
+export interface ScheduleService {
+  start(): void;
+  stop(): void;
+  tick(): Promise<void>;
+  onAgentExit(taskId: string): void;
+}
+
+function record(kind: ScheduleRunRecord['kind'], at: number, extra: Partial<ScheduleRunRecord> = {}): ScheduleRunRecord {
+  return { id: randomUUID(), at, kind, acknowledged: false, ...extra };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function createScheduleService(deps: ScheduleServiceDeps): ScheduleService {
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let firstTimer: ReturnType<typeof setTimeout> | null = null;
+  let ticking = false;
+  let rerun = false;
+  const starting = new Set<string>();
+
+  function isUnfinished(projectId: string, taskId: string | undefined): boolean {
+    if (!taskId) return false;
+    const task = deps.listTasks(projectId).find((t) => t.id === taskId);
+    if (!task) return false;
+    if (task.metadata?.archivedAt) return false;
+    return !FINISHED_STATUSES.has(task.status);
+  }
+
+  async function processSchedule(schedule: RecurringSchedule, project: Project, now: number): Promise<boolean> {
+    if (!schedule.enabled || schedule.nextRunAt === null || schedule.nextRunAt > now) return false;
+
+    const firstDue = schedule.nextRunAt;
+    const { dueCount, nextRunAt } = advancePast(schedule.cadence, firstDue, now);
+    if (dueCount === 0) return false;
+
+    const next: RecurringSchedule = { ...schedule, nextRunAt, history: [...schedule.history] };
+
+    if (isUnfinished(project.id, schedule.lastTaskId)) {
+      next.history.push(record('skipped_unfinished', now, { taskId: schedule.lastTaskId, detail: `${dueCount} due` }));
+      deps.saveSchedule(next);
+      return true;
+    }
+
+    if (dueCount > 1 || now - firstDue > MISSED_GRACE_MS) {
+      next.history.push(
+        record('missed', now, { missedCount: dueCount, missedFrom: firstDue, missedTo: lastDue(schedule, firstDue, now, dueCount) })
+      );
+    }
+
+    try {
+      const taskId = await deps.createTask(project.id, schedule.template, schedule.id, firstDue);
+      next.lastRunAt = now;
+      next.lastTaskId = taskId;
+      next.history.push(record('started', now, { taskId }));
+    } catch (error) {
+      next.history.push(record('failed', now, { detail: errorMessage(error) }));
+    }
+    deps.saveSchedule(next);
+    return true;
+  }
+
+  /** The last occurrence at or before `now`. */
+  function lastDue(schedule: RecurringSchedule, firstDue: number, now: number, dueCount: number): number {
+    if (schedule.cadence.kind === 'interval') {
+      return firstDue + (dueCount - 1) * schedule.cadence.everyMinutes * 60_000;
+    }
+    let at = firstDue;
+    for (let i = 1; i < dueCount; i++) {
+      const following = computeNextRun(schedule.cadence, at);
+      if (following > now) break;
+      at = following;
+    }
+    return at;
+  }
+
+  async function promote(projectIds: Set<string>): Promise<void> {
+    for (const projectId of projectIds) {
+      try {
+        const project = deps.getProject(projectId);
+        if (!project) continue;
+        const tasks = deps.listTasks(projectId).filter((t) => !t.metadata?.archivedAt);
+        let active = tasks.filter((t) => t.status === 'in_progress' || deps.isRunning(t.id) || starting.has(t.id)).length;
+        const limit = project.settings?.maxParallelTasks ?? DEFAULT_MAX_PARALLEL_TASKS;
+        const queued = tasks
+          .filter((t) => t.status === 'queue' && t.metadata?.scheduleId && !starting.has(t.id) && !deps.isRunning(t.id))
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        for (const task of queued) {
+          if (active >= limit) break;
+          starting.add(task.id);
+          try {
+            await deps.startTask(task.id);
+            active++;
+          } catch {
+            // Stays queued; retried on the next tick
+          } finally {
+            starting.delete(task.id);
+          }
+        }
+      } catch {
+        // One project failing must not stop the others
+      }
+    }
+  }
+
+  function scheduledProjectIds(): Set<string> {
+    const ids = new Set<string>();
+    try {
+      for (const s of deps.listSchedules()) ids.add(s.projectId);
+    } catch {
+      // ignore
+    }
+    return ids;
+  }
+
+  async function tick(): Promise<void> {
+    if (ticking) {
+      rerun = true;
+      return;
+    }
+    ticking = true;
+    try {
+      const now = deps.now();
+      const changed = new Set<string>();
+      let schedules: RecurringSchedule[] = [];
+      try {
+        schedules = deps.listSchedules();
+      } catch {
+        return;
+      }
+      for (const schedule of schedules) {
+        try {
+          const project = deps.getProject(schedule.projectId);
+          if (!project) continue;
+          if (await processSchedule(schedule, project, now)) changed.add(project.id);
+        } catch {
+          // Isolated: one broken schedule never blocks the rest
+        }
+      }
+      await promote(scheduledProjectIds());
+      for (const projectId of changed) {
+        try {
+          deps.notifyChanged(projectId);
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // never throws
+    } finally {
+      ticking = false;
+      if (rerun) {
+        rerun = false;
+        void tick();
+      }
+    }
+  }
+
+  return {
+    start() {
+      if (timer) return;
+      firstTimer = setTimeout(() => void tick(), FIRST_TICK_DELAY_MS);
+      firstTimer.unref?.();
+      timer = setInterval(() => void tick(), TICK_INTERVAL_MS);
+      timer.unref?.();
+    },
+    stop() {
+      if (timer) clearInterval(timer);
+      if (firstTimer) clearTimeout(firstTimer);
+      timer = null;
+      firstTimer = null;
+    },
+    tick,
+    onAgentExit(_taskId: string) {
+      void (async () => {
+        if (ticking) {
+          rerun = true;
+          return;
+        }
+        await promote(scheduledProjectIds());
+      })();
+    },
+  };
+}
