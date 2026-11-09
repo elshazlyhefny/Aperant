@@ -29,6 +29,7 @@ import { stripAnsiCodes } from '../../../shared/utils/ansi-sanitizer';
 import { landsThroughPullRequestsOnly, PR_ONLY_LANDING_MESSAGE } from '../../../shared/utils/landing-policy';
 import { taskStateManager } from '../../task-state-manager';
 
+import { appLog } from '../../app-logger';
 // Regex pattern for validating git branch names
 export const GIT_BRANCH_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
 
@@ -1162,7 +1163,7 @@ async function detectInstalledTools(): Promise<DetectedTools> {
   const terminals: DetectedTool[] = [];
 
   // Build app cache using platform-native detection (fast!)
-  console.log('[DevTools] Starting smart app detection...');
+  appLog.info('[DevTools] Starting smart app detection...');
   const startTime = Date.now();
 
   if (platform === 'darwin') {
@@ -1173,7 +1174,7 @@ async function detectInstalledTools(): Promise<DetectedTools> {
     installedAppsCache = await detectLinuxApps();
   }
 
-  console.log(`[DevTools] Found ${installedAppsCache.size} apps in ${Date.now() - startTime}ms`);
+  appLog.info(`[DevTools] Found ${installedAppsCache.size} apps in ${Date.now() - startTime}ms`);
 
   // Detect IDEs using cached app list + specific path checks
   for (const [id, config] of Object.entries(IDE_DETECTION)) {
@@ -1274,7 +1275,7 @@ async function detectInstalledTools(): Promise<DetectedTools> {
     }
   }
 
-  console.log(`[DevTools] Detection complete: ${ides.length} IDEs, ${terminals.length} terminals, ${clis.length} CLIs`);
+  appLog.info(`[DevTools] Detection complete: ${ides.length} IDEs, ${terminals.length} terminals, ${clis.length} CLIs`);
   return { ides, terminals, clis };
 }
 

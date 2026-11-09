@@ -10,6 +10,7 @@ import { readFileWithRetry, writeFileWithRetry } from './atomic-file';
 import { withFileLock } from './file-lock';
 import type { TaskOutcome } from '../../shared/types/roadmap';
 
+import { appLog } from '../app-logger';
 /**
  * Update roadmap features on disk when linked tasks change state.
  *
@@ -56,7 +57,7 @@ export async function updateRoadmapFeatureOutcome(
         roadmap.metadata = roadmap.metadata || {};
         roadmap.metadata.updated_at = new Date().toISOString();
         await writeFileWithRetry(roadmapFile, JSON.stringify(roadmap, null, 2));
-        console.log(`${logPrefix} Updated roadmap features for ${specIds.length} task(s) with outcome: ${taskOutcome}`);
+        appLog.info(`${logPrefix} Updated roadmap features for ${specIds.length} task(s) with outcome: ${taskOutcome}`);
       }
     } catch (err) {
       console.warn(`${logPrefix} Failed to update roadmap for tasks [${specIds.join(', ')}]:`, err);
@@ -101,7 +102,7 @@ export async function revertRoadmapFeatureOutcome(
         roadmap.metadata = roadmap.metadata || {};
         roadmap.metadata.updated_at = new Date().toISOString();
         await writeFileWithRetry(roadmapFile, JSON.stringify(roadmap, null, 2));
-        console.log(`${logPrefix} Reverted roadmap features for ${specIds.length} unarchived task(s)`);
+        appLog.info(`${logPrefix} Reverted roadmap features for ${specIds.length} unarchived task(s)`);
       }
     } catch (err) {
       console.warn(`${logPrefix} Failed to revert roadmap for tasks [${specIds.join(', ')}]:`, err);

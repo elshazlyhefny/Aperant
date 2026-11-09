@@ -27,6 +27,7 @@ import { clearKeychainCache, getCredentialsFromKeychain, updateProfileSubscripti
 import { getUsageMonitor } from '../claude-profile/usage-monitor';
 import semver from 'semver';
 
+import { appLog } from '../app-logger';
 const execFileAsync = promisify(execFile);
 
 // Cache for latest version (avoid hammering npm registry)
@@ -1075,9 +1076,9 @@ export function registerClaudeCodeHandlers(): void {
     IPC_CHANNELS.CLAUDE_CODE_GET_VERSIONS,
     async (): Promise<IPCResult<{ versions: string[] }>> => {
       try {
-        console.log('[Claude Code] Fetching available versions...');
+        appLog.info('[Claude Code] Fetching available versions...');
         const versions = await fetchAvailableVersions();
-        console.log('[Claude Code] Found', versions.length, 'versions');
+        appLog.info('[Claude Code] Found', versions.length, 'versions');
         return {
           success: true,
           data: { versions },
@@ -1108,12 +1109,12 @@ export function registerClaudeCodeHandlers(): void {
           throw new Error(`Invalid version format: ${version}`);
         }
 
-        console.log('[Claude Code] Installing version:', version);
+        appLog.info('[Claude Code] Installing version:', version);
         const command = getInstallVersionCommand(version);
-        console.log('[Claude Code] Install command:', command);
-        console.log('[Claude Code] Opening terminal...');
+        appLog.info('[Claude Code] Install command:', command);
+        appLog.info('[Claude Code] Opening terminal...');
         await openTerminalWithCommand(command);
-        console.log('[Claude Code] Terminal opened successfully');
+        appLog.info('[Claude Code] Terminal opened successfully');
 
         return {
           success: true,
@@ -1135,14 +1136,14 @@ export function registerClaudeCodeHandlers(): void {
     IPC_CHANNELS.CLAUDE_CODE_GET_INSTALLATIONS,
     async (): Promise<IPCResult<ClaudeInstallationList>> => {
       try {
-        console.log('[Claude Code] Scanning for installations...');
+        appLog.info('[Claude Code] Scanning for installations...');
 
         // Get current active path from settings
         const settings = readSettingsFile();
         const activePath = settings?.claudePath as string | undefined;
 
         const installations = await scanClaudeInstallations(activePath || null);
-        console.log('[Claude Code] Found', installations.length, 'installations');
+        appLog.info('[Claude Code] Found', installations.length, 'installations');
 
         return {
           success: true,
@@ -1167,7 +1168,7 @@ export function registerClaudeCodeHandlers(): void {
     IPC_CHANNELS.CLAUDE_CODE_SET_ACTIVE_PATH,
     async (_event, cliPath: string): Promise<IPCResult<{ path: string }>> => {
       try {
-        console.log('[Claude Code] Setting active path:', cliPath);
+        appLog.info('[Claude Code] Setting active path:', cliPath);
 
         // Security validation: reject paths with shell metacharacters or directory traversal
         if (!isSecurePath(cliPath)) {
@@ -1199,7 +1200,7 @@ export function registerClaudeCodeHandlers(): void {
         // Update CLI tool manager cache
         configureTools({ claudePath: normalizedPath });
 
-        console.log('[Claude Code] Active path set:', normalizedPath, 'version:', version);
+        appLog.info('[Claude Code] Active path set:', normalizedPath, 'version:', version);
 
         return {
           success: true,

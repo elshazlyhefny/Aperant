@@ -14,6 +14,7 @@ import path from 'path';
 import { failedBeforeAnyWork } from '../shared/utils/task-failure';
 import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
 
+import { appLog } from './app-logger';
 type TaskActor = ActorRefFrom<typeof taskMachine>;
 
 interface TaskContextEntry {
@@ -224,7 +225,7 @@ export class TaskStateManager {
     this.lastStateByTask.clear();
     this.terminalEventSeen.clear();
     this.taskContextById.clear();
-    console.log('[TaskStateManager] Cleared task actors and state for refresh (preserved sequence tracking)');
+    appLog.info('[TaskStateManager] Cleared task actors and state for refresh (preserved sequence tracking)');
   }
 
   private setTaskContext(taskId: string, task: Task, project: Project): void {

@@ -23,6 +23,7 @@ import { getActiveProviderFeatureSettings } from "./feature-settings-helper";
 import type { ThinkingLevel } from "../../shared/types/settings";
 import { buildSpecId } from "../utils/spec-slug";
 
+import { appLog } from '../app-logger';
 /**
  * Read insights feature settings using per-provider resolution
  */
@@ -79,7 +80,7 @@ export function registerInsightsHandlers(getMainWindow: () => BrowserWindow | nu
         ...modelConfig,
       };
 
-      console.log("[Insights Handler] Using model config:", {
+      appLog.debug("[Insights Handler] Using model config:", {
         model: configWithSettings.model,
         thinkingLevel: configWithSettings.thinkingLevel,
       });

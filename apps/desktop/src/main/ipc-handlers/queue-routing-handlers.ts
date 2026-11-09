@@ -16,6 +16,7 @@ import type { ProfileAssignmentReason, RunningTasksByProfile, ClaudeProfile } fr
 import type { UnifiedAccount } from '../../shared/types/unified-account';
 import type { ClaudeProfileManager } from '../claude-profile-manager';
 
+import { appLog } from '../app-logger';
 /**
  * Register queue routing IPC handlers
  */
@@ -55,7 +56,7 @@ export function registerQueueRoutingHandlers(
       try {
         // If no profile manager is available, return null (no preference)
         if (!profileManager) {
-          console.log('[QueueRouting] Profile manager not available, returning null');
+          appLog.info('[QueueRouting] Profile manager not available, returning null');
           return { success: true, data: null };
         }
 
@@ -64,7 +65,7 @@ export function registerQueueRoutingHandlers(
 
         // If auto-switching is disabled, return null (no preference)
         if (!settings.enabled) {
-          console.log('[QueueRouting] Auto-switching disabled, returning null');
+          appLog.info('[QueueRouting] Auto-switching disabled, returning null');
           return { success: true, data: null };
         }
 
@@ -78,13 +79,13 @@ export function registerQueueRoutingHandlers(
         );
 
         if (bestProfile) {
-          console.log('[QueueRouting] Best profile selected:', {
+          appLog.info('[QueueRouting] Best profile selected:', {
             profileId: bestProfile.id,
             profileName: bestProfile.name,
             excludedId: options?.excludeProfileId
           });
         } else {
-          console.log('[QueueRouting] No suitable profile found for task routing');
+          appLog.info('[QueueRouting] No suitable profile found for task routing');
         }
 
         return { success: true, data: bestProfile };
@@ -110,7 +111,7 @@ export function registerQueueRoutingHandlers(
       try {
         // If no profile manager is available, return null (no preference)
         if (!profileManager) {
-          console.log('[QueueRouting] Profile manager not available, returning null');
+          appLog.info('[QueueRouting] Profile manager not available, returning null');
           return { success: true, data: null };
         }
 
@@ -119,7 +120,7 @@ export function registerQueueRoutingHandlers(
 
         // If auto-switching is disabled, return null (no preference)
         if (!settings.enabled) {
-          console.log('[QueueRouting] Auto-switching disabled, returning null');
+          appLog.info('[QueueRouting] Auto-switching disabled, returning null');
           return { success: true, data: null };
         }
 
@@ -132,14 +133,14 @@ export function registerQueueRoutingHandlers(
         );
 
         if (bestAccount) {
-          console.log('[QueueRouting] Best unified account selected:', {
+          appLog.info('[QueueRouting] Best unified account selected:', {
             accountId: bestAccount.id,
             accountName: bestAccount.displayName,
             accountType: bestAccount.type,
             excludedId: options?.excludeAccountId
           });
         } else {
-          console.log('[QueueRouting] No suitable unified account found for task routing');
+          appLog.info('[QueueRouting] No suitable unified account found for task routing');
         }
 
         return { success: true, data: bestAccount };
@@ -250,5 +251,5 @@ export function registerQueueRoutingHandlers(
     }
   });
 
-  console.log('[QueueRouting] IPC handlers registered');
+  appLog.info('[QueueRouting] IPC handlers registered');
 }

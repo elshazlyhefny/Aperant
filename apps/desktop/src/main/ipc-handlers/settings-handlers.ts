@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { is } from '@electron-toolkit/utils';
 
+import { appLog } from '../app-logger';
 // ESM-compatible __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -708,7 +709,6 @@ export function registerSettingsHandlers(
   ipcMain.handle(IPC_CHANNELS.APP_VERSION, async (): Promise<string> => {
     // Return the actual bundled version from package.json
     const version = app.getVersion();
-    console.log('[settings-handlers] APP_VERSION returning:', version);
     return version;
   });
 
@@ -871,7 +871,7 @@ export function registerSettingsHandlers(
 
         if (languagesToSet.length > 0) {
           session.defaultSession.setSpellCheckerLanguages(languagesToSet);
-          console.log(`[SPELLCHECK] Languages set to: ${languagesToSet.join(', ')} for app language: ${language}`);
+          appLog.info(`[SPELLCHECK] Languages set to: ${languagesToSet.join(', ')} for app language: ${language}`);
         } else {
           console.warn(`[SPELLCHECK] No valid spell check languages available for: ${language}`);
         }

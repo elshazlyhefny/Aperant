@@ -9,6 +9,7 @@
 import { existsSync } from 'fs';
 import path from 'path';
 
+import { appLog } from '../app-logger';
 /**
  * Validation result for a Python installation.
  */
@@ -58,7 +59,7 @@ export function findHomebrewPython(
           // Validate that this Python meets version requirements
           const validation = validateFn(pythonPath);
           if (validation.valid) {
-            console.log(`${logPrefix} Found valid Homebrew Python: ${pythonPath} (${validation.version})`);
+            appLog.info(`${logPrefix} Found valid Homebrew Python: ${pythonPath} (${validation.version})`);
             return pythonPath;
           } else {
             console.warn(`${logPrefix} ${pythonPath} rejected: ${validation.message}`);
@@ -71,6 +72,6 @@ export function findHomebrewPython(
     }
   }
 
-  console.log(`${logPrefix} No valid Homebrew Python found in ${homebrewDirs.join(', ')}`);
+  appLog.info(`${logPrefix} No valid Homebrew Python found in ${homebrewDirs.join(', ')}`);
   return null;
 }

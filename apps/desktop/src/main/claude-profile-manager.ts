@@ -58,6 +58,7 @@ import {
 } from './claude-profile/profile-utils';
 import { debugLog } from '../shared/utils/debug-logger';
 
+import { appLog } from './app-logger';
 /**
  * Manages Claude Code profiles for multi-account support.
  * Profiles are stored in the app's userData directory.
@@ -87,7 +88,7 @@ export class ClaudeProfileManager {
       return;
     }
 
-    console.log('[ClaudeProfileManager] Starting initialization...');
+    appLog.info('[ClaudeProfileManager] Starting initialization...');
 
     // Ensure directory exists (async) - mkdir with recursive:true is idempotent
     await mkdir(this.configDir, { recursive: true });
@@ -110,7 +111,7 @@ export class ClaudeProfileManager {
     this.populateSubscriptionMetadata();
 
     this.initialized = true;
-    console.log('[ClaudeProfileManager] Initialization complete');
+    appLog.info('[ClaudeProfileManager] Initialization complete');
   }
 
   /**

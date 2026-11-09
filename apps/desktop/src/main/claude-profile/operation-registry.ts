@@ -19,6 +19,7 @@
 
 import { EventEmitter } from 'events';
 
+import { appLog } from '../app-logger';
 /**
  * Types of operations that use Claude SDK
  */
@@ -163,7 +164,7 @@ class ClaudeOperationRegistry extends EventEmitter {
 
   private debugLog(...args: unknown[]): void {
     if (this.debugMode) {
-      console.log('[OperationRegistry]', ...args);
+      appLog.debug('[OperationRegistry]', ...args);
     }
   }
 
@@ -339,7 +340,7 @@ class ClaudeOperationRegistry extends EventEmitter {
       return 0;
     }
 
-    console.log('[OperationRegistry] Restarting', operations.length, 'operations:', {
+    appLog.debug('[OperationRegistry] Restarting', operations.length, 'operations:', {
       from: oldProfileId,
       to: newProfileId,
       operations: operations.map(op => ({ id: op.id, type: op.type })),
@@ -372,7 +373,7 @@ class ClaudeOperationRegistry extends EventEmitter {
           // re-registered the operation with a new object)
           const currentOp = this.operations.get(op.id);
 
-          console.log('[OperationRegistry] Operation restarted successfully:', {
+          appLog.debug('[OperationRegistry] Operation restarted successfully:', {
             id: op.id,
             type: currentOp?.type ?? op.type,
             newProfile: newProfileName,
@@ -391,7 +392,7 @@ class ClaudeOperationRegistry extends EventEmitter {
       this.emit('operations-restarted', restartedCount, oldProfileId, newProfileId);
     }
 
-    console.log('[OperationRegistry] Restart complete:', {
+    appLog.debug('[OperationRegistry] Restart complete:', {
       total: operations.length,
       succeeded: restartedCount,
       failed: operations.length - restartedCount,
