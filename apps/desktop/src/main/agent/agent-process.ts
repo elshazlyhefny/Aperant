@@ -261,8 +261,6 @@ export class AgentProcessManager {
     allOutput: string,
     processType: ProcessType
   ): boolean {
-    console.log('[AgentProcess] Checking for rate limit in output (last 500 chars):', allOutput.slice(-500));
-
     const rateLimitDetection = detectRateLimit(allOutput);
     console.log('[AgentProcess] Rate limit detection result:', {
       isRateLimited: rateLimitDetection.isRateLimited,
