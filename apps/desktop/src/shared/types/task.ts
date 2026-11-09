@@ -194,6 +194,8 @@ export interface TaskMetadata {
   // Technical details
   affectedFiles?: string[];  // Files likely to be modified
   dependencies?: string[];  // Other features/tasks this depends on
+  /** zeenha fork: ids of tasks that must finish (status 'done') first; distinct from the free-text `dependencies`. */
+  taskDependencies?: string[];
   acceptanceCriteria?: string[];  // What defines "done"
 
   // Effort estimation
