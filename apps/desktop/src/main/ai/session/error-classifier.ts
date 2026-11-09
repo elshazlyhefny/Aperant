@@ -78,6 +78,10 @@ const AUTH_PATTERNS = [
   'http 401',
   'does not have access to claude',
   'please login again',
+  'invalid x-api-key',
+  'invalid api key',
+  'incorrect api key provided',
+  'api key not valid',
 ] as const;
 
 /**

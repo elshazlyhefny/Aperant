@@ -7,6 +7,8 @@
  * For conversion utilities and helper functions, see shared/utils/unified-account.ts
  */
 
+import type { ApiKeyStatus } from './profile';
+
 /**
  * Type discriminator for unified accounts
  */
@@ -82,4 +84,7 @@ export interface UnifiedAccount {
    * The user should be prompted to log in again.
    */
   needsReauthentication?: boolean;
+
+  /** API key verification state (API accounts only) */
+  keyStatus?: ApiKeyStatus;
 }

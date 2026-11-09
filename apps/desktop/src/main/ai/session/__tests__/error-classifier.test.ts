@@ -213,6 +213,20 @@ describe('classifyError', () => {
   });
 });
 
+describe('classifyError api key rejection', () => {
+  it('classifies invalid x-api-key as auth_failure', () => {
+    expect(classifyError(new Error('invalid x-api-key')).sessionError.code).toBe(ErrorCode.AUTH_FAILURE);
+  });
+
+  it.each(['ECONNRESET', 'fetch failed', 'timeout'])('does not classify %s as auth_failure', (msg) => {
+    expect(classifyError(new Error(msg)).sessionError.code).not.toBe(ErrorCode.AUTH_FAILURE);
+  });
+
+  it('classifies 429 rate limit as rate_limited', () => {
+    expect(classifyError(new Error('429 rate limit')).outcome).toBe('rate_limited');
+  });
+});
+
 // =============================================================================
 // classifyToolError
 // =============================================================================
