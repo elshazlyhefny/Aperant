@@ -24,6 +24,7 @@ const info = {
   profileName: 'Work Account',
   failureType: 'expired' as const,
   message: 'expired',
+  detectedAt: new Date(),
 };
 
 describe('AuthFailureIndicator', () => {
