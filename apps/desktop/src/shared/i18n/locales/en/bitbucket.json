@@ -1,0 +1,36 @@
+{
+  "enable": {
+    "label": "Enable Bitbucket Integration",
+    "description": "Review pull requests from Bitbucket Cloud"
+  },
+  "username": {
+    "label": "Bitbucket Username",
+    "description": "Your Bitbucket username (used with the token for authentication)",
+    "placeholder": "username"
+  },
+  "token": {
+    "label": "App Password / API Token",
+    "description": "Create a token with pull request read and write access in Bitbucket settings",
+    "placeholder": "Paste your token",
+    "show": "Show token",
+    "hide": "Hide token"
+  },
+  "repository": {
+    "label": "Repository",
+    "description": "Repository in workspace/repo_slug format",
+    "placeholder": "workspace/repo_slug",
+    "detect": "Detect from Git Remote",
+    "detecting": "Detecting...",
+    "detected": "Detected {{repo}}",
+    "notDetected": "No Bitbucket remote found in this project",
+    "detectFailed": "Failed to detect repository"
+  },
+  "connection": {
+    "label": "Connection Status",
+    "checking": "Checking connection...",
+    "connected": "Connected to {{repo}}",
+    "connectedGeneric": "Connected",
+    "failed": "Connection failed",
+    "notChecked": "Enter your credentials and repository to check the connection"
+  }
+}

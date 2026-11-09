@@ -10,7 +10,7 @@ import { SectionRouter } from './sections/SectionRouter';
 import { createHookProxy } from './utils/hookProxyFactory';
 import type { Project } from '../../../shared/types';
 
-export type ProjectSettingsSection = 'general' | 'linear' | 'github' | 'gitlab' | 'memory';
+export type ProjectSettingsSection = 'general' | 'linear' | 'github' | 'gitlab' | 'bitbucket' | 'memory';
 
 interface ProjectSettingsContentProps {
   project: Project | undefined;
@@ -107,6 +107,10 @@ function ProjectSettingsContentInner({
     setShowGitLabToken,
     gitLabConnectionStatus,
     isCheckingGitLab,
+    showBitbucketToken,
+    setShowBitbucketToken,
+    bitbucketConnectionStatus,
+    isCheckingBitbucket,
     showLinearImportModal,
     setShowLinearImportModal,
     linearConnectionStatus,
@@ -151,6 +155,10 @@ function ProjectSettingsContentInner({
         setShowGitLabToken={setShowGitLabToken}
         gitLabConnectionStatus={gitLabConnectionStatus}
         isCheckingGitLab={isCheckingGitLab}
+        showBitbucketToken={showBitbucketToken}
+        setShowBitbucketToken={setShowBitbucketToken}
+        bitbucketConnectionStatus={bitbucketConnectionStatus}
+        isCheckingBitbucket={isCheckingBitbucket}
         linearConnectionStatus={linearConnectionStatus}
         isCheckingLinear={isCheckingLinear}
         handleInitialize={handleInitialize}

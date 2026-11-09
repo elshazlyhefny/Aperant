@@ -13,7 +13,8 @@ import type {
   ProjectEnvConfig,
   LinearSyncStatus,
   GitHubSyncStatus,
-  GitLabSyncStatus
+  GitLabSyncStatus,
+  BitbucketSyncStatus
 } from '../../../../shared/types';
 
 export interface UseProjectSettingsReturn {
@@ -60,6 +61,12 @@ export interface UseProjectSettingsReturn {
   setShowGitLabToken: React.Dispatch<React.SetStateAction<boolean>>;
   gitLabConnectionStatus: GitLabSyncStatus | null;
   isCheckingGitLab: boolean;
+
+  // Bitbucket state
+  showBitbucketToken: boolean;
+  setShowBitbucketToken: React.Dispatch<React.SetStateAction<boolean>>;
+  bitbucketConnectionStatus: BitbucketSyncStatus | null;
+  isCheckingBitbucket: boolean;
 
   // Linear state
   showLinearImportModal: boolean;
@@ -118,6 +125,11 @@ export function useProjectSettings(
   const [showGitLabToken, setShowGitLabToken] = useState(false);
   const [gitLabConnectionStatus, setGitLabConnectionStatus] = useState<GitLabSyncStatus | null>(null);
   const [isCheckingGitLab, setIsCheckingGitLab] = useState(false);
+
+  // Bitbucket state
+  const [showBitbucketToken, setShowBitbucketToken] = useState(false);
+  const [bitbucketConnectionStatus, setBitbucketConnectionStatus] = useState<BitbucketSyncStatus | null>(null);
+  const [isCheckingBitbucket, setIsCheckingBitbucket] = useState(false);
 
   // Linear import state
   const [showLinearImportModal, setShowLinearImportModal] = useState(false);
@@ -249,6 +261,41 @@ export function useProjectSettings(
     }
   }, [envConfig?.gitlabEnabled, envConfig?.gitlabToken, envConfig?.gitlabProject, project.id]);
 
+  // Check Bitbucket connection when credentials/repository change (debounced)
+  useEffect(() => {
+    if (
+      !envConfig?.bitbucketEnabled ||
+      !envConfig.bitbucketUsername ||
+      !envConfig.bitbucketToken ||
+      !envConfig.bitbucketRepository
+    ) {
+      setBitbucketConnectionStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setIsCheckingBitbucket(true);
+      try {
+        const status = await window.electronAPI.checkBitbucketConnection(project.id);
+        if (!cancelled && status.success && status.data) {
+          setBitbucketConnectionStatus(status.data);
+        }
+      } catch {
+        if (!cancelled) {
+          setBitbucketConnectionStatus({ connected: false, error: 'Failed to check connection' });
+        }
+      } finally {
+        if (!cancelled) setIsCheckingBitbucket(false);
+      }
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [envConfig?.bitbucketEnabled, envConfig?.bitbucketUsername, envConfig?.bitbucketToken, envConfig?.bitbucketRepository, project.id]);
+
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
@@ -375,6 +422,10 @@ export function useProjectSettings(
     setShowGitLabToken,
     gitLabConnectionStatus,
     isCheckingGitLab,
+    showBitbucketToken,
+    setShowBitbucketToken,
+    bitbucketConnectionStatus,
+    isCheckingBitbucket,
     showLinearImportModal,
     setShowLinearImportModal,
     linearConnectionStatus,

@@ -420,6 +420,13 @@
       "integrationDescription": "Connect to GitLab for issue tracking",
       "syncDescription": "Sync with GitLab Issues"
     },
+    "bitbucket": {
+      "title": "Bitbucket",
+      "description": "Bitbucket pull requests",
+      "integrationTitle": "Bitbucket Integration",
+      "integrationDescription": "Connect to Bitbucket for pull request review",
+      "syncDescription": "Sync with Bitbucket Pull Requests"
+    },
     "memory": {
       "title": "Memory",
       "description": "Built-in agent memory",

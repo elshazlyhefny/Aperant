@@ -1,11 +1,12 @@
 import { useTranslation } from 'react-i18next';
-import type { Project, ProjectSettings as ProjectSettingsType, AutoBuildVersionInfo, ProjectEnvConfig, LinearSyncStatus, GitHubSyncStatus, GitLabSyncStatus } from '../../../../shared/types';
+import type { Project, ProjectSettings as ProjectSettingsType, AutoBuildVersionInfo, ProjectEnvConfig, LinearSyncStatus, GitHubSyncStatus, GitLabSyncStatus, BitbucketSyncStatus } from '../../../../shared/types';
 import { SettingsSection } from '../SettingsSection';
 import { GeneralSettings } from '../../project-settings/GeneralSettings';
 import { AgentMemorySettings } from '../../project-settings/AgentMemorySettings';
 import { LinearIntegration } from '../integrations/LinearIntegration';
 import { GitHubIntegration } from '../integrations/GitHubIntegration';
 import { GitLabIntegration } from '../integrations/GitLabIntegration';
+import { BitbucketIntegration } from '../integrations/BitbucketIntegration';
 import { InitializationGuard } from '../common/InitializationGuard';
 import type { ProjectSettingsSection } from '../ProjectSettingsContent';
 
@@ -31,6 +32,10 @@ interface SectionRouterProps {
   setShowGitLabToken: React.Dispatch<React.SetStateAction<boolean>>;
   gitLabConnectionStatus: GitLabSyncStatus | null;
   isCheckingGitLab: boolean;
+  showBitbucketToken: boolean;
+  setShowBitbucketToken: React.Dispatch<React.SetStateAction<boolean>>;
+  bitbucketConnectionStatus: BitbucketSyncStatus | null;
+  isCheckingBitbucket: boolean;
   linearConnectionStatus: LinearSyncStatus | null;
   isCheckingLinear: boolean;
   handleInitialize: () => Promise<void>;
@@ -65,6 +70,10 @@ export function SectionRouter({
   setShowGitLabToken,
   gitLabConnectionStatus,
   isCheckingGitLab,
+  showBitbucketToken,
+  setShowBitbucketToken,
+  bitbucketConnectionStatus,
+  isCheckingBitbucket,
   linearConnectionStatus,
   isCheckingLinear,
   handleInitialize,
@@ -164,6 +173,30 @@ export function SectionRouter({
               projectPath={project.path}
               settings={settings}
               setSettings={setSettings}
+            />
+          </InitializationGuard>
+        </SettingsSection>
+      );
+
+    case 'bitbucket':
+      return (
+        <SettingsSection
+          title={t('projectSections.bitbucket.integrationTitle')}
+          description={t('projectSections.bitbucket.integrationDescription')}
+        >
+          <InitializationGuard
+            initialized={!!project.autoBuildPath}
+            title={t('projectSections.bitbucket.integrationTitle')}
+            description={t('projectSections.bitbucket.syncDescription')}
+          >
+            <BitbucketIntegration
+              projectId={project.id}
+              envConfig={envConfig}
+              updateEnvConfig={updateEnvConfig}
+              showBitbucketToken={showBitbucketToken}
+              setShowBitbucketToken={setShowBitbucketToken}
+              bitbucketConnectionStatus={bitbucketConnectionStatus}
+              isCheckingBitbucket={isCheckingBitbucket}
             />
           </InitializationGuard>
         </SettingsSection>

@@ -1,0 +1,36 @@
+{
+  "enable": {
+    "label": "Activer l'intégration Bitbucket",
+    "description": "Examiner les pull requests depuis Bitbucket Cloud"
+  },
+  "username": {
+    "label": "Nom d'utilisateur Bitbucket",
+    "description": "Votre nom d'utilisateur Bitbucket (utilisé avec le jeton pour l'authentification)",
+    "placeholder": "nom d'utilisateur"
+  },
+  "token": {
+    "label": "Mot de passe d'application / jeton API",
+    "description": "Créez un jeton avec accès en lecture et écriture aux pull requests dans les paramètres Bitbucket",
+    "placeholder": "Collez votre jeton",
+    "show": "Afficher le jeton",
+    "hide": "Masquer le jeton"
+  },
+  "repository": {
+    "label": "Dépôt",
+    "description": "Dépôt au format workspace/repo_slug",
+    "placeholder": "workspace/repo_slug",
+    "detect": "Détecter depuis le remote Git",
+    "detecting": "Détection...",
+    "detected": "{{repo}} détecté",
+    "notDetected": "Aucun remote Bitbucket trouvé dans ce projet",
+    "detectFailed": "Échec de la détection du dépôt"
+  },
+  "connection": {
+    "label": "État de la connexion",
+    "checking": "Vérification de la connexion...",
+    "connected": "Connecté à {{repo}}",
+    "connectedGeneric": "Connecté",
+    "failed": "Échec de la connexion",
+    "notChecked": "Saisissez vos identifiants et le dépôt pour vérifier la connexion"
+  }
+}

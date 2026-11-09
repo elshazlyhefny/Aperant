@@ -31,6 +31,16 @@ function GitLabIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+// Bitbucket icon component (lucide-react doesn't have one)
+function BitbucketIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" role="img" aria-labelledby="bitbucket-icon-title">
+      <title id="bitbucket-icon-title">Bitbucket</title>
+      <path d="M2.65 3a.65.65 0 0 0-.65.76l2.73 16.6a.89.89 0 0 0 .87.74h13.1a.65.65 0 0 0 .65-.55l2.73-16.8a.65.65 0 0 0-.65-.75zm11.6 12H9.8L8.6 8.7h6.7z"/>
+    </svg>
+  );
+}
+
 import {
   FullScreenDialog,
   FullScreenDialogContent,
@@ -93,6 +103,7 @@ const projectNavItemsConfig: NavItemConfig<ProjectSettingsSection>[] = [
   { id: 'linear', icon: Zap },
   { id: 'github', icon: Github },
   { id: 'gitlab', icon: GitLabIcon },
+  { id: 'bitbucket', icon: BitbucketIcon },
   { id: 'memory', icon: Database }
 ];
 
