@@ -3,6 +3,7 @@
  * Protocol: __TASK_EVENT__:{...}
  */
 
+import { appLog } from '../app-logger';
 import { validateTaskEvent, type TaskEventPayload } from './task-event-schema';
 
 export const TASK_EVENT_PREFIX = '__TASK_EVENT__:';
@@ -18,13 +19,13 @@ export function parseTaskEvent(line: string): TaskEventPayload | null {
   }
 
   if (DEBUG) {
-    console.log('[task-event-parser] Found marker at index', markerIndex, 'in line:', line.substring(0, 200));
+    appLog.debug('[task-event-parser] Found marker at index', markerIndex, 'in line:', line.substring(0, 200));
   }
 
   const rawJsonStr = line.slice(markerIndex + TASK_EVENT_PREFIX.length).trim();
   if (!rawJsonStr) {
     if (DEBUG) {
-      console.log('[task-event-parser] Empty JSON string after marker');
+      appLog.debug('[task-event-parser] Empty JSON string after marker');
     }
     return null;
   }
@@ -32,13 +33,13 @@ export function parseTaskEvent(line: string): TaskEventPayload | null {
   const jsonStr = extractJsonObject(rawJsonStr);
   if (!jsonStr) {
     if (DEBUG) {
-      console.log('[task-event-parser] Could not extract JSON object from:', rawJsonStr.substring(0, 200));
+      appLog.debug('[task-event-parser] Could not extract JSON object from:', rawJsonStr.substring(0, 200));
     }
     return null;
   }
 
   if (DEBUG) {
-    console.log('[task-event-parser] Attempting to parse JSON:', jsonStr.substring(0, 200));
+    appLog.debug('[task-event-parser] Attempting to parse JSON:', jsonStr.substring(0, 200));
   }
 
   try {
@@ -47,20 +48,20 @@ export function parseTaskEvent(line: string): TaskEventPayload | null {
 
     if (!result.success) {
       if (DEBUG) {
-        console.log('[task-event-parser] Validation failed:', result.error.format());
+        appLog.debug('[task-event-parser] Validation failed:', result.error.format());
       }
       return null;
     }
 
     if (DEBUG) {
-      console.log('[task-event-parser] Successfully parsed event:', result.data);
+      appLog.debug('[task-event-parser] Successfully parsed event:', result.data);
     }
 
     return result.data;
   } catch (e) {
     if (DEBUG) {
-      console.log('[task-event-parser] JSON parse FAILED for:', jsonStr);
-      console.log('[task-event-parser] Error:', e);
+      appLog.debug('[task-event-parser] JSON parse FAILED for:', jsonStr);
+      appLog.debug('[task-event-parser] Error:', e);
     }
     return null;
   }
