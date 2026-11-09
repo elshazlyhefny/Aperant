@@ -418,11 +418,22 @@
       "detail": "Detail"
     },
     "tokens": {
+      "budget": "Budget tokens (input + output)",
       "input": "Input tokens",
       "output": "Output tokens",
       "cacheRead": "Cache read tokens",
       "cacheCreation": "Cache creation tokens"
     },
-    "note": "Entries carry tokens and durations only; no monetary cost is shown."
+    "budgetUsed": "{{used}} of {{limit}} tokens ({{percent}}%)",
+    "note": "Entries carry tokens and durations only; no monetary cost is shown. Cache reads are included in input tokens and are not added again to the budget."
+  },
+  "tokenBudgetBanner": {
+    "title": "Paused: token budget reached",
+    "usage": "Paused: {{used}} of {{limit}} tokens used",
+    "body": "The worktree and completed subtasks are kept. Raise the limit to continue, or resume without a limit. Resuming without raising it pauses the task again right away.",
+    "fieldLabel": "New token limit",
+    "unlimited": "Unlimited",
+    "resume": "Raise limit and resume",
+    "saveFailed": "Could not save the new limit"
   }
 }

@@ -37,7 +37,7 @@ describe('applyTokenBudget (task create/update metadata)', () => {
   });
 
   it('updates an existing budget to a new value', () => {
-    const merged = { tokenBudget: 1000, ...{ tokenBudget: 2000 } } as TaskMetadata;
+    const merged = { tokenBudget: 2000 } as TaskMetadata;
     applyTokenBudget(merged);
     expect(merged.tokenBudget).toBe(2000);
   });
