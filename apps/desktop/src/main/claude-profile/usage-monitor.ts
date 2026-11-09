@@ -26,22 +26,11 @@ import { readSettingsFileAsync, writeSettingsFile } from '../settings-utils';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 
 import { appLog } from '../app-logger';
+import type { ActiveProfileResult } from './usage/types';
+import { getCredentialFingerprint, createUsageLogger } from './usage/usage-log';
+import { calculateAvailabilityScore } from './usage/availability-score';
 // Re-export for backward compatibility
 export type { ApiProvider };
-
-/**
- * Create a safe fingerprint of a credential for debug logging.
- * Shows first 8 and last 4 characters, hiding the sensitive middle portion.
- * This is NOT for authentication - only for human-readable debug identification.
- *
- * @param credential - The credential (token or API key) to create a fingerprint for
- * @returns A safe fingerprint like "sk-ant-oa...xyz9" or "null" if no credential
- */
-function getCredentialFingerprint(credential: string | null | undefined): string {
-  if (!credential) return 'null';
-  if (credential.length <= 16) return credential.slice(0, 4) + '...' + credential.slice(-2);
-  return credential.slice(0, 8) + '...' + credential.slice(-4);
-}
 
 /**
  * Allowed domains for usage API requests.
@@ -189,18 +178,6 @@ export function detectProvider(baseUrl: string): ApiProvider {
 }
 
 /**
- * Result of determining the active profile type
- */
-interface ActiveProfileResult {
-  profileId: string;
-  profileName: string;
-  profileEmail?: string;
-  isAPIProfile: boolean;
-  baseUrl: string;
-  credential?: string;
-}
-
-/**
  * Type guard to check if an error has an HTTP status code
  * @param error - The error to check
  * @returns true if the error has a statusCode property
@@ -249,30 +226,20 @@ export class UsageMonitor extends EventEmitter {
   // Verbose flag for trace-level logging (only with VERBOSE=true)
   private readonly isVerbose = process.env.VERBOSE === 'true';
 
+  private readonly logger = createUsageLogger();
+
   /**
    * Debug log helper - only logs when DEBUG=true
    */
   private debugLog(message: string, data?: unknown): void {
-    if (this.isDebug) {
-      if (data !== undefined) {
-        console.warn(message, data);
-      } else {
-        console.warn(message);
-      }
-    }
+    this.logger.debugLog(message, data);
   }
 
   /**
    * Trace log helper - only logs when VERBOSE=true (more granular than debug)
    */
   private traceLog(message: string, data?: unknown): void {
-    if (this.isVerbose) {
-      if (data !== undefined) {
-        console.warn(message, data);
-      } else {
-        console.warn(message);
-      }
-    }
+    this.logger.traceLog(message, data);
   }
 
   private constructor() {
@@ -952,27 +919,7 @@ export class UsageMonitor extends EventEmitter {
     rateLimitType?: 'session' | 'weekly',
     isAuthenticated: boolean = true
   ): number {
-    let score = 100;
-
-    // Penalize rate-limited profiles heavily
-    if (isRateLimited) {
-      if (rateLimitType === 'weekly') {
-        score -= 1000; // Weekly limit is worse (takes longer to reset)
-      } else {
-        score -= 500; // Session limit resets sooner
-      }
-    }
-
-    // Penalize unauthenticated profiles
-    if (!isAuthenticated) {
-      score -= 500;
-    }
-
-    // Penalize based on current usage (weekly more important)
-    score -= weeklyPercent * 0.5;
-    score -= sessionPercent * 0.2;
-
-    return Math.round(score * 100) / 100; // Round to 2 decimal places
+    return calculateAvailabilityScore(sessionPercent, weeklyPercent, isRateLimited, rateLimitType, isAuthenticated);
   }
 
   /**
