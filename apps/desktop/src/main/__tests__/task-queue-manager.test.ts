@@ -154,6 +154,19 @@ describe('TaskQueueManager', () => {
     expect(promotedOrder(promote)).toEqual(['q1', 'q2']);
   });
 
+  it('does not stall when a promoted task is dragged back to the queue', async () => {
+    const tasks = [makeTask('a', 'queue', { createdAt: 1 }), makeTask('b', 'queue', { createdAt: 2 })];
+    const promote = vi.fn(async () => ({ success: true })); // never flips status
+    const mgr = new TaskQueueManager({ getProjects: () => [makeProject('p1', 1)], getTasks: () => tasks, promote });
+    await mgr.requestProcess('p1');
+    expect(promotedOrder(promote)).toEqual(['a']);
+    // User drags the running task back to the Queue column
+    await mgr.onTaskStatusChanged('a', 'queue', 'p1');
+    // 'a' is re-considered (oldest) instead of holding a phantom slot
+    expect(promotedOrder(promote)).toEqual(['a', 'a']);
+    expect(mgr.getState('p1')).toMatchObject({ inProgressCount: 1, queuedTaskIds: ['b'] });
+  });
+
   it('keeps going when one project throws', async () => {
     const good = [makeTask('g1', 'queue')];
     const promote = vi.fn(async () => ({ success: true }));

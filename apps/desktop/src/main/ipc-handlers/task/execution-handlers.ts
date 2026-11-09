@@ -115,9 +115,6 @@ function getSpecDirForWatcher(projectPath: string, specsBaseDir: string, specId:
 }
 
 /**
- * Register task execution handlers (start, stop, review, status management, recovery)
- */
-/**
  * Update task status manually. Callable from IPC and from the main-process queue manager.
  * Options:
  * - forceCleanup: When setting to 'done' with a worktree present, delete the worktree first
@@ -436,6 +433,9 @@ export async function applyTaskStatusUpdate(
   }
 }
 
+/**
+ * Register task execution handlers (start, stop, review, status management, recovery)
+ */
 export function registerTaskExecutionHandlers(
   agentManager: AgentManager,
   getMainWindow: () => BrowserWindow | null

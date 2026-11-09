@@ -50,9 +50,17 @@ export class TaskQueueManager {
   }
 
   /** Called on every task status change; a task leaving in_progress frees a slot. */
-  async onTaskStatusChanged(_taskId: string, status: TaskStatus, projectId?: string): Promise<void> {
+  async onTaskStatusChanged(taskId: string, status: TaskStatus, projectId?: string): Promise<void> {
     if (status === 'in_progress') return;
+    // Any other status event proves the task has left the running state (including a drag back to
+    // 'queue'), so the promoted marker must not keep counting it toward capacity.
+    this.forgetPromoted(taskId, projectId);
     await this.requestProcess(projectId);
+  }
+
+  private forgetPromoted(taskId: string, projectId?: string): void {
+    const sets = projectId ? [this.promotedIds.get(projectId)] : [...this.promotedIds.values()];
+    for (const set of sets) set?.delete(taskId);
   }
 
   getState(projectId: string): QueueState {
