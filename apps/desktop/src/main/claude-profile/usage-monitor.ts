@@ -17,17 +17,17 @@ import { loadProfilesFile } from '../services/profile/profile-manager';
 import type { APIProfile } from '../../shared/types/profile';
 import type { ApiProvider } from '../../shared/utils/provider-detection';
 import { getCredentialsFromKeychain, clearKeychainCache } from './credential-utils';
-import { reactiveTokenRefresh, ensureValidToken } from './token-refresh';
+import { reactiveTokenRefresh } from './token-refresh';
 import { isProfileRateLimited } from './rate-limit-manager';
 import { getOperationRegistry } from './operation-registry';
-import { ensureValidCodexToken } from '../ai/auth/codex-oauth';
-import { readSettingsFileAsync, writeSettingsFile } from '../settings-utils';
+import { readSettingsFileAsync } from '../settings-utils';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 
 import { appLog } from '../app-logger';
 import type { ActiveProfileResult } from './usage/types';
 import { getCredentialFingerprint, createUsageLogger } from './usage/usage-log';
 import { resolveActiveCredential, resolveInactiveProfileToken } from './usage/credential-resolver';
+import { resolveActiveProfile, resolveActiveProfileLegacy } from './usage/active-profile-resolver';
 import { calculateAvailabilityScore } from './usage/availability-score';
 import { appendProviderAccountUsage, codexUsageSource, zaiUsageSource } from './usage/provider-accounts';
 // Re-export for backward compatibility
@@ -963,255 +963,10 @@ export class UsageMonitor extends EventEmitter {
    * @returns Active profile info (including resolved credential) or null if undetermined
    */
   private async determineActiveProfile(): Promise<ActiveProfileResult | null> {
-    // Step 1: Read settings to get providerAccounts and globalPriorityOrder
-    let settings: Record<string, unknown> | undefined;
-    try {
-      settings = await readSettingsFileAsync();
-    } catch (error) {
-      this.traceLog('[UsageMonitor:TRACE] Failed to read settings file:', error);
-    }
-
-    if (!settings) {
-      this.traceLog('[UsageMonitor:TRACE] No settings available, falling back to legacy profile detection');
-      return this.determineActiveProfileLegacy();
-    }
-
-    const providerAccounts = (settings.providerAccounts as ProviderAccount[] | undefined) ?? [];
-    const globalPriorityOrder = (settings.globalPriorityOrder as string[] | undefined) ?? [];
-
-    if (globalPriorityOrder.length === 0) {
-      this.traceLog('[UsageMonitor:TRACE] No globalPriorityOrder in settings, falling back to legacy profile detection');
-      return this.determineActiveProfileLegacy();
-    }
-
-    // Step 2: Find the first ProviderAccount in the priority order
-    let account: ProviderAccount | undefined;
-    for (const accountId of globalPriorityOrder) {
-      const found = providerAccounts.find(a => a.id === accountId);
-      if (found) {
-        account = found;
-        break;
-      }
-    }
-
-    if (!account) {
-      this.traceLog('[UsageMonitor:TRACE] No ProviderAccount found in globalPriorityOrder, falling back to legacy profile detection');
-      return this.determineActiveProfileLegacy();
-    }
-
-    this.traceLog('[UsageMonitor:TRACE] Resolved active account from globalPriorityOrder:', {
-      accountId: account.id,
-      accountName: account.name,
-      provider: account.provider,
-      authType: account.authType
+    return resolveActiveProfile({
+      needsReauthProfiles: this.needsReauthProfiles,
+      log: this.credentialLog
     });
-
-    // Step 3: Resolve credential and baseUrl based on account type
-    if (account.provider === 'anthropic' && account.authType === 'oauth') {
-      // Anthropic OAuth — resolve via ClaudeProfileManager + keychain
-      const claudeProfileId = account.claudeProfileId;
-      if (!claudeProfileId) {
-        this.traceLog('[UsageMonitor:TRACE] Anthropic OAuth account missing claudeProfileId:', account.id);
-        return null;
-      }
-
-      const profileManager = getClaudeProfileManager();
-      const claudeProfile = profileManager.getProfile(claudeProfileId);
-      if (!claudeProfile || !claudeProfile.configDir) {
-        this.traceLog('[UsageMonitor:TRACE] ClaudeProfile not found or missing configDir for id:', claudeProfileId);
-        return null;
-      }
-
-      const configDir = claudeProfile.configDir.startsWith('~')
-        ? claudeProfile.configDir.replace(/^~/, homedir())
-        : claudeProfile.configDir;
-
-      // Get a fresh OAuth token (proactively refresh if near expiry)
-      let credential: string | undefined;
-      try {
-        const tokenResult = await ensureValidToken(configDir);
-
-        if (tokenResult.wasRefreshed) {
-          this.debugLog('[UsageMonitor] Proactively refreshed OAuth token for active account: ' + account.name, {
-            tokenFingerprint: getCredentialFingerprint(tokenResult.token)
-          });
-          if (tokenResult.persistenceFailed) {
-            console.warn('[UsageMonitor] Token refreshed but persistence failed for account: ' + account.name +
-              ' - user should re-authenticate to avoid auth errors on next restart');
-            this.needsReauthProfiles.add(account.id);
-          } else {
-            this.needsReauthProfiles.delete(account.id);
-          }
-        }
-
-        if (tokenResult.token) {
-          credential = tokenResult.token;
-          // Valid token obtained — clear any stale needs-reauth flag
-          if (!tokenResult.persistenceFailed) {
-            this.needsReauthProfiles.delete(account.id);
-          }
-        } else if (tokenResult.error) {
-          this.traceLog('[UsageMonitor:TRACE] Token validation failed for active account:', tokenResult.error);
-          if (tokenResult.errorCode === 'invalid_grant') {
-            this.needsReauthProfiles.add(account.id);
-          }
-          if (tokenResult.errorCode === 'missing_credentials') {
-            this.needsReauthProfiles.add(account.id);
-          }
-        }
-      } catch (error) {
-        this.traceLog('[UsageMonitor:TRACE] ensureValidToken failed for active account:', error);
-      }
-
-      // Fallback: direct keychain read
-      if (!credential) {
-        const keychainCreds = getCredentialsFromKeychain(configDir);
-        credential = keychainCreds.token ?? undefined;
-        if (credential) {
-          // Got a valid token from keychain fallback — clear stale needs-reauth flag
-          this.needsReauthProfiles.delete(account.id);
-        } else {
-          this.traceLog('[UsageMonitor:TRACE] No token in keychain for Anthropic OAuth account: ' + account.name);
-          this.needsReauthProfiles.add(account.id);
-        }
-      }
-
-      // Discover email from keychain if not persisted on the account
-      let email: string | undefined = account.email;
-      if (!email) {
-        const keychainCreds = getCredentialsFromKeychain(configDir);
-        email = keychainCreds.email ?? undefined;
-
-        // Persist discovered email back to settings asynchronously (non-blocking)
-        if (email) {
-          const discoveredEmail = email;
-          const accountId = account.id;
-          readSettingsFileAsync().then(currentSettings => {
-            if (!currentSettings) return;
-            const accounts = (currentSettings.providerAccounts as ProviderAccount[] | undefined) ?? [];
-            const target = accounts.find(a => a.id === accountId);
-            if (target && !target.email) {
-              target.email = discoveredEmail;
-              try {
-                writeSettingsFile(currentSettings);
-              } catch {
-                // Non-critical — email will be discovered again next poll
-              }
-            }
-          }).catch(() => {});
-        }
-      }
-
-      this.traceLog('[UsageMonitor:TRACE] Active auth type: Anthropic OAuth (via globalPriorityOrder)', {
-        profileId: account.id,
-        profileName: account.name,
-        profileEmail: email
-      });
-
-      return {
-        profileId: account.id,
-        profileName: account.name,
-        profileEmail: email,
-        isAPIProfile: false,
-        baseUrl: 'https://api.anthropic.com',
-        credential
-      };
-    }
-
-    if (account.provider === 'anthropic' && account.authType === 'api-key') {
-      // Anthropic API key account
-      const credential = account.apiKey;
-      if (!credential) {
-        this.traceLog('[UsageMonitor:TRACE] Anthropic API key account missing apiKey:', account.id);
-        return null;
-      }
-
-      // Try to get baseUrl from the legacy profiles file if there's a matching API profile
-      let baseUrl = account.baseUrl ?? 'https://api.anthropic.com';
-      try {
-        const profilesFile = await loadProfilesFile();
-        const matchingProfile = profilesFile.profiles.find(p => p.apiKey === credential);
-        if (matchingProfile?.baseUrl) {
-          baseUrl = matchingProfile.baseUrl;
-        }
-      } catch {
-        // Use account.baseUrl or default
-      }
-
-      this.traceLog('[UsageMonitor:TRACE] Active auth type: Anthropic API key (via globalPriorityOrder)', {
-        profileId: account.id,
-        profileName: account.name,
-        baseUrl
-      });
-
-      return {
-        profileId: account.id,
-        profileName: account.name,
-        profileEmail: account.email,
-        isAPIProfile: true,
-        baseUrl,
-        credential
-      };
-    }
-
-    if (account.provider === 'openai' && account.authType === 'oauth') {
-      // OpenAI/Codex OAuth account
-      let credential: string | undefined;
-      try {
-        const codexToken = await ensureValidCodexToken();
-        credential = codexToken ?? undefined;
-      } catch (error) {
-        this.traceLog('[UsageMonitor:TRACE] Failed to get Codex OAuth token:', error);
-      }
-
-      this.traceLog('[UsageMonitor:TRACE] Active auth type: Codex OAuth (via globalPriorityOrder)', {
-        profileId: account.id,
-        profileName: account.name,
-        hasCredential: !!credential
-      });
-
-      return {
-        profileId: account.id,
-        profileName: account.name,
-        profileEmail: account.email,
-        isAPIProfile: false,
-        baseUrl: 'https://chatgpt.com',
-        credential
-      };
-    }
-
-    if (account.provider === 'zai') {
-      // Z.AI API key account
-      const credential = account.apiKey;
-      if (!credential) {
-        this.traceLog('[UsageMonitor:TRACE] Z.AI account missing apiKey:', account.id);
-        return null;
-      }
-
-      const baseUrl = account.baseUrl ?? 'https://api.z.ai';
-
-      this.traceLog('[UsageMonitor:TRACE] Active auth type: Z.AI API key (via globalPriorityOrder)', {
-        profileId: account.id,
-        profileName: account.name,
-        baseUrl
-      });
-
-      return {
-        profileId: account.id,
-        profileName: account.name,
-        profileEmail: account.email,
-        isAPIProfile: true,
-        baseUrl,
-        credential
-      };
-    }
-
-    // Other providers (google, amazon-bedrock, etc.) — no usage monitoring support
-    this.traceLog('[UsageMonitor:TRACE] Provider not supported for usage monitoring:', {
-      provider: account.provider,
-      accountId: account.id
-    });
-    return null;
   }
 
   /**
@@ -1223,73 +978,10 @@ export class UsageMonitor extends EventEmitter {
    * @returns Active profile info or null
    */
   private async determineActiveProfileLegacy(): Promise<ActiveProfileResult | null> {
-    // First, check if an API profile is active
-    try {
-      const profilesFile = await loadProfilesFile();
-      if (profilesFile.activeProfileId) {
-        const activeAPIProfile = profilesFile.profiles.find(
-          (p) => p.id === profilesFile.activeProfileId
-        );
-        if (activeAPIProfile?.apiKey) {
-          this.traceLog('[UsageMonitor:TRACE] [Legacy] Active auth type: API Profile', {
-            profileId: activeAPIProfile.id,
-            profileName: activeAPIProfile.name,
-            baseUrl: activeAPIProfile.baseUrl
-          });
-          return {
-            profileId: activeAPIProfile.id,
-            profileName: activeAPIProfile.name,
-            isAPIProfile: true,
-            baseUrl: activeAPIProfile.baseUrl,
-            credential: activeAPIProfile.apiKey
-          };
-        }
-      }
-    } catch (error) {
-      this.traceLog('[UsageMonitor:TRACE] [Legacy] Failed to load API profiles:', error);
-    }
-
-    // Fall back to Claude OAuth profile
-    const profileManager = getClaudeProfileManager();
-    const activeOAuthProfile = profileManager.getActiveProfile();
-
-    if (!activeOAuthProfile) {
-      this.debugLog('[UsageMonitor] [Legacy] No active profile found');
-      return null;
-    }
-
-    let profileEmail = activeOAuthProfile.email;
-    if (!profileEmail) {
-      const keychainCreds = getCredentialsFromKeychain(activeOAuthProfile.configDir);
-      profileEmail = keychainCreds.email ?? undefined;
-    }
-
-    // Get credential via ensureValidToken
-    let credential: string | undefined;
-    try {
-      const tokenResult = await ensureValidToken(activeOAuthProfile.configDir);
-      if (tokenResult.token) {
-        credential = tokenResult.token;
-      }
-    } catch {
-      const keychainCreds = getCredentialsFromKeychain(activeOAuthProfile.configDir);
-      credential = keychainCreds.token ?? undefined;
-    }
-
-    this.traceLog('[UsageMonitor:TRACE] [Legacy] Active auth type: OAuth Profile', {
-      profileId: activeOAuthProfile.id,
-      profileName: activeOAuthProfile.name,
-      profileEmail
+    return resolveActiveProfileLegacy({
+      needsReauthProfiles: this.needsReauthProfiles,
+      log: this.credentialLog
     });
-
-    return {
-      profileId: activeOAuthProfile.id,
-      profileName: activeOAuthProfile.name,
-      profileEmail,
-      isAPIProfile: false,
-      baseUrl: 'https://api.anthropic.com',
-      credential
-    };
   }
 
   /**
