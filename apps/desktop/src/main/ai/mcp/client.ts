@@ -42,9 +42,10 @@ function createTransport(
     return new StdioClientTransport({
       command: stdioConfig.command,
       args: stdioConfig.args ?? [],
-      env: stdioConfig.env
-        ? { ...process.env, ...stdioConfig.env } as Record<string, string>
-        : undefined,
+      // Do not spread process.env here: it would hand every developer
+      // credential to the MCP server. StdioClientTransport merges this over
+      // the SDK's restricted default environment (PATH, HOME, etc.).
+      env: stdioConfig.env,
       cwd: stdioConfig.cwd,
     });
   }
