@@ -8,6 +8,9 @@
    - [Events Crossing the Worker Boundary](#events-crossing-the-worker-boundary)
 3. [Agent Types, Prompts and Tools](#agent-types-prompts-and-tools)
 4. [Providers and Model Resolution](#providers-and-model-resolution)
+5. [Memory System](#memory-system)
+6. [Cross-Platform Development](#cross-platform-development)
+7. [End-to-End Testing](#end-to-end-testing)
 
 All paths below are relative to `apps/desktop/src/main/` unless stated otherwise.
 
@@ -292,3 +295,97 @@ The code in `claude-code/`:
 - `tool-bridge.ts`: serves Aperant's own tools to the CLI, so the security layer still applies.
 
 Limits on this path: `prepareStep` cannot inject text between steps, so mid-session nudges and memory injection do not happen, and the CLI compacts its own context.
+
+## Memory System
+
+Memory is a local, TypeScript implementation under `ai/memory/`. CLAUDE.md describes it as a Graphiti knowledge graph reached through a Python MCP sidecar. That describes only an optional add-on today.
+
+### Where the code differs from the CLAUDE.md summary
+
+- The primary memory store is a libSQL (SQLite) file written by TypeScript code in the Electron main process. It is not Graphiti.
+- No Python Graphiti sidecar is in this repository (the repo has only `apps/desktop/`). The memory MCP server exists only as a client-side hook. `ai/mcp/registry.ts` builds a `memory` server (StreamableHTTP) only when `GRAPHITI_MCP_URL` is set, and `agent/agent-manager.ts` sets `memoryEnabled` from that variable. Without a sidecar behind that URL, nothing uses it.
+- `ai/context/graphiti-integration.ts` is a stub. `isMemoryEnabled()` always returns `false` and `fetchGraphHints()` returns `[]`. Its own header says memory now lives in `ai/memory/`. `isGraphitiEnabled` is a deprecated alias.
+- The "knowledge graph" in the local store is a code graph (files, symbols and their edges, built with tree-sitter), not Graphiti's entity graph.
+
+### Local store
+
+- `db.ts`: `getMemoryClient()` lazily loads `@libsql/client/sqlite3` through CJS `require()`, so the native module resolves from `Resources/node_modules/` in a packaged app. The factory documents three modes (local file, Turso embedded replica, pure cloud). In Electron the file is `memory.db` in `app.getPath('userData')`, shared by every project; rows carry a `project_id`. `getInMemoryClient()` serves tests.
+- `schema.ts`: `MEMORY_SCHEMA_SQL` creates `memories`, `memory_embeddings`, the `memories_fts` FTS5 table, `embedding_cache` (7-day TTL), the `observer_*` tables (file nodes, co-access edges, error patterns, module session counts, synthesis log) and the graph tables (`graph_nodes`, `graph_edges`, `graph_closure`, `graph_index_state`, `scip_symbols`). `MEMORY_PRAGMA_SQL` runs separately.
+- `types.ts`: a memory has a `MemoryType` (`gotcha`, `decision`, `preference`, `pattern`, `requirement`, `error_pattern`, `module_insight`, `prefetch_pattern`, `work_state`, `causal_dependency`, `task_calibration`, `e2e_observation`, `dead_end`, `work_unit_outcome`, `workflow_recipe`, `context_cost`), a `MemorySource` (`agent_explicit`, `observer_inferred`, `qa_auto`, `mcp_auto`, `commit_auto`, `user_taught`) and a `MemoryScope` (`global`, `module`, `work_unit`, `session`).
+- `memory-service.ts`: `MemoryServiceImpl` offers `store`, `search`, `searchByPattern`, `insertUserTaught`, `searchWorkflowRecipe`, `updateAccessCount`, `deprecateMemory`, `verifyMemory`, `pinMemory` and `deleteMemory`.
+- `embedding-service.ts`: `EmbeddingService` picks a provider (OpenAI, Google, Azure, Voyage, or an Ollama model such as qwen3-embedding 8b/4b/0.6b or another embedding model) and falls back to a hash-based embedding with no semantic similarity. It prepends file or module context to each text and caches vectors in `embedding_cache`.
+
+### Retrieval (`retrieval/`)
+
+`RetrievalPipeline` combines BM25 (`bm25-search.ts`), dense search, graph search and optional HyDE. `query-classifier.ts` weights the paths per query type, `rrf-fusion.ts` merges them with weighted reciprocal rank fusion, `graph-boost.ts` boosts graph neighbours, `reranker.ts` reranks, and `context-packer.ts` fits the result to a token budget.
+
+### Code graph (`graph/`)
+
+`tree-sitter-loader.ts`, `ast-extractor.ts` and `ast-chunker.ts` parse source. `graph-database.ts` stores nodes and edges, `incremental-indexer.ts` keeps them current, and `impact-analyzer.ts` answers "what does this change affect".
+
+### How memories are recorded
+
+1. `agent/worker-bridge.ts` creates a `MainMemoryHandler` (`memory/ipc/main-memory-handler.ts`) per agent worker on the main thread, attached to a dedicated `MessagePort` (`memoryPort`), not the worker's event channel.
+2. In the worker, `agent/worker.ts` builds a `WorkerObserverProxy` on that port. It gives agents two tools, `record_memory` and `search_memory` (`memory/tools/`), and passes `memoryContext` to the session runner.
+3. `observer/memory-observer.ts` watches tool calls and other signals (`signals.ts`) and keeps candidates in a scratchpad. `trust-gate.ts`, `promotion.ts` and `dead-end-detector.ts` decide what gets promoted.
+4. On `finalize()`, the main-thread handler promotes the candidates and stores them through `MemoryServiceImpl`. The handler, not the worker message, supplies `projectId` and `sessionId`, and it rewrites file paths relative to the project so worktrees share memories.
+
+### How memories are injected
+
+- `session/runner.ts`: when `memoryContext` is present, `prepareStep` uses `StepInjectionDecider` and `StepMemoryState` (`injection/`) to add relevant memories between steps, and `buildMemoryAwareStopCondition` adjusts the step limit using a calibration factor.
+- `injection/planner-memory-context.ts`, `prefetch-builder.ts` and `qa-context.ts` build context for the planner, file prefetch and QA sessions.
+- The Claude Code engine path cannot inject between steps, so it gets no mid-session memory (see the limits under [Providers and Model Resolution](#providers-and-model-resolution)).
+
+### Other pieces
+
+- `ipc-handlers/memory-handlers.ts` is not the memory store's API. It registers only the Ollama handlers (status, install check, install, list models, list embedding models, pull model with progress), which serve the embedding setup.
+- `Memory.md` at the repository root is the original design document ("V5"). Treat it as design intent, not as a description of the code.
+
+## Cross-Platform Development
+
+Aperant runs on Windows, macOS and Linux. Platform logic lives in `platform/`, and the rule is: **never read `process.platform` directly outside that module**. Import from it instead. (A few older files still read it directly, for example `utils/windows-paths.ts` and `claude-profile/credential-utils.ts`; do not copy them.)
+
+### The platform module
+
+- `platform/types.ts`: the `OS` enum, `ShellType`, `PathConfig`, `ShellConfig` and `BinaryDirectories`.
+- `platform/index.ts`:
+  - Detection: `getCurrentOS()`, `isWindows()`, `isMacOS()`, `isLinux()`, `isUnix()`, `getPlatformDescription()`.
+  - Paths: `getPathConfig()`, `getPathDelimiter()` (`;` on Windows, `:` elsewhere), `joinPaths(...)`, `normalizePath()`, `isSecurePath()` (rejects traversal and unsafe characters), `getHomebrewPath()`, `getBinaryDirectories()`.
+  - Executables: `findExecutable(name, additionalPaths)` searches `PATH`, then platform binary directories, then common install locations, and returns a path or `null`. `getExecutableExtension()` and `withExecutableExtension()` add `.exe` where needed. `getNpmCommand()` and `getNpxCommand()` return the right binary name.
+  - Shells: `getShellConfig(preferredShell)` and `requiresShell(command)`. On Windows, `.cmd` and `.bat` files need a shell to run.
+  - Environment and processes: `getEnvVar()` (case-insensitive on Windows) and `killProcessGracefully()` with `GRACEFUL_KILL_TIMEOUT_MS`.
+- `platform/paths.ts`: tool lookup lists such as `getClaudeExecutablePath()`, `getPythonCommands()`, `getGitExecutablePath()`, `getNodeExecutablePath()`, `getNpmExecutablePath()`, `getWindowsShellPaths()`, `expandWindowsEnvVars()`, `getOllamaExecutablePaths()`, `getOllamaInstallCommand()`, `getWhichCommand()` and `getWindowsToolPath()`. `index.ts` re-exports some of them.
+
+Practical rules: look up tools with `findExecutable()` instead of hardcoding paths, build paths with `joinPaths()` instead of string concatenation, and check `requiresShell()` before spawning anything that could be a `.cmd` or `.bat` file.
+
+### Guides
+
+- [guides/windows-development.md](../guides/windows-development.md): Windows-specific development notes.
+- [guides/linux.md](../guides/linux.md): Linux installation and building (Flatpak and other packages).
+
+### CI in this fork
+
+`.github/workflows/ci.yml` runs the `test-frontend` job on a matrix of `ubuntu-latest` and `macos-latest` (type check, unit tests, integration tests, build). CI does not run on Windows for this fork, so keep Windows paths working by reading the code, and test them by hand where you can.
+
+## End-to-End Testing
+
+There are two separate things: QA agents driving a running Electron app through an MCP server, and Playwright tests for the app.
+
+### Electron MCP for QA agents
+
+1. Start the app with remote debugging: `npm run dev:mcp` (`electron-vite dev -- --remote-debugging-port=9222`), or `npm run start:mcp` (`electron . --remote-debugging-port=9222`) for a built app. `npm run dev:debug` only sets `DEBUG=true` and does not open the debugging port.
+2. Set `ELECTRON_MCP_ENABLED=true` in the project's `.env`. The settings UI writes it through `ipc-handlers/env-handlers.ts`, and `ai/mcp/project-settings.ts` reads it as `electronMcpEnabled`.
+3. `ai/mcp/registry.ts` defines the `electron` server: stdio, `npx -y electron-mcp-server`, off by default, for QA agents only, and it attaches to the app over the Chrome DevTools Protocol. The registry only launches that external package; no CDP server is implemented in this repository.
+4. `ai/config/agent-configs.ts` lists the tools a QA agent may call (`ELECTRON_TOOLS`): `mcp__electron__get_electron_window_info`, `mcp__electron__take_screenshot`, `mcp__electron__send_command_to_electron` and `mcp__electron__read_electron_logs`. `ai/tools/registry.ts` reads `ELECTRON_MCP_ENABLED` when it assembles tools.
+
+The tool names `click_by_text`, `fill_input`, `get_page_structure`, `send_keyboard_shortcut` and `eval` that CLAUDE.md lists do not appear in this repository. They may be commands accepted by `send_command_to_electron` in the external `electron-mcp-server`, but this code does not confirm that.
+
+### Playwright
+
+- `npm run test:e2e` runs `npx playwright test --config=e2e/playwright.config.ts`. The config in `apps/desktop/e2e/` matches `**/*.e2e.ts`, runs one worker serially, allows 60 s per test, retries twice in CI, and takes screenshots on failure. The specs are `claude-accounts.e2e.ts`, `flows.e2e.ts` and `terminal-copy-paste.e2e.ts`, with `electron-helper.ts` as the launcher helper.
+- `.github/workflows/e2e.yml` builds the app and runs `xvfb-run --auto-servernum npm run test:e2e` on `ubuntu-latest`.
+- Vitest also runs unit tests (`npm run test:unit`) and integration tests (`npm run test:integration`). `src/__tests__/e2e/smoke.test.ts` is a Vitest test with mocked IPC, not a Playwright test.
+
+### Dev-instance isolation
+
+An unpackaged app keeps its data and default Claude profile in `apps/desktop/.dev-user-data/` (`main/dev-instance-isolation.ts`). It does not use the installed app's accounts, so use a dev run to test the UI, not to run real agents. Start only one dev instance at a time, because task worktrees share the Vite cache. If startup fails with `does not provide an export named 'app'`, run `unset ELECTRON_RUN_AS_NODE` first.
