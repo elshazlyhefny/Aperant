@@ -5,6 +5,30 @@ import { vi, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, existsSync } from 'fs';
 import path from 'path';
 
+// zeenha fork: app-logger loads electron-log and electron, and electron's entry
+// point throws when its binary was not downloaded, as on CI. Tests that exercise
+// the logger itself call vi.unmock on it.
+vi.mock('../main/app-logger', () => {
+  const appLog = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    log: vi.fn(),
+  };
+  return {
+    appLog,
+    logger: appLog,
+    getSystemInfo: vi.fn(() => ({})),
+    getLogsPath: vi.fn(() => ''),
+    getRecentLogs: vi.fn(() => []),
+    getRecentErrors: vi.fn(() => []),
+    listLogFiles: vi.fn(() => []),
+    generateDebugReport: vi.fn(() => ''),
+    setupErrorLogging: vi.fn(),
+  };
+});
+
 // Mock localStorage for tests that need it
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
