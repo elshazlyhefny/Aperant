@@ -520,33 +520,12 @@ describe('Task Logs Integration (IPC → Service → State)', () => {
       );
     });
 
-    it('should forward stream-chunk events to renderer', async () => {
+    it('should not register a stream-chunk forwarder', async () => {
       const { taskLogService } = await import('../../../task-log-service');
-
-      const mockChunk = {
-        type: 'text' as const,
-        content: 'Test log entry',
-        phase: 'coding' as const,
-        timestamp: '2024-01-01T01:00:00Z'
-      };
-
-      // Get the registered event handler
       const onCall = (taskLogService.on as Mock).mock.calls.find(
         call => call[0] === 'stream-chunk'
       );
-      expect(onCall).toBeDefined();
-      if (!onCall) throw new Error('stream-chunk handler not registered');
-      const eventHandler = onCall[1];
-
-      // Trigger the event
-      eventHandler('001-test-task', mockChunk);
-
-      // Verify it was forwarded to renderer
-      expect(mockMainWindow.webContents?.send).toHaveBeenCalledWith(
-        'task:logsStream',
-        '001-test-task',
-        mockChunk
-      );
+      expect(onCall).toBeUndefined();
     });
 
     it('should not crash when main window is null', async () => {

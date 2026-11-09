@@ -50,4 +50,10 @@ export interface ClaudeCodeSettingsHierarchy {
   managed?: ClaudeCodeSettings;
   /** Final merged result (user < projectShared < projectLocal < managed) */
   merged: ClaudeCodeSettings;
+  /** Env vars dropped by the sanitizer while merging (names only, never values) */
+  droppedEnv?: Array<{
+    key: string;
+    reason: 'dangerous' | 'project-policy';
+    level: 'user' | 'projectShared' | 'projectLocal' | 'managed';
+  }>;
 }

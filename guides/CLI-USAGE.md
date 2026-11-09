@@ -25,7 +25,7 @@ npm start
 
 ## Configuration
 
-All configuration is done through the app's Settings UI. You can:
+App-wide configuration is done through the app's Settings UI. Two per-project files, `.aperant.json` and `.auto-claude/.env`, also affect behaviour; see [project-configuration.md](project-configuration.md). In the Settings UI you can:
 
 - Connect Claude accounts (OAuth or API key)
 - Configure multiple provider profiles (Anthropic, OpenAI, Google, etc.)

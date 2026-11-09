@@ -187,6 +187,10 @@ export interface SerializedSecurityProfile {
    * in the main process. Absent means ON (the validator fails closed).
    */
   prOnlyLanding?: boolean;
+  /** zeenha fork: env var names kept in Bash child environments (project setting). */
+  envPassthrough?: string[];
+  /** zeenha fork: per-project Bash sandbox mode (project setting). */
+  bashSandbox?: string;
 }
 
 // =============================================================================

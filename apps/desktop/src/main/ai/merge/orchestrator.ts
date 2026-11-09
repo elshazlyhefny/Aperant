@@ -585,7 +585,22 @@ export class MergeOrchestrator {
       };
     }
 
-    // No conflicts at all — direct copy from last task
+    // No conflicts were detected but several tasks changed this file. A direct
+    // copy would keep only one task's version and silently drop the others'
+    // edits, so report it instead of claiming success.
+    if (taskSnapshots.length > 1) {
+      return {
+        decision: MergeDecision.FAILED,
+        filePath,
+        conflictsResolved: [],
+        conflictsRemaining: [],
+        aiCallsMade: 0,
+        tokensUsed: 0,
+        explanation: `${taskSnapshots.length} tasks modified this file and no merge strategy could combine them`,
+        error: 'Cannot combine changes from multiple tasks without a merge strategy; a direct copy would drop changes',
+      };
+    }
+
     return {
       decision: MergeDecision.DIRECT_COPY,
       filePath,

@@ -9,6 +9,9 @@
  * direct AI SDK tool integration. Stdio transport uses StdioClientTransport
  * from @modelcontextprotocol/sdk. HTTP transport uses the built-in SSE
  * transport from @ai-sdk/mcp.
+ *
+ * Stdio servers receive only their configured env plus the SDK's restricted
+ * defaults (PATH, HOME, etc.), never the full process.env.
  */
 
 import { createMCPClient } from '@ai-sdk/mcp';
@@ -42,9 +45,10 @@ function createTransport(
     return new StdioClientTransport({
       command: stdioConfig.command,
       args: stdioConfig.args ?? [],
-      env: stdioConfig.env
-        ? { ...process.env, ...stdioConfig.env } as Record<string, string>
-        : undefined,
+      // Do not spread process.env here: it would hand every developer
+      // credential to the MCP server. StdioClientTransport merges this over
+      // the SDK's restricted default environment (PATH, HOME, etc.).
+      env: stdioConfig.env,
       cwd: stdioConfig.cwd,
     });
   }

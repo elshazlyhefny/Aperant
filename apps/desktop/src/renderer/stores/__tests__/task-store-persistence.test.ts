@@ -34,6 +34,7 @@ describe('task-store-persistence', () => {
   let useTaskStore: typeof import('../task-store').useTaskStore;
   let loadTasks: typeof import('../task-store').loadTasks;
   let createTask: typeof import('../task-store').createTask;
+  let useTaskLogsStore: typeof import('../task-logs-store').useTaskLogsStore;
 
 
   beforeEach(async () => {
@@ -45,6 +46,8 @@ describe('task-store-persistence', () => {
     useTaskStore = storeModule.useTaskStore;
     loadTasks = storeModule.loadTasks;
     createTask = storeModule.createTask;
+    useTaskLogsStore = (await import('../task-logs-store')).useTaskLogsStore;
+    useTaskLogsStore.getState().clearAllLogs();
   });
 
   afterEach(() => {
@@ -77,8 +80,7 @@ describe('task-store-persistence', () => {
 
       const state = useTaskStore.getState();
       expect(state.tasks).toHaveLength(1);
-      expect(state.tasks[0].logs).toHaveLength(3);
-      expect(state.tasks[0].logs).toEqual(['Log line 1', 'Log line 2', 'Log line 3']);
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toEqual(['Log line 1', 'Log line 2', 'Log line 3']);
     });
 
     it('should preserve logs across store recreation', () => {
@@ -103,15 +105,14 @@ describe('task-store-persistence', () => {
       store.setTasks(tasksWithLogs);
 
       // Verify logs are present
-      const state1 = useTaskStore.getState();
-      expect(state1.tasks[0].logs).toEqual(['Initial log']);
+      const _state1 = useTaskStore.getState();
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toEqual(['Initial log']);
 
       // Append more logs
       store.appendLog('task-1', 'Additional log');
 
       // Verify logs persisted
-      const state2 = useTaskStore.getState();
-      expect(state2.tasks[0].logs).toEqual(['Initial log', 'Additional log']);
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toEqual(['Initial log', 'Additional log']);
     });
 
     it('should handle empty logs array correctly', async () => {
@@ -137,8 +138,7 @@ describe('task-store-persistence', () => {
 
       await loadTasks('test-project');
 
-      const state = useTaskStore.getState();
-      expect(state.tasks[0].logs).toEqual([]);
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1'] ?? []).toEqual([]);
     });
 
     it('should handle missing logs property gracefully', async () => {
@@ -192,8 +192,8 @@ describe('task-store-persistence', () => {
       store.batchAppendLogs('task-1', newLogs);
 
       const state = useTaskStore.getState();
-      expect(state.tasks[0].logs).toHaveLength(5);
-      expect(state.tasks[0].logs).toEqual(newLogs);
+      expect(state.tasks).toHaveLength(1);
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toEqual(newLogs);
     });
 
     it('should handle batch append with empty array', () => {
@@ -217,8 +217,8 @@ describe('task-store-persistence', () => {
       // Batch append empty array
       store.batchAppendLogs('task-1', []);
 
-      const state = useTaskStore.getState();
-      expect(state.tasks[0].logs).toEqual(['Existing log']);
+      const _state = useTaskStore.getState();
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toEqual(['Existing log']);
     });
 
     it('should append individual log correctly', () => {
@@ -240,8 +240,8 @@ describe('task-store-persistence', () => {
       store.setTasks([task]);
       store.appendLog('task-1', 'Log 2');
 
-      const state = useTaskStore.getState();
-      expect(state.tasks[0].logs).toEqual(['Log 1', 'Log 2']);
+      const _state = useTaskStore.getState();
+      expect(useTaskLogsStore.getState().logsByTaskId['task-1']).toEqual(['Log 1', 'Log 2']);
     });
 
     it('should not append log to non-existent task', () => {
@@ -253,6 +253,7 @@ describe('task-store-persistence', () => {
 
       const state = useTaskStore.getState();
       expect(state.tasks).toHaveLength(0);
+      expect(useTaskLogsStore.getState().logsByTaskId).toEqual({});
     });
   });
 
@@ -326,7 +327,7 @@ describe('task-store-persistence', () => {
     });
 
     it('should set loading state during IPC call', async () => {
-      let resolveGetTasks: (value: any) => void;
+      let resolveGetTasks!: (value: any) => void;
       const getTasksPromise = new Promise((resolve) => {
         resolveGetTasks = resolve;
       });
@@ -340,7 +341,7 @@ describe('task-store-persistence', () => {
       expect(loadingState.isLoading).toBe(true);
 
       // Resolve the IPC call
-      resolveGetTasks!({
+      resolveGetTasks?.({
         success: true,
         data: []
       });

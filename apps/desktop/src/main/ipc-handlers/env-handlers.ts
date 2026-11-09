@@ -7,7 +7,9 @@ import { app } from 'electron';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { projectStore } from '../project-store';
 import { parseEnvFile } from './utils';
-import { parseSecureOrigins } from '../ai/mcp/project-settings';
+import { describeProjectMcpTrust, parseSecureOrigins } from '../ai/mcp/project-settings';
+import { approveChromeExecutable, approveServer, getApprovals } from '../mcp-approval-store';
+import { isAutoBuildEnvTrackedByGit } from '../project-initializer';
 
 // GitLab environment variable keys
 const GITLAB_ENV_KEYS = {
@@ -504,6 +506,15 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         }
       }
 
+      // zeenha fork: approval state of what the file declares. Servers that fail
+      // validation or variable expansion have no entry: shown as not launchable.
+      const trust = describeProjectMcpTrust(project.path, project.autoBuildPath, getApprovals(project.path));
+      config.customMcpServerTrust = Object.fromEntries(
+        trust.servers.map((t) => [t.server.id, { approved: t.approved, hash: t.hash }])
+      );
+      if (trust.chromeExecutable) config.chromeDevtoolsExecutableApproved = trust.chromeExecutable.approved;
+      config.envTrackedByGit = isAutoBuildEnvTrackedByGit(project.path, project.autoBuildPath);
+
       return { success: true, data: config };
     }
   );
@@ -532,11 +543,27 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
           // File doesn't exist yet - existingContent stays undefined
         }
 
+        // zeenha fork: diff rule. A server the user adds or edits on this page has a
+        // hash that did not exist before the write, so it is approved with no extra
+        // step. Servers already in the file (e.g. committed by a hostile repo) keep
+        // their hash, so saving unrelated settings never approves them. Same rule
+        // for the Chrome executable: approved only when its value changed.
+        const before = describeProjectMcpTrust(project.path, project.autoBuildPath, undefined);
+
         // Generate new content
         const newContent = generateEnvContent(config, existingContent);
 
         // Write to file
         writeFileSync(envPath, newContent, 'utf-8');
+
+        const after = describeProjectMcpTrust(project.path, project.autoBuildPath, undefined);
+        const knownHashes = new Set(before.servers.map((t) => t.hash));
+        for (const t of after.servers) {
+          if (!knownHashes.has(t.hash)) approveServer(project.path, t.hash);
+        }
+        if (after.chromeExecutable && after.chromeExecutable.path !== before.chromeExecutable?.path) {
+          approveChromeExecutable(project.path, after.chromeExecutable.path);
+        }
 
         return { success: true };
       } catch (error) {
