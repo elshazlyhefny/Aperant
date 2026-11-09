@@ -344,6 +344,7 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
       // Default config
       const config: ProjectEnvConfig = {
         linearEnabled: false,
+        jiraEnabled: false,
         githubEnabled: false,
         gitlabEnabled: false,
         memoryEnabled: false,

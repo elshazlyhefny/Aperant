@@ -365,6 +365,13 @@ export interface ProjectEnvConfig {
   linearProjectId?: string;
   linearRealtimeSync?: boolean; // Enable real-time sync of new Linear tasks
 
+  // Jira Integration
+  jiraEnabled: boolean;
+  jiraSiteUrl?: string;
+  jiraEmail?: string;
+  jiraApiToken?: string;
+  jiraProjectKey?: string;
+
   // GitHub Integration
   githubEnabled: boolean;
   githubToken?: string;

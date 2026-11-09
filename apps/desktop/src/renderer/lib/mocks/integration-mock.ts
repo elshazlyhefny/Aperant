@@ -8,6 +8,7 @@ export const integrationMock = {
     success: true,
     data: {
       linearEnabled: false,
+      jiraEnabled: false,
       githubEnabled: false,
       gitlabEnabled: false,
       memoryEnabled: false,
