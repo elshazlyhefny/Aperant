@@ -28,17 +28,23 @@ export {
   readAllSettings,
 } from './reader';
 
-export { mergeClaudeCodeSettings } from './merger';
+export { mergeClaudeCodeSettings, mergeClaudeCodeSettingsWithReport } from './merger';
 
 export {
   sanitizeEnvVars,
+  sanitizeEnvVarsWithReport,
+  isProjectBlockedEnvVar,
+  getProjectBlockedEnvVars,
   isDangerousEnvVar,
   isWarningEnvVar,
   getDangerousEnvVars,
   getWarningEnvVars,
 } from './env-sanitizer';
+export type { DroppedEnvVar, SanitizeEnvReport } from './env-sanitizer';
+export { formatDroppedEnvNotice } from './env-drop-notice';
 
 import { readAllSettings as _readAllSettings } from './reader';
+import type { ClaudeCodeSettingsHierarchy } from './types';
 
 /**
  * Convenience function: read all settings levels, merge, and return just the env object.
@@ -52,4 +58,19 @@ import { readAllSettings as _readAllSettings } from './reader';
 export function getClaudeCodeEnv(projectPath?: string): Record<string, string> {
   const hierarchy = _readAllSettings(projectPath);
   return hierarchy.merged.env ?? {};
+}
+
+/**
+ * Like getClaudeCodeEnv, but also returns the env vars the sanitizer dropped
+ * (names, reasons and levels only; never values).
+ */
+export function getClaudeCodeEnvWithReport(projectPath?: string): {
+  env: Record<string, string>;
+  dropped: NonNullable<ClaudeCodeSettingsHierarchy['droppedEnv']>;
+} {
+  const hierarchy = _readAllSettings(projectPath);
+  return {
+    env: hierarchy.merged.env ?? {},
+    dropped: hierarchy.droppedEnv ?? [],
+  };
 }

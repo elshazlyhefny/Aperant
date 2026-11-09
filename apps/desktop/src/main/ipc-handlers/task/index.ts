@@ -5,6 +5,7 @@
  * - CRUD operations (create, read, update, delete)
  * - Execution management (start, stop, review, status, recovery)
  * - Worktree operations (status, diff, merge, discard, list)
+ * - Worktree tools (detect IDEs/terminals, open in IDE/terminal)
  * - Logs management (get, watch, unwatch)
  */
 
@@ -13,6 +14,7 @@ import { AgentManager } from '../../agent';
 import { registerTaskCRUDHandlers } from './crud-handlers';
 import { registerTaskExecutionHandlers } from './execution-handlers';
 import { registerWorktreeHandlers } from './worktree-handlers';
+import { registerWorktreeToolHandlers } from './tool-handlers';
 import { registerTaskLogsHandlers } from './logs-handlers';
 import { registerTaskArchiveHandlers } from './archive-handlers';
 import { registerMergedCleanupHandlers } from './merged-cleanup-handlers';
@@ -32,6 +34,9 @@ export function registerTaskHandlers(
 
   // Register worktree handlers (status, diff, merge, discard, list)
   registerWorktreeHandlers(getMainWindow);
+
+  // Register worktree tool handlers (detect tools, open in IDE/terminal)
+  registerWorktreeToolHandlers();
 
   // Register logs handlers (get, watch, unwatch)
   registerTaskLogsHandlers(getMainWindow);

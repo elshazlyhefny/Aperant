@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { isWindows } from '../../platform';
+import { buildChildEnv } from '../security/child-env';
 
 /** MCP server name the tool bridge registers under; tools appear as `mcp__aperant__<name>`. */
 export const BRIDGE_SERVER_NAME = 'aperant';
@@ -146,7 +147,10 @@ export function buildClaudeArgs(input: ClaudeArgsInput): string[] {
  * from inside another Claude Code session still runs.
  */
 export function buildClaudeEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...base };
+  // Credential variables are scrubbed; the CLI keeps what it needs to sign in.
+  const env: NodeJS.ProcessEnv = buildChildEnv(base, {
+    keep: ['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR'],
+  });
   delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_AUTH_TOKEN;
   delete env.CLAUDECODE;

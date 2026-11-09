@@ -142,19 +142,20 @@ describe('createMcpClient', () => {
     expect(typeof result.close).toBe('function');
   });
 
-  it('merges process.env with server env for stdio transport', async () => {
-    const originalPath = process.env.PATH;
-    process.env.PATH = '/usr/bin';
+  it('does not leak process.env secrets into the stdio transport env', async () => {
+    const original = process.env.AWS_SECRET_ACCESS_KEY;
+    process.env.AWS_SECRET_ACCESS_KEY = 'super-secret';
 
-    await createMcpClient(stdioConfig);
+    try {
+      await createMcpClient(stdioConfig);
 
-    expect(mockStdioClientTransport).toHaveBeenCalledWith(
-      expect.objectContaining({
-        env: expect.objectContaining({ PATH: '/usr/bin', MY_VAR: 'value' }),
-      }),
-    );
-
-    process.env.PATH = originalPath;
+      const options = mockStdioClientTransport.mock.calls[0][0] as { env: Record<string, string> };
+      expect(options.env).not.toHaveProperty('AWS_SECRET_ACCESS_KEY');
+      expect(options.env).toEqual((stdioConfig.transport as { env?: Record<string, string> }).env);
+    } finally {
+      if (original === undefined) delete process.env.AWS_SECRET_ACCESS_KEY;
+      else process.env.AWS_SECRET_ACCESS_KEY = original;
+    }
   });
 
   it('passes undefined env to StdioClientTransport when no env in config', async () => {

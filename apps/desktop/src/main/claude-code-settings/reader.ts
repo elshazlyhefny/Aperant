@@ -17,7 +17,7 @@ import { homedir } from 'os';
 import path from 'path';
 import { isWindows, isMacOS } from '../platform';
 import type { ClaudeCodeSettings, ClaudeCodeSettingsHierarchy } from './types';
-import { mergeClaudeCodeSettings } from './merger';
+import { mergeClaudeCodeSettingsWithReport } from './merger';
 import { debugLog, debugError } from '../../shared/utils/debug-logger';
 
 const LOG_PREFIX = '[ClaudeCodeSettings]';
@@ -321,7 +321,9 @@ export function readAllSettings(projectPath?: string): ClaudeCodeSettingsHierarc
     merged: {} as ClaudeCodeSettings, // placeholder, replaced below
   };
 
-  hierarchy.merged = mergeClaudeCodeSettings(hierarchy);
+  const { settings, droppedEnv } = mergeClaudeCodeSettingsWithReport(hierarchy);
+  hierarchy.merged = settings;
+  hierarchy.droppedEnv = droppedEnv;
 
   debugLog(`${LOG_PREFIX} Merged settings result:`, hierarchy.merged);
   return hierarchy;

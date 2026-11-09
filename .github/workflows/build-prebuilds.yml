@@ -10,11 +10,11 @@ on:
       electron_version:
         description: 'Electron version to build for'
         required: false
-        default: '40.0.0'
+        default: '40.10.6'
 
 env:
   # Default Electron version - update when upgrading Electron in package.json
-  ELECTRON_VERSION: ${{ github.event.inputs.electron_version || '40.0.0' }}
+  ELECTRON_VERSION: ${{ github.event.inputs.electron_version || '40.10.6' }}
 
 jobs:
   build-windows:

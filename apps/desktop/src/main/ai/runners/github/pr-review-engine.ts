@@ -14,6 +14,10 @@ import { z } from 'zod';
 
 import { createSimpleClient } from '../../client/factory';
 import type { ModelShorthand, ThinkingLevel } from '../../config/types';
+import type {
+  PRReviewCategory,
+  PRReviewSeverity,
+} from '../../../../shared/types/pr-review';
 import { parseLLMJson } from '../../schema/structured-output';
 import {
   ScanResultSchema,
@@ -67,6 +71,12 @@ export const ReviewCategory = {
 } as const;
 
 export type ReviewCategory = (typeof ReviewCategory)[keyof typeof ReviewCategory];
+
+// Compile-time guards: the engine's enums must stay assignable to the shared contract.
+const _categoryCheck: (c: ReviewCategory) => PRReviewCategory = (c) => c;
+const _severityCheck: (s: ReviewSeverity) => PRReviewSeverity = (s) => s;
+void _categoryCheck;
+void _severityCheck;
 
 /** Verdict on AI tool comments. */
 export const AICommentVerdict = {

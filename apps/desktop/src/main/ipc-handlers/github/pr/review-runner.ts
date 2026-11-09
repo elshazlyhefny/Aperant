@@ -20,6 +20,7 @@ import {
 import type { ModelShorthand, ThinkingLevel } from "../../../ai/config/types";
 import { safeBreadcrumb, safeCaptureException } from "../../../sentry";
 import { checkoutNoteFor, preparePRReviewCheckout, type PRReviewCheckout } from "../../../ai/runners/github/pr-review-checkout";
+import { getApprovals } from "../../../mcp-approval-store";
 import { createPRReviewMcpSession, type PRReviewMcpSession } from "../../../ai/runners/github/pr-review-mcp";
 import type { PRReviewFinding, PRReviewResult, PRReviewProgress } from "./types";
 import { debugLog, runningReviews, getReviewKey } from "./shared";
@@ -226,8 +227,11 @@ export async function runPRReview(
         ? `[Context] Reviewing a checkout of the PR head ${checkout.sha.slice(0, 12)}`
         : `[Context] WARNING: reviewing the base branch's files, not the PR's: ${checkout.reason}`,
     );
-    mcp = createPRReviewMcpSession(project.path, project.autoBuildPath || ".auto-claude", (line) =>
-      logCollector.processLine(`[Context] ${line}`),
+    mcp = createPRReviewMcpSession(
+      project.path,
+      project.autoBuildPath || ".auto-claude",
+      (line) => logCollector.processLine(`[Context] ${line}`),
+      getApprovals(project.path),
     );
 
     sendProgress({ phase: "analyzing", prNumber, progress: 30, message: "Starting parallel orchestrator review..." });

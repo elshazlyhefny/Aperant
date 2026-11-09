@@ -14,10 +14,8 @@ Successfully refactored the monolithic `task-handlers.ts` file (1,885 lines) int
 
 ### After
 - **Main entry point**: `task-handlers.ts` (22 lines) - Simple re-export
-- **Modular structure**: 6 focused modules + 1 index + 1 shared utilities
-- **Total lines**: ~1,914 lines (includes new documentation and structure)
-- **Average module size**: ~314 lines per module
-- **Largest module**: 759 lines (worktree-handlers.ts)
+- **Modular structure**: focused handler modules, worktree helper modules, a `tool-detection/` directory, an index and shared utilities
+- **Largest module**: execution-handlers.ts (~1,407 lines at last measurement; sizes drift, run `wc -l`)
 - **Maintainability**: High (clear separation of concerns)
 - **Testability**: High (modules can be tested independently)
 
@@ -33,8 +31,13 @@ task/
 ├── shared.ts                  # Shared utilities (22 lines)
 ├── crud-handlers.ts           # CRUD operations (428 lines)
 ├── execution-handlers.ts      # Execution lifecycle (553 lines)
-├── logs-handlers.ts           # Logs management (111 lines)
-└── worktree-handlers.ts       # Worktree operations (759 lines)
+├── logs-handlers.ts           # Logs management
+├── worktree-handlers.ts       # Worktree status/diff/discard/list and registration
+├── worktree-merge.ts          # Worktree merge and merge preview
+├── worktree-pr.ts             # Worktree PR creation
+├── worktree-git-utils.ts      # Git helpers for worktree modules
+├── tool-handlers.ts           # IDE/terminal detection and launch handlers
+└── tool-detection/            # Pure detection tables, detection, launch, path safety
 ```
 
 ### Responsibility Distribution
@@ -43,7 +46,8 @@ task/
 |--------|----------|----------------------|
 | **crud-handlers.ts** | 4 handlers | TASK_LIST, TASK_CREATE, TASK_DELETE, TASK_UPDATE |
 | **execution-handlers.ts** | 6 handlers | TASK_START, TASK_STOP, TASK_REVIEW, TASK_UPDATE_STATUS, TASK_CHECK_RUNNING, TASK_RECOVER_STUCK |
-| **worktree-handlers.ts** | 6 handlers | TASK_WORKTREE_STATUS, TASK_WORKTREE_DIFF, TASK_WORKTREE_MERGE, TASK_WORKTREE_MERGE_PREVIEW, TASK_WORKTREE_DISCARD, TASK_LIST_WORKTREES |
+| **worktree-handlers.ts** | worktree handlers | TASK_WORKTREE_STATUS, TASK_WORKTREE_DIFF, TASK_WORKTREE_MERGE, TASK_WORKTREE_MERGE_PREVIEW, TASK_WORKTREE_DISCARD, TASK_LIST_WORKTREES (merge and PR logic in worktree-merge.ts / worktree-pr.ts) |
+| **tool-handlers.ts** | 3 handlers | TASK_WORKTREE_DETECT_TOOLS, TASK_WORKTREE_OPEN_IN_IDE, TASK_WORKTREE_OPEN_IN_TERMINAL |
 | **logs-handlers.ts** | 3 handlers + events | TASK_LOGS_GET, TASK_LOGS_WATCH, TASK_LOGS_UNWATCH + event forwarding |
 
 ## Key Improvements
@@ -179,7 +183,7 @@ describe('Worktree Handlers', () => {
 ## Success Criteria Met
 
 ✅ **Modular Structure**: Clear separation into logical domains
-✅ **Reduced Complexity**: Largest module is 759 lines (vs 1,885)
+✅ **Reduced Complexity**: Largest module is well below the original 1,885 lines
 ✅ **No Breaking Changes**: All functionality preserved
 ✅ **Type Safety**: TypeScript compilation successful
 ✅ **Documentation**: Comprehensive README and summary
@@ -195,6 +199,5 @@ The refactoring successfully transformed a monolithic 1,885-line file into a wel
 
 **Refactoring Date**: December 16, 2024
 **Original File**: task-handlers.ts (1,885 lines)
-**New Structure**: 8 files in task/ module
-**Lines of Code**: ~1,914 total (including new docs)
+**New Structure**: modular files in the task/ directory
 **Status**: ✅ Complete and verified

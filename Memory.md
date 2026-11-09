@@ -1,9 +1,33 @@
 # Memory System V5 — Definitive Architecture
 
 > Built on: V4 Draft + Hackathon Teams 1–5 + Infrastructure Research (Turso/Convex/Retrieval Pipeline)
-> Status: Pre-implementation design document
+> Status: Design document for the planned V5 system; partly implemented (see the banner below)
 > Date: 2026-02-22
 > Key change from V4: Turso/libSQL replaces better-sqlite3, Convex for auth/team/UI, OpenAI embedding fallback, Graphiti replaced by TS Knowledge Graph, complete retrieval pipeline from day one
+
+> **Shipped vs. planned.** This document is the original design. Parts of it are built and parts are not.
+> **Where this document and the code disagree, the code wins.** For what the code does today, read
+> [`apps/desktop/src/main/ai/memory/README.md`](apps/desktop/src/main/ai/memory/README.md).
+>
+> **Shipped** (in `apps/desktop/src/main/ai/memory/`):
+> - Local libSQL store at `userData/memory.db`, schema and memory types
+> - Embedding service (Ollama and hosted providers, keyword fallback)
+> - Memory observer, scratchpad, trust gate and promotion pipeline
+> - Hybrid retrieval (BM25 + dense + graph, RRF fusion, reranker)
+> - Planner, QA, prefetch and step injection builders
+> - `record_memory` and `search_memory` agent tools
+> - Worker-to-main IPC (`WorkerObserverProxy` and `MainMemoryHandler`, wired by `WorkerBridge.startMemory`)
+> - Tree-sitter structural knowledge graph
+> - The Python Graphiti sidecar has been removed
+>
+> **Still planned or not wired:**
+> - Convex auth, team and UI, and org/team memories (sections 14-15)
+> - Turso cloud sync: the code path exists in `db.ts`, but no caller supplies a sync URL and token
+> - The web app (Next.js) client
+> - Scheduled cross-session pattern synthesis (section 12): only per-session synthesis in the observer exists
+> - Memory UX and trust surfaces (section 13): the renderer has only backend configuration panels, no memory browser
+> - Automatic pruning and lifecycle jobs (section 18): memories can be marked deprecated, but nothing prunes them
+> - A/B testing and metrics (section 19)
 
 ---
 

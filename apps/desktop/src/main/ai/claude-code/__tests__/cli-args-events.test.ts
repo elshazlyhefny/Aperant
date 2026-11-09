@@ -66,6 +66,27 @@ describe('buildClaudeEnv', () => {
     expect(env.PATH).toBe('/bin');
     expect(env.MCP_TOOL_TIMEOUT).toBe('3600000');
   });
+
+  it('removes other credential variables but keeps sign-in variables', () => {
+    const env = buildClaudeEnv({
+      PATH: '/bin',
+      HOME: '/home/u',
+      AWS_ACCESS_KEY_ID: 'a',
+      AWS_SECRET_ACCESS_KEY: 'b',
+      GITHUB_TOKEN: 'ghp',
+      MY_SERVICE_SECRET: 's',
+      CLAUDE_CODE_OAUTH_TOKEN: 'oauth',
+      CLAUDE_CONFIG_DIR: '/cfg',
+    });
+    expect(env.AWS_ACCESS_KEY_ID).toBeUndefined();
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(env.GITHUB_TOKEN).toBeUndefined();
+    expect(env.MY_SERVICE_SECRET).toBeUndefined();
+    expect(env.PATH).toBe('/bin');
+    expect(env.HOME).toBe('/home/u');
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('oauth');
+    expect(env.CLAUDE_CONFIG_DIR).toBe('/cfg');
+  });
 });
 
 describe('effortFromProviderOptions', () => {

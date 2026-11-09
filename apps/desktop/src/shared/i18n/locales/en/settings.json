@@ -393,6 +393,24 @@
       "autoCleanupMergedWorktrees": {
         "label": "Clean up worktrees after merge",
         "description": "Remove a task's worktree and local branch once its pull request has merged. A worktree with uncommitted changes, or commits made after the merge, is kept."
+      },
+      "credentialIsolation": {
+        "title": "Credential isolation",
+        "envPassthrough": {
+          "label": "Environment variables passed to agent commands",
+          "description": "Comma or space separated variable names. Variables matching *_TOKEN, *_API_KEY, *_SECRET, *_PASSWORD and AWS_* are hidden from agent shell commands by default; list a name here to let it through.",
+          "placeholder": "NPM_TOKEN, MY_SERVICE_URL",
+          "invalid": "Invalid variable names ignored: {{names}}"
+        },
+        "bashSandbox": {
+          "label": "Shell command sandbox",
+          "description": "Needs bubblewrap (Linux) or sandbox-exec (macOS). If the sandbox is unavailable, agent shell commands are refused rather than run unsandboxed.",
+          "options": {
+            "off": "Off",
+            "homeHidden": "Home directory hidden",
+            "homeHiddenNoNetwork": "Home directory hidden and no network"
+          }
+        }
       }
     },
     "gitlab": {
@@ -943,6 +961,20 @@
     }
   },
   "mcp": {
+    "approval": {
+      "notApproved": "Not approved - will not run",
+      "approve": "Approve",
+      "cancel": "Cancel",
+      "approveTitle": "Approve {{name}}?",
+      "approveDescription": "This server is defined in the project's configuration. If you approve it, it will run on this machine with your user privileges. Only approve it if you trust the source of this definition.",
+      "commandLabel": "Command that will run",
+      "urlLabel": "URL that will be contacted",
+      "cannotRun": "Cannot run: invalid definition",
+      "changedSinceShown": "The server definition changed since it was shown. Review it again before approving.",
+      "chromeExecutableNotApproved": "This Chrome executable is not approved. Until you approve it, the installed Chrome is used instead:",
+      "chromeExecutableApprove": "Approve executable",
+      "trackedEnvWarning": ".auto-claude/.env is committed to git. Anyone who can push to this repository can define commands here, so servers are never run until you approve them."
+    },
     "title": "MCP Server Overview",
     "titleWithProject": "MCP Server Overview for {{projectName}}",
     "description": "Configure which MCP servers are available for agents in this project",

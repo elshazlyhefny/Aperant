@@ -16,7 +16,6 @@ import {
 import type { ModelShorthand, ThinkingLevel } from "../../../ai/config/types";
 import { safeBreadcrumb } from "../../../sentry";
 import type { PRReviewStateManager } from "../../../pr-review-state-manager";
-import type { PRReviewResult as PreloadPRReviewResult } from "../../../../preload/api/modules/github-api";
 import type { PRReviewFinding, PRReviewResult, PRReviewProgress } from "./types";
 import {
   debugLog,
@@ -90,7 +89,7 @@ export function registerPRFollowupHandlers(
 
           // Get previous result for XState followup context
           const previousResultForState = getReviewResult(project, prNumber) ?? undefined;
-          stateManager.handleStartFollowupReview(projectId, prNumber, previousResultForState as PreloadPRReviewResult | undefined);
+          stateManager.handleStartFollowupReview(projectId, prNumber, previousResultForState as PRReviewResult | undefined);
 
           try {
             debugLog("Starting follow-up review", { prNumber });
@@ -301,7 +300,7 @@ export function registerPRFollowupHandlers(
               message: "Follow-up review complete!",
             });
 
-            stateManager.handleComplete(projectId, prNumber, result as unknown as PreloadPRReviewResult);
+            stateManager.handleComplete(projectId, prNumber, result);
             sendComplete(result);
           } finally {
             // Always clean up registry, whether we exit normally or via error

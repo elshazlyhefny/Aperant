@@ -1,11 +1,14 @@
 /**
  * Memory Knowledge Graph Integration (stub)
  *
- * Provides historical hints from the memory system when available.
- * The memory system is now implemented in apps/desktop/src/main/ai/memory/.
+ * Intentional stub kept for the graph-hints call sites in context/builder.ts.
+ * The real memory system lives in apps/desktop/src/main/ai/memory/.
  *
- * This is a no-op stub for the initial TypeScript port.
- * A future implementation can wire this to the memory MCP call.
+ * isMemoryEnabled() here always returns false and is NOT the switch for agent
+ * memory; that is isAgentMemoryEnabled() in
+ * ipc-handlers/context/memory-service-factory.ts. It is also a different
+ * function from isMemoryEnabled() in ipc-handlers/context/utils.ts, which
+ * reads GRAPHITI_ENABLED.
  */
 
 /**

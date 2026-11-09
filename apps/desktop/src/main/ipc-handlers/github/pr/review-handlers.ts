@@ -10,7 +10,6 @@ import { getGitHubConfig, githubFetch } from "../utils";
 import { withProjectOrNull } from "../utils/project-middleware";
 import { createIPCCommunicators } from "../utils/ipc-communicator";
 import type { PRReviewStateManager } from "../../../pr-review-state-manager";
-import type { PRReviewResult as PreloadPRReviewResult } from "../../../../preload/api/modules/github-api";
 import type { PRReviewResult, PRReviewProgress } from "./types";
 import {
   debugLog,
@@ -151,7 +150,7 @@ export function registerPRReviewHandlers(
               progress: 100,
               message: "Review already in progress",
             });
-            stateManager.handleComplete(projectId, prNumber, result as unknown as PreloadPRReviewResult);
+            stateManager.handleComplete(projectId, prNumber, result);
             sendComplete(result);
             return;
           }
@@ -164,7 +163,7 @@ export function registerPRReviewHandlers(
             message: "Review complete!",
           });
 
-          stateManager.handleComplete(projectId, prNumber, result as unknown as PreloadPRReviewResult);
+          stateManager.handleComplete(projectId, prNumber, result);
           sendComplete(result);
         } finally {
           // Clean up in case we exit before runPRReview was called (e.g., cancelled during CI wait)
@@ -250,7 +249,7 @@ export function registerPRReviewHandlers(
   // always rejected and the review stayed "in progress" until a restart.
   ipcMain.handle(
     IPC_CHANNELS.GITHUB_PR_NOTIFY_EXTERNAL_REVIEW_COMPLETE,
-    async (_, projectId: string, prNumber: number, result: PreloadPRReviewResult | null): Promise<void> => {
+    async (_, projectId: string, prNumber: number, result: PRReviewResult | null): Promise<void> => {
       if (typeof projectId !== "string" || !Number.isInteger(prNumber) || prNumber <= 0) return;
       stateManager.handleExternalReviewComplete(projectId, prNumber, result ?? null);
     }
