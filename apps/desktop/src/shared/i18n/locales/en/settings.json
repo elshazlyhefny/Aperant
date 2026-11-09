@@ -95,7 +95,13 @@
       "label": "Test Connection",
       "testing": "Testing...",
       "success": "Connection Successful",
-      "failure": "Connection Failed"
+      "failure": "Connection Failed",
+      "toast": {
+        "successTitle": "Connection successful",
+        "successDescription": "Your API credentials are valid.",
+        "failureTitle": "Connection test failed",
+        "failureFallback": "Failed to test connection"
+      }
     },
     "models": {
       "title": "Optional: Model Name Mappings",
