@@ -401,15 +401,6 @@
           "description": "Noms de variables séparés par des virgules ou des espaces. Les variables correspondant à *_TOKEN, *_API_KEY, *_SECRET, *_PASSWORD et AWS_* sont masquées aux commandes shell de l'agent par défaut ; indiquez un nom ici pour le laisser passer.",
           "placeholder": "NPM_TOKEN, MY_SERVICE_URL",
           "invalid": "Noms de variables invalides ignorés : {{names}}"
-        },
-        "bashSandbox": {
-          "label": "Bac à sable des commandes shell",
-          "description": "Nécessite bubblewrap (Linux) ou sandbox-exec (macOS). Si le bac à sable est indisponible, les commandes shell de l'agent sont refusées au lieu d'être exécutées sans isolation.",
-          "options": {
-            "off": "Désactivé",
-            "homeHidden": "Répertoire personnel masqué",
-            "homeHiddenNoNetwork": "Répertoire personnel masqué et sans réseau"
-          }
         }
       }
     },
