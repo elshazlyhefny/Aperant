@@ -43,6 +43,7 @@ import { VersionWarningModal } from './components/VersionWarningModal';
 import { AppUpdateNotification } from './components/AppUpdateNotification';
 import { ProactiveSwapListener } from './components/ProactiveSwapListener';
 import { GitHubSetupModal } from './components/GitHubSetupModal';
+import { SandboxOfferDialog } from './components/SandboxOfferDialog';
 import { useProjectStore, loadProjects, addProject, initializeProject, removeProject } from './stores/project-store';
 import { useTaskStore, loadTasks } from './stores/task-store';
 import { useSettingsStore, loadSettings, loadProfiles, saveSettings } from './stores/settings-store';
@@ -55,7 +56,7 @@ import { useIpcListeners } from './hooks/useIpc';
 import { useGlobalTerminalListeners } from './hooks/useGlobalTerminalListeners';
 import { useTerminalProfileChange } from './hooks/useTerminalProfileChange';
 import { COLOR_THEMES, UI_SCALE_MIN, UI_SCALE_MAX, UI_SCALE_DEFAULT } from '../shared/constants';
-import type { Task, Project, ColorTheme } from '../shared/types';
+import type { Task, Project, ColorTheme, BashSandboxMode, SandboxAvailability } from '../shared/types';
 import { ProjectTabBar } from './components/ProjectTabBar';
 import { AddProjectModal } from './components/AddProjectModal';
 import { ViewStateProvider } from './contexts/ViewStateContext';
@@ -181,6 +182,10 @@ export function App() {
   // GitHub setup state (shown after Auto Claude init)
   const [showGitHubSetup, setShowGitHubSetup] = useState(false);
   const [gitHubSetupProject, setGitHubSetupProject] = useState<Project | null>(null);
+
+  // Bash sandbox offer (queued behind the init and GitHub setup dialogs)
+  const [sandboxOfferProject, setSandboxOfferProject] = useState<Project | null>(null);
+  const [sandboxAvailability, setSandboxAvailability] = useState<SandboxAvailability | null>(null);
 
   // Remove project confirmation state
   const [showRemoveProjectDialog, setShowRemoveProjectDialog] = useState(false);
@@ -665,6 +670,32 @@ export function App() {
       setInitSuccess(false);
       setShowInitDialog(true);
     }
+    // zeenha fork: offer the Bash sandbox, but only when it can actually run
+    const currentMode = project.settings?.bashSandbox;
+    if (!currentMode || currentMode === 'off') {
+      window.electronAPI.getSandboxAvailability()
+        .then((result) => {
+          if (result.success && result.data?.state === 'available') {
+            setSandboxAvailability(result.data);
+            setSandboxOfferProject(project);
+          }
+        })
+        .catch(() => {
+          // Availability unknown: do not offer
+        });
+    }
+  };
+
+  const handleSandboxOfferEnable = async (mode: Exclude<BashSandboxMode, 'off'>) => {
+    const target = sandboxOfferProject;
+    setSandboxOfferProject(null);
+    if (!target) return;
+    try {
+      await window.electronAPI.updateProjectSettings(target.id, { bashSandbox: mode });
+      await loadProjects();
+    } catch (error) {
+      console.error('Failed to enable Bash sandbox:', error);
+    }
   };
 
   const handleProjectTabSelect = (projectId: string) => {
@@ -1131,6 +1162,17 @@ export function App() {
             project={gitHubSetupProject}
             onComplete={handleGitHubSetupComplete}
             onSkip={handleGitHubSetupSkip}
+          />
+        )}
+
+        {/* Bash sandbox offer - waits for the init and GitHub setup dialogs */}
+        {sandboxOfferProject && sandboxAvailability && !showInitDialog && !showGitHubSetup && (
+          <SandboxOfferDialog
+            open
+            project={sandboxOfferProject}
+            availability={sandboxAvailability}
+            onEnable={handleSandboxOfferEnable}
+            onSkip={() => setSandboxOfferProject(null)}
           />
         )}
 
