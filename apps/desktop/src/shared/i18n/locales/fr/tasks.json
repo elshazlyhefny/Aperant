@@ -417,5 +417,48 @@
       "cacheCreation": "Jetons de création du cache"
     },
     "note": "Les entrées ne contiennent que des jetons et des durées ; aucun coût monétaire n'est affiché."
+  },
+  "delivery": {
+    "title": "Livraison et utilisation des jetons",
+    "refresh": "Actualiser",
+    "loading": "Chargement des métriques de livraison…",
+    "error": "Échec du chargement des métriques de livraison",
+    "retry": "Réessayer",
+    "empty": "Aucune tâche terminée ou enregistrée sur cette période",
+    "emptyHint": "Lancez des tâches pour voir ici les métriques de livraison et de jetons.",
+    "period": {
+      "label": "Période",
+      "days7": "7 jours",
+      "days30": "30 jours",
+      "days90": "90 jours",
+      "all": "Tout"
+    },
+    "cards": {
+      "tasksScanned": "Tâches analysées",
+      "completedTasks": "Tâches terminées",
+      "totalTokens": "Total de jetons",
+      "totalDuration": "Durée totale",
+      "avgTokens": "Jetons moyens par tâche terminée",
+      "avgDuration": "Durée moyenne par tâche terminée",
+      "failedBeforeWork": "Échec avant tout travail",
+      "avgQa": "Itérations QA moyennes"
+    },
+    "excluded": "{{missing}} tâches sans métriques et {{corrupt}} avec des métriques illisibles ont été exclues.",
+    "trend": "Tendance par jour",
+    "byPhase": "Utilisation par phase",
+    "byModel": "Utilisation par modèle",
+    "columns": {
+      "date": "Date",
+      "completed": "Tâches terminées",
+      "tokensPerTask": "Jetons par tâche terminée",
+      "phase": "Phase",
+      "model": "Modèle",
+      "sessions": "Sessions",
+      "duration": "Durée",
+      "input": "Entrée",
+      "output": "Sortie",
+      "total": "Total"
+    },
+    "note": "La reprise après limite de débit n'est pas enregistrée ; le temps perdu à cause des limites n'est donc pas affiché séparément."
   }
 }
