@@ -329,3 +329,28 @@ export function registerGithubHandlers(...) {
 3. **Command Injection**: Release handler carefully escapes shell arguments
 4. **API Errors**: GitHub API errors don't leak sensitive information
 5. **File Operations**: All file ops restricted to project directory
+
+## PR Review Module (`pr/`)
+
+`pr-handlers.ts` (17 lines) is a barrel re-exporting `registerPRHandlers` and the public PR types so `github/index.ts` and tests keep a stable import path. The implementation is in `pr/`:
+
+| File | Lines | Responsibility |
+|------|-------|----------------|
+| `index.ts` | 45 | `registerPRHandlers`; creates the single `PRReviewStateManager` and registers the handler groups |
+| `types.ts` | 132 | Public PR types |
+| `shared.ts` | 93 | Context logger, shared `runningReviews` / `ciWaitAbortControllers` state, review key helper, env/network sanitizers |
+| `graphql.ts` | 197 | GraphQL helpers |
+| `query-handlers.ts` | 190 | List/fetch PRs and review state |
+| `review-handlers.ts` | 260 | Start/cancel review; registers follow-up handlers |
+| `followup-handlers.ts` | 333 | Follow-up reviews |
+| `review-runner.ts` | 330 | Runs the AI review |
+| `review-results.ts` | 308 | Review result persistence |
+| `review-logs.ts` | 535 | `PRLogCollector` and log handlers |
+| `ci-wait.ts` | 284 | CI wait logic |
+| `posting-handlers.ts` | 423 | Post reviews and comments |
+| `merge-handlers.ts` | 443 | Merge and merge readiness |
+| `polling-handlers.ts` | 228 | Polling and status updates |
+
+Shared mutable state such as `runningReviews` lives only in `pr/shared.ts`; modules import it rather than keeping their own copies.
+
+Note: line counts elsewhere in this document predate later growth. Current sizes: `utils.ts` 355, `spec-utils.ts` 249, `types.ts` 51, `issue-handlers.ts` 300, `investigation-handlers.ts` 214, `import-handlers.ts` 110, `release-handlers.ts` 266, `repository-handlers.ts` 141, `oauth-handlers.ts` 907, `autofix-handlers.ts` 964, `triage-handlers.ts` 728, `index.ts` 49.
