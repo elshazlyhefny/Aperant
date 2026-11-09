@@ -56,6 +56,7 @@ import {
 import { AddProjectModal } from './AddProjectModal';
 import { GitSetupModal } from './GitSetupModal';
 import { RateLimitIndicator } from './RateLimitIndicator';
+import { AuthFailureIndicator } from './AuthFailureIndicator';
 
 import { UpdateBanner } from './UpdateBanner';
 import type { Project, GitStatus } from '../../shared/types';
@@ -412,6 +413,9 @@ export function Sidebar({
 
         {/* Rate Limit Indicator - shows when Claude is rate limited */}
         <RateLimitIndicator />
+
+        {/* Auth Failure Indicator - reopens the auth failure modal while a failure is pending */}
+        <AuthFailureIndicator isCollapsed={isCollapsed} />
 
         {/* Update Banner - shows when app update is available */}
         <UpdateBanner />
