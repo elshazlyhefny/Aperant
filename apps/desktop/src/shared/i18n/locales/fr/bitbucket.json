@@ -32,5 +32,40 @@
     "connectedGeneric": "Connecté",
     "failed": "Échec de la connexion",
     "notChecked": "Saisissez vos identifiants et le dépôt pour vérifier la connexion"
+  },
+  "pullRequests": {
+    "title": "Pull requests",
+    "refresh": "Actualiser",
+    "loading": "Chargement des pull requests",
+    "empty": "Aucune pull request trouvée",
+    "filters": {
+      "OPEN": "Ouvertes",
+      "MERGED": "Fusionnées",
+      "DECLINED": "Refusées",
+      "ALL": "Toutes"
+    },
+    "states": {
+      "OPEN": "Ouverte",
+      "MERGED": "Fusionnée",
+      "DECLINED": "Refusée",
+      "SUPERSEDED": "Remplacée"
+    },
+    "author": "Auteur : {{name}}",
+    "reviewers": "Relecteurs : {{names}}",
+    "noReviewers": "Aucun relecteur",
+    "openInBitbucket": "Ouvrir dans Bitbucket",
+    "diff": "Modifications",
+    "noDiff": "Aucun diff disponible",
+    "addComment": "Ajouter un commentaire",
+    "commentPlaceholder": "Écrire un commentaire...",
+    "postComment": "Publier le commentaire",
+    "posting": "Publication...",
+    "selectPrompt": "Sélectionnez une pull request pour voir les détails",
+    "retry": "Réessayer",
+    "notConfigured": {
+      "title": "Bitbucket n'est pas configuré",
+      "description": "Ajoutez vos identifiants Bitbucket et le dépôt dans les paramètres du projet pour voir les pull requests.",
+      "action": "Ouvrir les paramètres Bitbucket"
+    }
   }
 }

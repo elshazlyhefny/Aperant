@@ -71,6 +71,9 @@ const GitHubPRs = lazy(() => import('./components/github-prs').then((m) => ({ de
 const GitLabMergeRequests = lazy(() =>
   import('./components/gitlab-merge-requests').then((m) => ({ default: m.GitLabMergeRequests }))
 );
+const BitbucketPullRequests = lazy(() =>
+  import('./components/bitbucket-pull-requests').then((m) => ({ default: m.BitbucketPullRequests }))
+);
 const Changelog = lazy(() => import('./components/Changelog').then((m) => ({ default: m.Changelog })));
 const Worktrees = lazy(() => import('./components/Worktrees').then((m) => ({ default: m.Worktrees })));
 const AgentTools = lazy(() => import('./components/AgentTools').then((m) => ({ default: m.AgentTools })));
@@ -964,6 +967,15 @@ export function App() {
                     projectId={activeProjectId || selectedProjectId!}
                     onOpenSettings={() => {
                       setSettingsInitialProjectSection('gitlab');
+                      setIsSettingsDialogOpen(true);
+                    }}
+                  />
+                )}
+                {activeView === 'bitbucket-pull-requests' && (activeProjectId || selectedProjectId) && (
+                  <BitbucketPullRequests
+                    projectId={activeProjectId || selectedProjectId!}
+                    onOpenSettings={() => {
+                      setSettingsInitialProjectSection('bitbucket');
                       setIsSettingsDialogOpen(true);
                     }}
                   />

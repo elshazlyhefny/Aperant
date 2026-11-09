@@ -94,7 +94,7 @@ describe('bitbucketFetch', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false, status: 401, statusText: 'Unauthorized', text: async () => 'bad credentials'
     }));
-    const err = await bitbucketFetch(creds, '/user').catch((e: unknown) => e as BitbucketAPIError);
+    const err = (await bitbucketFetch(creds, '/user').catch((e: unknown) => e)) as BitbucketAPIError;
     expect(err).toBeInstanceOf(BitbucketAPIError);
     expect(err.statusCode).toBe(401);
     expect(err.message).not.toContain('super-secret-token');

@@ -32,5 +32,40 @@
     "connectedGeneric": "Connected",
     "failed": "Connection failed",
     "notChecked": "Enter your credentials and repository to check the connection"
+  },
+  "pullRequests": {
+    "title": "Pull Requests",
+    "refresh": "Refresh",
+    "loading": "Loading pull requests",
+    "empty": "No pull requests found",
+    "filters": {
+      "OPEN": "Open",
+      "MERGED": "Merged",
+      "DECLINED": "Declined",
+      "ALL": "All"
+    },
+    "states": {
+      "OPEN": "Open",
+      "MERGED": "Merged",
+      "DECLINED": "Declined",
+      "SUPERSEDED": "Superseded"
+    },
+    "author": "Author: {{name}}",
+    "reviewers": "Reviewers: {{names}}",
+    "noReviewers": "No reviewers",
+    "openInBitbucket": "Open in Bitbucket",
+    "diff": "Changes",
+    "noDiff": "No diff available",
+    "addComment": "Add a comment",
+    "commentPlaceholder": "Write a comment...",
+    "postComment": "Post comment",
+    "posting": "Posting...",
+    "selectPrompt": "Select a pull request to view details",
+    "retry": "Try Again",
+    "notConfigured": {
+      "title": "Bitbucket is not configured",
+      "description": "Add your Bitbucket credentials and repository in the project settings to see pull requests.",
+      "action": "Open Bitbucket Settings"
+    }
   }
 }
