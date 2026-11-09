@@ -3,7 +3,7 @@
  * Tests project CRUD operations and task reading from filesystem
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, utimesSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
@@ -1160,6 +1160,264 @@ describe('ProjectStore', () => {
       // Should only return ONE task, not two
       const matchingTasks = tasks.filter(t => t.specId === '007-dedupe-test');
       expect(matchingTasks).toHaveLength(1);
+    });
+  });
+
+  describe('file parse cache', () => {
+    const specsRoot = () => path.join(TEST_PROJECT_PATH, '.auto-claude', 'specs');
+    const worktreeSpecsRoot = () =>
+      path.join(TEST_PROJECT_PATH, '.auto-claude', 'worktrees', 'tasks', 'wt-1', '.auto-claude', 'specs');
+
+    /** Set a file's mtime to `ageSec` seconds ago (+ offsetSec) so the racy-write guard does not apply. */
+    function backdate(file: string, ageSec = 60, offsetSec = 0): void {
+      const t = Date.now() / 1000 - ageSec + offsetSec;
+      utimesSync(file, t, t);
+    }
+
+    function writeOld(file: string, content: string, ageSec = 60): void {
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, content);
+      backdate(file, ageSec);
+    }
+
+    function makePlan(overrides: Record<string, unknown> = {}, subtaskStatus = 'pending') {
+      return {
+        feature: 'Cache Feature',
+        workflow_type: 'feature',
+        services_involved: [],
+        phases: [{
+          phase: 1,
+          name: 'Phase 1',
+          type: 'implementation',
+          subtasks: [{ id: 'subtask-1', description: 'Test', status: subtaskStatus }]
+        }],
+        final_acceptance: [],
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+        spec_file: 'spec.md',
+        ...overrides
+      };
+    }
+
+    const planOf = (root: string, spec: string) => path.join(root, spec, 'implementation_plan.json');
+
+    async function setup() {
+      const { ProjectStore } = await import('../project-store');
+      const store = new ProjectStore();
+      const project = store.addProject(TEST_PROJECT_PATH);
+      const scan = () => {
+        store.invalidateTasksCache(project.id);
+        return store.getTasks(project.id);
+      };
+      return { store, project, scan };
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('rescan with nothing changed gives zero new misses and identical tasks', async () => {
+      writeOld(planOf(specsRoot(), '001-a'), JSON.stringify(makePlan()));
+      writeOld(planOf(specsRoot(), '002-b'), JSON.stringify(makePlan({ feature: 'B' })));
+      const { store, scan } = await setup();
+
+      const first = scan();
+      const before = store.getFileCacheStats();
+      const second = scan();
+      const after = store.getFileCacheStats();
+
+      expect(after.misses).toBe(before.misses);
+      expect(after.hits).toBeGreaterThan(before.hits);
+      expect(second).toEqual(first);
+    });
+
+    it('editing one spec plan re-reads only that file', async () => {
+      writeOld(planOf(specsRoot(), '001-a'), JSON.stringify(makePlan({ feature: 'Alpha' })));
+      writeOld(planOf(specsRoot(), '002-b'), JSON.stringify(makePlan({ feature: 'Beta' })));
+      const { store, scan } = await setup();
+      scan();
+      const before = store.getFileCacheStats();
+
+      writeOld(planOf(specsRoot(), '001-a'), JSON.stringify(makePlan({ feature: 'Alpha edited longer' })), 30);
+      const tasks = scan();
+
+      expect(store.getFileCacheStats().misses - before.misses).toBe(1);
+      expect(tasks.find((t) => t.specId === '001-a')?.title).toBe('Alpha edited longer');
+      expect(tasks.find((t) => t.specId === '002-b')?.title).toBe('Beta');
+    });
+
+    it('detects a rewrite with the same size but a different mtime', async () => {
+      const file = planOf(specsRoot(), '001-a');
+      writeOld(file, JSON.stringify(makePlan({ feature: 'AAAA' })), 60);
+      const { scan } = await setup();
+      expect(scan()[0].title).toBe('AAAA');
+
+      writeOld(file, JSON.stringify(makePlan({ feature: 'BBBB' })), 30);
+      expect(scan()[0].title).toBe('BBBB');
+    });
+
+    it('never serves a rewrite inside the guard window stale', async () => {
+      const file = planOf(specsRoot(), '001-a');
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify(makePlan({ feature: 'AAAA' })));
+      const { scan } = await setup();
+      expect(scan()[0].title).toBe('AAAA');
+
+      const { mtimeMs } = await import('fs').then((fs) => fs.statSync(file));
+      writeFileSync(file, JSON.stringify(makePlan({ feature: 'BBBB' })));
+      // Force the identical mtime, as a same-tick rewrite would produce
+      utimesSync(file, mtimeMs / 1000, mtimeMs / 1000);
+      expect(scan()[0].title).toBe('BBBB');
+    });
+
+    it('reads spec.md at most once per scan when description and title fallbacks both apply', async () => {
+      const dir = path.join(specsRoot(), '001-looks-like-id');
+      writeOld(planOf(specsRoot(), '001-looks-like-id'), JSON.stringify(makePlan({ feature: '001-looks-like-id' })));
+      writeOld(path.join(dir, 'spec.md'), '# Specification: Real Title\n\n## Overview\n\nThe overview text.\n');
+      const { store, scan } = await setup();
+
+      const before = store.getFileCacheStats();
+      const tasks = scan();
+
+      // plan + spec.md = 2 misses; spec.md accounts for at most 1
+      expect(store.getFileCacheStats().misses - before.misses).toBeLessThanOrEqual(2);
+      expect(tasks[0].title).toBe('Real Title');
+      expect(tasks[0].description).toBe('The overview text.');
+
+      const mid = store.getFileCacheStats();
+      scan();
+      expect(store.getFileCacheStats().misses).toBe(mid.misses);
+    });
+
+    it('mutating returned task metadata does not affect the next scan', async () => {
+      const dir = path.join(specsRoot(), '001-a');
+      writeOld(planOf(specsRoot(), '001-a'), JSON.stringify(makePlan()));
+      writeOld(path.join(dir, 'task_metadata.json'), JSON.stringify({ category: 'feature', labels: ['x'] }));
+      const { scan } = await setup();
+
+      const first = scan();
+      (first[0].metadata as Record<string, unknown>).category = 'mutated';
+      (first[0].metadata as { labels?: string[] }).labels?.push('y');
+
+      const second = scan();
+      expect(second[0].metadata).toEqual({ category: 'feature', labels: ['x'] });
+    });
+
+    describe('stale status correction with cached plans', () => {
+      const spec = '003-all-done';
+      const staleDoc = (overrides: Record<string, unknown> = {}) =>
+        makePlan({ status: 'in_progress', xstateState: 'qa_review', ...overrides }, 'completed');
+
+      it('corrects on the first scan, rewrites the file and reads it back as human_review', async () => {
+        const file = planOf(specsRoot(), spec);
+        writeOld(file, JSON.stringify(staleDoc()));
+        const { scan } = await setup();
+
+        expect(scan()[0].status).toBe('human_review');
+        expect(JSON.parse(readFileSync(file, 'utf-8')).xstateState).toBe('human_review');
+
+        backdate(file, 60);
+        const again = scan();
+        expect(again[0].status).toBe('human_review');
+        expect(again[0].reviewReason).toBe('completed');
+      });
+
+      it('does not mutate the cached plan object in place', async () => {
+        const file = planOf(specsRoot(), spec);
+        writeOld(file, JSON.stringify(staleDoc()));
+        const { store, scan } = await setup();
+        let running = true;
+        store.setTaskRunningCheck(() => running);
+
+        expect(scan()[0].status).toBe('in_progress');
+        const cached = (store as unknown as {
+          fileCache: { read: (p: string, f: (r: string) => unknown) => { status: string } | undefined };
+        }).fileCache.read(file, (r) => JSON.parse(r));
+        expect(cached?.status).toBe('in_progress');
+
+        running = false;
+        expect(scan()[0].status).toBe('human_review');
+        expect(cached?.status).toBe('in_progress');
+      });
+
+      it('still corrects later when first skipped because updated_at was recent', async () => {
+        const file = planOf(specsRoot(), spec);
+        writeOld(file, JSON.stringify(staleDoc({ updated_at: new Date(Date.now() - 10_000).toISOString() })));
+        const { store, scan } = await setup();
+
+        expect(scan()[0].status).toBe('in_progress');
+        const before = store.getFileCacheStats();
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.now() + 60_000);
+        const later = scan();
+
+        expect(store.getFileCacheStats().misses - before.misses).toBe(0);
+        expect(later[0].status).toBe('human_review');
+      });
+
+      it('still corrects after isTaskRunning flips', async () => {
+        writeOld(planOf(specsRoot(), spec), JSON.stringify(staleDoc()));
+        const { store, scan } = await setup();
+        let running = true;
+        store.setTaskRunningCheck(() => running);
+
+        expect(scan()[0].status).toBe('in_progress');
+        running = false;
+        expect(scan()[0].status).toBe('human_review');
+      });
+    });
+
+    it('evicts entries of deleted spec dirs and removed worktree dirs', async () => {
+      writeOld(planOf(specsRoot(), '001-a'), JSON.stringify(makePlan()));
+      writeOld(planOf(specsRoot(), '002-b'), JSON.stringify(makePlan({ feature: 'B' })));
+      writeOld(planOf(worktreeSpecsRoot(), '001-a'), JSON.stringify(makePlan()));
+      const { store, scan } = await setup();
+      scan();
+
+      // Deleted spec dir: recreating the same content must be a miss again
+      rmSync(path.join(specsRoot(), '002-b'), { recursive: true, force: true });
+      scan();
+      let before = store.getFileCacheStats();
+      writeOld(planOf(specsRoot(), '002-b'), JSON.stringify(makePlan({ feature: 'B' })));
+      scan();
+      expect(store.getFileCacheStats().misses - before.misses).toBe(1);
+
+      // Removed worktree dir: its scope is evicted
+      rmSync(path.join(TEST_PROJECT_PATH, '.auto-claude', 'worktrees'), { recursive: true, force: true });
+      scan();
+      before = store.getFileCacheStats();
+      writeOld(planOf(worktreeSpecsRoot(), '001-a'), JSON.stringify(makePlan()));
+      scan();
+      expect(store.getFileCacheStats().misses - before.misses).toBe(1);
+    });
+
+    it('removeProject evicts the project entries', async () => {
+      writeOld(planOf(specsRoot(), '001-a'), JSON.stringify(makePlan()));
+      const { store, project, scan } = await setup();
+      scan();
+
+      store.removeProject(project.id);
+      const readded = store.addProject(TEST_PROJECT_PATH);
+      const before = store.getFileCacheStats();
+      store.getTasks(readded.id);
+
+      expect(store.getFileCacheStats().misses - before.misses).toBe(1);
+    });
+
+    it('serves an unrepairable plan as a human_review errors task without re-parsing', async () => {
+      writeOld(planOf(specsRoot(), '001-bad'), '{{{ definitely not json');
+      const { store, scan } = await setup();
+
+      const first = scan();
+      expect(first[0].status).toBe('human_review');
+      expect(first[0].reviewReason).toBe('errors');
+      const before = store.getFileCacheStats();
+
+      const second = scan();
+      expect(second[0].status).toBe('human_review');
+      expect(second[0].reviewReason).toBe('errors');
+      expect(store.getFileCacheStats().misses).toBe(before.misses);
     });
   });
 });
