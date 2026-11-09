@@ -101,6 +101,12 @@ export const taskMock = {
     data: null
   }),
 
+  // zeenha fork: project-wide delivery and token metrics
+  getProjectRunMetrics: async () => ({
+    success: true,
+    data: null
+  }),
+
   watchTaskLogs: async () => ({ success: true }),
 
   unwatchTaskLogs: async () => ({ success: true }),

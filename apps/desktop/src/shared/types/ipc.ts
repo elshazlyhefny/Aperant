@@ -27,7 +27,7 @@ import type {
   McpHealthCheckResult,
   McpTestConnectionResult
 } from './project';
-import type { TaskRunMetrics } from './run-metrics';
+import type { TaskRunMetrics, ProjectRunMetrics } from './run-metrics';
 import type { ScreenshotSource } from './screenshot';
 import type {
   Task,
@@ -818,6 +818,8 @@ export interface ElectronAPI {
   // Task logs operations
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
   getTaskRunMetrics: (projectId: string, specId: string) => Promise<IPCResult<TaskRunMetrics | null>>;
+  // zeenha fork: project-wide delivery and token metrics
+  getProjectRunMetrics: (projectId: string, periodDays: number | null) => Promise<IPCResult<ProjectRunMetrics | null>>;
   watchTaskLogs: (projectId: string, specId: string) => Promise<IPCResult>;
   unwatchTaskLogs: (specId: string) => Promise<IPCResult>;
 
