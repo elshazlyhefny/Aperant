@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, RefreshCw, AlertCircle } from 'lucide-react';
+import { Download, RefreshCw, AlertCircle, Loader2 } from 'lucide-react';
 import { debugLog } from '../shared/utils/debug-logger';
 import {
   DndContext,
@@ -31,27 +31,15 @@ import { Sidebar, type SidebarView } from './components/Sidebar';
 import { KanbanBoard } from './components/KanbanBoard';
 import { TaskDetailModal } from './components/task-detail/TaskDetailModal';
 import { TaskCreationWizard } from './components/TaskCreationWizard';
-import { AppSettingsDialog, type AppSection } from './components/settings/AppSettings';
+import type { AppSection } from './components/settings/AppSettings';
 import type { ProjectSettingsSection } from './components/settings/ProjectSettingsContent';
 import { TerminalGrid } from './components/TerminalGrid';
-import { Roadmap } from './components/Roadmap';
-import { Context } from './components/Context';
-import { Ideation } from './components/Ideation';
-import { Insights } from './components/Insights';
 import { ErrorBoundary } from './components/ui/error-boundary';
-import { GitHubIssues } from './components/GitHubIssues';
-import { GitLabIssues } from './components/GitLabIssues';
-import { GitHubPRs } from './components/github-prs';
-import { GitLabMergeRequests } from './components/gitlab-merge-requests';
-import { Changelog } from './components/Changelog';
-import { Worktrees } from './components/Worktrees';
-import { AgentTools } from './components/AgentTools';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { RateLimitModal } from './components/RateLimitModal';
 import { SDKRateLimitModal } from './components/SDKRateLimitModal';
 import { AuthFailureModal } from './components/AuthFailureModal';
 import { VersionWarningModal } from './components/VersionWarningModal';
-import { OnboardingWizard } from './components/onboarding';
 import { AppUpdateNotification } from './components/AppUpdateNotification';
 import { ProactiveSwapListener } from './components/ProactiveSwapListener';
 import { GitHubSetupModal } from './components/GitHubSetupModal';
@@ -71,6 +59,36 @@ import type { Task, Project, ColorTheme } from '../shared/types';
 import { ProjectTabBar } from './components/ProjectTabBar';
 import { AddProjectModal } from './components/AddProjectModal';
 import { ViewStateProvider } from './contexts/ViewStateContext';
+
+// Secondary views and dialogs are code-split so they load on demand
+const Roadmap = lazy(() => import('./components/Roadmap').then((m) => ({ default: m.Roadmap })));
+const Context = lazy(() => import('./components/Context').then((m) => ({ default: m.Context })));
+const Ideation = lazy(() => import('./components/Ideation').then((m) => ({ default: m.Ideation })));
+const Insights = lazy(() => import('./components/Insights').then((m) => ({ default: m.Insights })));
+const GitHubIssues = lazy(() => import('./components/GitHubIssues').then((m) => ({ default: m.GitHubIssues })));
+const GitLabIssues = lazy(() => import('./components/GitLabIssues').then((m) => ({ default: m.GitLabIssues })));
+const GitHubPRs = lazy(() => import('./components/github-prs').then((m) => ({ default: m.GitHubPRs })));
+const GitLabMergeRequests = lazy(() =>
+  import('./components/gitlab-merge-requests').then((m) => ({ default: m.GitLabMergeRequests }))
+);
+const Changelog = lazy(() => import('./components/Changelog').then((m) => ({ default: m.Changelog })));
+const Worktrees = lazy(() => import('./components/Worktrees').then((m) => ({ default: m.Worktrees })));
+const AgentTools = lazy(() => import('./components/AgentTools').then((m) => ({ default: m.AgentTools })));
+const AppSettingsDialog = lazy(() =>
+  import('./components/settings/AppSettings').then((m) => ({ default: m.AppSettingsDialog }))
+);
+const OnboardingWizard = lazy(() =>
+  import('./components/onboarding').then((m) => ({ default: m.OnboardingWizard }))
+);
+
+// Centered spinner shown while a lazy view chunk loads (no user-visible text)
+function ViewLoadingFallback() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
 
 // Version constant for version-specific warnings (e.g., reauthentication notices)
 const VERSION_WARNING_275 = '2.7.5';
@@ -143,6 +161,11 @@ export function App() {
   const [settingsInitialProjectSection, setSettingsInitialProjectSection] = useState<ProjectSettingsSection | undefined>(undefined);
   const [activeView, setActiveView] = useState<SidebarView>('kanban');
   const [isOnboardingWizardOpen, setIsOnboardingWizardOpen] = useState(false);
+  // Lazy chunks for these dialogs load only once they have been opened at least once
+  const [hasOpenedSettings, setHasOpenedSettings] = useState(false);
+  const [hasOpenedOnboarding, setHasOpenedOnboarding] = useState(false);
+  if (isSettingsDialogOpen && !hasOpenedSettings) setHasOpenedSettings(true);
+  if (isOnboardingWizardOpen && !hasOpenedOnboarding) setHasOpenedOnboarding(true);
   const [isVersionWarningModalOpen, setIsVersionWarningModalOpen] = useState(false);
   const [isRefreshingTasks, setIsRefreshingTasks] = useState(false);
 
@@ -893,6 +916,8 @@ export function App() {
                     isActive={activeView === 'terminals'}
                   />
                 </div>
+                <ErrorBoundary>
+                <Suspense fallback={<ViewLoadingFallback />}>
                 {activeView === 'roadmap' && (activeProjectId || selectedProjectId) && (
                   <Roadmap projectId={activeProjectId || selectedProjectId!} onGoToTask={handleGoToTask} />
                 )}
@@ -928,13 +953,15 @@ export function App() {
                 {/* GitHubPRs is always mounted but hidden when not active to preserve review state */}
                 {(activeProjectId || selectedProjectId) && (
                   <div className={activeView === 'github-prs' ? 'h-full' : 'hidden'}>
-                    <GitHubPRs
-                      onOpenSettings={() => {
-                        setSettingsInitialProjectSection('github');
-                        setIsSettingsDialogOpen(true);
-                      }}
-                      isActive={activeView === 'github-prs'}
-                    />
+                    <Suspense fallback={null}>
+                      <GitHubPRs
+                        onOpenSettings={() => {
+                          setSettingsInitialProjectSection('github');
+                          setIsSettingsDialogOpen(true);
+                        }}
+                        isActive={activeView === 'github-prs'}
+                      />
+                    </Suspense>
                   </div>
                 )}
                 {activeView === 'gitlab-merge-requests' && (activeProjectId || selectedProjectId) && (
@@ -953,6 +980,8 @@ export function App() {
                   <Worktrees projectId={activeProjectId || selectedProjectId!} />
                 )}
                 {activeView === 'agent-tools' && <AgentTools />}
+                </Suspense>
+                </ErrorBoundary>
               </>
             ) : (
               <WelcomeScreen
@@ -985,27 +1014,33 @@ export function App() {
           />
         )}
 
-        <AppSettingsDialog
-          open={isSettingsDialogOpen}
-          onOpenChange={(open) => {
-            setIsSettingsDialogOpen(open);
-            if (!open) {
-              // Reset initial sections when dialog closes
-              setSettingsInitialSection(undefined);
-              setSettingsInitialProjectSection(undefined);
-            }
-          }}
-          initialSection={settingsInitialSection}
-          initialProjectSection={settingsInitialProjectSection}
-          onRerunWizard={() => {
-            // Reset onboarding state to trigger wizard
-            useSettingsStore.getState().updateSettings({ onboardingCompleted: false });
-            // Close settings dialog
-            setIsSettingsDialogOpen(false);
-            // Open onboarding wizard
-            setIsOnboardingWizardOpen(true);
-          }}
-        />
+        {hasOpenedSettings && (
+          <ErrorBoundary>
+            <Suspense fallback={null}>
+              <AppSettingsDialog
+                open={isSettingsDialogOpen}
+                onOpenChange={(open) => {
+                  setIsSettingsDialogOpen(open);
+                  if (!open) {
+                    // Reset initial sections when dialog closes
+                    setSettingsInitialSection(undefined);
+                    setSettingsInitialProjectSection(undefined);
+                  }
+                }}
+                initialSection={settingsInitialSection}
+                initialProjectSection={settingsInitialProjectSection}
+                onRerunWizard={() => {
+                  // Reset onboarding state to trigger wizard
+                  useSettingsStore.getState().updateSettings({ onboardingCompleted: false });
+                  // Close settings dialog
+                  setIsSettingsDialogOpen(false);
+                  // Open onboarding wizard
+                  setIsOnboardingWizardOpen(true);
+                }}
+              />
+            </Suspense>
+          </ErrorBoundary>
+        )}
 
         {/* Add Project Modal */}
         <AddProjectModal
@@ -1156,18 +1191,24 @@ export function App() {
         />
 
         {/* Onboarding Wizard - shows on first launch when onboardingCompleted is false */}
-        <OnboardingWizard
-          open={isOnboardingWizardOpen}
-          onOpenChange={setIsOnboardingWizardOpen}
-          onOpenTaskCreator={() => {
-            setIsOnboardingWizardOpen(false);
-            setIsNewTaskDialogOpen(true);
-          }}
-          onOpenSettings={() => {
-            setIsOnboardingWizardOpen(false);
-            setIsSettingsDialogOpen(true);
-          }}
-        />
+        {hasOpenedOnboarding && (
+          <ErrorBoundary>
+            <Suspense fallback={null}>
+              <OnboardingWizard
+                open={isOnboardingWizardOpen}
+                onOpenChange={setIsOnboardingWizardOpen}
+                onOpenTaskCreator={() => {
+                  setIsOnboardingWizardOpen(false);
+                  setIsNewTaskDialogOpen(true);
+                }}
+                onOpenSettings={() => {
+                  setIsOnboardingWizardOpen(false);
+                  setIsSettingsDialogOpen(true);
+                }}
+              />
+            </Suspense>
+          </ErrorBoundary>
+        )}
 
         {/* App Update Notification - shows when new app version is available */}
         <AppUpdateNotification />
