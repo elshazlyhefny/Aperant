@@ -35,7 +35,12 @@ interface AccountSettingsProps {
 export function AccountSettings({ settings, onSettingsChange, isOpen }: AccountSettingsProps) {
   const { t } = useTranslation('settings');
   const { toast } = useToast();
-  const { getProviderAccounts, setQueueOrder, setCrossProviderQueueOrder } = useSettingsStore();
+  const { getProviderAccounts, loadProviderAccounts, setQueueOrder, setCrossProviderQueueOrder } = useSettingsStore();
+
+  // Key status is written by the main process; refresh so the list is not stale
+  useEffect(() => {
+    if (isOpen) loadProviderAccounts().catch(() => {});
+  }, [isOpen, loadProviderAccounts]);
 
   // Derive priority orders from Zustand store (single source of truth)
   const priorityOrder = settings.globalPriorityOrder ?? [];
@@ -96,7 +101,8 @@ export function AccountSettings({ settings, onSettingsChange, isOpen }: AccountS
         profileEmail,
         isActive: order.length > 0 ? order[0] === account.id : false,
         isNext: false,
-        isAvailable: true,
+        keyStatus: account.authType === 'api-key' ? account.keyStatus : undefined,
+        isAvailable: !(account.authType === 'api-key' && account.keyStatus === 'rejected'),
         hasUnlimitedUsage: account.authType === 'api-key',
         sessionPercent: usageData?.sessionPercent,
         weeklyPercent: usageData?.weeklyPercent,
