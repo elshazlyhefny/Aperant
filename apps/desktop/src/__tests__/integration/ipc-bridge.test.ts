@@ -23,6 +23,9 @@ const mockContextBridge = {
   })
 };
 
+// The preload script reads window.location to decide whether to expose its API.
+vi.stubGlobal('window', { location: { protocol: 'file:', origin: 'file://' } });
+
 vi.mock('electron', () => ({
   ipcRenderer: mockIpcRenderer,
   contextBridge: mockContextBridge

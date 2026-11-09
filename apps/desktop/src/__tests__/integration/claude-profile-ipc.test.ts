@@ -30,6 +30,8 @@ const mockBrowserWindow = {
   }
 };
 
+vi.mock('@electron-toolkit/utils', () => ({ is: { dev: true } }));
+
 vi.mock('electron', () => ({
   ipcMain: mockIpcMain,
   BrowserWindow: vi.fn()
