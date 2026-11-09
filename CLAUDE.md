@@ -189,7 +189,7 @@ All AI agent logic lives in TypeScript using the Vercel AI SDK v6. This replaces
 - **Session Runtime** (`session/`) — `runAgentSession()` uses `streamText()` with `stopWhen: stepCountIs(N)` for agentic tool-use loops. Includes error classification (429/401/400) and progress tracking.
 - **Worker Threads** (`agent/`) — Agent sessions run in `worker_threads` to avoid blocking the Electron main process. The `WorkerBridge` relays `postMessage()` events to the existing `AgentManagerEvents` interface.
 - **Build Orchestration** (`orchestration/`) — Full planner → coder → QA pipeline. Parallel subagent execution via `Promise.allSettled()`.
-- **Tools** (`tools/`) — 8 builtin tools (Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch) defined with Zod schemas via AI SDK `tool()`.
+- **Tools** (`tools/`) — 9 builtin tools (Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, SpawnSubagent) defined with Zod schemas via AI SDK `tool()`.
 - **Security** (`security/`) — Bash validator, command parser, and path containment ported from Python with identical allowlist behavior.
 - **Config** (`config/`) — `AGENT_CONFIGS` registry (25+ agent types), phase-aware model resolution, thinking budgets.
 
@@ -247,7 +247,7 @@ Graph-based semantic memory accessed via a Python MCP sidecar (lives outside `ap
 
 ### Tech Stack
 
-React 19, TypeScript (strict), Electron 39, Vercel AI SDK v6, Zustand 5, Tailwind CSS v4, Radix UI, xterm.js 6, Vite 7, Vitest 4, Biome 2, Motion (Framer Motion)
+React 19, TypeScript (strict), Electron 40, Vercel AI SDK v6, Zustand 5, Tailwind CSS v4, Radix UI, xterm.js 6, Vite 7, Vitest 4, Biome 2, Motion (Framer Motion)
 
 ### Path Aliases (tsconfig.json)
 
@@ -256,10 +256,6 @@ React 19, TypeScript (strict), Electron 39, Vercel AI SDK v6, Zustand 5, Tailwin
 | `@/*` | `src/renderer/*` |
 | `@shared/*` | `src/shared/*` |
 | `@preload/*` | `src/preload/*` |
-| `@features/*` | `src/renderer/features/*` |
-| `@components/*` | `src/renderer/shared/components/*` |
-| `@hooks/*` | `src/renderer/shared/hooks/*` |
-| `@lib/*` | `src/renderer/shared/lib/*` |
 
 ### State Management (Zustand)
 
@@ -310,7 +306,7 @@ Multi-profile credential management for switching between Claude accounts:
 Full PTY-based terminal integration:
 - **`pty-daemon.ts`** / **`pty-manager.ts`** — Background PTY process management
 - **`terminal-lifecycle.ts`** — Session creation, cleanup, event handling
-- **`claude-integration-handler.ts`** — Claude SDK integration within terminals
+- **`cli-integration-handler.ts`** — Claude CLI integration within terminals: profile switching, rate limiting, OAuth token detection
 - Renderer: xterm.js 6 with WebGL, fit, web-links, serialize addons. Store: `terminal-store.ts`
 
 ## Code Quality
@@ -326,7 +322,7 @@ Full PTY-based terminal integration:
 
 All frontend UI text uses `react-i18next`. Translation files: `apps/desktop/src/shared/i18n/locales/{en,fr}/*.json`
 
-**Namespaces:** `common`, `navigation`, `settings`, `dialogs`, `tasks`, `errors`, `onboarding`, `welcome`
+**Namespaces:** `common`, `navigation`, `settings`, `dialogs`, `tasks`, `errors`, `onboarding`, `welcome`, `gitlab`, `taskReview`, `terminal`
 
 ```tsx
 import { useTranslation } from 'react-i18next';
