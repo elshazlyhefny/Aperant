@@ -11,6 +11,7 @@ import { findTaskAndProject } from './shared';
 import { checkGitStatus } from '../../project-initializer';
 import { initializeClaudeProfileManager, type ClaudeProfileManager } from '../../claude-profile-manager';
 import { taskStateManager } from '../../task-state-manager';
+import { taskQueueManager } from '../../task-queue-manager';
 import {
   getPlanPath,
   persistPlanStatus,
@@ -418,6 +419,11 @@ export async function applyTaskStatusUpdate(
           project.id
         );
       }
+    }
+
+    // zeenha fork: the queue lives in main, so a task newly queued may fit a free slot right away
+    if (status === 'queue') {
+      void taskQueueManager.requestProcess(project.id);
     }
 
     return { success: true };
@@ -1397,6 +1403,9 @@ export function registerTaskExecutionHandlers(
             project.id
           );
         }
+
+        // zeenha fork: a recovered task may have left in_progress and freed a slot
+        void taskQueueManager.onTaskStatusChanged(taskId, newStatus, project.id);
 
         return {
           success: true,
