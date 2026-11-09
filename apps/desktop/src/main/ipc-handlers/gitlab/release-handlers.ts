@@ -9,19 +9,9 @@ import type { IPCResult } from '../../../shared/types';
 import { projectStore } from '../../project-store';
 import { getGitLabConfig, gitlabFetch, encodeProjectPath } from './utils';
 import type { GitLabReleaseOptions } from './types';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
-// Debug logging helper
-const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
-
-function debugLog(message: string, data?: unknown): void {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.debug(`[GitLab Release] ${message}`, data);
-    } else {
-      console.debug(`[GitLab Release] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitLab Release');
 
 /**
  * Create a GitLab release

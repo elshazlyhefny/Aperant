@@ -12,12 +12,9 @@ import { isMacOS, isWindows } from '../../platform';
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
 import { openTerminalWithCommand } from '../claude-code-handlers';
 import type { GitLabAuthStartResult } from './types';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 const DEFAULT_GITLAB_URL = 'https://gitlab.com';
-
-// Debug logging helper - requires BOTH development mode AND DEBUG flag for OAuth handlers
-// This is intentionally more restrictive than other handlers to prevent accidental token logging
-const DEBUG = process.env.NODE_ENV === 'development' && process.env.DEBUG === 'true';
 
 /**
  * Redact sensitive information from data before logging
@@ -46,15 +43,13 @@ function redactSensitiveData(data: unknown): unknown {
   return data;
 }
 
-function debugLog(message: string, data?: unknown): void {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.debug(`[GitLab OAuth] ${message}`, redactSensitiveData(data));
-    } else {
-      console.debug(`[GitLab OAuth] ${message}`);
-    }
-  }
-}
+// Debug logging helper. Previously gated on NODE_ENV=development AND DEBUG=true; it now uses the
+// shared logger (DEBUG=true OR development), so all data is passed through redactSensitiveData
+// first to prevent accidental token logging.
+const oauthDebugLog = createDebugLog('GitLab OAuth');
+
+const debugLog = (message: string, data?: unknown): void =>
+  oauthDebugLog(message, data === undefined ? undefined : redactSensitiveData(data));
 
 // Regex pattern to validate GitLab project format (group/project or group/subgroup/project)
 const GITLAB_PROJECT_PATTERN = /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+$/;

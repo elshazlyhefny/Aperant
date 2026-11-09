@@ -9,6 +9,7 @@ import type { IPCResult, GitLabMergeRequest } from '../../../shared/types';
 import { projectStore } from '../../project-store';
 import { getGitLabConfig, gitlabFetch, encodeProjectPath } from './utils';
 import type { GitLabAPIMergeRequest, CreateMergeRequestOptions } from './types';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 // Valid merge request states per GitLab API
 // - opened: MR is open and can be modified/merged
@@ -27,18 +28,7 @@ function isValidMrState(state: string): state is MergeRequestState {
   return VALID_MR_STATES.includes(state as MergeRequestState);
 }
 
-// Debug logging helper - enabled in development OR when DEBUG flag is set
-const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
-
-function debugLog(message: string, data?: unknown): void {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.debug(`[GitLab MR] ${message}`, data);
-    } else {
-      console.debug(`[GitLab MR] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitLab MR');
 
 /**
  * Transform GitLab API MR to our format

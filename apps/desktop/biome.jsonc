@@ -49,7 +49,13 @@
       },
       "suspicious": {
         "recommended": true,
-        "noConsole": "off",
+        // noConsole: error because console.log is invisible in packaged Electron apps and
+        // main-process console output never reaches main.log. Use app-logger in main and
+        // debug-logger elsewhere. warn/error/info/debug remain allowed.
+        "noConsole": {
+          "level": "error",
+          "options": { "allow": ["warn", "error", "info", "debug"] }
+        },
         "noEmptyBlockStatements": "warn",
         "noAssignInExpressions": "warn",
         "useAwait": "off",
@@ -64,6 +70,13 @@
       }
     }
   },
+  // CLI-style scripts and e2e tests legitimately print to stdout
+  "overrides": [
+    {
+      "includes": ["scripts/**", "e2e/**"],
+      "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
+    }
+  ],
   // Formatter disabled - using Prettier for formatting
   // Biome linter used only for linting, keeping formatter separate
   "formatter": {

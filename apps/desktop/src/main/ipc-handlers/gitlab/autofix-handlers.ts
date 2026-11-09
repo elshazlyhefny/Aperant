@@ -23,11 +23,9 @@ import type {
   GitLabIssueBatch,
   GitLabAnalyzePreviewResult,
 } from './types';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
-// Debug logging
-function debugLog(message: string, ...args: unknown[]): void {
-  console.log(`[GitLab AutoFix] ${message}`, ...args);
-}
+const debugLog = createDebugLog('GitLab AutoFix');
 
 function sanitizeIssueUrl(rawUrl: unknown, instanceUrl: string): string {
   if (typeof rawUrl !== 'string') return '';

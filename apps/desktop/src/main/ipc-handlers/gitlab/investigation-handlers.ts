@@ -11,19 +11,9 @@ import { getGitLabConfig, gitlabFetch, encodeProjectPath } from './utils';
 import type { GitLabAPIIssue, GitLabAPINoteBasic } from './types';
 import { createSpecForIssue, fetchAllIssueNotes } from './spec-utils';
 import type { AgentManager } from '../../agent';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
-// Debug logging helper
-const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
-
-function debugLog(message: string, data?: unknown): void {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.debug(`[GitLab Investigation] ${message}`, data);
-    } else {
-      console.debug(`[GitLab Investigation] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitLab Investigation');
 
 /**
  * Send investigation progress to renderer

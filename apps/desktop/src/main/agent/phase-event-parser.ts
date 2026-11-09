@@ -3,6 +3,7 @@
  * Protocol: __EXEC_PHASE__:{"phase":"coding","message":"Starting"}
  */
 
+import { appLog } from '../app-logger';
 import { PHASE_MARKER_PREFIX } from '../../shared/constants/phase-protocol';
 import { validatePhaseEvent, type PhaseEventPayload } from './phase-event-schema';
 
@@ -18,13 +19,13 @@ export function parsePhaseEvent(line: string): PhaseEventPayload | null {
   }
 
   if (DEBUG) {
-    console.log('[phase-event-parser] Found marker at index', markerIndex, 'in line:', line.substring(0, 200));
+    appLog.debug('[phase-event-parser] Found marker at index', markerIndex, 'in line:', line.substring(0, 200));
   }
 
   const rawJsonStr = line.slice(markerIndex + PHASE_MARKER_PREFIX.length).trim();
   if (!rawJsonStr) {
     if (DEBUG) {
-      console.log('[phase-event-parser] Empty JSON string after marker');
+      appLog.debug('[phase-event-parser] Empty JSON string after marker');
     }
     return null;
   }
@@ -32,13 +33,13 @@ export function parsePhaseEvent(line: string): PhaseEventPayload | null {
   const jsonStr = extractJsonObject(rawJsonStr);
   if (!jsonStr) {
     if (DEBUG) {
-      console.log('[phase-event-parser] Could not extract JSON object from:', rawJsonStr.substring(0, 200));
+      appLog.debug('[phase-event-parser] Could not extract JSON object from:', rawJsonStr.substring(0, 200));
     }
     return null;
   }
 
   if (DEBUG) {
-    console.log('[phase-event-parser] Attempting to parse JSON:', jsonStr.substring(0, 200));
+    appLog.debug('[phase-event-parser] Attempting to parse JSON:', jsonStr.substring(0, 200));
   }
 
   try {
@@ -47,20 +48,20 @@ export function parsePhaseEvent(line: string): PhaseEventPayload | null {
 
     if (!result.success) {
       if (DEBUG) {
-        console.log('[phase-event-parser] Validation failed:', result.error.format());
+        appLog.debug('[phase-event-parser] Validation failed:', result.error.format());
       }
       return null;
     }
 
     if (DEBUG) {
-      console.log('[phase-event-parser] Successfully parsed event:', result.data);
+      appLog.debug('[phase-event-parser] Successfully parsed event:', result.data);
     }
 
     return result.data;
   } catch (e) {
     if (DEBUG) {
-      console.log('[phase-event-parser] JSON parse FAILED for:', jsonStr);
-      console.log('[phase-event-parser] Error:', e);
+      appLog.debug('[phase-event-parser] JSON parse FAILED for:', jsonStr);
+      appLog.debug('[phase-event-parser] Error:', e);
     }
     return null;
   }

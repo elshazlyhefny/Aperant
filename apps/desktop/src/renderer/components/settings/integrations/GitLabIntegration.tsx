@@ -8,18 +8,10 @@ import { Separator } from '../../ui/separator';
 import { Button } from '../../ui/button';
 import { PasswordInput } from '../../project-settings/PasswordInput';
 import type { ProjectEnvConfig, GitLabSyncStatus, ProjectSettings } from '../../../../shared/types';
+import { createDebugLog } from '../../../../shared/utils/debug-logger';
 
 // Debug logging
-const DEBUG = process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true';
-function debugLog(message: string, data?: unknown) {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.warn(`[GitLabIntegration] ${message}`, data);
-    } else {
-      console.warn(`[GitLabIntegration] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitLabIntegration');
 
 interface GitLabProject {
   pathWithNamespace: string;

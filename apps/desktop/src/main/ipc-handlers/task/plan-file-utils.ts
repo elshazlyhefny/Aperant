@@ -26,6 +26,7 @@ import type { TaskEventPayload } from '../../agent/task-event-schema';
 import { writeFileAtomicSync } from '../../utils/atomic-file';
 import { safeParseJson } from '../../utils/json-repair';
 
+import { appLog } from '../../app-logger';
 // In-memory locks for plan file operations
 // Key: plan file path, Value: Promise chain for serializing operations
 const planLocks = new Map<string, Promise<void>>();
@@ -270,7 +271,7 @@ export function persistPlanStatusAndReasonSync(
         created_at: new Date().toISOString(),
         phases: []
       };
-      console.log(`[plan-file-utils] Creating minimal plan for XState persistence: ${planPath}`);
+      appLog.info(`[plan-file-utils] Creating minimal plan for XState persistence: ${planPath}`);
     }
 
     plan.status = status;
@@ -480,7 +481,7 @@ export async function createPlanIfNotExists(
 export async function resetStuckSubtasks(planPath: string, projectId?: string): Promise<{ success: boolean; resetCount: number }> {
   return withPlanLock(planPath, async () => {
     try {
-      console.log(`[plan-file-utils] Reading implementation_plan.json to reset stuck subtasks`, { planPath });
+      appLog.info(`[plan-file-utils] Reading implementation_plan.json to reset stuck subtasks`, { planPath });
 
       // Read file directly without existence check to avoid TOCTOU race condition
       const planContent = readFileSync(planPath, 'utf-8');
@@ -505,7 +506,7 @@ export async function resetStuckSubtasks(planPath: string, projectId?: string): 
                 subtask.started_at = null;
                 subtask.completed_at = null;
                 resetCount++;
-                console.log(`[plan-file-utils] Reset subtask ${subtask.id} from ${originalStatus} to pending`);
+                appLog.info(`[plan-file-utils] Reset subtask ${subtask.id} from ${originalStatus} to pending`);
               }
             }
           }
@@ -516,14 +517,14 @@ export async function resetStuckSubtasks(planPath: string, projectId?: string): 
       if (resetCount > 0) {
         plan.updated_at = new Date().toISOString();
         writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
-        console.log(`[plan-file-utils] Successfully reset ${resetCount} stuck subtask(s) in implementation_plan.json`);
+        appLog.info(`[plan-file-utils] Successfully reset ${resetCount} stuck subtask(s) in implementation_plan.json`);
 
         // Invalidate tasks cache since subtask status changed
         if (projectId) {
           projectStore.invalidateTasksCache(projectId);
         }
       } else {
-        console.log(`[plan-file-utils] No stuck subtasks found to reset`);
+        appLog.info(`[plan-file-utils] No stuck subtasks found to reset`);
       }
 
       return { success: true, resetCount };

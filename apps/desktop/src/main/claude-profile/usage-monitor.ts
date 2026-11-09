@@ -25,6 +25,7 @@ import { fetchCodexUsage, normalizeCodexResponse } from './codex-usage-fetcher';
 import { readSettingsFileAsync, writeSettingsFile } from '../settings-utils';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 
+import { appLog } from '../app-logger';
 // Re-export for backward compatibility
 export type { ApiProvider };
 
@@ -2801,7 +2802,7 @@ export class UsageMonitor extends EventEmitter {
     const operationIdsOnOldProfile = operationSummary.byProfile[currentProfileId] || [];
 
     // Always log running operations info for debugging
-    console.log('[UsageMonitor] PROACTIVE-SWAP: Checking running operations:', {
+    appLog.info('[UsageMonitor] PROACTIVE-SWAP: Checking running operations:', {
       oldProfileId: currentProfileId,
       newProfileId: bestAccount.id,
       totalRunning: operationSummary.totalRunning,
@@ -2811,7 +2812,7 @@ export class UsageMonitor extends EventEmitter {
     });
 
     if (operationIdsOnOldProfile.length > 0) {
-      console.log('[UsageMonitor] PROACTIVE-SWAP: Found', operationIdsOnOldProfile.length, 'operations to restart:', operationIdsOnOldProfile);
+      appLog.info('[UsageMonitor] PROACTIVE-SWAP: Found', operationIdsOnOldProfile.length, 'operations to restart:', operationIdsOnOldProfile);
 
       // Restart all operations on the old profile with the new profile
       const restartedCount = await operationRegistry.restartOperationsOnProfile(
@@ -2830,7 +2831,7 @@ export class UsageMonitor extends EventEmitter {
         timestamp: new Date()
       });
     } else {
-      console.log('[UsageMonitor] PROACTIVE-SWAP: No operations running on old profile', currentProfileId, '- swap complete without restart');
+      appLog.info('[UsageMonitor] PROACTIVE-SWAP: No operations running on old profile', currentProfileId, '- swap complete without restart');
     }
 
     // Note: Don't immediately check new profile - let normal interval handle it

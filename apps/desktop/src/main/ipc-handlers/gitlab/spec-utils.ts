@@ -10,6 +10,7 @@ import type { GitLabAPIIssue, GitLabAPINoteBasic, GitLabConfig } from './types';
 import { labelMatchesWholeWord } from '../shared/label-utils';
 import { sanitizeText, sanitizeStringArray } from '../shared/sanitize';
 import { slugifySpecTitle } from '../../utils/spec-slug';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 /**
  * Simplified task info returned when creating a spec from a GitLab issue.
@@ -50,18 +51,7 @@ interface SanitizedGitLabIssue {
   web_url: string;
 }
 
-// Debug logging helper
-const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
-
-function debugLog(message: string, data?: unknown): void {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.debug(`[GitLab Spec] ${message}`, data);
-    } else {
-      console.debug(`[GitLab Spec] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitLab Spec');
 
 /**
  * Determine task category based on GitLab issue labels

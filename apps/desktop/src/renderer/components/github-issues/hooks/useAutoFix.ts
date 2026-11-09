@@ -1,3 +1,4 @@
+import { debugLog } from '@shared/utils/debug-logger';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type {
   AutoFixConfig,
@@ -182,10 +183,10 @@ export function useAutoFix(projectId: string | undefined) {
         // Check for new issues (no labels required)
         const newIssues = await window.electronAPI.github.checkNewIssues(projectId);
         if (newIssues.length > 0) {
-          console.log(`[AutoFix] Found ${newIssues.length} new issues`);
+          debugLog(`[AutoFix] Found ${newIssues.length} new issues`);
           // Start individual auto-fix for each new issue (not batching)
           for (const issue of newIssues) {
-            console.log(`[AutoFix] Starting auto-fix for issue #${issue.number}`);
+            debugLog(`[AutoFix] Starting auto-fix for issue #${issue.number}`);
             window.electronAPI.github.startAutoFix(projectId, issue.number);
           }
         }
@@ -209,10 +210,10 @@ export function useAutoFix(projectId: string | undefined) {
     try {
       const newIssues = await window.electronAPI.github.checkNewIssues(projectId);
       if (newIssues.length > 0) {
-        console.log(`[AutoFix] Found ${newIssues.length} new issues`);
+        debugLog(`[AutoFix] Found ${newIssues.length} new issues`);
         // Start individual auto-fix for each new issue
         for (const issue of newIssues) {
-          console.log(`[AutoFix] Starting auto-fix for issue #${issue.number}`);
+          debugLog(`[AutoFix] Starting auto-fix for issue #${issue.number}`);
           window.electronAPI.github.startAutoFix(projectId, issue.number);
         }
       }

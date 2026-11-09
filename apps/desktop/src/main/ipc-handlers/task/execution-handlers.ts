@@ -27,6 +27,7 @@ import { canMoveFailedTaskTo } from '../../../shared/utils/task-failure';
 import { readSettingsFile } from '../../settings-utils';
 import type { ProviderAccount } from '../../../shared/types/provider-account';
 
+import { appLog } from '../../app-logger';
 /**
  * Check if any provider account is configured (API key or OAuth).
  * Used to bypass the legacy hasValidAuth() check for non-Anthropic providers.
@@ -454,7 +455,7 @@ export function registerTaskExecutionHandlers(
             env: getIsolatedGitEnv()
           });
           if (resetResult.status === 0) {
-            console.log('[TASK_REVIEW] Unstaged changes in main');
+            appLog.info('[TASK_REVIEW] Unstaged changes in main');
           }
 
           // Step 2: Discard all working tree changes (restore to pre-merge state)
@@ -465,7 +466,7 @@ export function registerTaskExecutionHandlers(
             env: getIsolatedGitEnv()
           });
           if (checkoutResult.status === 0) {
-            console.log('[TASK_REVIEW] Discarded working tree changes in main');
+            appLog.info('[TASK_REVIEW] Discarded working tree changes in main');
           }
 
           // Step 3: Clean untracked files that came from the merge
@@ -477,10 +478,10 @@ export function registerTaskExecutionHandlers(
             env: getIsolatedGitEnv()
           });
           if (cleanResult.status === 0) {
-            console.log('[TASK_REVIEW] Cleaned untracked files in main (excluding .auto-claude)');
+            appLog.info('[TASK_REVIEW] Cleaned untracked files in main (excluding .auto-claude)');
           }
 
-          console.log('[TASK_REVIEW] Main branch restored to pre-merge state');
+          appLog.info('[TASK_REVIEW] Main branch restored to pre-merge state');
         }
 
         // Write feedback for QA fixer - write to WORKTREE spec dir if it exists
@@ -532,7 +533,7 @@ export function registerTaskExecutionHandlers(
                 }
                 writeFileSync(imagePath, imageBuffer);
                 savedImages.push(`feedback_images/${sanitizedFilename}`);
-                console.log('[TASK_REVIEW] Saved image:', sanitizedFilename);
+                appLog.info('[TASK_REVIEW] Saved image:', sanitizedFilename);
               } catch (imgError) {
                 console.error('[TASK_REVIEW] Failed to save image:', image.filename, imgError);
               }
@@ -936,7 +937,7 @@ export function registerTaskExecutionHandlers(
           resumed_by: 'user'
         });
         writeFileAtomicSync(resumeFilePath, resumeContent);
-        console.log(`[TASK_RESUME_PAUSED] Wrote RESUME file to: ${resumeFilePath}`);
+        appLog.info(`[TASK_RESUME_PAUSED] Wrote RESUME file to: ${resumeFilePath}`);
 
         // Also write to worktree if it exists (backend may be running inside the worktree)
         const worktreePath = findTaskWorktree(project.path, task.specId);
@@ -944,7 +945,7 @@ export function registerTaskExecutionHandlers(
           const worktreeResumeFilePath = path.join(worktreePath, specsBaseDir, task.specId, 'RESUME');
           try {
             writeFileAtomicSync(worktreeResumeFilePath, resumeContent);
-            console.log(`[TASK_RESUME_PAUSED] Also wrote RESUME file to worktree: ${worktreeResumeFilePath}`);
+            appLog.info(`[TASK_RESUME_PAUSED] Also wrote RESUME file to worktree: ${worktreeResumeFilePath}`);
           } catch (worktreeError) {
             // Non-fatal - main spec dir RESUME is sufficient
             console.warn(`[TASK_RESUME_PAUSED] Could not write to worktree (non-fatal):`, worktreeError);
@@ -1018,7 +1019,7 @@ export function registerTaskExecutionHandlers(
 
       // Update implementation_plan.json
       const planPath = path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
-      console.log(`[Recovery] Writing to plan file at: ${planPath} (task location: ${task.location || 'main'})`);
+      appLog.info(`[Recovery] Writing to plan file at: ${planPath} (task location: ${task.location || 'main'})`);
 
       // Also update the OTHER location if task exists in both main and worktree
       // This ensures consistency regardless of which version getTasks() prefers
@@ -1035,7 +1036,7 @@ export function registerTaskExecutionHandlers(
       if (worktreeSpecDir && worktreeSpecDir !== specDir && existsSync(path.join(worktreeSpecDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN))) {
         planPathsToUpdate.push(path.join(worktreeSpecDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN));
       }
-      console.log(`[Recovery] Will update ${planPathsToUpdate.length} plan file(s):`, planPathsToUpdate);
+      appLog.info(`[Recovery] Will update ${planPathsToUpdate.length} plan file(s):`, planPathsToUpdate);
 
       try {
         // Read the plan to analyze subtask progress
@@ -1105,7 +1106,7 @@ export function registerTaskExecutionHandlers(
           const { allCompleted } = checkSubtasksCompletion(plan);
 
           if (allCompleted) {
-            console.log('[Recovery] Task is fully complete (all subtasks done), setting to human_review without restart');
+            appLog.info('[Recovery] Task is fully complete (all subtasks done), setting to human_review without restart');
             // Don't reset any subtasks - task is done!
             // Just update status in plan file (project store reads from file, no separate update needed)
             plan.status = 'human_review';
@@ -1119,7 +1120,7 @@ export function registerTaskExecutionHandlers(
             for (const pathToUpdate of planPathsToUpdate) {
               try {
                 writeFileAtomicSync(pathToUpdate, planContent);
-                console.log(`[Recovery] Successfully wrote to: ${pathToUpdate}`);
+                appLog.info(`[Recovery] Successfully wrote to: ${pathToUpdate}`);
                 writeSucceededForComplete = true;
               } catch (writeError) {
                 console.error(`[Recovery] Failed to write plan file at ${pathToUpdate}:`, writeError);
@@ -1163,7 +1164,7 @@ export function registerTaskExecutionHandlers(
                 resetSucceeded = true;
                 totalResetCount += resetResult.resetCount;
                 if (resetResult.resetCount > 0) {
-                  console.log(`[Recovery] Reset ${resetResult.resetCount} stuck subtask(s) in: ${pathToUpdate}`);
+                  appLog.info(`[Recovery] Reset ${resetResult.resetCount} stuck subtask(s) in: ${pathToUpdate}`);
                 }
               } else {
                 resetFailedCount++;
@@ -1185,7 +1186,7 @@ export function registerTaskExecutionHandlers(
             console.warn(`[Recovery] Partial reset: ${totalResetCount} subtask(s) reset, but ${resetFailedCount} location(s) failed`);
           }
 
-          console.log(`[Recovery] Total ${totalResetCount} subtask(s) reset across all locations`);
+          appLog.info(`[Recovery] Total ${totalResetCount} subtask(s) reset across all locations`);
 
           // Clear attempt_history.json to break infinite recovery loops.
           // Without this, the backend re-reads stuck markers from attempt_history
@@ -1227,7 +1228,7 @@ export function registerTaskExecutionHandlers(
               };
 
               writeFileAtomicSync(attemptHistoryPath, JSON.stringify(history, null, 2));
-              console.log(`[Recovery] Cleared attempt_history.json at: ${dir} (reset ${stuckIds.size} stuck entries)`);
+              appLog.info(`[Recovery] Cleared attempt_history.json at: ${dir} (reset ${stuckIds.size} stuck entries)`);
             } catch (historyErr) {
               console.warn(`[Recovery] Could not parse attempt_history at ${dir}:`, historyErr);
             }
@@ -1309,7 +1310,7 @@ export function registerTaskExecutionHandlers(
               for (const pathToUpdate of planPathsToUpdate) {
                 try {
                   writeFileAtomicSync(pathToUpdate, restartPlanContent);
-                  console.log(`[Recovery] Wrote restart status to: ${pathToUpdate}`);
+                  appLog.info(`[Recovery] Wrote restart status to: ${pathToUpdate}`);
                 } catch (writeError) {
                   console.error(`[Recovery] Failed to write plan file for restart at ${pathToUpdate}:`, writeError);
                   // Continue with restart attempt even if file write fails

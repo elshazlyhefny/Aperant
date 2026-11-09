@@ -38,6 +38,7 @@ import { getUsageMonitor } from '../claude-profile/usage-monitor';
 import { safeSendToRenderer } from '../ipc-handlers/utils';
 import type { ProfileAssignmentReason } from '../../shared/types';
 
+import { appLog } from '../app-logger';
 /**
  * Types of SDK operations that can be registered
  */
@@ -191,7 +192,7 @@ export class SDKSessionRecoveryCoordinator extends EventEmitter {
     };
 
     this.operations.set(id, operation);
-    console.log(`[RecoveryCoordinator] Registered operation: ${id} (${type}) on profile ${profileName}`);
+    appLog.info(`[RecoveryCoordinator] Registered operation: ${id} (${type}) on profile ${profileName}`);
 
     return operation;
   }
@@ -204,7 +205,7 @@ export class SDKSessionRecoveryCoordinator extends EventEmitter {
     if (operation) {
       operation.sessionId = sessionId;
       operation.lastActivityAt = new Date();
-      console.log(`[RecoveryCoordinator] Session captured for ${id}: ${sessionId.substring(0, 16)}...`);
+      appLog.info(`[RecoveryCoordinator] Session captured for ${id}: ${sessionId.substring(0, 16)}...`);
     }
   }
 
@@ -225,7 +226,7 @@ export class SDKSessionRecoveryCoordinator extends EventEmitter {
     const operation = this.operations.get(id);
     if (operation) {
       this.operations.delete(id);
-      console.log(`[RecoveryCoordinator] Unregistered operation: ${id}`);
+      appLog.info(`[RecoveryCoordinator] Unregistered operation: ${id}`);
     }
   }
 
@@ -300,7 +301,7 @@ export class SDKSessionRecoveryCoordinator extends EventEmitter {
       sessionId: operation.sessionId,
     });
 
-    console.log(
+    appLog.info(
       `[RecoveryCoordinator] Rate limit recovery: ${operationId} swapped from ${rateLimitedProfileId} to ${newProfile.profileId}`
     );
 
@@ -359,7 +360,7 @@ export class SDKSessionRecoveryCoordinator extends EventEmitter {
       // Check cooldown
       const cooldown = this.profileCooldowns.get(profile.profileId);
       if (cooldown && cooldown.cooldownUntil > now) {
-        console.log(
+        appLog.info(
           `[RecoveryCoordinator] Profile ${profile.profileName} in cooldown until ${cooldown.cooldownUntil.toISOString()}`
         );
         continue;
@@ -367,7 +368,7 @@ export class SDKSessionRecoveryCoordinator extends EventEmitter {
 
       // Check if profile has exceeded max consecutive rate limits
       if (cooldown && cooldown.rateLimitCount >= this.config.maxConsecutiveRateLimits) {
-        console.log(
+        appLog.info(
           `[RecoveryCoordinator] Profile ${profile.profileName} exceeded max rate limits (${cooldown.rateLimitCount})`
         );
         continue;
@@ -399,7 +400,7 @@ export class SDKSessionRecoveryCoordinator extends EventEmitter {
     }
 
     const best = candidates[0];
-    console.log(
+    appLog.info(
       `[RecoveryCoordinator] Selected profile: ${best.profileName} (score: ${best.score})`
     );
 
@@ -421,7 +422,7 @@ export class SDKSessionRecoveryCoordinator extends EventEmitter {
     };
 
     this.profileCooldowns.set(profileId, cooldown);
-    console.log(
+    appLog.info(
       `[RecoveryCoordinator] Profile ${profileId} in cooldown until ${cooldown.cooldownUntil.toISOString()} (count: ${cooldown.rateLimitCount})`
     );
   }
@@ -431,7 +432,7 @@ export class SDKSessionRecoveryCoordinator extends EventEmitter {
    */
   clearProfileCooldown(profileId: string): void {
     this.profileCooldowns.delete(profileId);
-    console.log(`[RecoveryCoordinator] Cleared cooldown for profile ${profileId}`);
+    appLog.info(`[RecoveryCoordinator] Cleared cooldown for profile ${profileId}`);
   }
 
   /**
@@ -483,7 +484,7 @@ export class SDKSessionRecoveryCoordinator extends EventEmitter {
         );
       }
       if (swaps.length > this.config.maxNotificationsPerBatch) {
-        console.log(
+        appLog.info(
           `[RecoveryCoordinator] ${swaps.length - this.config.maxNotificationsPerBatch} swap notifications suppressed`
         );
       }

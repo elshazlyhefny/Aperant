@@ -17,6 +17,9 @@ let TEST_LOG_FILE: string;
 const mockGetFile = vi.fn();
 const mockGetPath = vi.fn();
 
+// This file tests the real logger; setup.ts mocks it for every other test.
+vi.unmock('../app-logger');
+
 // Mock electron-log before importing
 vi.mock('electron-log/main.js', () => ({
   default: {

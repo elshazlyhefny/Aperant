@@ -1,3 +1,4 @@
+import { debugLog } from '@shared/utils/debug-logger';
 import { useEffect } from 'react';
 import { unstable_batchedUpdates } from 'react-dom';
 import { useTaskStore } from '../stores/task-store';
@@ -212,7 +213,7 @@ export function useIpcListeners(): void {
     const cleanupStatus = window.electronAPI.onTaskStatusChange(
       (taskId: string, status: TaskStatus, projectId?: string, reviewReason?: import('../../shared/types').ReviewReason, failureReason?: string) => {
         // Debug: Log received status change
-        console.log(`[useIpc] Received TASK_STATUS_CHANGE:`, {
+        debugLog(`[useIpc] Received TASK_STATUS_CHANGE:`, {
           taskId,
           status,
           reviewReason,

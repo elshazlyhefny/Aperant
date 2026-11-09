@@ -13,18 +13,10 @@ import { PasswordInput } from '../../project-settings/PasswordInput';
 import { buildBranchOptions } from '../../../lib/branch-utils';
 import type { ProjectEnvConfig, GitHubSyncStatus, ProjectSettings, GitBranchDetail } from '../../../../shared/types';
 import { cleansUpMergedWorktrees } from '../../../../shared/utils/worktree-cleanup-policy';
+import { createDebugLog } from '../../../../shared/utils/debug-logger';
 
 // Debug logging
-const DEBUG = process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true';
-function debugLog(message: string, data?: unknown) {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.warn(`[GitHubIntegration] ${message}`, data);
-    } else {
-      console.warn(`[GitHubIntegration] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitHubIntegration');
 
 type BashSandboxMode = NonNullable<ProjectSettings['bashSandbox']>;
 

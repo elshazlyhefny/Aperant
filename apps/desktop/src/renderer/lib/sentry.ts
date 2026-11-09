@@ -21,6 +21,7 @@
  * - This respects user preference even during early app initialization
  */
 
+import { debugLog } from '@shared/utils/debug-logger';
 import * as Sentry from '@sentry/electron/renderer';
 import { useSettingsStore } from '../stores/settings-store';
 import {
@@ -41,7 +42,7 @@ let sentryInitialized = false;
  */
 export function markSettingsLoaded(): void {
   settingsLoaded = true;
-  console.log('[Sentry] Settings loaded, error reporting ready');
+  debugLog('[Sentry] Settings loaded, error reporting ready');
 }
 
 /**
@@ -62,7 +63,7 @@ export async function initSentryRenderer(): Promise<void> {
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
   if (!isElectron) {
-    console.log('[Sentry] Not in Electron environment, skipping initialization');
+    debugLog('[Sentry] Not in Electron environment, skipping initialization');
     return;
   }
 
@@ -76,7 +77,7 @@ export async function initSentryRenderer(): Promise<void> {
 
   const hasDsn = config.dsn.length > 0;
   if (!hasDsn) {
-    console.log('[Sentry] No DSN configured - error reporting disabled in renderer');
+    debugLog('[Sentry] No DSN configured - error reporting disabled in renderer');
     return;
   }
 
@@ -87,7 +88,7 @@ export async function initSentryRenderer(): Promise<void> {
       // Don't send events until settings are loaded
       // This prevents sending events if user had disabled Sentry
       if (!settingsLoaded) {
-        console.log('[Sentry] Settings not loaded yet, dropping event');
+        debugLog('[Sentry] Settings not loaded yet, dropping event');
         return null;
       }
 
@@ -118,7 +119,7 @@ export async function initSentryRenderer(): Promise<void> {
   });
 
   sentryInitialized = true;
-  console.log(`[Sentry] Renderer initialized (traces: ${config.tracesSampleRate}, profiles: ${config.profilesSampleRate})`);
+  debugLog(`[Sentry] Renderer initialized (traces: ${config.tracesSampleRate}, profiles: ${config.profilesSampleRate})`);
 }
 
 /**
@@ -133,7 +134,7 @@ export function isSentryInitialized(): boolean {
  * Call this whenever the user toggles the setting in the UI
  */
 export function notifySentryStateChanged(enabled: boolean): void {
-  console.log(`[Sentry] Notifying main process: ${enabled ? 'enabled' : 'disabled'}`);
+  debugLog(`[Sentry] Notifying main process: ${enabled ? 'enabled' : 'disabled'}`);
   try {
     window.electronAPI?.notifySentryStateChanged?.(enabled);
   } catch (error) {

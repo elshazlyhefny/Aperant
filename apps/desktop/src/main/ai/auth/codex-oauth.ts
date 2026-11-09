@@ -20,6 +20,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as path from 'path';
 import * as url from 'url';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 // Electron APIs loaded lazily to avoid crashing in worker threads
 // (workers don't have access to Electron main-process modules)
@@ -46,30 +47,7 @@ async function getElectronShell() {
 // Debug Logging
 // =============================================================================
 
-const DEBUG = process.env.DEBUG === 'true' || process.argv.includes('--debug');
-const VERBOSE = process.env.VERBOSE === 'true';
-
-function debugLog(message: string, data?: unknown): void {
-  if (!DEBUG) return;
-  const timestamp = new Date().toISOString();
-  const prefix = `[CodexOAuth ${timestamp}]`;
-  if (data !== undefined) {
-    console.log(prefix, message, data);
-  } else {
-    console.log(prefix, message);
-  }
-}
-
-function verboseLog(message: string, data?: unknown): void {
-  if (!VERBOSE) return;
-  const timestamp = new Date().toISOString();
-  const prefix = `[CodexOAuth ${timestamp}]`;
-  if (data !== undefined) {
-    console.log(prefix, message, data);
-  } else {
-    console.log(prefix, message);
-  }
-}
+const debugLog = createDebugLog('CodexOAuth');
 
 // =============================================================================
 // Constants
@@ -123,7 +101,6 @@ async function readStoredTokens(explicitPath?: string): Promise<StoredTokens | n
     const filePath = explicitPath ?? await getTokenFilePath();
     const raw = fs.readFileSync(filePath, 'utf8');
     const tokens = JSON.parse(raw) as StoredTokens;
-    verboseLog('Read stored tokens', { expiresAt: tokens.expires_at, hasAccess: !!tokens.access_token, hasRefresh: !!tokens.refresh_token });
     return tokens;
   } catch {
     debugLog('No stored tokens found');
@@ -498,7 +475,6 @@ function getEmailFromIdToken(idToken: string): string | undefined {
  * - Returns the valid access token.
  */
 export async function ensureValidCodexToken(tokenFilePath?: string): Promise<string | null> {
-  verboseLog('Ensuring valid Codex token');
   const stored = await readStoredTokens(tokenFilePath);
   if (!stored) {
     debugLog('No stored tokens — returning null');
@@ -506,10 +482,8 @@ export async function ensureValidCodexToken(tokenFilePath?: string): Promise<str
   }
 
   const expiresIn = stored.expires_at - Date.now();
-  verboseLog('Token expiry check', { expiresInMs: expiresIn, thresholdMs: REFRESH_THRESHOLD_MS });
 
   if (expiresIn > REFRESH_THRESHOLD_MS) {
-    verboseLog('Token still valid, returning stored token');
     return stored.access_token;
   }
 
