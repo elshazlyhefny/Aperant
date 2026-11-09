@@ -14,6 +14,7 @@ import Anthropic, {
 } from '@anthropic-ai/sdk';
 
 import { loadProfilesFile, generateProfileId, atomicModifyProfiles } from './profile-manager';
+import { withKeyStatusReset } from '@shared/utils/api-key-status';
 import type { APIProfile, TestConnectionResult, ModelInfo, DiscoverModelsResult } from '@shared/types/profile';
 
 /**
@@ -216,11 +217,18 @@ export async function updateProfile(input: UpdateProfileInput): Promise<APIProfi
     }
 
     // Update profile (including name)
+    const newBaseUrl = input.baseUrl.trim();
+    const newApiKey = input.apiKey.trim();
+    const credentialsChanged =
+      newBaseUrl !== existingProfile.baseUrl || newApiKey !== existingProfile.apiKey;
+
+    // A changed key or endpoint starts unverified (drops any stale 'rejected')
+    const base = credentialsChanged ? withKeyStatusReset(existingProfile) : existingProfile;
     const updated: APIProfile = {
-      ...existingProfile,
+      ...base,
       name: input.name.trim(),
-      baseUrl: input.baseUrl.trim(),
-      apiKey: input.apiKey.trim(),
+      baseUrl: newBaseUrl,
+      apiKey: newApiKey,
       models: input.models,
       updatedAt: Date.now()
     };

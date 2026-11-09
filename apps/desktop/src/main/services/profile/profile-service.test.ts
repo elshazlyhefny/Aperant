@@ -390,6 +390,47 @@ describe('profile-service', () => {
       expect(result.createdAt).toBe(1000000);
     });
 
+    it('resets keyStatus when the apiKey changes but keeps it when only the name changes', async () => {
+      const make = (): ProfilesFile => ({
+        profiles: [
+          {
+            id: 'existing-id',
+            name: 'Old Name',
+            baseUrl: 'https://api.example.com',
+            apiKey: 'sk-old-key-12345678',
+            keyStatus: 'rejected',
+            keyStatusAt: 42,
+            createdAt: 1000000,
+            updatedAt: 1000000
+          }
+        ],
+        activeProfileId: null,
+        version: 1
+      });
+      const { loadProfilesFile, saveProfilesFile } = await import('./profile-manager');
+      vi.mocked(saveProfilesFile).mockResolvedValue(undefined);
+
+      vi.mocked(loadProfilesFile).mockResolvedValue(make());
+      const renamed = await updateProfile({
+        id: 'existing-id',
+        name: 'Renamed',
+        baseUrl: 'https://api.example.com',
+        apiKey: 'sk-old-key-12345678'
+      });
+      expect(renamed.keyStatus).toBe('rejected');
+      expect(renamed.keyStatusAt).toBe(42);
+
+      vi.mocked(loadProfilesFile).mockResolvedValue(make());
+      const rekeyed = await updateProfile({
+        id: 'existing-id',
+        name: 'Old Name',
+        baseUrl: 'https://api.example.com',
+        apiKey: 'sk-new-key-98765432'
+      });
+      expect(rekeyed.keyStatus).toBeUndefined();
+      expect(rekeyed.keyStatusAt).toBeUndefined();
+    });
+
     it('should allow updating profile with same name (case-insensitive)', async () => {
       const mockFile: ProfilesFile = {
         profiles: [

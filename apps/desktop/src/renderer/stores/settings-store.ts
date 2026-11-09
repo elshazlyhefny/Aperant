@@ -46,7 +46,7 @@ interface SettingsState {
   updateProfile: (profile: APIProfile) => Promise<boolean>;
   deleteProfile: (profileId: string) => Promise<boolean>;
   setActiveProfile: (profileId: string | null) => Promise<boolean>;
-  testConnection: (baseUrl: string, apiKey: string, signal?: AbortSignal) => Promise<TestConnectionResult | null>;
+  testConnection: (baseUrl: string, apiKey: string, signal?: AbortSignal, profileId?: string) => Promise<TestConnectionResult | null>;
   discoverModels: (baseUrl: string, apiKey: string, signal?: AbortSignal) => Promise<ModelInfo[] | null>;
 
   // Provider account actions
@@ -223,10 +223,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     }
   },
 
-  testConnection: async (baseUrl: string, apiKey: string, signal?: AbortSignal): Promise<TestConnectionResult | null> => {
+  testConnection: async (baseUrl: string, apiKey: string, signal?: AbortSignal, profileId?: string): Promise<TestConnectionResult | null> => {
     set({ isTestingConnection: true, testConnectionResult: null });
     try {
-      const result = await window.electronAPI.testConnection(baseUrl, apiKey, signal);
+      const result = await window.electronAPI.testConnection(baseUrl, apiKey, signal, profileId);
 
       // Type narrowing pattern
       if (result.success && result.data) {
