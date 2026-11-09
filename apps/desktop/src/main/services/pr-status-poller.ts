@@ -39,7 +39,7 @@ import { safeSendToRenderer } from '../ipc-handlers/utils';
 /**
  * PR data from GitHub API (minimal fields needed for status polling)
  */
-interface PRData {
+interface PRStatusPollData {
   number: number;
   updated_at: string;
   head: { sha: string };
@@ -502,7 +502,7 @@ export class PRStatusPoller {
       const prResult = await githubFetchWithETag(token, prEndpoint);
       this.updateGitHubRateLimitInfo(prResult.rateLimitInfo);
 
-      const prData = prResult.data as PRData;
+      const prData = prResult.data as PRStatusPollData;
 
       // Update last activity and classify tier
       const lastActivity = new Date(prData.updated_at);
@@ -704,7 +704,7 @@ export class PRStatusPoller {
    * Determine mergeable state from PR data
    */
   private determineMergeableState(
-    prData: PRData,
+    prData: PRStatusPollData,
     context: ProjectPollingContext,
     state: PRPollingState
   ): MergeableState {
