@@ -1,3 +1,4 @@
+import { debugLog } from '@shared/utils/debug-logger';
 import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Square, Clock, Zap, Target, Shield, Gauge, Palette, FileCode, Bug, Wrench, Loader2, AlertTriangle, RotateCcw, Archive, GitPullRequest, MoreVertical, ListRestart } from 'lucide-react';
@@ -120,7 +121,7 @@ function taskCardPropsAreEqual(prevProps: TaskCardProps, nextProps: TaskCardProp
     if (prevTask.subtasks.length !== nextTask.subtasks.length) {
       changes.push(`subtasks: ${prevTask.subtasks.length} -> ${nextTask.subtasks.length}`);
     }
-    console.log(`[TaskCard] Re-render: ${prevTask.id} | ${changes.join(', ') || 'other fields'}`);
+    debugLog(`[TaskCard] Re-render: ${prevTask.id} | ${changes.join(', ') || 'other fields'}`);
   }
 
   return isEqual;

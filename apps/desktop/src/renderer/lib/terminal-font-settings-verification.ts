@@ -41,6 +41,7 @@
  * - Check that xterm.refresh() is called after options update
  */
 
+import { debugLog } from '@shared/utils/debug-logger';
 import { useTerminalFontSettingsStore } from '../stores/terminal-font-settings-store';
 
 /**
@@ -65,7 +66,7 @@ export async function verifyTerminalSubscription(): Promise<boolean> {
       return false;
     }
 
-    console.log('✅ Terminal font settings subscription verified');
+    debugLog('✅ Terminal font settings subscription verified');
     return true;
   } catch (error) {
     console.error('❌ Terminal font settings subscription verification failed:', error);
@@ -85,7 +86,7 @@ export async function verifyTerminalSubscription(): Promise<boolean> {
  * This would be used in an integration test with actual xterm instances
  */
 export function verifyMultipleTerminalsUpdate(terminalCount: number): void {
-  console.log(`Verifying ${terminalCount} terminals update when settings change...`);
+  debugLog(`Verifying ${terminalCount} terminals update when settings change...`);
 
   // In a real test, this would:
   // 1. Create multiple terminal instances
@@ -93,5 +94,5 @@ export function verifyMultipleTerminalsUpdate(terminalCount: number): void {
   // 3. Change store settings
   // 4. Verify all terminals called refresh()
 
-  console.log('Note: Full integration test requires actual xterm instances');
+  debugLog('Note: Full integration test requires actual xterm instances');
 }

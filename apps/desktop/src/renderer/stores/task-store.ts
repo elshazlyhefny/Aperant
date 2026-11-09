@@ -355,7 +355,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
       const index = findTaskIndex(state.tasks, taskId);
       if (index === -1) {
-        console.log('[updateTaskFromPlan] Task not found:', taskId);
+        debugLog('[updateTaskFromPlan] Task not found:', taskId);
         return state;
       }
 
@@ -819,7 +819,7 @@ export async function persistTaskStatus(
     if (!result.success) {
       // Check if this is a worktree exists case
       if (result.worktreeExists) {
-        console.log('[persistTaskStatus] Worktree exists, confirmation needed');
+        debugLog('[persistTaskStatus] Worktree exists, confirmation needed');
         return {
           success: false,
           worktreeExists: true,

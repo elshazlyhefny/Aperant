@@ -1,3 +1,4 @@
+import { debugLog } from '@shared/utils/debug-logger';
 import { create } from 'zustand';
 import type { AppSettings, PerProviderAgentConfig } from '../../shared/types';
 import type { APIProfile, ProfileFormData, TestConnectionResult, ModelInfo } from '@shared/types/profile';
@@ -274,7 +275,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
 
   discoverModels: async (baseUrl: string, apiKey: string, signal?: AbortSignal): Promise<ModelInfo[] | null> => {
-    console.log('[settings-store] discoverModels called with:', { baseUrl, apiKey: `${apiKey.slice(-4)}` });
+    debugLog('[settings-store] discoverModels called with:', { baseUrl, apiKey: `${apiKey.slice(-4)}` });
     // Generate cache key from baseUrl and apiKey (last 4 chars)
     const cacheKey = `${baseUrl}::${apiKey.slice(-4)}`;
 
@@ -282,16 +283,16 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     const state = useSettingsStore.getState();
     const cached = state.discoveredModels.get(cacheKey);
     if (cached) {
-      console.log('[settings-store] Returning cached models');
+      debugLog('[settings-store] Returning cached models');
       return cached;
     }
 
     // Fetch from API
     set({ modelsLoading: true, modelsError: null });
     try {
-      console.log('[settings-store] Calling window.electronAPI.discoverModels...');
+      debugLog('[settings-store] Calling window.electronAPI.discoverModels...');
       const result = await window.electronAPI.discoverModels(baseUrl, apiKey, signal);
-      console.log('[settings-store] discoverModels result:', result);
+      debugLog('[settings-store] discoverModels result:', result);
 
       if (result.success && result.data) {
         const models = result.data.models;

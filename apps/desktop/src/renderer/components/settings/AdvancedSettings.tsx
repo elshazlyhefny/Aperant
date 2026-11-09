@@ -1,3 +1,4 @@
+import { debugLog } from '@shared/utils/debug-logger';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -110,7 +111,7 @@ export function AdvancedSettings({ settings, onSettingsChange, section, version 
           // An update was already downloaded - show "Install and Restart" button
           setAppUpdateInfo(result.data);
           setIsAppUpdateDownloaded(true);
-          console.log('[AdvancedSettings] Found already-downloaded update:', result.data.version);
+          debugLog('[AdvancedSettings] Found already-downloaded update:', result.data.version);
           return; // Don't check for new updates if we already have one downloaded
         }
       } catch (err) {

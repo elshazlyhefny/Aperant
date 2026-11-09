@@ -1,3 +1,4 @@
+import { debugLog } from '@shared/utils/debug-logger';
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useViewState } from '../contexts/ViewStateContext';
@@ -173,7 +174,7 @@ function droppableColumnPropsAreEqual(
 
   // Only log when re-rendering (reduces noise)
   if (window.DEBUG && !tasksEqual) {
-    console.log(`[DroppableColumn] Re-render: ${nextProps.status} column (${nextProps.tasks.length} tasks)`);
+    debugLog(`[DroppableColumn] Re-render: ${nextProps.status} column (${nextProps.tasks.length} tasks)`);
   }
 
   return tasksEqual;
@@ -996,7 +997,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     // calls persistTaskStatus directly, never this function.
     // ============================================
     if (newStatus === 'in_progress' && isQueueAtCapacity(taskId)) {
-      console.log('[Queue] In Progress full, redirecting task to Queue');
+      debugLog('[Queue] In Progress full, redirecting task to Queue');
       newStatus = 'queue';
     }
 
@@ -1115,7 +1116,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
   const processQueue = useCallback(async () => {
     // Prevent concurrent executions to avoid race conditions
     if (isProcessingQueueRef.current) {
-      console.log('[Queue] Already processing queue, skipping duplicate call');
+      debugLog('[Queue] Already processing queue, skipping duplicate call');
       return;
     }
 
@@ -1155,7 +1156,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
           return dateA - dateB; // Ascending order (oldest first)
         })[0];
 
-        console.log(`[Queue] Auto-promoting task ${nextTask.id} from Queue to In Progress (${inProgressCount + 1}/${maxParallelTasks})`);
+        debugLog(`[Queue] Auto-promoting task ${nextTask.id} from Queue to In Progress (${inProgressCount + 1}/${maxParallelTasks})`);
         const result = await persistTaskStatus(nextTask.id, 'in_progress');
 
         if (result.success) {
@@ -1185,7 +1186,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
       (taskId, oldStatus, newStatus) => {
         // When a task leaves in_progress (e.g., goes to human_review), process the queue
         if (oldStatus === 'in_progress' && newStatus !== 'in_progress') {
-          console.log(`[Queue] Task ${taskId} left in_progress, processing queue to fill slot`);
+          debugLog(`[Queue] Task ${taskId} left in_progress, processing queue to fill slot`);
           processQueue();
         }
       }

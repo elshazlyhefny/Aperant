@@ -15,6 +15,7 @@
  * - Per-credential caching: reuses fetched models for same (baseUrl, apiKey)
  * - Request cancellation: aborts pending fetch when closed
  */
+import { debugLog } from '@shared/utils/debug-logger';
 import { useState, useEffect, useRef } from 'react';
 import { Loader2, ChevronDown, Search, Check, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -93,7 +94,7 @@ export function ModelSearchableSelect({
    * Uses store's discoverModels action which has built-in caching.
    */
   const fetchModels = async () => {
-    console.log('[ModelSearchableSelect] fetchModels called with:', { baseUrl, apiKey: `${apiKey.slice(-4)}` });
+    debugLog('[ModelSearchableSelect] fetchModels called with:', { baseUrl, apiKey: `${apiKey.slice(-4)}` });
     // Fetch from API
     setIsLoading(true);
     setError(null);
@@ -102,7 +103,7 @@ export function ModelSearchableSelect({
 
     try {
       const result = await discoverModels(baseUrl, apiKey, abortControllerRef.current.signal);
-      console.log('[ModelSearchableSelect] discoverModels result:', result);
+      debugLog('[ModelSearchableSelect] discoverModels result:', result);
 
       if (result && Array.isArray(result)) {
         setModels(result);
