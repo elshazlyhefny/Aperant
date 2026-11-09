@@ -95,7 +95,8 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
     task.metadata.complexity ||
     task.metadata.impact ||
     task.metadata.securitySeverity ||
-    task.metadata.sourceType
+    task.metadata.sourceType ||
+    task.metadata.jiraIssueKey
   );
 
   return (
@@ -165,6 +166,25 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
                   : task.metadata.sourceType}
               </Badge>
             )}
+            {/* Jira issue link (https only) */}
+            {task.metadata?.jiraIssueKey &&
+              task.metadata.jiraUrl?.startsWith('https://') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = task.metadata?.jiraUrl;
+                    if (url?.startsWith('https://')) {
+                      window.electronAPI.openExternal(url);
+                    }
+                  }}
+                  title={t('tasks:metadata.openInJira', { key: task.metadata.jiraIssueKey })}
+                  aria-label={t('tasks:metadata.openInJira', { key: task.metadata.jiraIssueKey })}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-info hover:underline bg-transparent cursor-pointer"
+                >
+                  {task.metadata.jiraIssueKey}
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </button>
+              )}
           </div>
         )}
 
