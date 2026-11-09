@@ -4,6 +4,13 @@
  * Monitors Claude account usage at configured intervals and automatically
  * switches to alternative accounts before hitting rate limits.
  *
+ * This file owns scheduling, caching, failover and swap decisions only.
+ * Everything provider-specific lives under ./usage/:
+ * - usage/providers/  per-provider adapters + registry.ts (endpoint, auth, normalization)
+ * - usage/endpoints.ts, usage/usage-api-client.ts  endpoint lookup and HTTP fetch
+ * - usage/credential-resolver.ts, usage/active-profile-resolver.ts  credential/profile resolution
+ * - usage/availability-score.ts, usage/provider-accounts.ts, usage/usage-log.ts  scoring, provider accounts, logging
+ *
  * Uses hybrid approach:
  * 1. Primary: Direct OAuth API (https://api.anthropic.com/api/oauth/usage)
  * 2. Fallback: CLI /usage command parsing
