@@ -6,7 +6,7 @@ import type { RecurringSchedule, ScheduleInput } from '../../shared/types/schedu
 import { IPC_CHANNELS } from '../../shared/constants';
 
 // biome-ignore lint/suspicious/noExplicitAny: handler results are loosely typed in tests
-const handlers = new Map<string, (...args: unknown[]) => Promise<{ success: boolean; data?: any; error?: string }>>();
+const handlers = new Map<string, (...args: unknown[]) => Promise<any>>();
 let stored: RecurringSchedule[] = [];
 const send = vi.fn();
 const deleteTask = vi.fn();

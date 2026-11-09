@@ -1,0 +1,83 @@
+{
+  "title": "Schedules",
+  "description": "Recurring tasks added to the queue automatically while the app is open.",
+  "empty": {
+    "title": "No schedules yet",
+    "description": "Create a schedule to add a task to the queue on a daily, weekly or custom cadence."
+  },
+  "form": {
+    "createTitle": "New schedule",
+    "editTitle": "Edit schedule",
+    "description": "The task template is added to the queue each time the schedule is due.",
+    "name": "Schedule name",
+    "namePlaceholder": "Weekly dependency update",
+    "taskTitle": "Task title",
+    "taskDescription": "Task instructions",
+    "taskDescriptionPlaceholder": "Describe what the agent should do on each run",
+    "cadence": "Cadence",
+    "cadenceDaily": "Daily",
+    "cadenceWeekly": "Weekly",
+    "cadenceCustom": "Custom",
+    "time": "Time",
+    "weekdays": "Days of the week",
+    "everyMinutes": "Every N minutes",
+    "everyMinutesHint": "Minimum {{min}} minutes.",
+    "tokenBudget": "Token budget per run",
+    "tokenBudgetHint": "The ceiling is checked after each agent session, so a run can slightly exceed it before it is stopped."
+  },
+  "weekdays": {
+    "0": "Sun",
+    "1": "Mon",
+    "2": "Tue",
+    "3": "Wed",
+    "4": "Thu",
+    "5": "Fri",
+    "6": "Sat"
+  },
+  "validation": {
+    "nameRequired": "Enter a schedule name",
+    "titleRequired": "Enter a task title",
+    "descriptionRequired": "Enter task instructions",
+    "invalidTime": "Enter a valid time",
+    "noDays": "Select at least one day",
+    "intervalMin": "Interval must be a whole number of at least {{min}} minutes",
+    "budgetInvalid": "Token budget must be a positive whole number"
+  },
+  "status": {
+    "active": "Active",
+    "paused": "Paused"
+  },
+  "cadenceSummary": {
+    "daily": "Daily at {{time}}",
+    "weekly": "{{days}} at {{time}}",
+    "interval": "Every {{count}} minutes"
+  },
+  "nextRun": "Next run: {{date}}",
+  "lastRun": "Last run: {{date}}",
+  "never": "Never",
+  "tokenBudgetSummary": "Budget: {{count}} tokens",
+  "history": {
+    "title": "Run history",
+    "empty": "No runs yet",
+    "started": "Started a task",
+    "skipped_unfinished": "Skipped because the previous task is unfinished",
+    "missed": "Missed {{count}} runs, one catch-up run was started",
+    "budget_exceeded": "Token budget exceeded",
+    "failed": "Failed to start"
+  },
+  "buttons": {
+    "new": "New schedule",
+    "edit": "Edit",
+    "pause": "Pause",
+    "resume": "Resume",
+    "delete": "Delete",
+    "dismiss": "Dismiss"
+  },
+  "delete": {
+    "title": "Delete schedule?",
+    "description": "\"{{name}}\" will be removed. Tasks it already created are kept."
+  },
+  "errors": {
+    "saveFailed": "Could not save the schedule"
+  }
+}

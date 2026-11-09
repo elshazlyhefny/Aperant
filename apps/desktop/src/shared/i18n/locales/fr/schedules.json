@@ -1,0 +1,83 @@
+{
+  "title": "Planifications",
+  "description": "Tâches récurrentes ajoutées automatiquement à la file tant que l'application est ouverte.",
+  "empty": {
+    "title": "Aucune planification",
+    "description": "Créez une planification pour ajouter une tâche à la file de façon quotidienne, hebdomadaire ou personnalisée."
+  },
+  "form": {
+    "createTitle": "Nouvelle planification",
+    "editTitle": "Modifier la planification",
+    "description": "Le modèle de tâche est ajouté à la file à chaque échéance.",
+    "name": "Nom de la planification",
+    "namePlaceholder": "Mise à jour hebdomadaire des dépendances",
+    "taskTitle": "Titre de la tâche",
+    "taskDescription": "Instructions de la tâche",
+    "taskDescriptionPlaceholder": "Décrivez ce que l'agent doit faire à chaque exécution",
+    "cadence": "Cadence",
+    "cadenceDaily": "Quotidienne",
+    "cadenceWeekly": "Hebdomadaire",
+    "cadenceCustom": "Personnalisée",
+    "time": "Heure",
+    "weekdays": "Jours de la semaine",
+    "everyMinutes": "Toutes les N minutes",
+    "everyMinutesHint": "Minimum {{min}} minutes.",
+    "tokenBudget": "Budget de tokens par exécution",
+    "tokenBudgetHint": "Le plafond est vérifié après chaque session d'agent : une exécution peut donc le dépasser légèrement avant d'être arrêtée."
+  },
+  "weekdays": {
+    "0": "Dim",
+    "1": "Lun",
+    "2": "Mar",
+    "3": "Mer",
+    "4": "Jeu",
+    "5": "Ven",
+    "6": "Sam"
+  },
+  "validation": {
+    "nameRequired": "Saisissez un nom de planification",
+    "titleRequired": "Saisissez un titre de tâche",
+    "descriptionRequired": "Saisissez les instructions de la tâche",
+    "invalidTime": "Saisissez une heure valide",
+    "noDays": "Sélectionnez au moins un jour",
+    "intervalMin": "L'intervalle doit être un nombre entier d'au moins {{min}} minutes",
+    "budgetInvalid": "Le budget de tokens doit être un entier positif"
+  },
+  "status": {
+    "active": "Active",
+    "paused": "En pause"
+  },
+  "cadenceSummary": {
+    "daily": "Tous les jours à {{time}}",
+    "weekly": "{{days}} à {{time}}",
+    "interval": "Toutes les {{count}} minutes"
+  },
+  "nextRun": "Prochaine exécution : {{date}}",
+  "lastRun": "Dernière exécution : {{date}}",
+  "never": "Jamais",
+  "tokenBudgetSummary": "Budget : {{count}} tokens",
+  "history": {
+    "title": "Historique des exécutions",
+    "empty": "Aucune exécution",
+    "started": "Tâche démarrée",
+    "skipped_unfinished": "Ignorée car la tâche précédente n'est pas terminée",
+    "missed": "{{count}} exécutions manquées, une exécution de rattrapage a été lancée",
+    "budget_exceeded": "Budget de tokens dépassé",
+    "failed": "Échec du démarrage"
+  },
+  "buttons": {
+    "new": "Nouvelle planification",
+    "edit": "Modifier",
+    "pause": "Mettre en pause",
+    "resume": "Reprendre",
+    "delete": "Supprimer",
+    "dismiss": "Ignorer"
+  },
+  "delete": {
+    "title": "Supprimer la planification ?",
+    "description": "« {{name}} » sera supprimée. Les tâches déjà créées sont conservées."
+  },
+  "errors": {
+    "saveFailed": "Impossible d'enregistrer la planification"
+  }
+}
