@@ -83,6 +83,8 @@ export default defineConfig({
           // Worker thread entry point — must be a separate chunk so it can be
           // spawned via `new Worker(path)` from WorkerBridge
           'ai/agent/worker': resolve(__dirname, 'src/main/ai/agent/worker.ts'),
+          // zeenha fork: headless CLI entry (node out/main/cli.js run <spec>), runs without Electron
+          cli: resolve(__dirname, 'src/main/headless/cli.ts'),
         },
         // Native modules that must remain external (loaded from disk, not bundled).
         // @libsql/client is loaded lazily via globalThis.require() and resolved
