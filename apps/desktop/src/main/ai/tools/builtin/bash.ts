@@ -3,7 +3,11 @@
  * =================
  *
  * Executes bash commands with security validation.
- * Integrates with bashSecurityHook() for pre-execution command allowlisting.
+ * Integrates with bashSecurityHook() for pre-execution denylist checks and
+ * per-command validation.
+ *
+ * NOTE: Commands run via execFile in the task cwd with the user's permissions.
+ * They are NOT covered by path-containment.ts and there is no OS sandbox.
  * Supports timeouts, background execution, and descriptive metadata.
  */
 
