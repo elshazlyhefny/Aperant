@@ -4,7 +4,7 @@
  *
  * Centralized command registry for dynamic security profiles.
  * Maps technologies to their associated commands for building
- * tailored security allowlists.
+ * technology-specific command sets (informational; not used for allow/deny decisions).
  *
  * See apps/desktop/src/main/ai/project/command-registry.ts for the TypeScript implementation.
  */
