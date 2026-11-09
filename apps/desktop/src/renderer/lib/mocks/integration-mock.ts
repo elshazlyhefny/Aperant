@@ -10,6 +10,7 @@ export const integrationMock = {
       linearEnabled: false,
       githubEnabled: false,
       gitlabEnabled: false,
+      bitbucketEnabled: false,
       memoryEnabled: false,
       enableFancyUi: true
     }
