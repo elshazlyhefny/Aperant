@@ -29,7 +29,11 @@ vi.mock('../../../mcp/client', async (importOriginal) => {
   };
 });
 
+import { hashMcpServer } from '../../../mcp/mcp-approval';
 import { createPRReviewMcpSession } from '../pr-review-mcp';
+
+const githubServer = { id: 'github', name: 'GitHub', type: 'http' as const, url: 'https://api.githubcopilot.com/mcp/' };
+const approved = { servers: [hashMcpServer(githubServer)], chromeExecutables: [] };
 
 let project: string;
 beforeEach(() => {
@@ -48,7 +52,7 @@ afterEach(() => rmSync(project, { recursive: true, force: true }));
 
 describe('createPRReviewMcpSession', () => {
   it('gives each reviewer the servers its override adds, connecting each server once', async () => {
-    const session = createPRReviewMcpSession(project);
+    const session = createPRReviewMcpSession(project, '.auto-claude', undefined, approved);
 
     const [security, logic, quality] = await Promise.all([
       session.toolsFor('pr_security_specialist'),
@@ -69,7 +73,7 @@ describe('createPRReviewMcpSession', () => {
   it('logs a server that fails to start and carries on without it', async () => {
     connects.fail.add('github');
     const logs: string[] = [];
-    const session = createPRReviewMcpSession(project, '.auto-claude', (l) => logs.push(l));
+    const session = createPRReviewMcpSession(project, '.auto-claude', (l) => logs.push(l), approved);
 
     expect(await session.toolsFor('pr_security_specialist')).toEqual({});
     expect(logs.join('\n')).toContain('MCP server "github" failed to start (non-fatal): 401');
@@ -78,8 +82,17 @@ describe('createPRReviewMcpSession', () => {
 
   it('connects nothing for a project without MCP settings', async () => {
     rmSync(join(project, '.auto-claude', '.env'));
-    const session = createPRReviewMcpSession(project);
+    const session = createPRReviewMcpSession(project, '.auto-claude', undefined, approved);
     expect(await session.toolsFor('pr_security_specialist')).toEqual({});
+    expect(connects.calls).toEqual([]);
+  });
+
+  it('never connects a committed server the user has not approved', async () => {
+    for (const approvals of [undefined, { servers: [], chromeExecutables: [] }]) {
+      const session = createPRReviewMcpSession(project, '.auto-claude', undefined, approvals);
+      expect(await session.toolsFor('pr_security_specialist')).toEqual({});
+      await session.close();
+    }
     expect(connects.calls).toEqual([]);
   });
 });

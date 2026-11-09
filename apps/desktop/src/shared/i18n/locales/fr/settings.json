@@ -943,6 +943,20 @@
     }
   },
   "mcp": {
+    "approval": {
+      "notApproved": "Non approuvé - ne sera pas exécuté",
+      "approve": "Approuver",
+      "cancel": "Annuler",
+      "approveTitle": "Approuver {{name}} ?",
+      "approveDescription": "Ce serveur est défini dans la configuration du projet. Si vous l'approuvez, il s'exécutera sur cette machine avec vos privilèges d'utilisateur. N'approuvez-le que si vous faites confiance à la source de cette définition.",
+      "commandLabel": "Commande qui sera exécutée",
+      "urlLabel": "URL qui sera contactée",
+      "cannotRun": "Exécution impossible : définition invalide",
+      "changedSinceShown": "La définition du serveur a changé depuis son affichage. Vérifiez-la à nouveau avant d'approuver.",
+      "chromeExecutableNotApproved": "Cet exécutable Chrome n'est pas approuvé. Tant que vous ne l'approuvez pas, le Chrome installé est utilisé :",
+      "chromeExecutableApprove": "Approuver l'exécutable",
+      "trackedEnvWarning": ".auto-claude/.env est versionné dans git. Toute personne pouvant pousser vers ce dépôt peut y définir des commandes ; les serveurs ne sont donc jamais exécutés avant votre approbation."
+    },
     "title": "Aperçu des serveurs MCP",
     "titleWithProject": "Aperçu des serveurs MCP pour {{projectName}}",
     "description": "Configurez quels serveurs MCP sont disponibles pour les agents dans ce projet",

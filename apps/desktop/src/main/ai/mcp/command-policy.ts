@@ -7,9 +7,10 @@
  * (ipc-handlers/mcp-handlers.ts). Upstream had it only in the page's checks,
  * so a server the page called "invalid" was still started for every agent.
  *
- * A custom server's command comes from the project's .auto-claude/.env, which
- * the settings page writes; this is defence in depth against a config that
- * reached that file some other way.
+ * This allowlist is NOT a trust boundary. It only blocks inline-code flags and
+ * shell injection; `node`, `npx` and `python` still run any script or package
+ * the config names, and the .env may be committed by anyone. The real boundary
+ * is the user's approval of the exact definition (mcp-approval.ts).
  *
  * `docker` is allowed only as `docker exec …`: running a tool inside a
  * container the developer already started (e.g. `php artisan boost:mcp` in
