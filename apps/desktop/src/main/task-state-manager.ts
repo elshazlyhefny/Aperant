@@ -15,6 +15,7 @@ import { failedBeforeAnyWork } from '../shared/utils/task-failure';
 import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
 
 import { appLog } from './app-logger';
+import { dispatchTaskOutcomeWebhook, mapOutcomeToWebhookEvent } from './task-webhook';
 type TaskActor = ActorRefFrom<typeof taskMachine>;
 
 interface TaskContextEntry {
@@ -302,6 +303,24 @@ export class TaskStateManager {
 
       this.persistStatus(task, project, status, reviewReason, stateValue, executionPhase, failure.failureReason);
       this.emitStatus(taskId, status, reviewReason, project.id, status === 'error' ? failure.failureReason : undefined);
+
+      // zeenha fork: this subscriber is the single funnel for every task state
+      // transition, so terminal outcomes (failed / ready for review / blocked)
+      // are reported to the user's webhook from here. Config comes from user
+      // settings only, never from project files. A webhook problem must not
+      // affect persistence or the renderer event, hence the try/catch.
+      try {
+        if (mapOutcomeToWebhookEvent(status, reviewReason)) {
+          dispatchTaskOutcomeWebhook({
+            status,
+            reviewReason,
+            projectName: project.name,
+            taskTitle: task.title || task.specId
+          });
+        }
+      } catch (error) {
+        console.warn(`[TaskStateManager] Webhook dispatch failed for ${taskId}:`, error);
+      }
     });
 
     actor.start();
