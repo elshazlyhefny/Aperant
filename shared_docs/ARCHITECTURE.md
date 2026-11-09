@@ -6,6 +6,8 @@
 2. [Task Lifecycle / Data Flow](#task-lifecycle--data-flow)
    - [Session Runtime](#session-runtime)
    - [Events Crossing the Worker Boundary](#events-crossing-the-worker-boundary)
+3. [Agent Types, Prompts and Tools](#agent-types-prompts-and-tools)
+4. [Providers and Model Resolution](#providers-and-model-resolution)
 
 All paths below are relative to `apps/desktop/src/main/` unless stated otherwise.
 
@@ -116,3 +118,177 @@ Every message carries `taskId` and an optional `projectId`.
 **Relay to the manager.** `AgentProcessManager.spawnWorkerProcess()` subscribes to the bridge events `log`, `error`, `execution-progress`, `task-event` and `exit`, and re-emits them on the `AgentManager` emitter. These are the `AgentManagerEvents` declared in `agent/types.ts`. On a non-zero exit code it first emits an `execution-progress` with phase `failed`.
 
 **Phase and task markers.** The renderer-facing phase protocol still has a text form: lines containing `__EXEC_PHASE__:{json}`, parsed by `parsePhaseEvent()` and `hasPhaseMarker()` in `agent/phase-event-parser.ts`. `agent/task-event-parser.ts` and `task-event-schema.ts` do the same for task events from child-process output. `AgentEvents.handleStructuredProgress()` in `agent/agent-events.ts` takes the typed worker payload (`StructuredProgressEvent`) and returns a phase update, or null if the phase would go backwards (`wouldPhaseRegress`).
+
+
+## Agent Types, Prompts and Tools
+
+All paths in this section are under `apps/desktop/src/main/ai/` unless they start with `apps/desktop/prompts/`.
+
+### How an agent type is resolved
+
+An agent type (`AgentType` in `config/agent-configs.ts`) is a string key. It selects three things:
+
+1. **Configuration.** `AGENT_CONFIGS` maps each type to `{ tools, mcpServers, mcpServersOptional?, thinkingDefault }`. `getAgentConfig()` throws on an unknown type, and `getDefaultThinkingLevel()` reads `thinkingDefault`.
+2. **System prompt.** The prompt is a Markdown file in `apps/desktop/prompts/`, loaded by `prompts/prompt-loader.ts`. The agent type does not name the file by itself. Each caller picks the file: `agent/worker.ts` (`specPhaseToPromptName()` and the build and QA sessions), `orchestration/subagent-executor.ts` (`resolvePromptName()`) and the runners (`runners/roadmap.ts`, `runners/github/parallel-orchestrator.ts`).
+3. **Tool set.** `ToolRegistry.getToolsForAgent(agentType, context)` in `tools/registry.ts` keeps only the registered tools whose names appear in `config.tools`, and binds each to a `ToolContext`.
+
+### Prompt loading
+
+`loadPrompt(name)` reads `<promptsDir>/<name>.md` and throws if it is missing. `tryLoadPrompt()` returns null instead. `name` may contain a subfolder, such as `github/pr_security_agent` or `mcp_tools/electron_validation`.
+
+`resolvePromptsDir()` finds the directory:
+
+- packaged app (`app.isPackaged`): `process.resourcesPath/prompts`
+- dev and tests: it tries several relative candidates from `__dirname` and picks the first that contains `planner.md`
+
+The worker (`agent/worker.ts`) has its own `loadPrompt()` with the same search idea, and falls back to `buildFallbackPrompt()` when the file is not found. `assemblePrompt()` then calls `injectContext()` to add the spec directory, project directory and project instructions (`AGENTS.md`, or `CLAUDE.md` as a fallback), for every provider. `prompts/subtask-prompt-generator.ts` and `prompts/subtask-brief.ts` build the per-subtask prompt from the planner and coder prompts.
+
+Prompt files that exist today: `planner`, `coder`, `coder_recovery`, `followup_planner`, `qa_reviewer`, `qa_fixer`, `spec_gatherer`, `spec_researcher`, `spec_writer`, `spec_critic`, `spec_quick`, `spec_orchestrator_agentic`, `qa_orchestrator_agentic`, `complexity_assessor`, `validation_fixer`, `insight_extractor`, `roadmap_discovery`, `roadmap_features`, `competitor_analysis`, seven `ideation_*` files, plus the folders `github/` (PR review, triage and issue prompts) and `mcp_tools/` (`api_validation`, `chrome_devtools_browser`, `database_validation`, `electron_validation`).
+
+### Builtin tools
+
+`tools/build-registry.ts` (`buildToolRegistry()`) registers the builtin tools from `tools/builtin/`. The worker threads, the runners and the client factory all use it. `tools/define.ts` provides `Tool.define()`, which wraps an AI SDK `tool()` with a Zod input schema, permission metadata and `bind(context)`. `tools/truncation.ts` limits tool output size.
+
+| Registry name | File |
+|---|---|
+| `Read` | `tools/builtin/read.ts` |
+| `Write` | `tools/builtin/write.ts` |
+| `Edit` | `tools/builtin/edit.ts` |
+| `Bash` | `tools/builtin/bash.ts` |
+| `Glob` | `tools/builtin/glob.ts` |
+| `Grep` | `tools/builtin/grep.ts` |
+| `WebFetch` | `tools/builtin/web-fetch.ts` |
+| `WebSearch` | `tools/builtin/web-search.ts` |
+| `SpawnSubagent` | `tools/builtin/spawn-subagent.ts` |
+
+`SpawnSubagent` is the ninth tool, not counted in older docs. It lets an orchestrator agent start a sub-session of another type through `orchestration/subagent-executor.ts`. Only `spec_orchestrator` and `build_orchestrator` have it in their tool list.
+
+### Security layer
+
+Tool permission is enforced when a tool runs, not by hiding tools, so most agents receive the full builtin set. The code is in `security/`:
+
+- `bash-validator.ts`, `command-parser.ts` and `security-profile.ts` check each Bash command against an allowlist derived from the project's security profile. `validators/` holds the per-command checks (`shell`, `git`, `filesystem`, `process`, `database`, `landing`).
+- `path-containment.ts` keeps file tools inside the allowed project and worktree directories.
+- `denylist.ts` blocks protected paths and commands.
+- `secret-scanner.ts` detects secrets.
+- `tool-input-validator.ts` checks tool inputs before execution.
+
+### MCP servers
+
+`mcpServers` in an agent config names MCP servers, not tools. `getRequiredMcpServers()` (`config/agent-configs.ts`) resolves them for a run:
+
+- `context7` is dropped when `context7Enabled` is false.
+- `memory` is kept only when `memoryEnabled` is true.
+- `browser` becomes `electron` for an Electron project with Electron MCP on, otherwise `chrome-devtools` when it is enabled, otherwise nothing.
+- per-agent add and remove lists (`agentMcpAdd`, `agentMcpRemove`) and custom server ids are applied last.
+
+`mcp/registry.ts` holds the server definitions (stdio or streamable HTTP), `mcp/client.ts` connects them (`createMcpClientsForAgent()`, `mergeMcpTools()`, `closeAllMcpClients()`), and `mcp/command-policy.ts` and `mcp/project-settings.ts` restrict and configure them. MCP tools appear with names such as `mcp__context7__query-docs`. The worker connects servers per agent type and shares clients by server id.
+
+### Agent types
+
+The table lists every key of `AGENT_CONFIGS`. "Builtin" is `ALL` for the full set (Read, Glob, Grep, Write, Edit, Bash, WebFetch, WebSearch), `SPEC` for Read, Glob, Grep, Write, WebFetch and WebSearch, and `READ` for Read, Glob, Grep. "Prompt" is the file the caller most likely loads. The `github/` names are inferred from file names, not traced in every case.
+
+| Agent type | Builtin tools | MCP servers | Thinking | Prompt |
+|---|---|---|---|---|
+| `spec_gatherer` | SPEC | context7 | medium | `spec_gatherer` |
+| `spec_researcher` | SPEC | context7 | medium | `spec_researcher` |
+| `spec_writer` | SPEC | context7 | high | `spec_writer` |
+| `spec_critic` | SPEC | context7 | high | `spec_critic` |
+| `spec_discovery` | SPEC | context7 | medium | `spec_gatherer` |
+| `spec_context` | SPEC | context7 | medium | `spec_writer` |
+| `spec_validation` | SPEC | context7 | high | `spec_writer` |
+| `spec_compaction` | SPEC | context7 | medium | none traced |
+| `spec_orchestrator` | ALL + SpawnSubagent | context7 | high | `spec_orchestrator_agentic` |
+| `build_orchestrator` | ALL + SpawnSubagent | context7, memory | high | none traced; the build pipeline is code in `orchestration/` |
+| `planner` | ALL | context7, memory | high | `planner` |
+| `coder` | ALL | context7, memory | low | `coder` (`coder_recovery` on recovery) |
+| `qa_reviewer` | ALL | context7, memory, browser | high | `qa_reviewer` |
+| `qa_fixer` | ALL | context7, memory, browser | medium | `qa_fixer` |
+| `insights` | ALL | none | low | built in `runners/insights.ts` |
+| `merge_resolver` | none | none | low | built in the merge code |
+| `commit_message` | none | none | low | built inline |
+| `pr_template_filler` | ALL | none | low | `github/pr_template_filler` |
+| `pr_reviewer` | ALL | context7 | high | `github/pr_reviewer` |
+| `pr_orchestrator_parallel` | ALL | context7 | high | `github/pr_parallel_orchestrator` |
+| `pr_followup_parallel` | ALL | context7 | high | `github/pr_followup_orchestrator` |
+| `pr_followup_extraction` | none | none | low | `github/pr_followup` family |
+| `pr_finding_validator` | ALL | none | medium | `github/pr_finding_validator` |
+| `pr_security_specialist` | READ | none | medium | `github/pr_security_agent` |
+| `pr_quality_specialist` | READ | none | medium | `github/pr_quality_agent` |
+| `pr_logic_specialist` | READ | none | medium | `github/pr_logic_agent` |
+| `pr_codebase_fit_specialist` | READ | none | medium | `github/pr_codebase_fit_agent` |
+| `analysis` | ALL | context7 | medium | runner specific |
+| `batch_analysis` | ALL | none | low | runner specific |
+| `batch_validation` | ALL | none | low | runner specific |
+| `roadmap_discovery` | ALL | context7 | high | `roadmap_discovery` |
+| `competitor_analysis` | ALL | context7 | high | `competitor_analysis` |
+| `ideation` | ALL | none | high | `ideation_*` |
+
+Rows marked "runner specific", "none traced" or "built inline" are agent types whose prompt text I did not find loaded from one named file. Check the calling runner before relying on those cells.
+
+
+## Providers and Model Resolution
+
+### Rule
+
+Every model call goes through the Vercel AI SDK (`ai`, v6). Code builds a model with `createProvider()` and calls `streamText()` or `generateText()`. `@anthropic-ai/sdk` is not used. The one non-obvious exception to "call `ai` directly" is the Claude Code engine, described below. It still presents an AI SDK model.
+
+### Supported providers
+
+`providers/types.ts` defines `SupportedProvider`, and `providers/registry.ts` and `providers/factory.ts` handle each one in an exhaustive `switch`. There are eleven, not the nine that older notes list:
+
+| Id | SDK package or adapter | Notes |
+|---|---|---|
+| `anthropic` | `@ai-sdk/anthropic` | OAuth tokens use `authToken` and a beta header; see the Claude Code engine |
+| `openai` | `@ai-sdk/openai` | Codex OAuth accounts and Codex models use `.responses()`, others `.chat()` |
+| `google` | `@ai-sdk/google` | |
+| `bedrock` | `@ai-sdk/amazon-bedrock` | region defaults to `us-east-1` |
+| `azure` | `@ai-sdk/azure` | uses the deployment name through `.chat()` |
+| `mistral` | `@ai-sdk/mistral` | |
+| `groq` | `@ai-sdk/groq` | |
+| `xai` | `@ai-sdk/xai` | |
+| `openrouter` | `@openrouter/ai-sdk-provider` | |
+| `zai` | `@ai-sdk/openai-compatible` | default base URL `https://api.z.ai/api/paas/v4` |
+| `ollama` | `@ai-sdk/openai-compatible` | default `http://localhost:11434`, `/v1` is appended |
+
+### Factory, registry and transforms
+
+- `providers/factory.ts`: `createProvider({ config, modelId })` returns a `LanguageModel`. `detectProviderFromModel()` and `createProviderFromModelId()` infer the provider from a model id prefix, using `MODEL_PROVIDER_MAP` in `config/types.ts` (`claude-`, `gpt-`, `o1-`, `o3-`, `o4-`, `codex-`, `gemini-`, `mistral-`, `codestral-`, `llama-`, `grok-`, `glm-`).
+- `providers/registry.ts`: `buildRegistry()` wraps `createProviderRegistry()` so a model can be addressed as `provider:model`.
+- `providers/transforms.ts`: normalizes thinking settings per provider (`transformThinkingConfig()`, `getThinkingKwargsForModel()`, `isAdaptiveModel()`), tool ids (`normalizeToolId()`), and prompt-cache breakpoints (`getCacheBreakpoints()`, `meetsCacheThreshold()`).
+- `providers/oauth-fetch.ts`: `createOAuthProviderFetch()` returns a `fetch` that injects a file-based OAuth token and rewrites URLs; it is used for OpenAI Codex accounts. `ensureValidOAuthToken()` refreshes the token.
+
+### Credentials
+
+`auth/resolver.ts` resolves credentials with `resolveAuth()` and, for account queues, `resolveAuthFromQueue()`. It reuses `claude-profile/` (`token-refresh`, `profile-scorer`, credential storage) instead of storing credentials itself. The order is: profile OAuth token, profile API key from settings, provider environment variable (`PROVIDER_ENV_VARS` in `auth/types.ts`), then default credentials such as Ollama needing none. `auth/codex-oauth.ts` handles Codex OAuth. Z.AI keys are routed to the general or the coding endpoint.
+
+### Client factory
+
+`client/factory.ts` is the usual entry point:
+
+- `createAgentClient()` resolves auth, picks the model with `resolveModelId()`, calls `createProvider()`, connects MCP servers for the agent type, builds the tool set from `buildToolRegistry()` and `AGENT_CONFIGS`, and returns everything `runAgentSession()` needs plus a `cleanup()`. Default `maxSteps` is 200.
+- `createSimpleClient()` is the light version for utility runners (commit messages, PR templates, analysis), with a default of 1 step.
+
+### Phase-based model and thinking resolution
+
+`config/phase-config.ts` works with the four phases `spec`, `planning`, `coding` and `qa`. Defaults are in `config/types.ts`: model `sonnet` for all phases, and thinking `medium`, `high`, `medium`, `high` respectively.
+
+- `getPhaseModel(specDir, phase, cliModel?)`: a CLI model wins; then, for an auto profile, the phase entry in `task_metadata.json`; then the single task model; then the default. The result goes through `resolveModelId()` (shorthand to full id via `MODEL_ID_MAP`).
+- `getPhaseThinking()` uses the same order for the thinking level.
+- `resolveSessionModelId()` (a zeenha fork addition) applies a phase's model only when the worker is on Anthropic and the result is a Claude model, so a phase can never mismatch the worker's provider.
+- `getThinkingBudget()`, `getPhaseConfig()` and `getPhaseClientThinkingKwargs()` turn a level into provider options; adaptive models use an effort level, others a token budget. `getModelBetas()` adds beta headers such as the 1M context window.
+- `SPEC_PHASE_THINKING_LEVELS` sets thinking per spec sub-phase, and the agent's own `thinkingDefault` applies when nothing else does.
+
+### Claude Code engine (alternate path for subscriptions)
+
+When an Anthropic credential is an OAuth token (`sk-ant-oa…` or `sk-ant-ort…`), `usesClaudeCodeEngine()` in `providers/factory.ts` is true and `createProvider()` returns `createClaudeCodeModel()` from `claude-code/model.ts` instead of an API model. Setting `APERANT_CLAUDE_ENGINE=api` turns this off. The reason is in the source comment: the Messages API refuses subscription tokens from clients other than Claude Code.
+
+The code in `claude-code/`:
+
+- `model.ts`: a spec-v3 `LanguageModel` that answers single requests without tools.
+- `sdk.ts`: drop-in `streamText()` and `generateText()`. For any model other than a Claude Code model, or a Claude Code model without tools, they call the AI SDK unchanged. With tools, they run the whole loop in the CLI. `session/runner.ts`, the runners and the subagent executor import these instead of `ai`.
+- `engine.ts` and `cli-args.ts`: spawn `claude -p`, build its arguments and environment (`CLAUDE_CONFIG_DIR` of the chosen profile), and stream the output.
+- `cli-events.ts`: parse the CLI's event stream into parts and steps.
+- `tool-bridge.ts`: serves Aperant's own tools to the CLI, so the security layer still applies.
+
+Limits on this path: `prepareStep` cannot inject text between steps, so mid-session nudges and memory injection do not happen, and the CLI compacts its own context.
