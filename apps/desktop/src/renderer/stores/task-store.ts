@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { arrayMove } from '@dnd-kit/sortable';
 import type { Task, TaskStatus, SubtaskStatus, ImplementationPlan, Subtask, TaskMetadata, ExecutionProgress, ExecutionPhase, ReviewReason, TaskDraft, ImageAttachment, TaskOrderState } from '../../shared/types';
+import { extractPlannedFiles } from '../../shared/utils/file-overlap';
 import { debugLog, debugWarn } from '../../shared/utils/debug-logger';
 import { useProjectStore } from './project-store';
 import { useTaskLogsStore, MAX_LOG_ENTRIES } from './task-logs-store';
@@ -385,7 +386,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
                 title,
                 description,
                 status,
-                files: [],
+                files: extractPlannedFiles(subtask),
                 verification: subtask.verification as Subtask['verification']
               };
             })

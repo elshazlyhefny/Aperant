@@ -35,6 +35,24 @@ export function normalizePlannedPath(path: string): string {
 }
 
 /**
+ * Deduped union of a plan subtask's files_to_modify and files_to_create.
+ * Plans are written by an LLM, so anything that is not a string array is ignored.
+ */
+export function extractPlannedFiles(subtask: {
+  files_to_modify?: unknown;
+  files_to_create?: unknown;
+}): string[] {
+  const files = new Set<string>();
+  for (const list of [subtask.files_to_modify, subtask.files_to_create]) {
+    if (!Array.isArray(list)) continue;
+    for (const file of list) {
+      if (typeof file === 'string' && file.trim()) files.add(file);
+    }
+  }
+  return [...files];
+}
+
+/**
  * Deduped, normalized union of every subtask's files. Null ("unknown") when
  * the task has no subtasks or no file in any of them.
  */

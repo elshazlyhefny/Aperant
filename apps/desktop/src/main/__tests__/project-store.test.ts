@@ -411,6 +411,50 @@ describe('ProjectStore', () => {
       expect(tasks[0].status).toBe('backlog');
     });
 
+    it('carries planned files into subtasks, and empty files when the plan has none', async () => {
+      const specsDir = path.join(TEST_PROJECT_PATH, '.auto-claude', 'specs', '002-planned-files');
+      mkdirSync(specsDir, { recursive: true });
+
+      const plan = {
+        feature: 'Planned Files',
+        workflow_type: 'feature',
+        services_involved: [],
+        status: 'backlog',
+        phases: [
+          {
+            phase: 1,
+            name: 'Phase 1',
+            type: 'implementation',
+            subtasks: [
+              {
+                id: 'subtask-1',
+                description: 'With files',
+                status: 'pending',
+                files_to_modify: ['src/a.ts', 'src/b.ts'],
+                files_to_create: ['src/b.ts', 'src/c.ts']
+              },
+              { id: 'subtask-2', description: 'Without files', status: 'pending' }
+            ]
+          }
+        ],
+        final_acceptance: [],
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+        spec_file: 'spec.md'
+      };
+
+      writeFileSync(path.join(specsDir, 'implementation_plan.json'), JSON.stringify(plan));
+
+      const { ProjectStore } = await import('../project-store');
+      const store = new ProjectStore();
+
+      const project = store.addProject(TEST_PROJECT_PATH);
+      const tasks = store.getTasks(project.id);
+
+      expect(tasks[0].subtasks[0].files).toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
+      expect(tasks[0].subtasks[1].files).toEqual([]);
+    });
+
     it('should determine status as ai_review when all subtasks completed', async () => {
       const specsDir = path.join(TEST_PROJECT_PATH, '.auto-claude', 'specs', '003-complete');
       mkdirSync(specsDir, { recursive: true });

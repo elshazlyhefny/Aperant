@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Task, TaskStatus } from '../../types';
 import {
+  extractPlannedFiles,
   findFileOverlaps,
   getPlannedFiles,
   isHoldActive,
@@ -36,6 +37,19 @@ describe('normalizePlannedPath', () => {
   it('strips ./, whitespace and converts backslashes', () => {
     expect(normalizePlannedPath(' ./a/b.ts ')).toBe('a/b.ts');
     expect(normalizePlannedPath('a\\b.ts')).toBe('a/b.ts');
+  });
+});
+
+describe('extractPlannedFiles', () => {
+  it('returns the deduped union of files_to_modify and files_to_create', () => {
+    expect(
+      extractPlannedFiles({ files_to_modify: ['a.ts', 'b.ts'], files_to_create: ['b.ts', 'c.ts'] })
+    ).toEqual(['a.ts', 'b.ts', 'c.ts']);
+  });
+
+  it('ignores missing, non-array and non-string values', () => {
+    expect(extractPlannedFiles({})).toEqual([]);
+    expect(extractPlannedFiles({ files_to_modify: 'a.ts', files_to_create: [1, null, '', 'x.ts'] })).toEqual(['x.ts']);
   });
 });
 
