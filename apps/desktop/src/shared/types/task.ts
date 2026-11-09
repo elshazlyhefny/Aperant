@@ -15,7 +15,8 @@ export type TaskOrderState = Record<TaskStatus, string[]>;
 // - 'errors': Subtasks failed during execution
 // - 'qa_rejected': QA found issues that need fixing
 // - 'plan_review': Spec/plan created and awaiting approval before coding starts
-export type ReviewReason = 'completed' | 'errors' | 'qa_rejected' | 'plan_review' | 'stopped';
+// zeenha fork: 'token_budget' = paused because the task reached its token budget
+export type ReviewReason = 'completed' | 'errors' | 'qa_rejected' | 'plan_review' | 'stopped' | 'token_budget';
 
 export type SubtaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
@@ -165,6 +166,8 @@ export type TaskCategory =
   | 'testing';
 
 export interface TaskMetadata {
+  /** zeenha fork: token budget in tokens (input+output). 0 on a task = unlimited override of the project limit. */
+  tokenBudget?: number;
   // Origin tracking
   sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab';
   ideationType?: string;  // e.g., 'code_improvements', 'security_hardening'
