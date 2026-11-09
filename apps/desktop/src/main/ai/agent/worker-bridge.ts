@@ -32,6 +32,7 @@ import {
   isAgentMemoryEnabled,
 } from '../../ipc-handlers/context/memory-service-factory';
 import { projectStore } from '../../project-store';
+import { recordApiKeyOutcome } from '../../services/api-key-status-recorder';
 
 // ESM-compatible __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -80,6 +81,7 @@ export class WorkerBridge extends EventEmitter {
   private taskId: string = '';
   private projectId: string | undefined;
   private processType: ProcessType = 'task-execution';
+  private accountId: string | undefined;
   private memoryHandler: MainMemoryHandler | null = null;
 
   /**
@@ -96,6 +98,7 @@ export class WorkerBridge extends EventEmitter {
     this.taskId = config.taskId;
     this.projectId = config.projectId;
     this.processType = config.processType;
+    this.accountId = config.accountId;
     this.progressTracker = new ProgressTracker();
 
     const workerConfig: WorkerConfig = {
@@ -268,6 +271,19 @@ export class WorkerBridge extends EventEmitter {
     }
 
     this.finalizeMemory(toMemoryOutcome(result.outcome));
+
+    // zeenha fork: remember which key worked or was rejected, so failover can
+    // skip bad keys. 'auth_failure' is never produced for a rate limit (the
+    // classifier maps 429 to 'rate_limited'), so it is safe to mark the key.
+    // Other outcomes say nothing about the key. Fire and forget; the recorder
+    // never throws.
+    if (this.accountId) {
+      if (result.outcome === 'auth_failure') {
+        void recordApiKeyOutcome(this.accountId, 'rejected');
+      } else if (result.outcome === 'completed') {
+        void recordApiKeyOutcome(this.accountId, 'valid');
+      }
+    }
 
     // Emit exit and cleanup
     this.emitTyped('exit', taskId, exitCode, this.processType, projectId);

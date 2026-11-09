@@ -209,6 +209,8 @@ export interface AgentExecutorConfig {
   processType: ProcessType;
   /** Session configuration (serializable parts) */
   session: SerializableSessionConfig;
+  /** Account the session authenticated with (for API key outcome recording) */
+  accountId?: string;
   /** Optional auth refresh callback (runs in main thread) */
   onAuthRefresh?: RunnerOptions['onAuthRefresh'];
 }

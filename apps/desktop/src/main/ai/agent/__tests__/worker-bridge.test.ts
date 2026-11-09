@@ -91,6 +91,11 @@ vi.mock('../../session/progress-tracker', () => ({
   },
 }));
 
+const mockRecordApiKeyOutcome = vi.fn().mockResolvedValue(true);
+vi.mock('../../../services/api-key-status-recorder', () => ({
+  recordApiKeyOutcome: (...args: unknown[]) => mockRecordApiKeyOutcome(...args),
+}));
+
 // Import after mocks
 import { WorkerBridge, WORKER_EXIT_GRACE_MS } from '../worker-bridge';
 
@@ -165,6 +170,51 @@ describe('WorkerBridge', () => {
     it('throws if worker already active', () => {
       bridge.spawn(createConfig());
       expect(() => bridge.spawn(createConfig())).toThrow('already has an active worker');
+    });
+  });
+
+  describe('api key outcome recording', () => {
+    function finish(config: Partial<AgentExecutorConfig>, result: Partial<SessionResult>): void {
+      bridge.spawn(createConfig(config));
+      const msg: WorkerMessage = {
+        type: 'result',
+        taskId: 'task-123',
+        data: createSessionResult(result),
+        projectId: 'proj-456',
+      };
+      getWorker().emit('message', msg);
+    }
+
+    it('records rejected on auth_failure', () => {
+      finish({ accountId: 'acc-1' }, { outcome: 'auth_failure' });
+      expect(mockRecordApiKeyOutcome).toHaveBeenCalledTimes(1);
+      expect(mockRecordApiKeyOutcome).toHaveBeenCalledWith('acc-1', 'rejected');
+    });
+
+    it('records valid on completed', () => {
+      finish({ accountId: 'acc-1' }, { outcome: 'completed' });
+      expect(mockRecordApiKeyOutcome).toHaveBeenCalledTimes(1);
+      expect(mockRecordApiKeyOutcome).toHaveBeenCalledWith('acc-1', 'valid');
+    });
+
+    it.each(['rate_limited', 'error', 'cancelled', 'max_steps', 'context_window'] as const)(
+      'records nothing on %s',
+      (outcome) => {
+        finish({ accountId: 'acc-1' }, { outcome });
+        expect(mockRecordApiKeyOutcome).not.toHaveBeenCalled();
+      }
+    );
+
+    it('records nothing without an account id', () => {
+      finish({}, { outcome: 'auth_failure' });
+      expect(mockRecordApiKeyOutcome).not.toHaveBeenCalled();
+    });
+
+    it('records nothing when the worker crashes', () => {
+      bridge.on('error', vi.fn());
+      bridge.spawn(createConfig({ accountId: 'acc-1' }));
+      getWorker().emit('error', new Error('boom'));
+      expect(mockRecordApiKeyOutcome).not.toHaveBeenCalled();
     });
   });
 
