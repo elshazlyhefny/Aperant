@@ -1,9 +1,11 @@
 import path from 'path';
-import { existsSync, readFileSync, } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { EventEmitter } from 'events';
-import type { TaskLogs, TaskLogPhase, TaskLogStreamChunk, TaskPhaseLog } from '../shared/types';
+import type { TaskLogs, TaskLogPhase, TaskPhaseLog } from '../shared/types';
 import { findTaskWorktree } from './worktree-paths';
 import { debugLog, debugWarn, debugError } from '../shared/utils/debug-logger';
+
+type FileSignature = { mtimeMs: number; size: number };
 
 function findWorktreeSpecDir(projectPath: string, specId: string, specsRelPath: string): string | null {
   const worktreePath = findTaskWorktree(projectPath, specId);
@@ -19,7 +21,7 @@ function findWorktreeSpecDir(projectPath: string, specId: string, specsRelPath: 
  * This service provides:
  * - Loading logs from the spec directory (and worktree spec directory when active)
  * - Watching for log file changes
- * - Emitting streaming updates when logs change
+ * - Emitting logs-changed events when logs change
  * - Determining which phase is currently active
  *
  * Note: When a task runs in isolated mode (worktrees), the build logs are written to
@@ -241,6 +243,22 @@ export class TaskLogService extends EventEmitter {
   }
 
   /**
+   * Stat a file and return its change signature, or null if it cannot be read
+   */
+  private statSignature(file: string): FileSignature | null {
+    try {
+      const st = statSync(file);
+      return { mtimeMs: st.mtimeMs, size: st.size };
+    } catch {
+      return null;
+    }
+  }
+
+  private signatureChanged(prev: FileSignature | null, next: FileSignature): boolean {
+    return !prev || prev.mtimeMs !== next.mtimeMs || prev.size !== next.size;
+  }
+
+  /**
    * Start watching a spec directory for log changes
    * Also watches the worktree spec directory if it exists (for coding/validation phases)
    *
@@ -282,29 +300,11 @@ export class TaskLogService extends EventEmitter {
       specsRelPath: specsRelPath || ''
     });
 
-    let lastMainContent = '';
-    let lastWorktreeContent = '';
-
-    // Initial load from main spec dir
-    if (existsSync(mainLogFile)) {
-      try {
-        lastMainContent = readFileSync(mainLogFile, 'utf-8');
-      } catch (_e) {
-        // Ignore parse errors on initial load
-      }
-    }
-
-    // Initial load from worktree spec dir
-    if (worktreeSpecDir) {
-      const worktreeLogFile = path.join(worktreeSpecDir, 'task_logs.json');
-      if (existsSync(worktreeLogFile)) {
-        try {
-          lastWorktreeContent = readFileSync(worktreeLogFile, 'utf-8');
-        } catch (_e) {
-          // Ignore parse errors on initial load
-        }
-      }
-    }
+    // Cheap change detection: compare stat signatures instead of file contents
+    let lastMainSig = this.statSignature(mainLogFile);
+    let lastWorktreeSig: FileSignature | null = worktreeSpecDir
+      ? this.statSignature(path.join(worktreeSpecDir, 'task_logs.json'))
+      : null;
 
     // Do initial merged load
     debugLog('[TaskLogService.startWatching] Loading initial logs');
@@ -353,32 +353,19 @@ export class TaskLogService extends EventEmitter {
       }
 
       // Check main spec dir
-      if (existsSync(mainLogFile)) {
-        try {
-          const currentContent = readFileSync(mainLogFile, 'utf-8');
-          if (currentContent !== lastMainContent) {
-            lastMainContent = currentContent;
-            mainChanged = true;
-          }
-        } catch (_error) {
-          // Ignore read/parse errors
-        }
+      const mainSig = this.statSignature(mainLogFile);
+      if (mainSig && this.signatureChanged(lastMainSig, mainSig)) {
+        mainChanged = true;
       }
+      lastMainSig = mainSig;
 
       // Check worktree spec dir
       if (currentWorktreeSpecDir) {
-        const worktreeLogFile = path.join(currentWorktreeSpecDir, 'task_logs.json');
-        if (existsSync(worktreeLogFile)) {
-          try {
-            const currentContent = readFileSync(worktreeLogFile, 'utf-8');
-            if (currentContent !== lastWorktreeContent) {
-              lastWorktreeContent = currentContent;
-              worktreeChanged = true;
-            }
-          } catch (_error) {
-            // Ignore read/parse errors
-          }
+        const worktreeSig = this.statSignature(path.join(currentWorktreeSpecDir, 'task_logs.json'));
+        if (worktreeSig && this.signatureChanged(lastWorktreeSig, worktreeSig)) {
+          worktreeChanged = true;
         }
+        lastWorktreeSig = worktreeSig;
       }
 
       // If either file changed, reload and emit
@@ -389,7 +376,6 @@ export class TaskLogService extends EventEmitter {
           worktreeChanged
         });
 
-        const previousLogs = this.logCache.get(specDir);
         const logs = this.loadLogs(specDir);
 
         if (logs) {
@@ -404,9 +390,6 @@ export class TaskLogService extends EventEmitter {
 
           // Emit change event with the merged logs
           this.emit('logs-changed', specId, logs);
-
-          // Calculate and emit streaming updates for new entries
-          this.emitNewEntries(specId, previousLogs, logs);
         } else {
           debugWarn('[TaskLogService] No logs loaded after file change:', specId);
         }
@@ -482,65 +465,6 @@ export class TaskLogService extends EventEmitter {
       entries: deduped,
     };
     return combined;
-  }
-
-  /**
-   * Emit streaming updates for new log entries
-   */
-  private emitNewEntries(specId: string, previousLogs: TaskLogs | undefined, currentLogs: TaskLogs): void {
-    const phases: TaskLogPhase[] = ['planning', 'coding', 'validation'];
-
-    for (const phase of phases) {
-      const prevPhase = previousLogs?.phases[phase];
-      const currPhase = currentLogs.phases[phase];
-
-      if (!currPhase) continue;
-
-      // Check for phase status changes
-      if (prevPhase?.status !== currPhase.status) {
-        if (currPhase.status === 'active') {
-          this.emit('stream-chunk', specId, {
-            type: 'phase_start',
-            phase,
-            timestamp: currPhase.started_at || new Date().toISOString()
-          } as TaskLogStreamChunk);
-        } else if (currPhase.status === 'completed' || currPhase.status === 'failed') {
-          this.emit('stream-chunk', specId, {
-            type: 'phase_end',
-            phase,
-            timestamp: currPhase.completed_at || new Date().toISOString()
-          } as TaskLogStreamChunk);
-        }
-      }
-
-      // Check for new entries
-      const prevEntryCount = prevPhase?.entries.length || 0;
-      const currEntryCount = currPhase.entries.length;
-
-      if (currEntryCount > prevEntryCount) {
-        // Emit new entries
-        for (let i = prevEntryCount; i < currEntryCount; i++) {
-          const entry = currPhase.entries[i];
-
-          const streamUpdate: TaskLogStreamChunk = {
-            type: entry.type as TaskLogStreamChunk['type'],
-            content: entry.content,
-            phase: entry.phase,
-            timestamp: entry.timestamp,
-            subtask_id: entry.subtask_id
-          };
-
-          if (entry.tool_name) {
-            streamUpdate.tool = {
-              name: entry.tool_name,
-              input: entry.tool_input
-            };
-          }
-
-          this.emit('stream-chunk', specId, streamUpdate);
-        }
-      }
-    }
   }
 
   /**

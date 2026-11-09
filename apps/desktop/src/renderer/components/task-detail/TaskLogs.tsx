@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useLayoutEffect, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Terminal,
   Loader2,
@@ -39,6 +40,11 @@ interface TaskLogsProps {
   onLogsScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   onTogglePhase: (phase: TaskLogPhase) => void;
 }
+
+// Phases with at most this many entries render without virtualization
+const VIRTUALIZE_THRESHOLD = 50;
+const ESTIMATED_ENTRY_HEIGHT = 28;
+const ENTRY_OVERSCAN = 10;
 
 const PHASE_LABELS: Record<TaskLogPhase, string> = {
   planning: 'Planning',
@@ -151,6 +157,7 @@ export function TaskLogs({
                 isTaskStuck={isStuck}
                 isTaskSettled={task.status === 'human_review' || task.status === 'done' || task.status === 'pr_created' || task.status === 'error'}
                 phaseConfig={getPhaseConfig(task.metadata, phase)}
+                scrollContainerRef={logsContainerRef}
               />
             ))}
             <div ref={logsEndRef} />
@@ -182,9 +189,10 @@ interface PhaseLogSectionProps {
   isTaskStuck?: boolean;
   isTaskSettled?: boolean;
   phaseConfig?: { model: string; thinking: string } | null;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }
 
-function PhaseLogSection({ phase, phaseLog, isExpanded, onToggle, isTaskStuck, isTaskSettled, phaseConfig }: PhaseLogSectionProps) {
+function PhaseLogSection({ phase, phaseLog, isExpanded, onToggle, isTaskStuck, isTaskSettled, phaseConfig, scrollContainerRef }: PhaseLogSectionProps) {
   const Icon = PHASE_ICONS[phase];
   const logOrder = useSettingsStore(s => s.settings.logOrder);
   // If the task is in a settled state (human_review, done, etc.), any "active" phase
@@ -296,13 +304,73 @@ function PhaseLogSection({ phase, phaseLog, isExpanded, onToggle, isTaskStuck, i
           {!hasEntries ? (
             <p className="text-xs text-muted-foreground italic">No logs yet</p>
           ) : (
-            displayedEntries.map((entry) => (
-              <LogEntry key={`${entry.timestamp}-${entry.type}-${entry.content}`} entry={entry} />
-            ))
+            displayedEntries.length <= VIRTUALIZE_THRESHOLD ? (
+              displayedEntries.map((entry) => (
+                <LogEntry key={`${entry.timestamp}-${entry.type}-${entry.content}`} entry={entry} />
+              ))
+            ) : (
+              <VirtualizedEntries entries={displayedEntries} scrollContainerRef={scrollContainerRef} />
+            )
           )}
         </div>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+// Virtualized list of entries; rows are measured so expanded details resize correctly.
+// Tradeoff: browser find-in-page does not match rows that are not mounted.
+function VirtualizedEntries({
+  entries,
+  scrollContainerRef
+}: {
+  entries: TaskLogEntry[];
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  // The scroll container's ref is attached after this child's first layout effect,
+  // so re-render once after mount to let the virtualizer attach to it.
+  const [, setMounted] = useState(false);
+  useLayoutEffect(() => setMounted(true), []);
+
+  // Offset of the list inside the scroll container (sections above may change size)
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const container = scrollContainerRef.current;
+    if (!list || !container) return;
+    const offset = Math.round(
+      list.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+    );
+    if (offset !== scrollMargin) setScrollMargin(offset);
+  });
+
+  const virtualizer = useVirtualizer({
+    count: entries.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ESTIMATED_ENTRY_HEIGHT,
+    overscan: ENTRY_OVERSCAN,
+    scrollMargin,
+    getItemKey: (index) => {
+      const e = entries[index];
+      return `${e.timestamp}-${e.type}-${e.content}-${index}`;
+    }
+  });
+
+  return (
+    <div ref={listRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+      {virtualizer.getVirtualItems().map((item) => (
+        <div
+          key={item.key}
+          data-index={item.index}
+          ref={virtualizer.measureElement}
+          className="absolute left-0 top-0 w-full pb-1"
+          style={{ transform: `translateY(${item.start - scrollMargin}px)` }}
+        >
+          <LogEntry entry={entries[item.index]} />
+        </div>
+      ))}
+    </div>
   );
 }
 
