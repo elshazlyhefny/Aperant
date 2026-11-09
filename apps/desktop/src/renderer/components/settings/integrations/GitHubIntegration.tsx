@@ -13,6 +13,7 @@ import { PasswordInput } from '../../project-settings/PasswordInput';
 import { buildBranchOptions } from '../../../lib/branch-utils';
 import type { ProjectEnvConfig, GitHubSyncStatus, ProjectSettings, GitBranchDetail } from '../../../../shared/types';
 import { cleansUpMergedWorktrees } from '../../../../shared/utils/worktree-cleanup-policy';
+import { parseTokenBudget } from '../../../../shared/utils/token-budget';
 import { createDebugLog } from '../../../../shared/utils/debug-logger';
 
 // Debug logging
@@ -82,6 +83,8 @@ export function GitHubIntegration({
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [envPassthroughText, setEnvPassthroughText] = useState(() => (settings?.envPassthrough ?? []).join(', '));
+  // zeenha fork: default token budget (blank = no budget)
+  const [tokenBudgetText, setTokenBudgetText] = useState(() => (settings?.tokenBudget ? String(settings.tokenBudget) : ''));
 
   debugLog('Render - authMode:', authMode);
   debugLog('Render - projectPath:', projectPath);
@@ -244,6 +247,7 @@ export function GitHubIntegration({
   // zeenha fork: credential isolation (envPassthrough / bashSandbox)
   const bashSandbox: BashSandboxMode = settings?.bashSandbox ?? 'off';
   const invalidEnvNames = parseEnvNames(envPassthroughText).invalid;
+  const tokenBudgetInvalid = tokenBudgetText.trim() !== '' && parseTokenBudget(Number(tokenBudgetText)) === undefined;
 
   return (
     <div className="space-y-4">
@@ -476,6 +480,37 @@ export function GitHubIntegration({
                   checked={autoCleanupMerged}
                   onCheckedChange={(checked) => setSettings(prev => ({ ...prev, autoCleanupMergedWorktrees: checked }))}
                 />
+              </div>
+
+              {/* zeenha fork: default token budget per task */}
+              <Separator />
+              <div className="space-y-2">
+                <Label className="font-normal text-foreground">
+                  {t('settings:projectSections.github.tokenBudget.label')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:projectSections.github.tokenBudget.description')}
+                </p>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={tokenBudgetText}
+                  placeholder={t('settings:projectSections.github.tokenBudget.placeholder')}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    setTokenBudgetText(text);
+                    setSettings(prev => ({
+                      ...prev,
+                      tokenBudget: text.trim() === '' ? undefined : parseTokenBudget(Number(text))
+                    }));
+                  }}
+                />
+                {tokenBudgetInvalid && (
+                  <p className="text-xs text-destructive">
+                    {t('settings:projectSections.github.tokenBudget.invalid')}
+                  </p>
+                )}
               </div>
 
               {/* zeenha fork: credential isolation for agent shell commands */}

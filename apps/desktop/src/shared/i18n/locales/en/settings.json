@@ -394,6 +394,12 @@
         "label": "Clean up worktrees after merge",
         "description": "Remove a task's worktree and local branch once its pull request has merged. A worktree with uncommitted changes, or commits made after the merge, is kept."
       },
+      "tokenBudget": {
+        "label": "Token budget",
+        "description": "Pauses a task when it reaches this many tokens. Leave blank for no budget. Counts input and output tokens (cache reads are already included in input). Checked before every model request. Applies to planning, coding and QA sessions on both the Vercel AI SDK and Claude Code engines. Does not apply to spec creation, insights or other runners.",
+        "placeholder": "No budget",
+        "invalid": "Enter a whole number greater than 0, or leave blank for no budget."
+      },
       "credentialIsolation": {
         "title": "Credential isolation",
         "envPassthrough": {
