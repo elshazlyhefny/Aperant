@@ -190,7 +190,7 @@ All AI agent logic lives in TypeScript using the Vercel AI SDK v6. This replaces
 - **Worker Threads** (`agent/`) — Agent sessions run in `worker_threads` to avoid blocking the Electron main process. The `WorkerBridge` relays `postMessage()` events to the existing `AgentManagerEvents` interface.
 - **Build Orchestration** (`orchestration/`) — Full planner → coder → QA pipeline. Parallel subagent execution via `Promise.allSettled()`.
 - **Tools** (`tools/`) — 8 builtin tools (Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch) defined with Zod schemas via AI SDK `tool()`.
-- **Security** (`security/`) — Bash validator, command parser, and path containment ported from Python with identical allowlist behavior.
+- **Security** (`security/`) — Denylist-based Bash validator (static `BLOCKED_COMMANDS` plus per-command validators) and command parser, plus path containment for the file tools only (not Bash).
 - **Config** (`config/`) — `AGENT_CONFIGS` registry (25+ agent types), phase-aware model resolution, thinking budgets.
 
 ### Key Patterns
