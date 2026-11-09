@@ -151,6 +151,7 @@ export const IPC_CHANNELS = {
   // Settings
   SETTINGS_GET: 'settings:get',
   SETTINGS_SAVE: 'settings:save',
+  WEBHOOK_SEND_TEST: 'webhook:sendTest',
   SETTINGS_GET_CLI_TOOLS_INFO: 'settings:getCliToolsInfo',
   SETTINGS_CLAUDE_CODE_GET_ONBOARDING_STATUS: 'settings:claudeCode:getOnboardingStatus',  // Check hasCompletedOnboarding from ~/.claude.json
 
