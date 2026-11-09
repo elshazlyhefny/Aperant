@@ -41,7 +41,8 @@
     "hasErrors": "Contient des erreurs",
     "qaIssues": "Problèmes QA",
     "approvePlan": "Approuver le plan",
-    "stopped": "Arrêté"
+    "stopped": "Arrêté",
+    "tokenBudget": "Budget de jetons atteint"
   },
   "tooltips": {
     "archiveTask": "Archiver la tâche",
