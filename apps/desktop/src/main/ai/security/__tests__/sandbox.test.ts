@@ -75,9 +75,22 @@ describe('wrapForSandbox', () => {
       const r = wrapForSandbox('sh', [], { ...base, mode: 'home-hidden', platformName, find: () => null });
       expect(r.ok).toBe(false);
     }
-    const w = wrapForSandbox('sh', [], { ...base, mode: 'home-hidden', platformName: 'win32', find: found });
+    const w = wrapForSandbox('sh', [], { ...base, mode: 'home-hidden', platformName: 'win32', find: () => null });
     expect(w.ok).toBe(false);
     if (!w.ok) expect(w.reason).toMatch(/Windows/);
+  });
+
+  it('builds a PowerShell launcher on win32 when powershell is found', () => {
+    const r = wrapForSandbox('C:\\Git\\bash.exe', [], {
+      ...base, cwd: 'C:\\work\\wt', projectDir: 'C:\\work\\main', writablePaths: [], homeDir: 'C:\\Users\\u',
+      mode: 'home-hidden', platformName: 'win32', find: (n: string) => `C:\\bin\\${n}`,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.file.endsWith('powershell.exe')).toBe(true);
+    expect(r.args).toContain('-NoProfile');
+    expect(r.args).toContain('-NonInteractive');
+    expect(r.args).toContain('-EncodedCommand');
   });
 });
 
