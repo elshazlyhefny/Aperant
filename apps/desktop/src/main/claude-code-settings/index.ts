@@ -41,6 +41,7 @@ export {
   getWarningEnvVars,
 } from './env-sanitizer';
 export type { DroppedEnvVar, SanitizeEnvReport } from './env-sanitizer';
+export { formatDroppedEnvNotice } from './env-drop-notice';
 
 import { readAllSettings as _readAllSettings } from './reader';
 import type { ClaudeCodeSettingsHierarchy } from './types';
