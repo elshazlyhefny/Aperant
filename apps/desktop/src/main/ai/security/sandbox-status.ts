@@ -45,8 +45,4 @@ export function getSandboxAvailability(opts: SandboxAvailabilityOptions = {}): S
   return { state: 'unsupported', tool: null, installHint: null };
 }
 
-export function deriveSandboxStatus(availability: SandboxAvailability, mode: SandboxMode): SandboxStatus {
-  if (availability.state === 'unsupported') return 'unsupported';
-  if (availability.state === 'tool-missing') return 'tool-missing';
-  return mode === 'off' ? 'available-off' : 'active';
-}
+export { deriveSandboxStatus } from '../../../shared/utils/sandbox-status';

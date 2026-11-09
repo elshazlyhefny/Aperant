@@ -420,6 +420,38 @@
       "integrationDescription": "Se connecter à GitLab pour le suivi des issues",
       "syncDescription": "Synchroniser avec GitLab Issues"
     },
+    "security": {
+      "title": "Sécurité",
+      "description": "Isoler les commandes shell des agents",
+      "status": {
+        "active": "Bac à sable actif",
+        "available-off": "Disponible, désactivé",
+        "tool-missing": "Outil du bac à sable manquant",
+        "unsupported": "Non pris en charge sur cette plateforme",
+        "checking": "Vérification..."
+      },
+      "statusDetail": {
+        "active": "Les commandes shell des agents s'exécutent dans le bac à sable.",
+        "available-off": "{{tool}} est installé, mais les commandes shell des agents s'exécutent actuellement sans isolation. Activez-le ci-dessous.",
+        "tool-missing": "{{tool}} est introuvable, le bac à sable ne peut donc pas fonctionner.",
+        "unsupported": "Le bac à sable shell n'est pas disponible sur ce système d'exploitation."
+      },
+      "installHint": {
+        "linux": "Installez bubblewrap avec votre gestionnaire de paquets, par exemple : sudo apt install bubblewrap, sudo dnf install bubblewrap ou sudo pacman -S bubblewrap.",
+        "macos": "sandbox-exec est fourni avec macOS et devrait se trouver dans /usr/bin/sandbox-exec. Vérifiez qu'il n'a pas été supprimé."
+      },
+      "mode": {
+        "label": "Bac à sable des commandes shell",
+        "description": "Choisissez ce que les commandes shell des agents peuvent voir de votre machine.",
+        "off": "Désactivé",
+        "homeHidden": "Dossier personnel masqué",
+        "homeHiddenNoNetwork": "Dossier personnel masqué et pas de réseau",
+        "offExplanation": "Désactivé : les commandes s'exécutent avec tous vos droits. Rien n'est isolé.",
+        "homeHiddenExplanation": "Dossier personnel masqué : les commandes ne peuvent pas lire votre dossier personnel (clés, jetons, autres projets), seulement le projet.",
+        "homeHiddenNoNetworkExplanation": "Dossier personnel masqué et pas de réseau : comme ci-dessus, et les commandes n'ont pas accès au réseau."
+      },
+      "refusedWarning": "Le bac à sable ne peut pas fonctionner sur cette machine. Avec ce mode, chaque commande shell d'un agent sera refusée au lieu d'être exécutée sans isolation."
+    },
     "memory": {
       "title": "Mémoire",
       "description": "Mémoire intégrée des agents",
