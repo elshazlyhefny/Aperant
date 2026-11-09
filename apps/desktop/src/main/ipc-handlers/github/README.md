@@ -1,21 +1,42 @@
 # GitHub Handlers Module
 
-This directory contains the modularized GitHub integration handlers, refactored from the original 742-line `github-handlers.ts` file for better maintainability and code organization.
+This directory contains the modularized GitHub integration handlers, originally split out of a single 742-line `github-handlers.ts`. It has since grown (PR review, autofix, triage, OAuth); the current layout is listed below.
 
 ## Module Structure
 
 ```
 github/
 ├── README.md                      # This file
-├── index.ts                       # Main entry point, registers all handlers
-├── types.ts                       # TypeScript type definitions
-├── utils.ts                       # Shared utility functions
-├── spec-utils.ts                  # Spec creation and management utilities
-├── repository-handlers.ts         # Repository and connection handlers
-├── issue-handlers.ts              # Issue fetching and retrieval handlers
-├── investigation-handlers.ts      # AI-powered issue investigation handlers
-├── import-handlers.ts             # Bulk issue import handlers
-└── release-handlers.ts            # GitHub release creation handlers
+├── ARCHITECTURE.md                # Architecture notes
+├── index.ts                       # Main entry point, registers all handlers (49 lines)
+├── types.ts                       # TypeScript type definitions (51 lines)
+├── utils.ts                       # Shared utility functions (355 lines)
+├── utils/                         # Logger, IPC communicator, project middleware
+├── spec-utils.ts                  # Spec creation and management utilities (249 lines)
+├── repository-handlers.ts         # Repository and connection handlers (141 lines)
+├── issue-handlers.ts              # Issue fetching and retrieval handlers (300 lines)
+├── investigation-handlers.ts      # AI-powered issue investigation handlers (214 lines)
+├── import-handlers.ts             # Bulk issue import handlers (110 lines)
+├── release-handlers.ts            # GitHub release creation handlers (266 lines)
+├── oauth-handlers.ts              # gh CLI / OAuth handlers (907 lines, large)
+├── autofix-handlers.ts            # Auto-fix handlers (964 lines, large)
+├── triage-handlers.ts             # Issue triage handlers (728 lines)
+├── pr-handlers.ts                 # Barrel re-exporting pr/ (stable import path, 17 lines)
+└── pr/                            # PR review handlers
+    ├── index.ts                   # registerPRHandlers entry (45 lines)
+    ├── types.ts                   # Public PR types (132 lines)
+    ├── shared.ts                  # Logger, runningReviews / ciWaitAbortControllers state (93 lines)
+    ├── graphql.ts                 # GraphQL helpers (197 lines)
+    ├── query-handlers.ts          # List/fetch PRs, diffs, review state (190 lines)
+    ├── review-handlers.ts         # Start/cancel review, registers follow-up (260 lines)
+    ├── followup-handlers.ts       # Follow-up review handlers (333 lines)
+    ├── review-runner.ts           # Runs the AI review (330 lines)
+    ├── review-results.ts          # Review result load/save (308 lines)
+    ├── review-logs.ts             # PRLogCollector and log handling (535 lines)
+    ├── ci-wait.ts                 # CI wait logic (284 lines)
+    ├── posting-handlers.ts        # Post reviews/comments (423 lines)
+    ├── merge-handlers.ts          # Merge and readiness (443 lines)
+    └── polling-handlers.ts        # Polling and status updates (228 lines)
 ```
 
 ## File Descriptions
@@ -91,8 +112,8 @@ github/
 - Clear patterns for new contributors to follow
 
 ### 5. Reduced Complexity
-- Main entry file reduced from 742 to 33 lines (95.6% reduction)
-- No single file exceeds 211 lines
+- Registration entry (`index.ts`) is 49 lines
+- Not every file is small: `autofix-handlers.ts` (964) and `oauth-handlers.ts` (907) are still large and are candidates for further splitting
 - Each module is focused and comprehensible
 
 ## Usage
@@ -166,3 +187,7 @@ Potential areas for further improvement:
 5. **Logging** - Enhanced logging and debugging capabilities
 6. **Webhooks** - Support for GitHub webhook integration
 7. **PR Handlers** - Separate module for pull request operations
+
+## PR Review Module (`pr/`)
+
+`pr-handlers.ts` is a thin barrel kept for a stable import path; the implementation lives in `pr/`. `pr/index.ts` exports `registerPRHandlers`, which creates one `PRReviewStateManager` and registers query, review (which also registers follow-up), posting, merge and polling handlers. Running-review state (`runningReviews`, `ciWaitAbortControllers`) lives in `pr/shared.ts` so every module shares the same maps.
