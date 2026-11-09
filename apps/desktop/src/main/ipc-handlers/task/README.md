@@ -73,7 +73,7 @@ Manages task logs and streaming:
 
 Features:
 - Real-time log streaming to renderer
-- Event forwarding for logs-changed and stream-chunk
+- Event forwarding for logs-changed
 - Phase-organized logs (planning, coding, validation)
 
 ### Shared Utilities (`shared.ts`)

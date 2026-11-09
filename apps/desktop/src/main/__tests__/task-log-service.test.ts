@@ -71,7 +71,7 @@ describe('TaskLogService stat-based polling', () => {
     findTaskWorktreeMock.mockReturnValue(null);
     svc = new TaskLogService();
     changed = vi.fn();
-    svc.on('logs-changed', changed);
+    svc.on('logs-changed', changed as (...args: unknown[]) => void);
   });
 
   afterEach(() => {

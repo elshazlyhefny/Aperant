@@ -46,7 +46,6 @@ import type {
   TaskRecoveryOptions,
   TaskMetadata,
   TaskLogs,
-  TaskLogStreamChunk,
   ImageAttachment,
   ReviewReason,
   MergeProgress
@@ -825,9 +824,6 @@ export interface ElectronAPI {
   // Task logs event listeners
   onTaskLogsChanged: (
     callback: (specId: string, logs: TaskLogs) => void
-  ) => () => void;
-  onTaskLogsStream: (
-    callback: (specId: string, chunk: TaskLogStreamChunk) => void
   ) => () => void;
   onMergeProgress: (
     callback: (taskId: string, progress: MergeProgress) => void

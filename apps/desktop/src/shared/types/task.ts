@@ -102,20 +102,6 @@ export interface TaskLogs {
   };
 }
 
-// Streaming markers from Python (similar to InsightsStreamChunk)
-export interface TaskLogStreamChunk {
-  type: 'text' | 'tool_start' | 'tool_end' | 'phase_start' | 'phase_end' | 'error';
-  content?: string;
-  phase?: TaskLogPhase;
-  timestamp?: string;
-  tool?: {
-    name: string;
-    input?: string;
-    success?: boolean;
-  };
-  subtask_id?: string;
-}
-
 // Image attachment types for task creation
 export interface ImageAttachment {
   id: string;           // Unique identifier (UUID)

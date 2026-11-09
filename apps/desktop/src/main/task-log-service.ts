@@ -1,7 +1,7 @@
 import path from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { EventEmitter } from 'events';
-import type { TaskLogs, TaskLogPhase, TaskLogStreamChunk, TaskPhaseLog } from '../shared/types';
+import type { TaskLogs, TaskLogPhase, TaskPhaseLog } from '../shared/types';
 import { findTaskWorktree } from './worktree-paths';
 import { debugLog, debugWarn, debugError } from '../shared/utils/debug-logger';
 
@@ -21,7 +21,7 @@ function findWorktreeSpecDir(projectPath: string, specId: string, specsRelPath: 
  * This service provides:
  * - Loading logs from the spec directory (and worktree spec directory when active)
  * - Watching for log file changes
- * - Emitting streaming updates when logs change
+ * - Emitting logs-changed events when logs change
  * - Determining which phase is currently active
  *
  * Note: When a task runs in isolated mode (worktrees), the build logs are written to
@@ -376,7 +376,6 @@ export class TaskLogService extends EventEmitter {
           worktreeChanged
         });
 
-        const previousLogs = this.logCache.get(specDir);
         const logs = this.loadLogs(specDir);
 
         if (logs) {
@@ -391,9 +390,6 @@ export class TaskLogService extends EventEmitter {
 
           // Emit change event with the merged logs
           this.emit('logs-changed', specId, logs);
-
-          // Calculate and emit streaming updates for new entries
-          this.emitNewEntries(specId, previousLogs, logs);
         } else {
           debugWarn('[TaskLogService] No logs loaded after file change:', specId);
         }
@@ -469,65 +465,6 @@ export class TaskLogService extends EventEmitter {
       entries: deduped,
     };
     return combined;
-  }
-
-  /**
-   * Emit streaming updates for new log entries
-   */
-  private emitNewEntries(specId: string, previousLogs: TaskLogs | undefined, currentLogs: TaskLogs): void {
-    const phases: TaskLogPhase[] = ['planning', 'coding', 'validation'];
-
-    for (const phase of phases) {
-      const prevPhase = previousLogs?.phases[phase];
-      const currPhase = currentLogs.phases[phase];
-
-      if (!currPhase) continue;
-
-      // Check for phase status changes
-      if (prevPhase?.status !== currPhase.status) {
-        if (currPhase.status === 'active') {
-          this.emit('stream-chunk', specId, {
-            type: 'phase_start',
-            phase,
-            timestamp: currPhase.started_at || new Date().toISOString()
-          } as TaskLogStreamChunk);
-        } else if (currPhase.status === 'completed' || currPhase.status === 'failed') {
-          this.emit('stream-chunk', specId, {
-            type: 'phase_end',
-            phase,
-            timestamp: currPhase.completed_at || new Date().toISOString()
-          } as TaskLogStreamChunk);
-        }
-      }
-
-      // Check for new entries
-      const prevEntryCount = prevPhase?.entries.length || 0;
-      const currEntryCount = currPhase.entries.length;
-
-      if (currEntryCount > prevEntryCount) {
-        // Emit new entries
-        for (let i = prevEntryCount; i < currEntryCount; i++) {
-          const entry = currPhase.entries[i];
-
-          const streamUpdate: TaskLogStreamChunk = {
-            type: entry.type as TaskLogStreamChunk['type'],
-            content: entry.content,
-            phase: entry.phase,
-            timestamp: entry.timestamp,
-            subtask_id: entry.subtask_id
-          };
-
-          if (entry.tool_name) {
-            streamUpdate.tool = {
-              name: entry.tool_name,
-              input: entry.tool_input
-            };
-          }
-
-          this.emit('stream-chunk', specId, streamUpdate);
-        }
-      }
-    }
   }
 
   /**
