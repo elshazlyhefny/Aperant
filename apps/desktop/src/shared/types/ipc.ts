@@ -707,6 +707,7 @@ export interface ElectronAPI {
 
   // Electron app update operations
   checkAppUpdate: () => Promise<IPCResult<AppUpdateInfo | null>>;
+  sendTestWebhook: (url: string) => Promise<IPCResult<{ success: boolean }>>;
   downloadAppUpdate: () => Promise<IPCResult>;
   downloadStableUpdate: () => Promise<IPCResult>;
   installAppUpdate: () => void;
