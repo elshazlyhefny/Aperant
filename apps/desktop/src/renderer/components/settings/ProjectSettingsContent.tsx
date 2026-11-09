@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LinearTaskImportModal } from '../LinearTaskImportModal';
+import { JiraTaskImportModal } from '../jira-import';
 import { SettingsSection } from './SettingsSection';
 import { useProjectSettings, UseProjectSettingsReturn } from '../project-settings/hooks/useProjectSettings';
 import { loadTasks } from '../../stores/task-store';
@@ -113,6 +114,7 @@ function ProjectSettingsContentInner({
     isCheckingLinear,
     showJiraToken,
     setShowJiraToken,
+    showJiraImportModal,
     setShowJiraImportModal,
     jiraConnectionStatus,
     isCheckingJira,
@@ -178,6 +180,19 @@ function ProjectSettingsContentInner({
         onOpenChange={setShowLinearImportModal}
         onImportComplete={async (result) => {
           // Refresh task list to show imported tasks (even on partial success)
+          if (result.imported > 0) {
+            await loadTasks(project.id);
+          }
+        }}
+      />
+
+      {/* Jira Task Import Modal */}
+      <JiraTaskImportModal
+        projectId={project.id}
+        open={showJiraImportModal}
+        onOpenChange={setShowJiraImportModal}
+        defaultProjectKey={envConfig?.jiraProjectKey}
+        onImportComplete={async (result) => {
           if (result.imported > 0) {
             await loadTasks(project.id);
           }
