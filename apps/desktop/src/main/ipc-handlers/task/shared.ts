@@ -11,6 +11,9 @@ import { projectStore } from '../../project-store';
  *
  * When projectId is NOT provided, searches all projects for backward
  * compatibility with callers that don't have projectId (e.g., file watcher events).
+ * zeenha fork: projects whose last scan contained the task are tried first, then
+ * all projects in list order. If several projects contain the same task id, the
+ * earliest project in list order that has been scanned wins.
  */
 export const findTaskAndProject = (taskId: string, projectId?: string): { task: Task | undefined; project: Project | undefined } => {
   const projects = projectStore.getProjects();
@@ -27,7 +30,19 @@ export const findTaskAndProject = (taskId: string, projectId?: string): { task: 
     return { task, project: task ? targetProject : undefined };
   }
 
-  // No projectId: search all projects (backward compatibility for file watcher etc.)
+  // No projectId: zeenha fork: try the projects the task index hints at first,
+  // verifying each against its tasks, so a hit does not scan every project.
+  for (const hintedId of projectStore.getProjectIdsForTask(taskId)) {
+    const hinted = projects.find((p) => p.id === hintedId);
+    if (!hinted) continue;
+    const task = projectStore.getTasks(hinted.id).find((t) => t.id === taskId || t.specId === taskId);
+    if (task) {
+      return { task, project: hinted };
+    }
+  }
+
+  // No (valid) hint, e.g. before the first scan or for a brand-new task:
+  // search all projects (backward compatibility for file watcher etc.)
   for (const p of projects) {
     const tasks = projectStore.getTasks(p.id);
     const task = tasks.find((t) => t.id === taskId || t.specId === taskId);

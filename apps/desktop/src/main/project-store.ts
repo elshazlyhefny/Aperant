@@ -11,6 +11,7 @@ import { ensureAbsolutePath } from './utils/path-helpers';
 import { writeFileAtomicSync } from './utils/atomic-file';
 import { updateRoadmapFeatureOutcome, revertRoadmapFeatureOutcome } from './utils/roadmap-utils';
 import { safeParseJson } from './utils/json-repair';
+import { FileParseCache } from './utils/file-parse-cache';
 import { readProjectRepoConfig } from './ai/worktree/project-repo-config';
 import { failedRunStatus, isFailedRun } from '../shared/utils/task-failure';
 import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
@@ -44,6 +45,32 @@ function applyDeclaredBaseBranch(project: Project): void {
   if (declared && project.settings) project.settings.mainBranch = declared;
 }
 
+interface ParsedSpecMarkdown {
+  overview?: string;
+  title?: string;
+}
+
+/** Extract the Overview section and the heading title from spec.md content. */
+function parseSpecMarkdown(content: string): ParsedSpecMarkdown {
+  const result: ParsedSpecMarkdown = {};
+  // Extract full Overview section until next heading or end of file
+  // Use \n#{1,6}\s to match valid markdown headings (# to ######) with required space
+  // This avoids truncating at # in code blocks (e.g., Python comments)
+  const overviewMatch = content.match(/## Overview\s*\n+([\s\S]*?)(?=\n#{1,6}\s|$)/);
+  if (overviewMatch) {
+    result.overview = overviewMatch[1].trim();
+  }
+  // Extract title from first # line, handling patterns like:
+  // "# Quick Spec: Title" -> "Title"
+  // "# Specification: Title" -> "Title"
+  // "# Title" -> "Title"
+  const titleMatch = content.match(/^#\s+(?:Quick Spec:|Specification:)?\s*(.+)$/m);
+  if (titleMatch?.[1]) {
+    result.title = titleMatch[1].trim();
+  }
+  return result;
+}
+
 /**
  * Persistent storage for projects and settings
  */
@@ -51,8 +78,16 @@ export class ProjectStore {
   private storePath: string;
   private data: StoreData;
   private tasksCache: Map<string, TasksCacheEntry> = new Map();
+  /** zeenha fork: task ids (id and specId) per project from its last scan; a lookup hint only. */
+  private taskIdsByProject: Map<string, Set<string>> = new Map();
   private readonly CACHE_TTL_MS = 3000; // 3 seconds TTL for task cache
   private isTaskRunning: (taskId: string) => boolean = () => false;
+  // zeenha fork: file-level cache of parsed spec files, reused across scans while
+  // mtime and size are unchanged. Cached values are shared and must stay read-only.
+  private readonly fileCache = new FileParseCache();
+  // zeenha fork: specs directories scanned per project, so directories that
+  // disappeared (removed worktrees) can be evicted from the file cache.
+  private scannedSpecsDirs: Map<string, Set<string>> = new Map();
 
   constructor() {
     // Store in app's userData directory
@@ -177,6 +212,8 @@ export class ProjectStore {
    * Remove a project
    */
   removeProject(projectId: string): boolean {
+    this.evictProjectFileCache(projectId);
+    this.taskIdsByProject.delete(projectId);
     const index = this.data.projects.findIndex((p) => p.id === projectId);
     if (index !== -1) {
       this.data.projects.splice(index, 1);
@@ -188,6 +225,20 @@ export class ProjectStore {
       return true;
     }
     return false;
+  }
+
+  /** zeenha fork: drop every cached file and the scan record of a project. */
+  private evictProjectFileCache(projectId: string): void {
+    for (const dir of this.scannedSpecsDirs.get(projectId) ?? []) {
+      this.fileCache.evictScope(dir);
+    }
+    this.scannedSpecsDirs.delete(projectId);
+    this.tasksCache.delete(projectId);
+  }
+
+  /** zeenha fork: file cache hit/miss counters, for tests. */
+  getFileCacheStats(): { hits: number; misses: number } {
+    return { ...this.fileCache.stats };
   }
 
   /**
@@ -309,7 +360,9 @@ export class ProjectStore {
 
   /**
    * Get tasks for a project by scanning specs directory
-   * Implements caching with 3-second TTL to prevent excessive worktree scanning
+   * Implements caching with 3-second TTL to prevent excessive worktree scanning.
+   * Below that, a file-level cache reuses parsed spec files whose mtime and size
+   * are unchanged, so a scan after the TTL expires only re-reads changed files.
    */
   getTasks(projectId: string): Task[] {
     // Check cache first
@@ -331,7 +384,9 @@ export class ProjectStore {
     // 1. Scan main project specs directory (source of truth for task existence)
     const mainSpecsDir = path.join(project.path, specsBaseDir);
     const mainSpecIds = new Set<string>();
+    const scannedDirs = new Set<string>();
     if (existsSync(mainSpecsDir)) {
+      scannedDirs.add(mainSpecsDir);
       const mainTasks = this.loadTasksFromSpecsDir(mainSpecsDir, project.path, 'main', projectId, specsBaseDir);
       allTasks.push(...mainTasks);
       // Track which specs exist in main project
@@ -350,6 +405,7 @@ export class ProjectStore {
 
           const worktreeSpecsDir = path.join(worktreesDir, worktree.name, specsBaseDir);
           if (existsSync(worktreeSpecsDir)) {
+            scannedDirs.add(worktreeSpecsDir);
             const worktreeTasks = this.loadTasksFromSpecsDir(
               worktreeSpecsDir,
               path.join(worktreesDir, worktree.name),
@@ -366,6 +422,12 @@ export class ProjectStore {
         console.error('[ProjectStore] Error scanning worktrees:', error);
       }
     }
+
+    // Evict cached files of specs directories scanned before but not now (removed worktrees)
+    for (const previous of this.scannedSpecsDirs.get(projectId) ?? []) {
+      if (!scannedDirs.has(previous)) this.fileCache.evictScope(previous);
+    }
+    this.scannedSpecsDirs.set(projectId, scannedDirs);
 
     // 3. Deduplicate tasks by ID
     // CRITICAL FIX: Don't blindly prefer worktree - it may be stale!
@@ -411,7 +473,26 @@ export class ProjectStore {
     // Update cache
     this.tasksCache.set(projectId, { tasks, timestamp: now });
 
+    // zeenha fork: replace this project's task id index with the scan result
+    const ids = new Set<string>();
+    for (const task of tasks) {
+      ids.add(task.id);
+      ids.add(task.specId);
+    }
+    this.taskIdsByProject.set(projectId, ids);
+
     return tasks;
+  }
+
+  /**
+   * zeenha fork: ids of known projects (in project list order) whose last scan
+   * contained taskId. Only a hint for lookups: it is not dropped when the tasks
+   * cache is invalidated, so callers must verify against getTasks().
+   */
+  getProjectIdsForTask(taskId: string): string[] {
+    return this.data.projects
+      .filter((p) => this.taskIdsByProject.get(p.id)?.has(taskId))
+      .map((p) => p.id);
   }
 
   /**
@@ -472,6 +553,7 @@ export class ProjectStore {
     _specsBaseDir: string
   ): Task[] {
     const tasks: Task[] = [];
+    const touched = new Set<string>();
     let specDirs: Dirent[] = [];
 
     try {
@@ -489,16 +571,36 @@ export class ProjectStore {
         const specPath = path.join(specsDir, dir.name);
         const planPath = path.join(specPath, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
         const specFilePath = path.join(specPath, AUTO_BUILD_PATHS.SPEC_FILE);
+        const requirementsPath = path.join(specPath, AUTO_BUILD_PATHS.REQUIREMENTS);
+        const metadataPath = path.join(specPath, 'task_metadata.json');
+        touched.add(planPath).add(specFilePath).add(requirementsPath).add(metadataPath);
+
+        // spec.md is read at most once per spec per scan, and only when a fallback needs it
+        let specMd: ParsedSpecMarkdown | undefined;
+        let specMdLoaded = false;
+        const getSpecMd = (): ParsedSpecMarkdown | undefined => {
+          if (!specMdLoaded) {
+            specMdLoaded = true;
+            try {
+              specMd = this.fileCache.read(specFilePath, parseSpecMarkdown);
+            } catch {
+              // Ignore read errors
+            }
+          }
+          return specMd;
+        };
 
         // Try to read implementation plan
         let plan: ImplementationPlan | null = null;
         let hasJsonError = false;
         let jsonErrorMessage = '';
-        if (existsSync(planPath)) {
+        {
           try {
-            const content = readFileSync(planPath, 'utf-8');
-            const parsed = safeParseJson<ImplementationPlan>(content);
-            if (parsed) {
+            // Cached object is shared: never mutate it
+            const parsed = this.fileCache.read(planPath, (raw) => safeParseJson<ImplementationPlan>(raw));
+            if (parsed === undefined) {
+              // No plan file
+            } else if (parsed) {
               plan = parsed;
             } else {
               // safeParseJson returned null — JSON is unrepairable
@@ -515,13 +617,11 @@ export class ProjectStore {
         }
 
         let description = '';
-        const requirementsPath = path.join(specPath, AUTO_BUILD_PATHS.REQUIREMENTS);
         // PRIORITY 1: Read original user task description from requirements.json
-        if (existsSync(requirementsPath)) {
+        {
           try {
-            const reqContent = readFileSync(requirementsPath, 'utf-8');
-            const requirements = JSON.parse(reqContent);
-            if (typeof requirements.task_description === 'string' && requirements.task_description.trim()) {
+            const requirements = this.fileCache.read(requirementsPath, (raw) => JSON.parse(raw));
+            if (typeof requirements?.task_description === 'string' && requirements.task_description.trim()) {
               // Use the full task description that the user entered
               description = requirements.task_description.trim();
             }
@@ -536,28 +636,20 @@ export class ProjectStore {
         }
 
         // PRIORITY 3: Final fallback to spec.md Overview (AI-synthesized content)
-        if (!description && existsSync(specFilePath)) {
-          try {
-            const content = readFileSync(specFilePath, 'utf-8');
-            // Extract full Overview section until next heading or end of file
-            // Use \n#{1,6}\s to match valid markdown headings (# to ######) with required space
-            // This avoids truncating at # in code blocks (e.g., Python comments)
-            const overviewMatch = content.match(/## Overview\s*\n+([\s\S]*?)(?=\n#{1,6}\s|$)/);
-            if (overviewMatch) {
-              description = overviewMatch[1].trim();
-            }
-          } catch {
-            // Ignore read errors
+        if (!description) {
+          const overview = getSpecMd()?.overview;
+          if (overview !== undefined) {
+            description = overview;
           }
         }
 
         // Try to read task metadata
-        const metadataPath = path.join(specPath, 'task_metadata.json');
         let metadata: TaskMetadata | undefined;
-        if (existsSync(metadataPath)) {
+        {
           try {
-            const content = readFileSync(metadataPath, 'utf-8');
-            metadata = JSON.parse(content);
+            const cachedMetadata = this.fileCache.read<TaskMetadata>(metadataPath, (raw) => JSON.parse(raw));
+            // Tasks are handed to callers that may mutate metadata; keep the cached object pristine
+            metadata = cachedMetadata === undefined ? undefined : structuredClone(cachedMetadata);
           } catch {
             // Ignore parse errors
           }
@@ -592,9 +684,15 @@ export class ProjectStore {
         // Auto-correct status to human_review if all subtasks are completed
         // This handles cases where task completed but app restarted before XState persisted the status
         // (e.g., QA_PASSED event emitted but not processed before shutdown)
-        const { status: correctedStatus, reviewReason: correctedReviewReason } = this.correctStaleTaskStatus(
+        const {
+          status: correctedStatus,
+          reviewReason: correctedReviewReason,
+          plan: correctedPlan
+        } = this.correctStaleTaskStatus(
           subtasks, hasJsonError, finalStatus, finalReviewReason, plan, planPath, dir.name
         );
+        // The corrected plan is a copy; the cached plan object is left untouched
+        if (correctedPlan) plan = correctedPlan;
 
         // Extract staged status from plan (set when changes are merged with --no-commit)
         const planWithStaged = plan as unknown as { stagedInMainProject?: boolean; stagedAt?: string } | null;
@@ -605,19 +703,10 @@ export class ProjectStore {
         // For JSON error tasks, use directory name with marker for i18n suffix
         let title = hasJsonError ? `${dir.name}${JSON_ERROR_TITLE_SUFFIX}` : (plan?.feature || plan?.title || dir.name);
         const looksLikeSpecId = /^\d{3}-/.test(title) && !hasJsonError;
-        if (looksLikeSpecId && existsSync(specFilePath)) {
-          try {
-            const specContent = readFileSync(specFilePath, 'utf-8');
-            // Extract title from first # line, handling patterns like:
-            // "# Quick Spec: Title" -> "Title"
-            // "# Specification: Title" -> "Title"
-            // "# Title" -> "Title"
-            const titleMatch = specContent.match(/^#\s+(?:Quick Spec:|Specification:)?\s*(.+)$/m);
-            if (titleMatch?.[1]) {
-              title = titleMatch[1].trim();
-            }
-          } catch {
-            // Keep the original title on error
+        if (looksLikeSpecId) {
+          const specTitle = getSpecMd()?.title;
+          if (specTitle) {
+            title = specTitle;
           }
         }
 
@@ -656,6 +745,9 @@ export class ProjectStore {
       }
     }
 
+    // Drop cached files of deleted specs and deleted files in this directory
+    this.fileCache.retainOnly(specsDir, touched);
+
     return tasks;
   }
 
@@ -665,7 +757,8 @@ export class ProjectStore {
    *
    * NOTE: This method intentionally writes to implementation_plan.json to persist the
    * correction and prevent repeated auto-corrections on every getTasks() call. The plan
-   * object is NOT mutated unless the write succeeds, preserving memory/disk consistency.
+   * object is NEVER mutated (it may be the shared file-cache entry); on success the
+   * corrected copy is returned as `plan` and the cache entry is invalidated.
    */
   private correctStaleTaskStatus(
     subtasks: { status: string }[],
@@ -675,7 +768,7 @@ export class ProjectStore {
     plan: ImplementationPlan | null,
     planPath: string,
     taskName: string
-  ): { status: TaskStatus; reviewReason: ReviewReason | undefined } {
+  ): { status: TaskStatus; reviewReason: ReviewReason | undefined; plan?: ImplementationPlan } {
     if (subtasks.length === 0 || hasJsonError) {
       return { status: finalStatus, reviewReason: finalReviewReason };
     }
@@ -720,10 +813,12 @@ export class ProjectStore {
       try {
         // Atomic write to prevent 0-byte corruption on crash
         writeFileAtomicSync(planPath, JSON.stringify(correctedPlan, null, 2));
-        // Write succeeded — apply mutations to the in-memory plan so the rest of
-        // loadTasksFromSpecsDir sees the corrected values (e.g., executionProgress)
-        Object.assign(plan, correctedPlan);
+        // Write succeeded — drop the stale cache entry so the next scan reads the corrected file
+        this.fileCache.invalidate(planPath);
         console.warn(`[ProjectStore] Persisted corrected status for task ${taskName}`);
+        // Return the corrected copy so the rest of loadTasksFromSpecsDir sees the
+        // corrected values (e.g., executionProgress)
+        return { status: 'human_review', reviewReason: 'completed', plan: correctedPlan };
       } catch (writeError) {
         // Write failed — leave the plan object unchanged and return the original status
         // so there's no memory/disk inconsistency
