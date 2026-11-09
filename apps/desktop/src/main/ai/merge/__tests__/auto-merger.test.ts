@@ -286,7 +286,7 @@ describe.each([
     expect(result.mergedContent).toContain('useEffect(() => { init(); }, []);');
   });
 
-  it.fails('never reports AUTO_MERGED when the function is absent from the baseline', () => {
+  it('never reports AUTO_MERGED when the function is absent from the baseline', () => {
     const baseline = "import React from 'react';\n\nfunction Other() {\n  return null;\n}\n";
     const ctx = makeContext(baseline, [makeSnapshot('t1', [hookChange()])], { location });
     const result = merger.merge(ctx, strategy);
@@ -302,7 +302,7 @@ describe('unmatched anchors', () => {
   const missingFunctionBaseline = 'function Other() {\n  return null;\n}\n';
 
   for (const strategy of [MergeStrategy.HOOKS_FIRST, MergeStrategy.HOOKS_THEN_WRAP]) {
-    it.fails(`${strategy}: function absent from baseline -> FAILED naming the function`, () => {
+    it(`${strategy}: function absent from baseline -> FAILED naming the function`, () => {
       const ctx = makeContext(missingFunctionBaseline, [makeSnapshot('t1', [hookChange('App')])], {
         location: 'function:App',
       });
@@ -311,7 +311,7 @@ describe('unmatched anchors', () => {
       expect(`${result.error ?? ''} ${result.explanation}`).toContain('App');
     });
 
-    it.fails(`${strategy}: no hook extracted -> FAILED`, () => {
+    it(`${strategy}: no hook extracted -> FAILED`, () => {
       const noHook = makeChange({
         changeType: ChangeType.ADD_HOOK_CALL,
         target: 'App',
@@ -327,7 +327,7 @@ describe('unmatched anchors', () => {
     });
   }
 
-  it.fails('ORDER_BY_DEPENDENCY: function absent from baseline -> FAILED naming the function', () => {
+  it('ORDER_BY_DEPENDENCY: function absent from baseline -> FAILED naming the function', () => {
     const ctx = makeContext(missingFunctionBaseline, [makeSnapshot('t1', [hookChange('App')])], {
       location: 'function:App',
     });
@@ -336,7 +336,7 @@ describe('unmatched anchors', () => {
     expect(`${result.error ?? ''} ${result.explanation}`).toContain('App');
   });
 
-  it.fails('APPEND_METHODS: class absent from baseline -> FAILED naming the class', () => {
+  it('APPEND_METHODS: class absent from baseline -> FAILED naming the class', () => {
     const method = makeChange({
       changeType: ChangeType.ADD_METHOD,
       target: 'Foo.bar',
@@ -479,11 +479,12 @@ describe('APPEND_METHODS', () => {
     });
   }
 
-  it('ignores ADD_METHOD changes whose target has no class prefix', () => {
+  it('fails when no ADD_METHOD change carries a class prefix', () => {
     const bare = makeChange({ changeType: ChangeType.ADD_METHOD, target: 'bar', contentAfter: 'bar() {}' });
     const ctx = makeContext('class Foo {\n}\n', [makeSnapshot('t1', [bare])]);
     const result = merger.merge(ctx, MergeStrategy.APPEND_METHODS);
-    expect(result.mergedContent).not.toContain('bar()');
+    expect(result.decision).toBe(MergeDecision.FAILED);
+    expect(result.mergedContent).toBeUndefined();
   });
 });
 

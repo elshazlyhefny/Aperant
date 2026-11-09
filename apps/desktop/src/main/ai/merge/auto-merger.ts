@@ -5,7 +5,7 @@
  * Deterministic merge strategies without AI.
  * See apps/desktop/src/main/ai/merge/auto-merger.ts for the TypeScript implementation.
  *
- * Implements 8 merge strategies:
+ * Implements 9 merge strategies:
  * 1. COMBINE_IMPORTS — merge import statements
  * 2. HOOKS_FIRST — add hooks at function start
  * 3. HOOKS_THEN_WRAP — hooks first then JSX wrapping
@@ -14,6 +14,10 @@
  * 6. COMBINE_PROPS — merge JSX/object props
  * 7. ORDER_BY_DEPENDENCY — topological ordering
  * 8. ORDER_BY_TIME — chronological ordering
+ * 9. APPEND_STATEMENTS — append additive statements to end of file
+ *
+ * Strategies that must locate an anchor (function or class) return FAILED when
+ * it cannot be found, rather than reporting AUTO_MERGED with unchanged content.
  */
 
 import path from 'path';
@@ -85,11 +89,12 @@ function findFunctionInsertPosition(content: string): number | null {
   return null;
 }
 
-function insertMethodsIntoClass(content: string, className: string, methods: string[]): string {
+/** Returns null when the class is not found or its braces are unbalanced. */
+function insertMethodsIntoClass(content: string, className: string, methods: string[]): string | null {
   const classPattern = new RegExp(`class\\s+${escapeRegex(className)}\\s*(?:extends\\s+\\w+)?\\s*\\{`);
   const match = classPattern.exec(content);
 
-  if (!match) return content;
+  if (!match) return null;
 
   const start = match.index + match[0].length;
   let braceCount = 1;
@@ -107,10 +112,11 @@ function insertMethodsIntoClass(content: string, className: string, methods: str
     return content.slice(0, insertPos) + methodText + content.slice(insertPos);
   }
 
-  return content;
+  return null;
 }
 
-function insertHooksIntoFunction(content: string, funcName: string, hooks: string[]): string {
+/** Returns null when the function signature is not found. */
+function insertHooksIntoFunction(content: string, funcName: string, hooks: string[]): string | null {
   const patterns = [
     // function Component() {
     new RegExp(`(function\\s+${escapeRegex(funcName)}\\s*\\([^)]*\\)\\s*\\{)`),
@@ -129,21 +135,37 @@ function insertHooksIntoFunction(content: string, funcName: string, hooks: strin
     }
   }
 
-  return content;
+  return null;
 }
 
+/** Returns null when no `return (<jsx>` was found to wrap. */
 function wrapFunctionReturn(
   content: string,
   _funcName: string,
   wrapperName: string,
   wrapperProps: string,
-): string {
+): string | null {
   const returnPattern = /(return\s*\(\s*)(<[^>]+>)/;
+
+  if (!returnPattern.test(content)) return null;
 
   return content.replace(returnPattern, (_match, returnStart, jsxStart) => {
     const props = wrapperProps ? ` ${wrapperProps}` : '';
     return `${returnStart}<${wrapperName}${props}>\n      ${jsxStart}`;
   });
+}
+
+function failedResult(context: MergeContext, message: string): MergeResult {
+  return {
+    decision: MergeDecision.FAILED,
+    filePath: context.filePath,
+    conflictsResolved: [],
+    conflictsRemaining: [context.conflict],
+    aiCallsMade: 0,
+    tokensUsed: 0,
+    explanation: message,
+    error: message,
+  };
 }
 
 function extractHookCall(change: SemanticChange): string | null {
@@ -289,13 +311,23 @@ function executeHooksStrategy(context: MergeContext): MergeResult {
     }
   }
 
-  const funcLocation = context.conflict.location;
-  if (funcLocation.startsWith('function:')) {
-    const funcName = funcLocation.split(':')[1];
-    if (funcName) {
-      content = insertHooksIntoFunction(content, funcName, hooks);
-    }
+  if (hooks.length === 0) {
+    return failedResult(context, 'No hook call could be extracted from the changes; nothing to insert');
   }
+
+  const funcLocation = context.conflict.location;
+  const funcName = funcLocation.startsWith('function:') ? funcLocation.split(':')[1] : '';
+  if (!funcName) {
+    return failedResult(
+      context,
+      `Cannot insert hooks: location "${funcLocation}" is not a function location`,
+    );
+  }
+  const inserted = insertHooksIntoFunction(content, funcName, hooks);
+  if (inserted === null) {
+    return failedResult(context, `Could not find function "${funcName}" to insert hooks into`);
+  }
+  content = inserted;
 
   return {
     decision: MergeDecision.AUTO_MERGED,
@@ -326,17 +358,34 @@ function executeHooksThenWrapStrategy(context: MergeContext): MergeResult {
     }
   }
 
+  if (hooks.length === 0 && wraps.length === 0) {
+    return failedResult(context, 'No hook call or JSX wrapper could be extracted from the changes');
+  }
+
   const funcLocation = context.conflict.location;
-  if (funcLocation.startsWith('function:')) {
-    const funcName = funcLocation.split(':')[1];
-    if (funcName) {
-      if (hooks.length > 0) {
-        content = insertHooksIntoFunction(content, funcName, hooks);
-      }
-      for (const [wrapperName, wrapperProps] of wraps) {
-        content = wrapFunctionReturn(content, funcName, wrapperName, wrapperProps);
-      }
+  const funcName = funcLocation.startsWith('function:') ? funcLocation.split(':')[1] : '';
+  if (!funcName) {
+    return failedResult(
+      context,
+      `Cannot apply hooks and wrappers: location "${funcLocation}" is not a function location`,
+    );
+  }
+  if (hooks.length > 0) {
+    const inserted = insertHooksIntoFunction(content, funcName, hooks);
+    if (inserted === null) {
+      return failedResult(context, `Could not find function "${funcName}" to insert hooks into`);
     }
+    content = inserted;
+  }
+  for (const [wrapperName, wrapperProps] of wraps) {
+    const wrapped = wrapFunctionReturn(content, funcName, wrapperName, wrapperProps);
+    if (wrapped === null) {
+      return failedResult(
+        context,
+        `Could not apply JSX wrapper <${wrapperName}> in function "${funcName}": no return statement with JSX found`,
+      );
+    }
+    content = wrapped;
   }
 
   return {
@@ -408,8 +457,16 @@ function executeAppendMethodsStrategy(context: MergeContext): MergeResult {
     }
   }
 
+  if (newMethods.size === 0) {
+    return failedResult(context, 'No ADD_METHOD change carried a "Class.method" target; nothing to insert');
+  }
+
   for (const [className, methods] of newMethods) {
-    content = insertMethodsIntoClass(content, className, methods);
+    const inserted = insertMethodsIntoClass(content, className, methods);
+    if (inserted === null) {
+      return failedResult(context, `Could not find class "${className}" to add methods to`);
+    }
+    content = inserted;
   }
 
   const totalMethods = [...newMethods.values()].reduce((sum, methods) => sum + methods.length, 0);
@@ -459,14 +516,26 @@ function executeOrderByDependencyStrategy(context: MergeContext): MergeResult {
       if (change.changeType === ChangeType.ADD_HOOK_CALL) {
         const funcName = change.target.includes('.') ? change.target.split('.').pop()! : change.target;
         const hookCall = extractHookCall(change);
-        if (hookCall) {
-          content = insertHooksIntoFunction(content, funcName, [hookCall]);
+        if (!hookCall) {
+          return failedResult(context, `No hook call could be extracted for "${funcName}"`);
         }
+        const inserted = insertHooksIntoFunction(content, funcName, [hookCall]);
+        if (inserted === null) {
+          return failedResult(context, `Could not find function "${funcName}" to insert hooks into`);
+        }
+        content = inserted;
       } else if (change.changeType === ChangeType.WRAP_JSX) {
         const wrapper = extractJsxWrapper(change);
         if (wrapper) {
           const funcName = change.target.includes('.') ? change.target.split('.').pop()! : change.target;
-          content = wrapFunctionReturn(content, funcName, wrapper[0], wrapper[1]);
+          const wrapped = wrapFunctionReturn(content, funcName, wrapper[0], wrapper[1]);
+          if (wrapped === null) {
+            return failedResult(
+              context,
+              `Could not apply JSX wrapper <${wrapper[0]}> in function "${funcName}": no return statement with JSX found`,
+            );
+          }
+          content = wrapped;
         }
       }
     }
