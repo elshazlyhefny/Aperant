@@ -33,7 +33,7 @@ const mockIpcMain = vi.hoisted(() => {
 
 vi.mock('electron', () => ({
   ipcMain: mockIpcMain,
-  BrowserWindow: class {},
+  BrowserWindow: vi.fn(),
   app: {
     getPath: vi.fn(() => '/tmp'),
     on: vi.fn(),
