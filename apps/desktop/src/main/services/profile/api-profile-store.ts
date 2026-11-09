@@ -1,9 +1,13 @@
 /**
  * API Profile Store - File I/O for API profiles
  *
- * Handles loading and saving profiles.json from the auto-claude directory.
+ * The only reader/writer of userData/auto-claude/profiles.json for API
+ * (custom endpoint) profiles.
+ * Claude OAuth accounts are handled by claude-profile-manager.ts, and
+ * validation/CRUD for API profiles lives in profile-service.ts (built on this store).
+ *
  * Provides graceful handling for missing or corrupted files.
- * Uses file locking to prevent race conditions in concurrent operations.
+ * Uses file locking and atomic modify to prevent race conditions in concurrent operations.
  */
 
 import { promises as fs } from 'fs';
