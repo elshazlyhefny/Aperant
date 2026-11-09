@@ -17,15 +17,9 @@ import { registerMergeRequestHandlers } from './merge-request-handlers';
 import { registerMRReviewHandlers } from './mr-review-handlers';
 import { registerAutoFixHandlers } from './autofix-handlers';
 import { registerTriageHandlers } from './triage-handlers';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
-// Debug logging helper
-const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
-
-function debugLog(message: string): void {
-  if (DEBUG) {
-    console.debug(`[GitLab] ${message}`);
-  }
-}
+const debugLog = createDebugLog('GitLab');
 
 /**
  * Register all GitLab IPC handlers

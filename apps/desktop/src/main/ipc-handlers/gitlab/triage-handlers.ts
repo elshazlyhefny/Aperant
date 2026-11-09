@@ -21,11 +21,9 @@ import type {
   GitLabTriageCategory,
 } from './types';
 import { sanitizeStringArray } from '../shared/sanitize';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
-// Debug logging
-function debugLog(message: string, ...args: unknown[]): void {
-  console.log(`[GitLab Triage] ${message}`, ...args);
-}
+const debugLog = createDebugLog('GitLab Triage');
 
 const TRIAGE_CATEGORIES: GitLabTriageCategory[] = [
   'bug',

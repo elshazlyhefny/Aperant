@@ -9,19 +9,9 @@ import type { IPCResult, GitLabSyncStatus } from '../../../shared/types';
 import { projectStore } from '../../project-store';
 import { getGitLabConfig, gitlabFetch, gitlabFetchWithCount, encodeProjectPath } from './utils';
 import type { GitLabAPIProject } from './types';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
-// Debug logging helper
-const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
-
-function debugLog(message: string, data?: unknown): void {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.debug(`[GitLab Repo] ${message}`, data);
-    } else {
-      console.debug(`[GitLab Repo] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitLab Repo');
 
 /**
  * Check GitLab connection status for a project

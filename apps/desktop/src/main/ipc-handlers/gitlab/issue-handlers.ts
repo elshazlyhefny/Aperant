@@ -9,19 +9,9 @@ import type { IPCResult, GitLabIssue, GitLabNote } from '../../../shared/types';
 import { projectStore } from '../../project-store';
 import { getGitLabConfig, gitlabFetch, encodeProjectPath } from './utils';
 import type { GitLabAPIIssue, GitLabAPINote } from './types';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
-// Debug logging helper - enabled in development OR when DEBUG flag is set
-const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
-
-function debugLog(message: string, data?: unknown): void {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.debug(`[GitLab Issues] ${message}`, data);
-    } else {
-      console.debug(`[GitLab Issues] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitLab Issues');
 
 /**
  * Transform GitLab API issue to our format

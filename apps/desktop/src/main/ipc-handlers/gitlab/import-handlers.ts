@@ -10,19 +10,9 @@ import { projectStore } from '../../project-store';
 import { getGitLabConfig, gitlabFetch, encodeProjectPath } from './utils';
 import type { GitLabAPIIssue } from './types';
 import { createSpecForIssue, GitLabTaskInfo } from './spec-utils';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
-// Debug logging helper
-const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
-
-function debugLog(message: string, data?: unknown): void {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.debug(`[GitLab Import] ${message}`, data);
-    } else {
-      console.debug(`[GitLab Import] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitLab Import');
 
 /**
  * Import multiple GitLab issues as tasks
