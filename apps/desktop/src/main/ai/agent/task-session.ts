@@ -52,6 +52,14 @@ export function serializeSecurityProfile(
 }
 
 /**
+ * Minimal planner/build-orchestrator system prompt, used when planner.md
+ * cannot be found.
+ */
+export function buildDefaultPlannerPrompt(specId: string, projectPath: string): string {
+  return `You are a planning agent. Your job is to review the spec and create an implementation plan for spec ${specId} in project ${projectPath}. Read the spec.md and create implementation_plan.json with phases and subtasks.`;
+}
+
+/**
  * Build initial messages for task execution (build_orchestrator).
  * Includes the spec.md and implementation_plan.json content for agent context.
  */

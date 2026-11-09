@@ -29,6 +29,7 @@ import {
   buildTaskExecutionMessages,
   resolveTaskModelId,
   resolveTaskPhaseProvider,
+  buildDefaultPlannerPrompt,
 } from '../ai/agent/task-session';
 import { parseEnvPassthrough } from '../ai/security/child-env';
 import { parseSandboxMode } from '../ai/security/sandbox';
@@ -1008,7 +1009,7 @@ export class AgentManager extends EventEmitter {
    * when the prompt file is not found.
    */
   private buildDefaultPlannerPrompt(specId: string, projectPath: string): string {
-    return `You are a planning agent. Your job is to review the spec and create an implementation plan for spec ${specId} in project ${projectPath}. Read the spec.md and create implementation_plan.json with phases and subtasks.`;
+    return buildDefaultPlannerPrompt(specId, projectPath);
   }
 
   /**
