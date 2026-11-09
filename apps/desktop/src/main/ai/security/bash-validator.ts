@@ -13,6 +13,9 @@
  *
  * Flow:
  *   Command comes in →
+ *     0. Does the string name a credential path (~/.ssh, ~/.aws, ...)? → DENY
+ *        (always on; a speed bump, see validators/credential-validators.ts)
+ *     0b. PR-only landing on and a push/merge off the task branch? → DENY
  *     1. Is command name in BLOCKED_COMMANDS? → DENY with reason
  *     2. Does command have a validator in VALIDATORS? → Run validator → DENY or ALLOW
  *     3. Otherwise → ALLOW
@@ -27,6 +30,7 @@ import { BLOCKED_COMMANDS, isCommandBlocked } from './denylist';
 import { validateRmCommand, validateChmodCommand } from './validators/filesystem-validators';
 import { validateGitCommand } from './validators/git-validators';
 import { validateLandingPolicy } from './validators/landing-validators';
+import { validateCredentialPaths } from './validators/credential-validators';
 import { landsThroughPullRequestsOnly } from '../../../shared/utils/landing-policy';
 import { validatePkillCommand, validateKillCommand, validateKillallCommand } from './validators/process-validators';
 import { validateShellCCommand } from './validators/shell-validators';
@@ -239,6 +243,18 @@ export function bashSecurityHook(
     };
   }
 
+  // zeenha fork: credential paths, always on (see credential-validators.ts)
+  const [credentialsAllowed, credentialsReason] = validateCredentialPaths(command);
+  if (!credentialsAllowed) {
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: credentialsReason,
+      },
+    };
+  }
+
   // zeenha fork: PR-only landing (see checkLandingPolicy)
   const [landingAllowed, landingReason] = checkLandingPolicy(command, profile);
   if (!landingAllowed) {
@@ -308,6 +324,12 @@ export function validateCommand(
 
   if (commands.length === 0) {
     return [false, 'Could not parse command'];
+  }
+
+  // zeenha fork: credential paths, always on (see credential-validators.ts)
+  const credentials = validateCredentialPaths(command);
+  if (!credentials[0]) {
+    return credentials;
   }
 
   // zeenha fork: PR-only landing (see checkLandingPolicy)
