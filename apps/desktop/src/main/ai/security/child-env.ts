@@ -30,6 +30,7 @@ export const CREDENTIAL_ENV_PATTERNS: readonly RegExp[] = [
   /^GH_TOKEN$/i,
   /^GH_ENTERPRISE_TOKEN$/i,
   /^GITLAB_TOKEN$/i,
+  /^JIRA_API_TOKEN$/i,
   /^NPM_TOKEN$/i,
   /^SSH_AUTH_SOCK$/i,
   /^ANTHROPIC_API_KEY$/i,

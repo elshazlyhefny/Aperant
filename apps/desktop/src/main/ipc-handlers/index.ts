@@ -20,6 +20,7 @@ import { registerRoadmapHandlers } from './roadmap-handlers';
 import { registerContextHandlers } from './context-handlers';
 import { registerEnvHandlers } from './env-handlers';
 import { registerLinearHandlers } from './linear-handlers';
+import { registerJiraHandlers } from './jira/jira-handlers';
 import { registerGithubHandlers } from './github-handlers';
 import { registerGitlabHandlers } from './gitlab-handlers';
 import { registerIdeationHandlers } from './ideation-handlers';
@@ -88,6 +89,9 @@ export function setupIpcHandlers(
   // Linear integration handlers
   registerLinearHandlers(agentManager, getMainWindow);
 
+  // Jira integration handlers
+  registerJiraHandlers(agentManager, getMainWindow);
+
   // GitHub integration handlers
   registerGithubHandlers(agentManager, getMainWindow);
 
@@ -143,6 +147,7 @@ export {
   registerContextHandlers,
   registerEnvHandlers,
   registerLinearHandlers,
+  registerJiraHandlers,
   registerGithubHandlers,
   registerGitlabHandlers,
   registerIdeationHandlers,
