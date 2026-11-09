@@ -51,5 +51,6 @@ export interface UsageProviderAdapter {
 export type ProviderUsageOutcome =
   | { kind: 'ok'; usage: ClaudeUsageSnapshot }
   | { kind: 'rate-limited' }
-  | { kind: 'failed' }
+  /** `cooldown` tells the caller whether to start the API-failure retry cooldown */
+  | { kind: 'failed'; cooldown: boolean }
   | { kind: 'unsupported' };

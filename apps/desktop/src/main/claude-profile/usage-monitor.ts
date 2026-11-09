@@ -34,11 +34,10 @@ export type { ApiProvider };
 
 export { getUsageEndpoint, detectProvider } from './usage/endpoints';
 import { getUsageEndpoint, detectProvider } from './usage/endpoints';
-import { getAllowedUsageDomains } from './usage/providers/registry';
+import { fetchProviderUsage } from './usage/usage-api-client';
 import { normalizeAnthropicResponse } from './usage/providers/anthropic';
 import { normalizeQuotaLimitResponse } from './usage/providers/quota-limit';
 
-const ALLOWED_USAGE_API_DOMAINS = getAllowedUsageDomains();
 
 
 /**
@@ -1927,97 +1926,27 @@ export class UsageMonitor extends EventEmitter {
         profileId
       });
 
-      // Step 3: Get provider-specific usage endpoint
-      const usageEndpoint = getUsageEndpoint(provider, baseUrl);
-      if (!usageEndpoint) {
-        this.debugLog('[UsageMonitor] Unknown provider - no usage endpoint configured:', {
-          provider,
-          baseUrl,
-          profileId
-        });
-        return null;
-      }
-
-      this.traceLog('[UsageMonitor:API_FETCH] API request:', {
-        endpoint: usageEndpoint,
-        profileId,
-        credentialFingerprint: getCredentialFingerprint(credential)
-      });
-
-      this.traceLog('[UsageMonitor:API_FETCH] Fetching from endpoint:', {
+      const outcome = await fetchProviderUsage({
+        credential,
         provider,
-        endpoint: usageEndpoint,
-        hasCredential: !!credential
+        baseUrl,
+        profileId,
+        profileName,
+        profileEmail,
+        log: this.logger
       });
 
-      // Step 4: Validate endpoint domain before making request
-      // Security: Only allow requests to known provider domains
-      let endpointHostname: string;
-      try {
-        const endpointUrl = new URL(usageEndpoint);
-        endpointHostname = endpointUrl.hostname;
-      } catch {
-        console.error('[UsageMonitor] Invalid usage endpoint URL:', usageEndpoint);
-        return null;
-      }
-
-      if (!ALLOWED_USAGE_API_DOMAINS.has(endpointHostname)) {
-        console.error('[UsageMonitor] Blocked request to unauthorized domain:', endpointHostname, {
-          allowedDomains: Array.from(ALLOWED_USAGE_API_DOMAINS)
-        });
-        return null;
-      }
-
-      // Step 5: Fetch usage from provider endpoint
-      // All providers use Bearer token authentication (RFC 6750)
-      // CodeQL: file data in outbound request - validate credential is a non-empty string before use
-      const safeCredential = typeof credential === 'string' && credential.length > 0 ? credential : '';
-      const authHeader = `Bearer ${safeCredential}`;
-
-      // Build headers based on provider
-      // Anthropic OAuth requires the 'anthropic-beta: oauth-2025-04-20' header
-      // See: https://codelynx.dev/posts/claude-code-usage-limits-statusline
-      const headers: Record<string, string> = {
-        'Authorization': authHeader,
-        'Content-Type': 'application/json',
-      };
-
-      if (provider === 'anthropic') {
-        // OAuth authentication requires the beta header
-        headers['anthropic-beta'] = 'claude-code-20250219,oauth-2025-04-20';
-        headers['anthropic-version'] = '2023-06-01';
-      } else if (provider === 'openai') {
-        // Codex usage endpoint may need account ID for team accounts
-        try {
-          const { getCodexAccountId } = await import('./codex-usage-fetcher');
-          const accountId = getCodexAccountId(credential);
-          if (accountId) {
-            headers['ChatGPT-Account-Id'] = accountId;
-          }
-        } catch {
-          // Non-critical — personal accounts work without the header
-        }
-      }
-
-      const response = await fetch(usageEndpoint, {
-        method: 'GET',
-        headers
-      });
-
-      if (!response.ok) {
-        console.error('[UsageMonitor] API error:', response.status, response.statusText, {
-          provider,
-          endpoint: usageEndpoint
-        });
-
-        // Handle rate limiting with a much longer backoff than general API failures
-        // Propagate to all sibling profiles sharing the same configDir (same API endpoint)
-        if (response.status === 429) {
+      switch (outcome.kind) {
+        case 'ok':
+          return outcome.usage;
+        case 'rate-limited': {
+          // Handle rate limiting with a much longer backoff than general API failures
+          // Propagate to all sibling profiles sharing the same configDir (same API endpoint)
           const now = Date.now();
           const siblingIds = this.getProfileIdFamily(profileId);
           console.warn('[UsageMonitor] Rate limited (429) by provider, backing off for 10 minutes:', {
             provider,
-            endpoint: usageEndpoint,
+            endpoint: getUsageEndpoint(provider, baseUrl),
             cooldownMs: UsageMonitor.RATE_LIMIT_COOLDOWN_MS,
             affectedProfiles: siblingIds.length
           });
@@ -2026,139 +1955,15 @@ export class UsageMonitor extends EventEmitter {
           }
           return null;
         }
-
-        // Check for auth failures via status code (works for all providers)
-        if (response.status === 401 || response.status === 403) {
-          const error = new Error(`API Auth Failure: ${response.status} (${provider})`);
-          (error as any).statusCode = response.status;
-          throw error;
-        }
-
-        // For other error statuses, try to parse response body to detect auth failures
-        // This handles cases where providers might return different status codes for auth errors
-        let errorData: any;
-        try {
-          errorData = await response.json();
-        } catch (parseError) {
-          // If we can't parse the error response, just log it and continue
-          this.traceLog('[UsageMonitor:AUTH_DETECTION] Could not parse error response body:', {
-            provider,
-            status: response.status,
-            parseError
-          });
-          // Record failure timestamp for cooldown retry
-          this.apiFailureTimestamps.set(profileId, Date.now());
+        case 'failed':
+          if (outcome.cooldown) {
+            // Record failure timestamp for cooldown retry
+            this.apiFailureTimestamps.set(profileId, Date.now());
+          }
           return null;
-        }
-
-        this.traceLog('[UsageMonitor:AUTH_DETECTION] Checking error response for auth failure:', {
-          provider,
-          status: response.status,
-          errorData
-        });
-
-        // Check for common auth error patterns in response body
-        const authErrorPatterns = [
-          'unauthorized',
-          'authentication',
-          'invalid token',
-          'invalid api key',
-          'expired token',
-          'forbidden',
-          'access denied',
-          'credentials',
-          'auth failed'
-        ];
-
-        const errorText = JSON.stringify(errorData).toLowerCase();
-        const hasAuthError = authErrorPatterns.some(pattern => errorText.includes(pattern));
-
-        if (hasAuthError) {
-          const error = new Error(`API Auth Failure detected in response body (${provider}): ${JSON.stringify(errorData)}`);
-          (error as any).statusCode = response.status; // Include original status code
-          (error as any).detectedInBody = true;
-          throw error;
-        }
-
-        // Record failure timestamp for cooldown retry (non-auth error)
-        this.apiFailureTimestamps.set(profileId, Date.now());
-        return null;
-      }
-
-      this.traceLog('[UsageMonitor:API_FETCH] API response received successfully:', {
-        provider,
-        status: response.status,
-        contentType: response.headers.get('content-type')
-      });
-
-      // Step 5: Parse and normalize response based on provider
-      const rawData = await response.json();
-
-      this.traceLog('[UsageMonitor:PROVIDER] Raw response from ' + provider + ':', JSON.stringify(rawData, null, 2));
-
-      // Step 6: Extract data wrapper for z.ai and ZHIPU responses
-      // These providers wrap the actual usage data in a 'data' field
-      let responseData = rawData;
-      if (provider === 'zai' || provider === 'zhipu') {
-        if (rawData.data) {
-          responseData = rawData.data;
-          this.traceLog('[UsageMonitor:PROVIDER] Extracted data field from response:', {
-            provider,
-            extractedData: JSON.stringify(responseData, null, 2)
-          });
-        } else {
-          this.traceLog('[UsageMonitor:PROVIDER] No data field found in response, using raw response:', {
-            provider,
-            responseKeys: Object.keys(rawData)
-          });
-        }
-      }
-
-      // Step 7: Normalize response based on provider type
-      let normalizedUsage: ClaudeUsageSnapshot | null = null;
-
-      this.traceLog('[UsageMonitor:NORMALIZATION] Selecting normalization method:', {
-        provider,
-        method: `normalize${provider.charAt(0).toUpperCase() + provider.slice(1)}Response`
-      });
-
-      switch (provider) {
-        case 'anthropic':
-          normalizedUsage = this.normalizeAnthropicResponse(rawData, profileId, profileName, profileEmail);
-          break;
-        case 'openai':
-          normalizedUsage = normalizeCodexResponse(rawData, profileId, profileName, profileEmail);
-          break;
-        case 'zai':
-          normalizedUsage = this.normalizeZAIResponse(responseData, profileId, profileName, profileEmail);
-          break;
-        case 'zhipu':
-          normalizedUsage = this.normalizeZhipuResponse(responseData, profileId, profileName, profileEmail);
-          break;
         default:
-          this.traceLog('[UsageMonitor:TRACE] Unsupported provider for usage normalization: ' + provider);
           return null;
       }
-
-      if (!normalizedUsage) {
-        this.traceLog('[UsageMonitor:TRACE] Failed to normalize response from ' + provider);
-        // Record failure timestamp for cooldown retry (normalization failure)
-        this.apiFailureTimestamps.set(profileId, Date.now());
-        return null;
-      }
-
-      this.traceLog('[UsageMonitor:API_FETCH] Fetch completed - usage:', {
-        profileId,
-        profileName,
-        email: normalizedUsage.profileEmail,
-        provider,
-        sessionPercent: normalizedUsage.sessionPercent,
-        weeklyPercent: normalizedUsage.weeklyPercent,
-        limitType: normalizedUsage.limitType
-      });
-      this.traceLog('[UsageMonitor:API_FETCH] API fetch completed successfully');
-
-      return normalizedUsage;
     } catch (error: any) {
       // Re-throw auth failures to be handled by checkUsageAndSwap
       // This includes both status code auth failures (401/403) and body-detected failures
