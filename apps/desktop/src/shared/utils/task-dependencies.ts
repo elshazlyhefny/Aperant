@@ -151,3 +151,23 @@ export function validateTaskDependencies(
 
   return { ok: true, deps };
 }
+
+/**
+ * zeenha fork: queue candidate selection. Returns the oldest queued task whose
+ * dependencies are all finished. Held tasks (waiting/blocked) and tasks in
+ * `excludeIds` (promotion already failed this pass) are skipped; being held is
+ * not a promotion failure.
+ */
+export function pickNextEligibleQueuedTask<T extends TaskLike & { createdAt: Date | string }>(
+  allTasks: ReadonlyArray<T>,
+  excludeIds: ReadonlySet<string> = new Set()
+): T | undefined {
+  const eligible = allTasks.filter(
+    (t) =>
+      t.status === 'queue' &&
+      !t.metadata?.archivedAt &&
+      !excludeIds.has(t.id) &&
+      evaluateTaskDependencies(t, allTasks).state === 'ready'
+  );
+  return eligible.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
+}

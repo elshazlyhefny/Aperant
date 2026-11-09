@@ -1,4 +1,5 @@
 import { debugLog } from '@shared/utils/debug-logger';
+import { pickNextEligibleQueuedTask } from '@shared/utils/task-dependencies';
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useViewState } from '../contexts/ViewStateContext';
@@ -1135,12 +1136,12 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
         const inProgressCount = currentTasks.filter((t) =>
           t.status === 'in_progress' && !t.metadata?.archivedAt
         ).length;
-        const queuedTasks = currentTasks.filter((t) =>
-          t.status === 'queue' && !t.metadata?.archivedAt && !attemptedTaskIds.has(t.id)
-        );
+        // zeenha fork: tasks with unfinished dependencies are held, not failed:
+        // they are neither added to attemptedTaskIds nor counted as failures.
+        const nextTask = pickNextEligibleQueuedTask(currentTasks, attemptedTaskIds);
 
-        // Stop if no capacity, no queued tasks, or too many consecutive failures
-        if (inProgressCount >= maxParallelTasks || queuedTasks.length === 0) {
+        // Stop if no capacity, no eligible queued task, or too many consecutive failures
+        if (inProgressCount >= maxParallelTasks || !nextTask) {
           break;
         }
 
@@ -1148,13 +1149,6 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
           console.warn(`[Queue] Stopping queue processing after ${MAX_CONSECUTIVE_FAILURES} consecutive failures`);
           break;
         }
-
-        // Get the oldest task in queue (FIFO ordering)
-        const nextTask = queuedTasks.sort((a, b) => {
-          const dateA = new Date(a.createdAt).getTime();
-          const dateB = new Date(b.createdAt).getTime();
-          return dateA - dateB; // Ascending order (oldest first)
-        })[0];
 
         debugLog(`[Queue] Auto-promoting task ${nextTask.id} from Queue to In Progress (${inProgressCount + 1}/${maxParallelTasks})`);
         const result = await persistTaskStatus(nextTask.id, 'in_progress');
@@ -1185,8 +1179,9 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     const unregister = useTaskStore.getState().registerTaskStatusChangeListener(
       (taskId, oldStatus, newStatus) => {
         // When a task leaves in_progress (e.g., goes to human_review), process the queue
-        if (oldStatus === 'in_progress' && newStatus !== 'in_progress') {
-          debugLog(`[Queue] Task ${taskId} left in_progress, processing queue to fill slot`);
+        // zeenha fork: a task becoming 'done' also frees tasks that depend on it.
+        if ((oldStatus === 'in_progress' && newStatus !== 'in_progress') || newStatus === 'done') {
+          debugLog(`[Queue] Task ${taskId} left in_progress or finished, processing queue`);
           processQueue();
         }
       }
