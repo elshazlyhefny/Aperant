@@ -5,7 +5,7 @@
  * Deterministic merge strategies without AI.
  * See apps/desktop/src/main/ai/merge/auto-merger.ts for the TypeScript implementation.
  *
- * Implements 8 merge strategies:
+ * Implements 9 merge strategies:
  * 1. COMBINE_IMPORTS — merge import statements
  * 2. HOOKS_FIRST — add hooks at function start
  * 3. HOOKS_THEN_WRAP — hooks first then JSX wrapping
@@ -14,6 +14,10 @@
  * 6. COMBINE_PROPS — merge JSX/object props
  * 7. ORDER_BY_DEPENDENCY — topological ordering
  * 8. ORDER_BY_TIME — chronological ordering
+ * 9. APPEND_STATEMENTS — append additive statements to end of file
+ *
+ * Strategies that must locate an anchor (function or class) return FAILED when
+ * it cannot be found, rather than reporting AUTO_MERGED with unchanged content.
  */
 
 import path from 'path';
@@ -85,65 +89,255 @@ function findFunctionInsertPosition(content: string): number | null {
   return null;
 }
 
-function insertMethodsIntoClass(content: string, className: string, methods: string[]): string {
-  const classPattern = new RegExp(`class\\s+${escapeRegex(className)}\\s*(?:extends\\s+\\w+)?\\s*\\{`);
-  const match = classPattern.exec(content);
+// -----------------------------------------------------------------------------
+// Source scanning helpers
+//
+// Small hand-written walkers are used instead of regexes with nested quantifiers
+// so that user content can never trigger catastrophic backtracking, and so that
+// strings, template literals and comments are skipped while counting brackets.
+// -----------------------------------------------------------------------------
 
-  if (!match) return content;
+/** If a string, template literal or comment starts at `i`, return the index just after it; otherwise `i`. */
+function skipNonCode(content: string, i: number): number {
+  const ch = content[i];
+  const next = content[i + 1];
 
-  const start = match.index + match[0].length;
-  let braceCount = 1;
-  let pos = start;
-
-  while (pos < content.length && braceCount > 0) {
-    if (content[pos] === '{') braceCount++;
-    else if (content[pos] === '}') braceCount--;
-    pos++;
+  if (ch === '/' && next === '/') {
+    const eol = content.indexOf('\n', i);
+    return eol === -1 ? content.length : eol;
   }
-
-  if (braceCount === 0) {
-    const insertPos = pos - 1;
-    const methodText = '\n\n  ' + methods.join('\n\n  ');
-    return content.slice(0, insertPos) + methodText + content.slice(insertPos);
+  if (ch === '/' && next === '*') {
+    const end = content.indexOf('*/', i + 2);
+    return end === -1 ? content.length : end + 2;
   }
-
-  return content;
+  if (ch === '"' || ch === "'") {
+    let pos = i + 1;
+    while (pos < content.length) {
+      const c = content[pos];
+      if (c === '\\') pos += 2;
+      else if (c === ch) return pos + 1;
+      else if (c === '\n') return pos;
+      else pos++;
+    }
+    return content.length;
+  }
+  if (ch === '`') return skipTemplate(content, i);
+  return i;
 }
 
-function insertHooksIntoFunction(content: string, funcName: string, hooks: string[]): string {
-  const patterns = [
-    // function Component() {
-    new RegExp(`(function\\s+${escapeRegex(funcName)}\\s*\\([^)]*\\)\\s*\\{)`),
-    // const Component = () => {
-    new RegExp(`((?:const|let|var)\\s+${escapeRegex(funcName)}\\s*=\\s*(?:async\\s+)?(?:\\([^)]*\\)|[^=]+)\\s*=>\\s*\\{)`),
-    // const Component = function() {
-    new RegExp(`((?:const|let|var)\\s+${escapeRegex(funcName)}\\s*=\\s*function\\s*\\([^)]*\\)\\s*\\{)`),
-  ];
-
-  for (const pattern of patterns) {
-    const match = pattern.exec(content);
-    if (match) {
-      const insertPos = match.index + match[0].length;
-      const hookText = '\n  ' + hooks.join('\n  ');
-      return content.slice(0, insertPos) + hookText + content.slice(insertPos);
+function skipTemplate(content: string, start: number): number {
+  let pos = start + 1;
+  while (pos < content.length) {
+    const c = content[pos];
+    if (c === '\\') {
+      pos += 2;
+    } else if (c === '`') {
+      return pos + 1;
+    } else if (c === '$' && content[pos + 1] === '{') {
+      pos = findMatchingBrace(content, pos + 1) ?? content.length;
+      if (pos < content.length) pos++;
+    } else {
+      pos++;
     }
   }
-
-  return content;
+  return content.length;
 }
 
+/** Index of the `}` matching the `{` at `openIdx`, ignoring strings, templates and comments. */
+function findMatchingBrace(content: string, openIdx: number): number | null {
+  let depth = 0;
+  let pos = openIdx;
+  while (pos < content.length) {
+    const skipped = skipNonCode(content, pos);
+    if (skipped !== pos) {
+      pos = skipped;
+      continue;
+    }
+    const c = content[pos];
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return pos;
+    }
+    pos++;
+  }
+  return null;
+}
+
+/** Index just after the group closed by the bracket matching `content[openIdx]` (one of `(`, `[`, `<`, `{`). */
+function skipBalanced(content: string, openIdx: number): number | null {
+  const open = content[openIdx];
+  const close = open === '(' ? ')' : open === '[' ? ']' : open === '<' ? '>' : '}';
+  let depth = 0;
+  let pos = openIdx;
+  while (pos < content.length) {
+    const skipped = skipNonCode(content, pos);
+    if (skipped !== pos) {
+      pos = skipped;
+      continue;
+    }
+    const c = content[pos];
+    if (c === '=' && content[pos + 1] === '>') {
+      pos += 2;
+      continue;
+    }
+    if (c === open) depth++;
+    else if (c === close) {
+      depth--;
+      if (depth === 0) return pos + 1;
+    }
+    pos++;
+  }
+  return null;
+}
+
+function skipWhitespace(content: string, i: number): number {
+  let pos = i;
+  while (pos < content.length) {
+    const skipped = skipNonCode(content, pos);
+    if (skipped !== pos && content[pos] === '/') {
+      pos = skipped;
+    } else if (/\s/.test(content[pos])) {
+      pos++;
+    } else {
+      break;
+    }
+  }
+  return pos;
+}
+
+type ScanStop = 'brace' | 'arrow' | 'equals';
+
+/**
+ * Walk forward from `from` at bracket depth 0 (over `()`, `[]`, `<>`, `{}`) until one of the
+ * `stops` is reached. Returns the index of the stop token, or null on `;` / end of input.
+ */
+function scanToToken(content: string, from: number, stops: ScanStop[]): number | null {
+  let depth = 0;
+  let pos = from;
+  while (pos < content.length) {
+    const skipped = skipNonCode(content, pos);
+    if (skipped !== pos) {
+      pos = skipped;
+      continue;
+    }
+    const c = content[pos];
+    if (c === '=' && content[pos + 1] === '>') {
+      if (depth === 0 && stops.includes('arrow')) return pos;
+      pos += 2;
+      continue;
+    }
+    if (depth === 0) {
+      if (c === ';') return null;
+      if (c === '{' && stops.includes('brace')) return pos;
+      if (c === '=' && stops.includes('equals') && content[pos + 1] !== '=') return pos;
+    }
+    if (c === '(' || c === '[' || c === '<' || c === '{') {
+      const end = skipBalanced(content, pos);
+      if (end === null) return null;
+      pos = end;
+      continue;
+    }
+    pos++;
+  }
+  return null;
+}
+
+/** Index of the `{` that opens a function body, starting right after the name. */
+function findFunctionBodyBrace(content: string, afterName: number): number | null {
+  return scanToToken(content, afterName, ['brace']);
+}
+
+/** Index of the `{` opening an arrow function's block body, starting after `=`. */
+function findArrowBodyBrace(content: string, afterEquals: number): number | null {
+  let pos = skipWhitespace(content, afterEquals);
+  if (/^async\b/.test(content.slice(pos, pos + 6))) pos = skipWhitespace(content, pos + 5);
+  if (/^function\b/.test(content.slice(pos, pos + 9))) {
+    return findFunctionBodyBrace(content, pos + 8);
+  }
+  const arrow = scanToToken(content, pos, ['arrow']);
+  if (arrow === null) return null;
+  const body = skipWhitespace(content, arrow + 2);
+  return content[body] === '{' ? body : null;
+}
+
+/** Position just after the `{` that opens the body of function `funcName`, or null. */
+function findFunctionBodyStart(content: string, funcName: string): number | null {
+  const name = escapeRegex(funcName);
+
+  const declaration = new RegExp(`(?<![\\w$.])function\\s*\\*?\\s*${name}(?![\\w$])`, 'g');
+  for (const m of content.matchAll(declaration)) {
+    const brace = findFunctionBodyBrace(content, m.index + m[0].length);
+    if (brace !== null) return brace + 1;
+  }
+
+  const variable = new RegExp(`(?<![\\w$.])(?:const|let|var)\\s+${name}(?![\\w$])`, 'g');
+  for (const m of content.matchAll(variable)) {
+    const equals = scanToToken(content, m.index + m[0].length, ['equals']);
+    if (equals === null) continue;
+    const brace = findArrowBodyBrace(content, equals + 1);
+    if (brace !== null) return brace + 1;
+  }
+
+  return null;
+}
+
+/** Position of the closing `}` of class `className`'s body, or null. */
+function findClassBodyEnd(content: string, className: string): number | null {
+  const declaration = new RegExp(`(?<![\\w$.])class\\s+${escapeRegex(className)}(?![\\w$])`, 'g');
+  for (const m of content.matchAll(declaration)) {
+    const brace = scanToToken(content, m.index + m[0].length, ['brace']);
+    if (brace === null) continue;
+    const close = findMatchingBrace(content, brace);
+    if (close !== null) return close;
+  }
+  return null;
+}
+
+/** Returns null when the class is not found or its braces are unbalanced. */
+function insertMethodsIntoClass(content: string, className: string, methods: string[]): string | null {
+  const insertPos = findClassBodyEnd(content, className);
+  if (insertPos === null) return null;
+  const methodText = '\n\n  ' + methods.join('\n\n  ');
+  return content.slice(0, insertPos) + methodText + content.slice(insertPos);
+}
+
+/** Returns null when the function signature is not found. */
+function insertHooksIntoFunction(content: string, funcName: string, hooks: string[]): string | null {
+  const insertPos = findFunctionBodyStart(content, funcName);
+  if (insertPos === null) return null;
+  const hookText = '\n  ' + hooks.join('\n  ');
+  return content.slice(0, insertPos) + hookText + content.slice(insertPos);
+}
+
+/** Returns null when no `return (<jsx>` was found to wrap. */
 function wrapFunctionReturn(
   content: string,
   _funcName: string,
   wrapperName: string,
   wrapperProps: string,
-): string {
+): string | null {
   const returnPattern = /(return\s*\(\s*)(<[^>]+>)/;
+
+  if (!returnPattern.test(content)) return null;
 
   return content.replace(returnPattern, (_match, returnStart, jsxStart) => {
     const props = wrapperProps ? ` ${wrapperProps}` : '';
     return `${returnStart}<${wrapperName}${props}>\n      ${jsxStart}`;
   });
+}
+
+function failedResult(context: MergeContext, message: string): MergeResult {
+  return {
+    decision: MergeDecision.FAILED,
+    filePath: context.filePath,
+    conflictsResolved: [],
+    conflictsRemaining: [context.conflict],
+    aiCallsMade: 0,
+    tokensUsed: 0,
+    explanation: message,
+    error: message,
+  };
 }
 
 function extractHookCall(change: SemanticChange): string | null {
@@ -289,13 +483,23 @@ function executeHooksStrategy(context: MergeContext): MergeResult {
     }
   }
 
-  const funcLocation = context.conflict.location;
-  if (funcLocation.startsWith('function:')) {
-    const funcName = funcLocation.split(':')[1];
-    if (funcName) {
-      content = insertHooksIntoFunction(content, funcName, hooks);
-    }
+  if (hooks.length === 0) {
+    return failedResult(context, 'No hook call could be extracted from the changes; nothing to insert');
   }
+
+  const funcLocation = context.conflict.location;
+  const funcName = funcLocation.startsWith('function:') ? funcLocation.split(':')[1] : '';
+  if (!funcName) {
+    return failedResult(
+      context,
+      `Cannot insert hooks: location "${funcLocation}" is not a function location`,
+    );
+  }
+  const inserted = insertHooksIntoFunction(content, funcName, hooks);
+  if (inserted === null) {
+    return failedResult(context, `Could not find function "${funcName}" to insert hooks into`);
+  }
+  content = inserted;
 
   return {
     decision: MergeDecision.AUTO_MERGED,
@@ -326,17 +530,34 @@ function executeHooksThenWrapStrategy(context: MergeContext): MergeResult {
     }
   }
 
+  if (hooks.length === 0 && wraps.length === 0) {
+    return failedResult(context, 'No hook call or JSX wrapper could be extracted from the changes');
+  }
+
   const funcLocation = context.conflict.location;
-  if (funcLocation.startsWith('function:')) {
-    const funcName = funcLocation.split(':')[1];
-    if (funcName) {
-      if (hooks.length > 0) {
-        content = insertHooksIntoFunction(content, funcName, hooks);
-      }
-      for (const [wrapperName, wrapperProps] of wraps) {
-        content = wrapFunctionReturn(content, funcName, wrapperName, wrapperProps);
-      }
+  const funcName = funcLocation.startsWith('function:') ? funcLocation.split(':')[1] : '';
+  if (!funcName) {
+    return failedResult(
+      context,
+      `Cannot apply hooks and wrappers: location "${funcLocation}" is not a function location`,
+    );
+  }
+  if (hooks.length > 0) {
+    const inserted = insertHooksIntoFunction(content, funcName, hooks);
+    if (inserted === null) {
+      return failedResult(context, `Could not find function "${funcName}" to insert hooks into`);
     }
+    content = inserted;
+  }
+  for (const [wrapperName, wrapperProps] of wraps) {
+    const wrapped = wrapFunctionReturn(content, funcName, wrapperName, wrapperProps);
+    if (wrapped === null) {
+      return failedResult(
+        context,
+        `Could not apply JSX wrapper <${wrapperName}> in function "${funcName}": no return statement with JSX found`,
+      );
+    }
+    content = wrapped;
   }
 
   return {
@@ -408,8 +629,16 @@ function executeAppendMethodsStrategy(context: MergeContext): MergeResult {
     }
   }
 
+  if (newMethods.size === 0) {
+    return failedResult(context, 'No ADD_METHOD change carried a "Class.method" target; nothing to insert');
+  }
+
   for (const [className, methods] of newMethods) {
-    content = insertMethodsIntoClass(content, className, methods);
+    const inserted = insertMethodsIntoClass(content, className, methods);
+    if (inserted === null) {
+      return failedResult(context, `Could not find class "${className}" to add methods to`);
+    }
+    content = inserted;
   }
 
   const totalMethods = [...newMethods.values()].reduce((sum, methods) => sum + methods.length, 0);
@@ -459,14 +688,26 @@ function executeOrderByDependencyStrategy(context: MergeContext): MergeResult {
       if (change.changeType === ChangeType.ADD_HOOK_CALL) {
         const funcName = change.target.includes('.') ? change.target.split('.').pop()! : change.target;
         const hookCall = extractHookCall(change);
-        if (hookCall) {
-          content = insertHooksIntoFunction(content, funcName, [hookCall]);
+        if (!hookCall) {
+          return failedResult(context, `No hook call could be extracted for "${funcName}"`);
         }
+        const inserted = insertHooksIntoFunction(content, funcName, [hookCall]);
+        if (inserted === null) {
+          return failedResult(context, `Could not find function "${funcName}" to insert hooks into`);
+        }
+        content = inserted;
       } else if (change.changeType === ChangeType.WRAP_JSX) {
         const wrapper = extractJsxWrapper(change);
         if (wrapper) {
           const funcName = change.target.includes('.') ? change.target.split('.').pop()! : change.target;
-          content = wrapFunctionReturn(content, funcName, wrapper[0], wrapper[1]);
+          const wrapped = wrapFunctionReturn(content, funcName, wrapper[0], wrapper[1]);
+          if (wrapped === null) {
+            return failedResult(
+              context,
+              `Could not apply JSX wrapper <${wrapper[0]}> in function "${funcName}": no return statement with JSX found`,
+            );
+          }
+          content = wrapped;
         }
       }
     }

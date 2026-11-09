@@ -1,5 +1,5 @@
 import { assign, createMachine } from 'xstate';
-import type { PRReviewProgress, PRReviewResult } from '../../preload/api/modules/github-api';
+import type { PRReviewProgress, PRReviewResult } from '../types/pr-review';
 
 export interface PRReviewContext {
   prNumber: number | null;

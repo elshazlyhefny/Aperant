@@ -11,43 +11,36 @@
  *
  * Merge rules:
  * - Scalar values (model, alwaysThinkingEnabled, defaultMode): higher precedence wins
- * - env object: deep merge with sanitization, higher precedence wins conflicts
+ * - env object: each level is sanitized once with its own label (project levels are
+ *   untrusted and lose credential/git/proxy/PATH vars), then merged; higher precedence wins
  * - Permission arrays (allow, deny, ask): concatenate unique values
  * - additionalDirectories: concatenate unique values
  *
  * Security:
  * - Environment variables are sanitized to prevent supply chain attacks
  * - Dangerous variables (LD_PRELOAD, NODE_OPTIONS, etc.) are blocked
+ * - Dropped keys (never values) are reported via mergeClaudeCodeSettingsWithReport
  */
 
 import type { ClaudeCodeSettings, ClaudeCodeSettingsHierarchy } from './types';
-import { sanitizeEnvVars } from './env-sanitizer';
+import { sanitizeEnvVarsWithReport } from './env-sanitizer';
+import type { DroppedEnvVar } from './env-sanitizer';
+
+type SettingsLevel = 'user' | 'projectShared' | 'projectLocal' | 'managed';
 
 /**
- * Merge two env objects with sanitization. Values from `higher` override `lower`
- * on key conflicts. Dangerous environment variables are filtered out to prevent
- * supply chain attacks.
- *
- * @param lower - Lower precedence env vars
- * @param higher - Higher precedence env vars
- * @param lowerLevel - Source level of lower env vars (for sanitization logging)
- * @param higherLevel - Source level of higher env vars (for sanitization logging)
+ * Merge two already-sanitized env objects. Values from `higher` override `lower`
+ * on key conflicts. No sanitization happens here: each level is sanitized once,
+ * with its own label, before merging.
  */
 function mergeEnv(
   lower: Record<string, string> | undefined,
-  higher: Record<string, string> | undefined,
-  lowerLevel: 'user' | 'projectShared' | 'projectLocal' | 'managed' = 'user',
-  higherLevel: 'user' | 'projectShared' | 'projectLocal' | 'managed' = 'user'
+  higher: Record<string, string> | undefined
 ): Record<string, string> | undefined {
   if (!lower && !higher) return undefined;
-  if (!lower) return sanitizeEnvVars(higher, higherLevel);
-  if (!higher) return sanitizeEnvVars(lower, lowerLevel);
-
-  // Sanitize both levels before merging
-  const sanitizedLower = sanitizeEnvVars(lower, lowerLevel);
-  const sanitizedHigher = sanitizeEnvVars(higher, higherLevel);
-
-  return { ...sanitizedLower, ...sanitizedHigher };
+  if (!lower) return { ...higher };
+  if (!higher) return { ...lower };
+  return { ...lower, ...higher };
 }
 
 /**
@@ -67,42 +60,15 @@ function mergeArrays(
 
 /**
  * Merge two settings levels. Higher precedence values override lower for scalars;
- * arrays are concatenated; env is deep-merged with sanitization.
- *
- * @param lower - Lower precedence settings
- * @param higher - Higher precedence settings
- * @param lowerLevel - Source level of lower settings (for env sanitization)
- * @param higherLevel - Source level of higher settings (for env sanitization)
+ * arrays are concatenated; env is shallow-merged. Env must already be sanitized.
  */
 function mergeTwoLevels(
   lower: ClaudeCodeSettings | undefined,
-  higher: ClaudeCodeSettings | undefined,
-  lowerLevel: 'user' | 'projectShared' | 'projectLocal' | 'managed' = 'user',
-  higherLevel: 'user' | 'projectShared' | 'projectLocal' | 'managed' = 'user'
+  higher: ClaudeCodeSettings | undefined
 ): ClaudeCodeSettings {
   if (!lower && !higher) return {};
-  if (!lower) {
-    const result = { ...higher } as ClaudeCodeSettings;
-    // Sanitize env vars from the higher level
-    if (result.env) {
-      result.env = sanitizeEnvVars(result.env, higherLevel);
-      if (Object.keys(result.env).length === 0) {
-        delete result.env;
-      }
-    }
-    return result;
-  }
-  if (!higher) {
-    const result = { ...lower };
-    // Sanitize env vars from the lower level
-    if (result.env) {
-      result.env = sanitizeEnvVars(result.env, lowerLevel);
-      if (Object.keys(result.env).length === 0) {
-        delete result.env;
-      }
-    }
-    return result;
-  }
+  if (!lower) return { ...higher } as ClaudeCodeSettings;
+  if (!higher) return { ...lower };
 
   const result: ClaudeCodeSettings = { ...lower };
 
@@ -114,8 +80,8 @@ function mergeTwoLevels(
     result.alwaysThinkingEnabled = higher.alwaysThinkingEnabled;
   }
 
-  // Deep merge env with sanitization
-  result.env = mergeEnv(lower.env, higher.env, lowerLevel, higherLevel);
+  // Merge env (already sanitized per level)
+  result.env = mergeEnv(lower.env, higher.env);
   if (!result.env || Object.keys(result.env).length === 0) {
     delete result.env;
   }
@@ -148,23 +114,59 @@ function mergeTwoLevels(
 }
 
 /**
+ * Sanitize a level's env once with its own label. Returns the settings with the
+ * sanitized env (removed when empty) and appends dropped keys to `dropped`.
+ */
+function sanitizeLevel(
+  settings: ClaudeCodeSettings | undefined,
+  level: SettingsLevel,
+  dropped: DroppedEnvVar[]
+): ClaudeCodeSettings | undefined {
+  if (!settings) return undefined;
+  if (!settings.env) return settings;
+
+  const report = sanitizeEnvVarsWithReport(settings.env, level);
+  dropped.push(...report.dropped);
+
+  const result: ClaudeCodeSettings = { ...settings, env: report.env };
+  if (Object.keys(report.env).length === 0) {
+    delete result.env;
+  }
+  return result;
+}
+
+/**
+ * Merge the full settings hierarchy and report which env vars were dropped.
+ *
+ * Applies precedence: user (lowest) -> projectShared -> projectLocal -> managed (highest).
+ * Env is sanitized exactly once per level, using that level's own label.
+ */
+export function mergeClaudeCodeSettingsWithReport(
+  hierarchy: ClaudeCodeSettingsHierarchy
+): { settings: ClaudeCodeSettings; droppedEnv: DroppedEnvVar[] } {
+  const droppedEnv: DroppedEnvVar[] = [];
+
+  const levels: Array<[ClaudeCodeSettings | undefined, SettingsLevel]> = [
+    [hierarchy.user, 'user'],
+    [hierarchy.projectShared, 'projectShared'],
+    [hierarchy.projectLocal, 'projectLocal'],
+    [hierarchy.managed, 'managed'],
+  ];
+
+  let merged: ClaudeCodeSettings = {};
+  for (const [settings, level] of levels) {
+    merged = mergeTwoLevels(merged, sanitizeLevel(settings, level, droppedEnv));
+  }
+
+  return { settings: merged, droppedEnv };
+}
+
+/**
  * Merge the full settings hierarchy into a single ClaudeCodeSettings object.
- *
- * Applies precedence: user (lowest) -> projectShared -> projectLocal -> managed (highest)
- *
- * Security: Environment variables are sanitized at each level to prevent supply
- * chain attacks via malicious project settings.json files.
+ * See mergeClaudeCodeSettingsWithReport for details.
  */
 export function mergeClaudeCodeSettings(
   hierarchy: ClaudeCodeSettingsHierarchy,
 ): ClaudeCodeSettings {
-  let merged: ClaudeCodeSettings = {};
-
-  // Merge with level tracking for proper env sanitization
-  merged = mergeTwoLevels(merged, hierarchy.user, 'user', 'user');
-  merged = mergeTwoLevels(merged, hierarchy.projectShared, 'user', 'projectShared');
-  merged = mergeTwoLevels(merged, hierarchy.projectLocal, 'projectShared', 'projectLocal');
-  merged = mergeTwoLevels(merged, hierarchy.managed, 'projectLocal', 'managed');
-
-  return merged;
+  return mergeClaudeCodeSettingsWithReport(hierarchy).settings;
 }

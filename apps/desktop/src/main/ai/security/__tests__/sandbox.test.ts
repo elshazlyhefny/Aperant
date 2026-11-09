@@ -1,0 +1,90 @@
+import { describe, expect, it } from 'vitest';
+import { parseSandboxMode, wrapForSandbox } from '../sandbox';
+
+const base = {
+  cwd: '/work/wt',
+  projectDir: '/work/main',
+  writablePaths: ['/work/extra'],
+  homeDir: '/home/u',
+};
+const found = (n: string) => `/usr/bin/${n}`;
+
+describe('wrapForSandbox', () => {
+  it('passes through when off', () => {
+    expect(wrapForSandbox('/bin/bash', ['-c', 'ls'], { ...base, mode: 'off' })).toEqual({
+      ok: true, file: '/bin/bash', args: ['-c', 'ls'],
+    });
+  });
+
+  it('builds bwrap args on linux', () => {
+    const r = wrapForSandbox('/bin/bash', ['-c', 'ls'], {
+      ...base, mode: 'home-hidden', platformName: 'linux', find: found,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.file).toBe('/usr/bin/bwrap');
+    expect(r.args).toContain('--die-with-parent');
+    expect(r.args).not.toContain('--unshare-net');
+    const i = r.args.indexOf('--tmpfs');
+    expect(r.args[i + 1]).toBe('/home/u');
+    for (const p of ['/work/wt', '/work/main', '/work/extra']) {
+      const idx = r.args.findIndex((a, k) => a === '--bind' && r.args[k + 1] === p);
+      expect(idx).toBeGreaterThan(-1);
+    }
+    expect(r.args.slice(-4)).toEqual(['--', '/bin/bash', '-c', 'ls']);
+  });
+
+  it('adds --unshare-net only in no-network mode', () => {
+    const r = wrapForSandbox('/bin/bash', [], {
+      ...base, mode: 'home-hidden-no-network', platformName: 'linux', find: found,
+    });
+    expect(r.ok && r.args.includes('--unshare-net')).toBe(true);
+  });
+
+  it('builds a sandbox-exec profile on macOS', () => {
+    const r = wrapForSandbox('/bin/zsh', ['-c', 'ls'], {
+      ...base, mode: 'home-hidden', platformName: 'darwin', find: found,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.file).toBe('/usr/bin/sandbox-exec');
+    expect(r.args[0]).toBe('-p');
+    expect(r.args[1]).toContain('(allow default)');
+    expect(r.args[1]).toContain('(deny file-read* file-write* (subpath "/home/u"))');
+    expect(r.args[1]).toContain('(subpath "/work/wt")');
+    expect(r.args[1]).not.toContain('network*');
+    expect(r.args.slice(2)).toEqual(['/bin/zsh', '-c', 'ls']);
+  });
+
+  it('denies network on macOS in no-network mode', () => {
+    const r = wrapForSandbox('/bin/zsh', [], {
+      ...base, mode: 'home-hidden-no-network', platformName: 'darwin', find: found,
+    });
+    expect(r.ok && r.args[1].includes('(deny network*)')).toBe(true);
+  });
+
+  it('rejects unsafe paths on macOS', () => {
+    const r = wrapForSandbox('/bin/zsh', [], {
+      ...base, cwd: '/work/"x', mode: 'home-hidden', platformName: 'darwin', find: found,
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it('fails closed when tool missing or on win32', () => {
+    for (const platformName of ['linux', 'darwin'] as const) {
+      const r = wrapForSandbox('sh', [], { ...base, mode: 'home-hidden', platformName, find: () => null });
+      expect(r.ok).toBe(false);
+    }
+    const w = wrapForSandbox('sh', [], { ...base, mode: 'home-hidden', platformName: 'win32', find: found });
+    expect(w.ok).toBe(false);
+    if (!w.ok) expect(w.reason).toMatch(/Windows/);
+  });
+});
+
+describe('parseSandboxMode', () => {
+  it('accepts valid modes and defaults to off', () => {
+    expect(parseSandboxMode('home-hidden')).toBe('home-hidden');
+    expect(parseSandboxMode('home-hidden-no-network')).toBe('home-hidden-no-network');
+    for (const v of [undefined, null, 5, 'nope', {}, '']) expect(parseSandboxMode(v)).toBe('off');
+  });
+});

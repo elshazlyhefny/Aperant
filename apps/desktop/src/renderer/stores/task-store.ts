@@ -3,13 +3,14 @@ import { arrayMove } from '@dnd-kit/sortable';
 import type { Task, TaskStatus, SubtaskStatus, ImplementationPlan, Subtask, TaskMetadata, ExecutionProgress, ExecutionPhase, ReviewReason, TaskDraft, ImageAttachment, TaskOrderState } from '../../shared/types';
 import { debugLog, debugWarn } from '../../shared/utils/debug-logger';
 import { useProjectStore } from './project-store';
+import { useTaskLogsStore, MAX_LOG_ENTRIES } from './task-logs-store';
 
 /** Default max parallel tasks when no project setting is configured */
 export const DEFAULT_MAX_PARALLEL_TASKS = 3;
 
 
-/** Maximum log entries stored per task to prevent renderer OOM */
-export const MAX_LOG_ENTRIES = 5000;
+// Re-exported so existing imports keep working (logs live in task-logs-store)
+export { MAX_LOG_ENTRIES };
 
 interface TaskState {
   tasks: Task[];
@@ -207,21 +208,19 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       taskIds: tasks.map(t => ({
         id: t.id,
         status: t.status,
-        logCount: t.logs?.length || 0,
         hasExecutionProgress: !!t.executionProgress,
         phase: t.executionProgress?.phase
       }))
     });
 
-    // Log detailed info for each task with logs
-    tasks.forEach(task => {
+    // Logs live in the logs store: seed any hydrated logs, drop buckets of vanished tasks
+    const logsStore = useTaskLogsStore.getState();
+    for (const task of tasks) {
       if (task.logs && task.logs.length > 0) {
-        debugLog(`[TaskStore.setTasks] Task ${task.id} has ${task.logs.length} logs:`, {
-          firstLogPreview: task.logs[0]?.substring(0, 100),
-          lastLogPreview: task.logs[task.logs.length - 1]?.substring(0, 100)
-        });
+        logsStore.seedLogs(task.id, task.logs);
       }
-    });
+    }
+    logsStore.pruneLogs(new Set(tasks.map(t => t.id)));
 
     return set({ tasks });
   },
@@ -475,62 +474,30 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     });
   },
 
-  appendLog: (taskId, log) =>
-    set((state) => {
-      const index = findTaskIndex(state.tasks, taskId);
-      if (index === -1) {
-        debugWarn('[TaskStore.appendLog] Task not found:', taskId);
-        return state;
-      }
+  // Logs are written to task-logs-store; this store's state is never touched (read-only lookup)
+  appendLog: (taskId, log) => {
+    const index = findTaskIndex(get().tasks, taskId);
+    if (index === -1) {
+      debugWarn('[TaskStore.appendLog] Task not found:', taskId);
+      return;
+    }
+    useTaskLogsStore.getState().appendLogs(get().tasks[index].id, [log]);
+  },
 
-      const currentLogCount = state.tasks[index].logs?.length || 0;
-      debugLog('[TaskStore.appendLog] Appending log:', {
-        taskId,
-        currentLogCount,
-        newLogCount: currentLogCount + 1,
-        logPreview: log.substring(0, 100)
-      });
-
-      return {
-        tasks: updateTaskAtIndex(state.tasks, index, (t) => ({
-          ...t,
-          logs: [...(t.logs || []), log].slice(-MAX_LOG_ENTRIES)
-        }))
-      };
-    }),
-
-  // Batch append multiple logs at once (single state update instead of N updates)
+  // Batch append multiple logs at once (single logs-store update instead of N updates)
   batchAppendLogs: (taskId, logs) => {
     // Record activity for stuck detection — log output proves the task is alive
     recordTaskActivity(taskId);
-    return set((state) => {
-      if (logs.length === 0) {
-        debugLog('[TaskStore.batchAppendLogs] No logs to append for task:', taskId);
-        return state;
-      }
-      const index = findTaskIndex(state.tasks, taskId);
-      if (index === -1) {
-        debugWarn('[TaskStore.batchAppendLogs] Task not found:', taskId);
-        return state;
-      }
-
-      const currentLogCount = state.tasks[index].logs?.length || 0;
-      const newLogCount = currentLogCount + logs.length;
-      debugLog('[TaskStore.batchAppendLogs] Batch appending logs:', {
-        taskId,
-        currentLogCount,
-        newLogsCount: logs.length,
-        newLogCount,
-        firstLogPreview: logs[0]?.substring(0, 100)
-      });
-
-      return {
-        tasks: updateTaskAtIndex(state.tasks, index, (t) => ({
-          ...t,
-          logs: [...(t.logs || []), ...logs].slice(-MAX_LOG_ENTRIES)
-        }))
-      };
-    });
+    if (logs.length === 0) {
+      debugLog('[TaskStore.batchAppendLogs] No logs to append for task:', taskId);
+      return;
+    }
+    const index = findTaskIndex(get().tasks, taskId);
+    if (index === -1) {
+      debugWarn('[TaskStore.batchAppendLogs] Task not found:', taskId);
+      return;
+    }
+    useTaskLogsStore.getState().appendLogs(get().tasks[index].id, logs);
   },
 
   selectTask: (taskId) => set({ selectedTaskId: taskId }),
@@ -539,7 +506,10 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
   setError: (error) => set({ error }),
 
-  clearTasks: () => set({ tasks: [], selectedTaskId: null, taskOrder: null }),
+  clearTasks: () => {
+    useTaskLogsStore.getState().clearAllLogs();
+    return set({ tasks: [], selectedTaskId: null, taskOrder: null });
+  },
 
   // Task order actions for kanban drag-and-drop reordering
   setTaskOrder: (order) => set({ taskOrder: order }),
@@ -714,9 +684,7 @@ export async function loadTasks(projectId: string, options?: { forceRefresh?: bo
 
     if (result.success && result.data) {
       debugLog('[TaskStore.loadTasks] Tasks loaded successfully:', {
-        count: result.data.length,
-        tasksWithLogs: result.data.filter(t => t.logs && t.logs.length > 0).length,
-        totalLogCount: result.data.reduce((sum, t) => sum + (t.logs?.length || 0), 0)
+        count: result.data.length
       });
       store.setTasks(result.data);
     } else {
@@ -1011,6 +979,8 @@ export async function deleteTask(
 
     if (result.success) {
       // Remove from local state
+      const deleted = store.tasks.filter(t => t.id === taskId || t.specId === taskId).map(t => t.id);
+      useTaskLogsStore.getState().clearLogs([taskId, ...deleted]);
       store.setTasks(store.tasks.filter(t => t.id !== taskId && t.specId !== taskId));
       // Clear selection if this task was selected
       if (store.selectedTaskId === taskId) {
@@ -1053,6 +1023,10 @@ export async function deleteTasks(
 
     // Remove successfully deleted tasks from local state
     const deletedIds = new Set(taskIds.filter(id => !failedIds.includes(id)));
+    useTaskLogsStore.getState().clearLogs([
+      ...deletedIds,
+      ...store.tasks.filter(t => deletedIds.has(t.id) || deletedIds.has(t.specId || '')).map(t => t.id)
+    ]);
     store.setTasks(store.tasks.filter(t => !deletedIds.has(t.id) && !deletedIds.has(t.specId || '')));
 
     // Clear selection if selected task was deleted

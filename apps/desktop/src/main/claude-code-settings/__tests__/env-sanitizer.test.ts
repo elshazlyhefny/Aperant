@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   sanitizeEnvVars,
+  sanitizeEnvVarsWithReport,
+  isProjectBlockedEnvVar,
+  getProjectBlockedEnvVars,
   isDangerousEnvVar,
   isWarningEnvVar,
   getDangerousEnvVars,
@@ -147,19 +150,14 @@ describe('env-sanitizer', () => {
       expect(Object.keys(result)).not.toContain('LD_PRELOAD');
     });
 
-    it('warns about PATH from project-level settings', () => {
+    it('drops PATH from project-level settings', () => {
       const env = {
         PATH: '/malicious/bin:/usr/bin',
         SAFE_VAR: 'value',
       };
 
-      const result = sanitizeEnvVars(env, 'projectShared');
-
-      expect(result).toEqual(env); // PATH is allowed but warned
-      expect(debugLog).toHaveBeenCalledWith(
-        expect.stringContaining('WARNING'),
-        expect.stringContaining('can affect command execution')
-      );
+      expect(sanitizeEnvVars(env, 'projectShared')).toEqual({ SAFE_VAR: 'value' });
+      expect(sanitizeEnvVars(env, 'projectLocal')).toEqual({ SAFE_VAR: 'value' });
     });
 
     it('does not warn about PATH from user-level settings', () => {
@@ -194,19 +192,20 @@ describe('env-sanitizer', () => {
       );
     });
 
-    it('warns about SHELL from project-local settings', () => {
+    it('drops SHELL from project-local settings', () => {
       const env = {
         SHELL: '/custom/shell',
         SAFE_VAR: 'value',
       };
 
-      const result = sanitizeEnvVars(env, 'projectLocal');
+      expect(sanitizeEnvVars(env, 'projectLocal')).toEqual({ SAFE_VAR: 'value' });
+      expect(sanitizeEnvVars(env, 'projectShared')).toEqual({ SAFE_VAR: 'value' });
+    });
 
-      expect(result).toEqual(env); // SHELL is allowed but warned
-      expect(debugLog).toHaveBeenCalledWith(
-        expect.stringContaining('WARNING'),
-        expect.stringContaining('can affect command execution')
-      );
+    it('keeps PATH and SHELL for user and managed settings', () => {
+      const env = { PATH: '/custom/bin', SHELL: '/bin/zsh' };
+      expect(sanitizeEnvVars(env, 'user')).toEqual(env);
+      expect(sanitizeEnvVars(env, 'managed')).toEqual(env);
     });
 
     it('allows numeric keys (converted to strings)', () => {
@@ -487,12 +486,13 @@ describe('env-sanitizer', () => {
   });
 
   describe('isWarningEnvVar', () => {
-    it('returns true for PATH', () => {
-      expect(isWarningEnvVar('PATH')).toBe(true);
+    it('returns true for TERM', () => {
+      expect(isWarningEnvVar('TERM')).toBe(true);
     });
 
-    it('returns true for SHELL', () => {
-      expect(isWarningEnvVar('SHELL')).toBe(true);
+    it('returns false for PATH and SHELL (now dropped at project levels)', () => {
+      expect(isWarningEnvVar('PATH')).toBe(false);
+      expect(isWarningEnvVar('SHELL')).toBe(false);
     });
 
     it('returns false for safe variables', () => {
@@ -501,9 +501,8 @@ describe('env-sanitizer', () => {
     });
 
     it('is case-insensitive', () => {
-      expect(isWarningEnvVar('path')).toBe(true);
-      expect(isWarningEnvVar('Path')).toBe(true);
-      expect(isWarningEnvVar('shell')).toBe(true);
+      expect(isWarningEnvVar('term')).toBe(true);
+      expect(isWarningEnvVar('Term')).toBe(true);
     });
   });
 
@@ -528,11 +527,95 @@ describe('env-sanitizer', () => {
 
       expect(Array.isArray(vars)).toBe(true);
       expect(vars.length).toBeGreaterThan(0);
-      expect(vars).toContain('PATH');
-      expect(vars).toContain('SHELL');
+      expect(vars).toContain('TERM');
       // Check sorted
       const sorted = [...vars].sort();
       expect(vars).toEqual(sorted);
+    });
+  });
+
+  describe('project-level policy', () => {
+    const SPEC_NAMES = [
+      'ANTHROPIC_BASE_URL', 'HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY',
+      'NODE_EXTRA_CA_CERTS', 'NODE_TLS_REJECT_UNAUTHORIZED', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+      'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM',
+      'GIT_CONFIG_COUNT', 'GIT_EXEC_PATH', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GIT_EXTERNAL_DIFF',
+      'GIT_PROXY_COMMAND', 'GIT_PAGER', 'GIT_EDITOR', 'GIT_SEQUENCE_EDITOR', 'PAGER',
+      'MANPAGER', 'EDITOR', 'VISUAL', 'BROWSER', 'LESSOPEN', 'LESSCLOSE', 'HOME',
+      'XDG_CONFIG_HOME', 'USERPROFILE', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN',
+      'PATH', 'SHELL',
+    ];
+
+    it.each(['projectShared', 'projectLocal'] as const)('drops every spec name for %s', (level) => {
+      for (const name of SPEC_NAMES) {
+        expect(sanitizeEnvVars({ [name]: 'x', KEEP: 'y' }, level), name).toEqual({ KEEP: 'y' });
+      }
+    });
+
+    it.each(['user', 'managed'] as const)('lets spec names through for %s unless dangerous', (level) => {
+      for (const name of SPEC_NAMES) {
+        const result = sanitizeEnvVars({ [name]: 'x' }, level);
+        if (isDangerousEnvVar(name)) {
+          expect(result, name).toEqual({});
+        } else {
+          expect(result, name).toEqual({ [name]: 'x' });
+        }
+      }
+    });
+
+    it('drops GIT_CONFIG_KEY_n / VALUE_n by prefix', () => {
+      const env = { GIT_CONFIG_KEY_0: 'a', GIT_CONFIG_VALUE_0: 'b', GIT_CONFIG_KEY_12: 'c', KEEP: 'y' };
+      expect(sanitizeEnvVars(env, 'projectShared')).toEqual({ KEEP: 'y' });
+      expect(sanitizeEnvVars(env, 'user')).toEqual(env);
+    });
+
+    it('matches case-insensitively', () => {
+      const env = { https_proxy: 'x', npm_config_registry: 'x', git_pager: 'x', KEEP: 'y' };
+      expect(sanitizeEnvVars(env, 'projectLocal')).toEqual({ KEEP: 'y' });
+    });
+
+    it('drops prefix and suffix rule matches', () => {
+      const env = { ANTHROPIC_FOO: '1', LD_FOO: '1', DYLD_FOO: '1', OPENAI_BASE_URL: '1', FTP_PROXY: '1' };
+      expect(sanitizeEnvVars(env, 'projectShared')).toEqual({});
+    });
+
+    it('passes unrelated names at project levels', () => {
+      const env = {
+        NODE_ENV: 'production',
+        DEBUG: 'x',
+        CI: '1',
+        CLAUDE_CODE_DISABLE_TELEMETRY: '1',
+        TERM: 'xterm',
+      };
+      expect(sanitizeEnvVars(env, 'projectShared')).toEqual(env);
+      expect(sanitizeEnvVars(env, 'projectLocal')).toEqual(env);
+    });
+
+    it('reports dropped names without values', () => {
+      const report = sanitizeEnvVarsWithReport(
+        { HTTPS_PROXY: 'http://secret-host', LD_PRELOAD: '/tmp/x.so', KEEP: 'y' },
+        'projectShared'
+      );
+      expect(report.env).toEqual({ KEEP: 'y' });
+      expect(report.dropped).toEqual([
+        { key: 'HTTPS_PROXY', reason: 'project-policy', level: 'projectShared' },
+        { key: 'LD_PRELOAD', reason: 'dangerous', level: 'projectShared' },
+      ]);
+      expect(JSON.stringify(report.dropped)).not.toContain('secret-host');
+    });
+
+    it('reports dangerous drops at user level too', () => {
+      const report = sanitizeEnvVarsWithReport({ NODE_OPTIONS: 'x', PATH: '/a' }, 'user');
+      expect(report.env).toEqual({ PATH: '/a' });
+      expect(report.dropped).toEqual([{ key: 'NODE_OPTIONS', reason: 'dangerous', level: 'user' }]);
+    });
+
+    it('exposes helpers', () => {
+      expect(isProjectBlockedEnvVar('git_config_key_3')).toBe(true);
+      expect(isProjectBlockedEnvVar('NODE_ENV')).toBe(false);
+      const list = getProjectBlockedEnvVars();
+      expect(list).toEqual([...list].sort());
+      expect(list).toEqual(expect.arrayContaining(SPEC_NAMES));
     });
   });
 

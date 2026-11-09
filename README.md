@@ -4,7 +4,7 @@
 
 ![Aperant Kanban Board](.github/assets/Auto-Claude-Kanban.png)
 
-[![License](https://img.shields.io/badge/license-AGPL--3.0-green?style=flat-square)](./agpl-3.0.txt)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-green?style=flat-square)](./LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/KCXaPBr4Dj)
 [![YouTube](https://img.shields.io/badge/YouTube-Subscribe-FF0000?style=flat-square&logo=youtube&logoColor=white)](https://www.youtube.com/@AndreMikalsen)
 [![CI](https://img.shields.io/github/actions/workflow/status/AndyMik90/Auto-Claude/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/AndyMik90/Auto-Claude/actions)
@@ -142,7 +142,7 @@ Aperant runs AI agents that execute shell commands and edit files. What it enfor
 
 What it does **not** enforce:
 
-- There is no OS-level sandbox (no `sandbox-exec`, bubblewrap, seatbelt or landlock).
+- The OS-level sandbox (bubblewrap on Linux, `sandbox-exec` on macOS) is opt-in per project. Unless you turn it on, Bash commands are not isolated.
 - Every command not on the denylist is allowed by default.
 - Bash commands run in the task working directory with your user's permissions. They can reach outside the project unless a validator blocks them.
 - The validators are a guardrail, not a sandbox. A script the agent writes and then runs, or an interpreter one-liner, is not inspected.
@@ -188,8 +188,7 @@ We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for:
 ## Community
 
 - **Discord** - [Join our community](https://discord.gg/KCXaPBr4Dj)
-- **Issues** - [Report bugs or request features](https://github.com/AndyMik90/Auto-Claude/issues)
-- **Discussions** - [Ask questions](https://github.com/AndyMik90/Auto-Claude/discussions)
+- **Issues** - [Report bugs or request features](https://github.com/elshazlyhefny/Aperant/issues)
 
 ---
 

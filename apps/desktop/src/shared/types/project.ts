@@ -36,6 +36,18 @@ export interface ProjectSettings {
    * See main/worktree-auto-cleanup.ts for the checks.
    */
   autoCleanupMergedWorktrees?: boolean;
+  /**
+   * zeenha fork: names of environment variables an agent's Bash commands may
+   * still see, even though they look like credentials (default: none). Only list
+   * what a build really needs. See main/ai/security/child-env.ts.
+   */
+  envPassthrough?: string[];
+  /**
+   * zeenha fork: run agent Bash commands in an OS sandbox that hides the home
+   * directory (bubblewrap on Linux, sandbox-exec on macOS). 'home-hidden-no-network'
+   * also blocks network access. Default 'off'. See main/ai/security/sandbox.ts.
+   */
+  bashSandbox?: 'off' | 'home-hidden' | 'home-hidden-no-network';
 }
 
 export interface NotificationSettings {
@@ -407,6 +419,12 @@ export interface ProjectEnvConfig {
 
   // Custom MCP servers defined by the user
   customMcpServers?: CustomMcpServer[];
+  /** zeenha fork: approval state per custom server id (absent = not launchable) */
+  customMcpServerTrust?: Record<string, { approved: boolean; hash: string }>;
+  /** zeenha fork: whether the declared Chrome executable is approved */
+  chromeDevtoolsExecutableApproved?: boolean;
+  /** zeenha fork: .auto-claude/.env is tracked by git */
+  envTrackedByGit?: boolean;
 }
 
 /**

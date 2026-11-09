@@ -1,5 +1,14 @@
 # Release Process
 
+> **This document describes upstream's (`AndyMik90/Auto-Claude`) release pipeline and does not apply to this fork.** In this fork `zeenha` is the trunk, and releases go through `scripts/zeenha-release.sh`, which only a human runs:
+>
+> - `scripts/zeenha-release.sh`: test, build, push, install the next `zeenha.N`
+> - `scripts/zeenha-release.sh --no-install`: same, but stop before replacing the installed app
+> - `scripts/zeenha-release.sh --install <AppImage>`: install a build that already exists
+> - `scripts/zeenha-release.sh --rollback`: swap back to the previous install
+>
+> `APERANT_INSTALL_DIR` overrides the install directory (default `~/Applications/aperant-zeenha`).
+
 This document describes how releases are created for Auto Claude.
 
 ## Overview
