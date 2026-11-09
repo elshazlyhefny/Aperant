@@ -20,6 +20,7 @@
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.cjs",
+    "audit:gate": "node scripts/audit-gate.cjs",
     "dev": "electron-vite dev",
     "dev:debug": "cross-env DEBUG=true electron-vite dev",
     "dev:mcp": "electron-vite dev -- --remote-debugging-port=9222",
