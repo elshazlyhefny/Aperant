@@ -15,7 +15,7 @@ import { getClaudeProfileManager } from '../claude-profile-manager';
 import { ClaudeUsageSnapshot, ProfileUsageSummary, AllProfilesUsage } from '../../shared/types/agent';
 import { loadProfilesFile } from '../services/profile/profile-manager';
 import type { APIProfile } from '../../shared/types/profile';
-import { detectProvider as sharedDetectProvider, type ApiProvider } from '../../shared/utils/provider-detection';
+import type { ApiProvider } from '../../shared/utils/provider-detection';
 import { getCredentialsFromKeychain, clearKeychainCache } from './credential-utils';
 import { reactiveTokenRefresh, ensureValidToken } from './token-refresh';
 import { isProfileRateLimited } from './rate-limit-manager';
@@ -32,150 +32,14 @@ import { calculateAvailabilityScore } from './usage/availability-score';
 // Re-export for backward compatibility
 export type { ApiProvider };
 
-/**
- * Allowed domains for usage API requests.
- * Only these domains are permitted for outbound usage monitoring requests.
- */
-const ALLOWED_USAGE_API_DOMAINS = new Set([
-  'api.anthropic.com',
-  'api.z.ai',
-  'open.bigmodel.cn',
-  'chatgpt.com',
-]);
+export { getUsageEndpoint, detectProvider } from './usage/endpoints';
+import { getUsageEndpoint, detectProvider } from './usage/endpoints';
+import { getAllowedUsageDomains } from './usage/providers/registry';
+import { normalizeAnthropicResponse } from './usage/providers/anthropic';
+import { normalizeQuotaLimitResponse } from './usage/providers/quota-limit';
 
-/**
- * Provider usage endpoint configuration
- * Maps each provider to its usage monitoring endpoint path
- */
-interface ProviderUsageEndpoint {
-  provider: ApiProvider;
-  usagePath: string;
-}
+const ALLOWED_USAGE_API_DOMAINS = getAllowedUsageDomains();
 
-const PROVIDER_USAGE_ENDPOINTS: readonly ProviderUsageEndpoint[] = [
-  {
-    provider: 'anthropic',
-    usagePath: '/api/oauth/usage'
-  },
-  {
-    provider: 'openai',
-    usagePath: '/backend-api/wham/usage'
-  },
-  {
-    provider: 'zai',
-    usagePath: '/api/monitor/usage/quota/limit'
-  },
-  {
-    provider: 'zhipu',
-    usagePath: '/api/monitor/usage/quota/limit'
-  }
-] as const;
-
-/**
- * Get usage endpoint URL for a provider
- * Constructs full usage endpoint URL from provider baseUrl and usage path
- *
- * @param provider - The provider type
- * @param baseUrl - The API base URL (e.g., 'https://api.z.ai/api/anthropic')
- * @returns Full usage endpoint URL or null if provider unknown
- *
- * @example
- * getUsageEndpoint('anthropic', 'https://api.anthropic.com')
- * // returns 'https://api.anthropic.com/api/oauth/usage'
- * getUsageEndpoint('zai', 'https://api.z.ai/api/anthropic')
- * // returns 'https://api.z.ai/api/monitor/usage/quota/limit'
- * getUsageEndpoint('unknown', 'https://example.com')
- * // returns null
- */
-export function getUsageEndpoint(provider: ApiProvider, baseUrl: string): string | null {
-  const isVerbose = process.env.VERBOSE === 'true';
-
-  if (isVerbose) {
-    console.warn('[UsageMonitor:ENDPOINT_CONSTRUCTION] Constructing usage endpoint:', {
-      provider,
-      baseUrl
-    });
-  }
-
-  const endpointConfig = PROVIDER_USAGE_ENDPOINTS.find(e => e.provider === provider);
-  if (!endpointConfig) {
-    if (isVerbose) {
-      console.warn('[UsageMonitor:ENDPOINT_CONSTRUCTION] Unknown provider - no endpoint configured:', {
-        provider,
-        availableProviders: PROVIDER_USAGE_ENDPOINTS.map(e => e.provider)
-      });
-    }
-    return null;
-  }
-
-  if (isVerbose) {
-    console.warn('[UsageMonitor:ENDPOINT_CONSTRUCTION] Found endpoint config for provider:', {
-      provider,
-      usagePath: endpointConfig.usagePath
-    });
-  }
-
-  try {
-    const url = new URL(baseUrl);
-    const originalPath = url.pathname;
-    // Replace the path with the usage endpoint path
-    url.pathname = endpointConfig.usagePath;
-
-    // Note: quota/limit endpoint doesn't require query parameters
-    // The model-usage and tool-usage endpoints would need time windows, but we're using quota/limit
-
-    const finalUrl = url.toString();
-
-    if (isVerbose) {
-      console.warn('[UsageMonitor:ENDPOINT_CONSTRUCTION] Successfully constructed endpoint:', {
-        provider,
-        originalPath,
-        newPath: endpointConfig.usagePath,
-        finalUrl
-      });
-    }
-
-    return finalUrl;
-  } catch (error) {
-    console.error('[UsageMonitor] Invalid baseUrl for usage endpoint:', baseUrl);
-    if (isVerbose) {
-      console.warn('[UsageMonitor:ENDPOINT_CONSTRUCTION] URL construction failed:', {
-        baseUrl,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    }
-    return null;
-  }
-}
-
-/**
- * Detect API provider from baseUrl
- * Extracts domain and matches against known provider patterns
- *
- * @param baseUrl - The API base URL (e.g., 'https://api.z.ai/api/anthropic')
- * @returns The detected provider type ('anthropic' | 'zai' | 'zhipu' | 'unknown')
- *
- * @example
- * detectProvider('https://api.anthropic.com') // returns 'anthropic'
- * detectProvider('https://api.z.ai/api/anthropic') // returns 'zai'
- * detectProvider('https://open.bigmodel.cn/api/anthropic') // returns 'zhipu'
- * detectProvider('https://unknown.com/api') // returns 'unknown'
- */
-export function detectProvider(baseUrl: string): ApiProvider {
-  // Wrapper around shared detectProvider with verbose logging for main process
-  const isVerbose = process.env.VERBOSE === 'true';
-
-  const provider = sharedDetectProvider(baseUrl);
-
-  if (isVerbose) {
-    console.warn('[UsageMonitor:PROVIDER_DETECTION] Detected provider:', {
-      baseUrl,
-      provider
-    });
-  }
-
-  return provider;
-}
 
 /**
  * Type guard to check if an error has an HTTP status code
@@ -2309,88 +2173,17 @@ export class UsageMonitor extends EventEmitter {
     }
   }
 
-  /**
-   * Normalize Anthropic API response to ClaudeUsageSnapshot
-   *
-   * Actual Anthropic OAuth usage API response format:
-   * {
-   *   "five_hour": {
-   *     "utilization": 19,  // integer 0-100
-   *     "resets_at": "2025-01-17T15:00:00Z"
-   *   },
-   *   "seven_day": {
-   *     "utilization": 45,  // integer 0-100
-   *     "resets_at": "2025-01-20T12:00:00Z"
-   *   }
-   * }
-   */
+  /** Delegates to the Anthropic adapter normalizer */
   private normalizeAnthropicResponse(
     data: any,
     profileId: string,
     profileName: string,
     profileEmail?: string
   ): ClaudeUsageSnapshot {
-    // Support both new nested format and legacy flat format for backward compatibility
-    //
-    // NEW format (current API): { five_hour: { utilization: 72, resets_at: "..." } }
-    // OLD format (legacy):      { five_hour_utilization: 0.72, five_hour_reset_at: "..." }
-
-    let fiveHourUtil: number;
-    let sevenDayUtil: number;
-    let sessionResetTimestamp: string | undefined;
-    let weeklyResetTimestamp: string | undefined;
-
-    // Check for new nested format first
-    if (data.five_hour !== undefined || data.seven_day !== undefined) {
-      // New nested format - utilization is already 0-100 integer
-      fiveHourUtil = data.five_hour?.utilization ?? 0;
-      sevenDayUtil = data.seven_day?.utilization ?? 0;
-      sessionResetTimestamp = data.five_hour?.resets_at;
-      weeklyResetTimestamp = data.seven_day?.resets_at;
-    } else {
-      // Legacy flat format - utilization is 0-1 float, needs *100
-      const rawFiveHour = data.five_hour_utilization ?? 0;
-      const rawSevenDay = data.seven_day_utilization ?? 0;
-      // Convert 0-1 float to 0-100 integer
-      fiveHourUtil = Math.round(rawFiveHour * 100);
-      sevenDayUtil = Math.round(rawSevenDay * 100);
-      sessionResetTimestamp = data.five_hour_reset_at;
-      weeklyResetTimestamp = data.seven_day_reset_at;
-    }
-
-    return {
-      sessionPercent: fiveHourUtil,
-      weeklyPercent: sevenDayUtil,
-      // Omit sessionResetTime/weeklyResetTime - renderer uses timestamps with formatTimeRemaining
-      sessionResetTime: undefined,
-      weeklyResetTime: undefined,
-      sessionResetTimestamp,
-      weeklyResetTimestamp,
-      profileId,
-      profileName,
-      profileEmail,
-      fetchedAt: new Date(),
-      limitType: sevenDayUtil > fiveHourUtil ? 'weekly' : 'session',
-      usageWindows: {
-        sessionWindowLabel: 'common:usage.window5Hour',
-        weeklyWindowLabel: 'common:usage.window7Day'
-      }
-    };
+    return normalizeAnthropicResponse(data, profileId, profileName, profileEmail);
   }
 
-  /**
-   * Normalize quota/limit response for z.ai and ZHIPU providers
-   *
-   * Both providers use the same response format with a limits array containing
-   * TOKENS_LIMIT (5-hour usage) and TIME_LIMIT (monthly usage) items.
-   *
-   * @param data - Raw response data with limits array
-   * @param profileId - Profile identifier
-   * @param profileName - Profile display name
-   * @param profileEmail - Optional email associated with the profile
-   * @param providerName - Provider name for logging ('zai' or 'zhipu')
-   * @returns Normalized usage snapshot or null on parse failure
-   */
+  /** Delegates to the shared quota/limit normalizer (z.ai and ZHIPU) */
   private normalizeQuotaLimitResponse(
     data: any,
     profileId: string,
@@ -2398,174 +2191,26 @@ export class UsageMonitor extends EventEmitter {
     profileEmail: string | undefined,
     providerName: 'zai' | 'zhipu'
   ): ClaudeUsageSnapshot | null {
-    const logPrefix = providerName.toUpperCase();
-
-    if (this.isVerbose) {
-      console.warn(`[UsageMonitor:${logPrefix}_NORMALIZATION] Starting normalization:`, {
-        profileId,
-        profileName,
-        responseKeys: Object.keys(data),
-        hasLimits: !!data.limits,
-        limitsCount: data.limits?.length || 0
-      });
-    }
-
-    try {
-      // Check if response has limits array
-      if (!data || !Array.isArray(data.limits)) {
-        console.warn(`[UsageMonitor:${logPrefix}] Invalid response format - missing limits array:`, {
-          hasData: !!data,
-          hasLimits: !!data?.limits,
-          limitsType: typeof data?.limits
-        });
-        return null;
-      }
-
-      // Find TOKENS_LIMIT (5-hour usage) and TIME_LIMIT (monthly usage)
-      const tokensLimit = data.limits.find((item: any) => item.type === 'TOKENS_LIMIT');
-      const timeLimit = data.limits.find((item: any) => item.type === 'TIME_LIMIT');
-
-      if (this.isVerbose) {
-        console.warn(`[UsageMonitor:${logPrefix}_NORMALIZATION] Found limit types:`, {
-          hasTokensLimit: !!tokensLimit,
-          hasTimeLimit: !!timeLimit,
-          tokensLimit: tokensLimit ? {
-            type: tokensLimit.type,
-            unit: tokensLimit.unit,
-            number: tokensLimit.number,
-            usage: tokensLimit.usage,
-            currentValue: tokensLimit.currentValue,
-            remaining: tokensLimit.remaining,
-            percentage: tokensLimit.percentage,
-            nextResetTime: tokensLimit.nextResetTime,
-            nextResetDate: tokensLimit.nextResetTime ? new Date(tokensLimit.nextResetTime).toISOString() : undefined
-          } : null,
-          timeLimit: timeLimit ? {
-            type: timeLimit.type,
-            percentage: timeLimit.percentage,
-            currentValue: timeLimit.currentValue,
-            remaining: timeLimit.remaining
-          } : null
-        });
-      }
-
-      // Extract percentages
-      const sessionPercent = tokensLimit?.percentage !== undefined
-        ? Math.round(tokensLimit.percentage)
-        : 0;
-
-      const weeklyPercent = timeLimit?.percentage !== undefined
-        ? Math.round(timeLimit.percentage)
-        : 0;
-
-      if (this.isVerbose) {
-        console.warn(`[UsageMonitor:${logPrefix}_NORMALIZATION] Extracted usage:`, {
-          sessionPercent,
-          weeklyPercent,
-          limitType: weeklyPercent > sessionPercent ? 'weekly' : 'session'
-        });
-      }
-
-      // Extract reset time from API response
-      // The API provides nextResetTime as a Unix timestamp (milliseconds) for TOKENS_LIMIT
-      const now = new Date();
-      let sessionResetTimestamp: string;
-
-      if (tokensLimit?.nextResetTime && typeof tokensLimit.nextResetTime === 'number') {
-        // Use the reset time from the API response (Unix timestamp in ms)
-        sessionResetTimestamp = new Date(tokensLimit.nextResetTime).toISOString();
-      } else {
-        // Fallback: calculate as 5 hours from now
-        sessionResetTimestamp = new Date(now.getTime() + 5 * 60 * 60 * 1000).toISOString();
-      }
-
-      // Calculate monthly reset time (1st of next month at midnight UTC)
-      const nextMonth = new Date(now);
-      nextMonth.setUTCMonth(now.getUTCMonth() + 1, 1);
-      nextMonth.setUTCHours(0, 0, 0, 0);
-      const weeklyResetTimestamp = nextMonth.toISOString();
-
-      return {
-        sessionPercent,
-        weeklyPercent,
-        // Omit sessionResetTime/weeklyResetTime - renderer uses timestamps with formatTimeRemaining
-        sessionResetTime: undefined,
-        weeklyResetTime: undefined,
-        sessionResetTimestamp,
-        weeklyResetTimestamp,
-        profileId,
-        profileName,
-        profileEmail,
-        fetchedAt: new Date(),
-        limitType: weeklyPercent > sessionPercent ? 'weekly' : 'session',
-        usageWindows: {
-          sessionWindowLabel: 'common:usage.window5HoursQuota',
-          weeklyWindowLabel: 'common:usage.windowMonthlyToolsQuota'
-        },
-        // Extract raw usage values for display in tooltip
-        sessionUsageValue: tokensLimit?.currentValue,
-        sessionUsageLimit: tokensLimit?.usage,
-        weeklyUsageValue: timeLimit?.currentValue,
-        weeklyUsageLimit: timeLimit?.usage
-      };
-    } catch (error) {
-      console.error(`[UsageMonitor:${logPrefix}] Failed to parse quota/limit response:`, error, 'Raw data:', data);
-      return null;
-    }
+    return normalizeQuotaLimitResponse(data, profileId, profileName, profileEmail, providerName, this.isVerbose);
   }
 
-  /**
-   * Normalize z.ai API response to ClaudeUsageSnapshot
-   *
-   * Expected endpoint: https://api.z.ai/api/monitor/usage/quota/limit
-   *
-   * Response format (from empirical testing):
-   * {
-   *   "data": {
-   *     "limits": [
-   *       {
-   *         "type": "TOKENS_LIMIT",
-   *         "percentage": 75.5
-   *       },
-   *       {
-   *         "type": "TIME_LIMIT",
-   *         "percentage": 45.2,
-   *         "currentValue": 12345,
-   *         "usage": 50000,
-   *         "usageDetails": {...}
-   *       }
-   *     ]
-   *   }
-   * }
-   *
-   * Maps TOKENS_LIMIT → session usage (5-hour window)
-   * Maps TIME_LIMIT → monthly usage (displayed as weekly in UI)
-   */
+  /** Normalize z.ai API response to ClaudeUsageSnapshot */
   private normalizeZAIResponse(
     data: any,
     profileId: string,
     profileName: string,
     profileEmail?: string
   ): ClaudeUsageSnapshot | null {
-    // Delegate to shared quota/limit response normalization
     return this.normalizeQuotaLimitResponse(data, profileId, profileName, profileEmail, 'zai');
   }
 
-  /**
-   * Normalize ZHIPU AI response to ClaudeUsageSnapshot
-   *
-   * Expected endpoint: https://open.bigmodel.cn/api/monitor/usage/quota/limit
-   *
-   * Uses the same response format as z.ai with limits array containing
-   * TOKENS_LIMIT and TIME_LIMIT items.
-   */
+  /** Normalize ZHIPU AI response to ClaudeUsageSnapshot */
   private normalizeZhipuResponse(
     data: any,
     profileId: string,
     profileName: string,
     profileEmail?: string
   ): ClaudeUsageSnapshot | null {
-    // Delegate to shared quota/limit response normalization
     return this.normalizeQuotaLimitResponse(data, profileId, profileName, profileEmail, 'zhipu');
   }
 
