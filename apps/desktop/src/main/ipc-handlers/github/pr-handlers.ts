@@ -50,7 +50,15 @@ import { PRReviewStateManager } from "../../pr-review-state-manager";
 import { checkoutNoteFor, preparePRReviewCheckout, type PRReviewCheckout } from "../../ai/runners/github/pr-review-checkout";
 import { getApprovals } from "../../mcp-approval-store";
 import { createPRReviewMcpSession, type PRReviewMcpSession } from "../../ai/runners/github/pr-review-mcp";
-import type { PRReviewResult as PreloadPRReviewResult } from "../../../preload/api/modules/github-api";
+import type {
+  PRReviewFinding,
+  PRReviewResult,
+  NewCommitsCheck,
+  MergeReadiness,
+  PRData,
+  PRListResult,
+  PRReviewProgress,
+} from "../../../shared/types/pr-review";
 import type {
   StartPollingRequest,
   StopPollingRequest,
@@ -270,90 +278,6 @@ function getClaudeMdEnv(project: Project): Record<string, string> | undefined {
 }
 
 /**
- * PR review finding from AI analysis
- */
-export interface PRReviewFinding {
-  id: string;
-  severity: "critical" | "high" | "medium" | "low";
-  category: "security" | "quality" | "style" | "test" | "docs" | "pattern" | "performance" | "verification_failed";
-  title: string;
-  description: string;
-  file: string;
-  line: number;
-  endLine?: number;
-  suggestedFix?: string;
-  fixable: boolean;
-  validationStatus?: "confirmed_valid" | "dismissed_false_positive" | "needs_human_review" | null;
-  validationExplanation?: string;
-  sourceAgents?: string[];
-  crossValidated?: boolean;
-}
-
-/**
- * Complete PR review result
- */
-export interface PRReviewResult {
-  prNumber: number;
-  repo: string;
-  success: boolean;
-  findings: PRReviewFinding[];
-  summary: string;
-  overallStatus: "approve" | "request_changes" | "comment" | "in_progress";
-  reviewId?: number;
-  reviewedAt: string;
-  error?: string;
-  // Follow-up review fields
-  reviewedCommitSha?: string;
-  reviewedFileBlobs?: Record<string, string>; // filename → blob SHA for rebase-resistant follow-ups
-  isFollowupReview?: boolean;
-  previousReviewId?: number;
-  resolvedFindings?: string[];
-  unresolvedFindings?: string[];
-  newFindingsSinceLastReview?: string[];
-  // Track if findings have been posted to GitHub (enables follow-up review)
-  hasPostedFindings?: boolean;
-  postedFindingIds?: string[];
-  postedAt?: string;
-  // In-progress review tracking
-  inProgressSince?: string;
-}
-
-/**
- * Result of checking for new commits since last review
- */
-export interface NewCommitsCheck {
-  hasNewCommits: boolean;
-  newCommitCount: number;
-  lastReviewedCommit?: string;
-  currentHeadCommit?: string;
-  /** Whether new commits happened AFTER findings were posted (for "Ready for Follow-up" status) */
-  hasCommitsAfterPosting?: boolean;
-  /** Whether new commits touch files that had findings (requires verification) */
-  hasOverlapWithFindings?: boolean;
-  /** Files from new commits that overlap with finding files */
-  overlappingFiles?: string[];
-  /** Whether this appears to be a merge from base branch (develop/main) */
-  isMergeFromBase?: boolean;
-}
-
-/**
- * Lightweight merge readiness check result
- * Used for real-time validation of AI verdict freshness
- */
-export interface MergeReadiness {
-  /** PR is in draft mode */
-  isDraft: boolean;
-  /** GitHub's mergeable status */
-  mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
-  /** Branch is behind base branch (out of date) */
-  isBehind: boolean;
-  /** Simplified CI status */
-  ciStatus: "passing" | "failing" | "pending" | "none";
-  /** List of blockers that contradict a "ready to merge" verdict */
-  blockers: string[];
-}
-
-/**
  * Save PR review insights to the Electron memory layer (LadybugDB)
  *
  * Called after a PR review completes to persist learnings for cross-session context.
@@ -470,51 +394,6 @@ async function savePRReviewToMemory(
       error: error instanceof Error ? error.message : error,
     });
   }
-}
-
-/**
- * PR data from GitHub API
- */
-export interface PRData {
-  number: number;
-  title: string;
-  body: string;
-  state: string;
-  author: { login: string };
-  headRefName: string;
-  baseRefName: string;
-  additions: number;
-  deletions: number;
-  changedFiles: number;
-  assignees: Array<{ login: string }>;
-  files: Array<{
-    path: string;
-    additions: number;
-    deletions: number;
-    status: string;
-  }>;
-  createdAt: string;
-  updatedAt: string;
-  htmlUrl: string;
-}
-
-/**
- * PR list result with pagination info
- */
-export interface PRListResult {
-  prs: PRData[];
-  hasNextPage: boolean; // True if more PRs exist beyond the 100 limit
-  endCursor?: string | null; // Cursor for fetching next page (null if no more pages)
-}
-
-/**
- * PR review progress status
- */
-export interface PRReviewProgress {
-  phase: "fetching" | "analyzing" | "generating" | "posting" | "complete";
-  prNumber: number;
-  progress: number;
-  message: string;
 }
 
 /**
@@ -2154,7 +2033,7 @@ export function registerPRHandlers(getMainWindow: () => BrowserWindow | null): v
               progress: 100,
               message: "Review already in progress",
             });
-            stateManager.handleComplete(projectId, prNumber, result as unknown as PreloadPRReviewResult);
+            stateManager.handleComplete(projectId, prNumber, result);
             sendComplete(result);
             return;
           }
@@ -2167,7 +2046,7 @@ export function registerPRHandlers(getMainWindow: () => BrowserWindow | null): v
             message: "Review complete!",
           });
 
-          stateManager.handleComplete(projectId, prNumber, result as unknown as PreloadPRReviewResult);
+          stateManager.handleComplete(projectId, prNumber, result);
           sendComplete(result);
         } finally {
           // Clean up in case we exit before runPRReview was called (e.g., cancelled during CI wait)
@@ -3123,7 +3002,7 @@ export function registerPRHandlers(getMainWindow: () => BrowserWindow | null): v
 
           // Get previous result for XState followup context
           const previousResultForState = getReviewResult(project, prNumber) ?? undefined;
-          stateManager.handleStartFollowupReview(projectId, prNumber, previousResultForState as PreloadPRReviewResult | undefined);
+          stateManager.handleStartFollowupReview(projectId, prNumber, previousResultForState as PRReviewResult | undefined);
 
           try {
             debugLog("Starting follow-up review", { prNumber });
@@ -3334,7 +3213,7 @@ export function registerPRHandlers(getMainWindow: () => BrowserWindow | null): v
               message: "Follow-up review complete!",
             });
 
-            stateManager.handleComplete(projectId, prNumber, result as unknown as PreloadPRReviewResult);
+            stateManager.handleComplete(projectId, prNumber, result);
             sendComplete(result);
           } finally {
             // Always clean up registry, whether we exit normally or via error
@@ -3457,7 +3336,7 @@ export function registerPRHandlers(getMainWindow: () => BrowserWindow | null): v
   // always rejected and the review stayed "in progress" until a restart.
   ipcMain.handle(
     IPC_CHANNELS.GITHUB_PR_NOTIFY_EXTERNAL_REVIEW_COMPLETE,
-    async (_, projectId: string, prNumber: number, result: PreloadPRReviewResult | null): Promise<void> => {
+    async (_, projectId: string, prNumber: number, result: PRReviewResult | null): Promise<void> => {
       if (typeof projectId !== "string" || !Number.isInteger(prNumber) || prNumber <= 0) return;
       stateManager.handleExternalReviewComplete(projectId, prNumber, result ?? null);
     }

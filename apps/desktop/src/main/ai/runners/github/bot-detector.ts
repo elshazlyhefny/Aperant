@@ -29,7 +29,7 @@ interface BotDetectionStateData {
 }
 
 /** PR data shape expected from GitHub API responses. */
-export interface PRData {
+export interface BotDetectorPRData {
   author?: { login?: string };
   [key: string]: unknown;
 }
@@ -134,7 +134,7 @@ export class BotDetector {
   }
 
   /** Check if PR was created by the bot. */
-  isBotPr(prData: PRData): boolean {
+  isBotPr(prData: BotDetectorPRData): boolean {
     if (!this.botUsername) return false;
     const author = prData.author?.login;
     return author === this.botUsername;
@@ -260,7 +260,7 @@ export class BotDetector {
    */
   shouldSkipPrReview(
     prNumber: number,
-    prData: PRData,
+    prData: BotDetectorPRData,
     commits?: CommitData[],
   ): [boolean, string] {
     // Check 1: Bot-authored PR
