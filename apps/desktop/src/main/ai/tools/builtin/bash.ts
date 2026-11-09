@@ -3,10 +3,13 @@
  * =================
  *
  * Executes bash commands with security validation.
- * Integrates with bashSecurityHook() for pre-execution denylist checks (a
- * guardrail, not a sandbox). The child process gets a scrubbed environment
- * (credential variables removed), and the real isolation control is the
- * opt-in OS sandbox (bubblewrap/sandbox-exec).
+ * Integrates with bashSecurityHook() for pre-execution denylist checks and
+ * per-command validation (a guardrail, not a sandbox).
+ *
+ * NOTE: Commands run via execFile in the task cwd with the user's permissions
+ * and are NOT covered by path-containment.ts. The child process gets a scrubbed
+ * environment (credential variables removed), and the real isolation control is
+ * the opt-in OS sandbox (bubblewrap/sandbox-exec).
  * Supports timeouts, background execution, and descriptive metadata.
  */
 

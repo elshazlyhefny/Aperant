@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { is } from '@electron-toolkit/utils';
+import { assertTrustedSender } from '../ipc-sender-validation';
 
 import { appLog } from '../app-logger';
 // ESM-compatible __dirname
@@ -718,7 +719,8 @@ export function registerSettingsHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.SHELL_OPEN_EXTERNAL,
-    async (_, url: string): Promise<void> => {
+    async (event, url: string): Promise<void> => {
+      if (!assertTrustedSender(event, 'SHELL_OPEN_EXTERNAL')) throw new Error('Untrusted sender');
       // Validate URL scheme to prevent opening dangerous protocols
       try {
         const parsedUrl = new URL(url);
@@ -740,7 +742,8 @@ export function registerSettingsHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.SHELL_OPEN_TERMINAL,
-    async (_, dirPath: string): Promise<IPCResult<void>> => {
+    async (event, dirPath: string): Promise<IPCResult<void>> => {
+      if (!assertTrustedSender(event, 'SHELL_OPEN_TERMINAL')) return { success: false, error: 'Untrusted sender' };
       try {
         // Validate dirPath input
         if (!dirPath || typeof dirPath !== 'string' || dirPath.trim() === '') {

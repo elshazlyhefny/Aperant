@@ -5,6 +5,7 @@
  * Static set of commands that are ALWAYS blocked for autonomous agents.
  * Extracted into a standalone module to avoid circular imports between
  * bash-validator.ts and the validator modules.
+ * This is a guardrail, not a sandbox: path containment does not apply to Bash.
  *
  * Criteria for inclusion:
  * - System destruction (disk formatting, raw I/O)

@@ -3,8 +3,8 @@
  * =======================
  *
  * Analyzes project structure to detect technology stacks,
- * frameworks, and generate security profiles with dynamic
- * command allowlisting.
+ * frameworks, and generate security profiles with
+ * a technology-based command inventory (informational only).
  *
  * See apps/desktop/src/main/ai/project/ for the TypeScript implementation.
  */

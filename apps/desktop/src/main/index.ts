@@ -50,11 +50,12 @@ for (const envPath of possibleEnvPaths) {
 
 // Must stay above every import that reads app.getPath('userData') while loading.
 import './dev-instance-isolation';
-import { app, BrowserWindow, shell, nativeImage, session, screen, Menu, MenuItem } from 'electron';
+import { app, BrowserWindow, nativeImage, session, screen, Menu, MenuItem } from 'electron';
 import { join } from 'path';
 import { accessSync, readFileSync, writeFileSync, rmSync, cpSync } from 'fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { setupIpcHandlers } from './ipc-setup';
+import { applyNavigationPolicy, getAppRendererUrl } from './navigation-guard';
 import { AgentManager } from './agent';
 import { TerminalManager } from './terminal-manager';
 import { getUsageMonitor } from './claude-profile/usage-monitor';
@@ -349,26 +350,7 @@ function createWindow(): void {
     }
   });
 
-  // Handle external links with URL scheme allowlist for security
-  // Note: Terminal links now use IPC via WebLinksAddon callback, but this handler
-  // catches any other window.open() calls (e.g., from third-party libraries)
-  const ALLOWED_URL_SCHEMES = ['http:', 'https:', 'mailto:'];
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    try {
-      const url = new URL(details.url);
-      if (!ALLOWED_URL_SCHEMES.includes(url.protocol)) {
-        console.warn('[main] Blocked URL with disallowed scheme:', details.url);
-        return { action: 'deny' };
-      }
-    } catch {
-      console.warn('[main] Blocked invalid URL:', details.url);
-      return { action: 'deny' };
-    }
-    shell.openExternal(details.url).catch((error) => {
-      console.warn('[main] Failed to open external URL:', details.url, error);
-    });
-    return { action: 'deny' };
-  });
+  // External links and navigation are handled by applyNavigationPolicy (web-contents-created)
 
   // Load the renderer
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -405,6 +387,11 @@ if (isWindows()) {
   app.commandLine.appendSwitch('disable-gpu-program-cache');
   appLog.info('[main] Applied Windows GPU cache fixes');
 }
+
+// Block top-level navigation away from the app for every webContents (registered before any window exists)
+app.on('web-contents-created', (_event, contents) => {
+  applyNavigationPolicy(contents, getAppRendererUrl(__dirname, is.dev));
+});
 
 // Initialize the application
 app.whenReady().then(() => {

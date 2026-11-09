@@ -10,7 +10,7 @@
  * - release-handlers: GitHub release creation
  * - oauth-handlers: GitHub CLI OAuth authentication
  * - autofix-handlers: Automatic issue fixing with label triggers
- * - pr-handlers: PR review, polling status, and status updates
+ * - pr-handlers: barrel for pr/ (PR review, polling status, and status updates)
  * - triage-handlers: Issue triage automation
  */
 
