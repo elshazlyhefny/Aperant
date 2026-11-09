@@ -569,14 +569,11 @@ export function App() {
       JSON.stringify(selectedTask.qaReport || {}) !==
       JSON.stringify(updatedTask.qaReport || {});
     const reviewReasonChanged = selectedTask.reviewReason !== updatedTask.reviewReason;
-    const logsChanged =
-      JSON.stringify(selectedTask.logs || []) !==
-      JSON.stringify(updatedTask.logs || []);
 
     const hasChanged =
       subtasksChanged || statusChanged || titleChanged || descriptionChanged ||
       metadataChanged || executionProgressChanged || qaReportChanged ||
-      reviewReasonChanged || logsChanged;
+      reviewReasonChanged;
 
     debugLog('[App] Task comparison', {
       hasChanged,
@@ -589,7 +586,6 @@ export function App() {
         executionProgress: executionProgressChanged,
         qaReport: qaReportChanged,
         reviewReason: reviewReasonChanged,
-        logs: logsChanged,
       },
     });
 
@@ -603,7 +599,6 @@ export function App() {
       if (executionProgressChanged) reasons.push('ExecutionProgress');
       if (qaReportChanged) reasons.push('QAReport');
       if (reviewReasonChanged) reasons.push('ReviewReason');
-      if (logsChanged) reasons.push('Logs');
 
       debugLog('[App] Updating selectedTask', {
         taskId: updatedTask.id,

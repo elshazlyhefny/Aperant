@@ -22,6 +22,7 @@ import { Badge } from '../ui/badge';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '../ui/collapsible';
 import { cn } from '../../lib/utils';
 import { useSettingsStore } from '../../stores/settings-store';
+import { useTaskLogsStore, selectTaskLogs } from '../../stores/task-logs-store';
 import type { Task, TaskLogs, TaskLogPhase, TaskPhaseLog, TaskLogEntry, TaskMetadata } from '../../../shared/types';
 import type { PhaseModelConfig, ThinkingLevel } from '../../../shared/types/settings';
 import type { BuiltinProvider } from '../../../shared/types/provider-account';
@@ -125,6 +126,7 @@ export function TaskLogs({
   onLogsScroll,
   onTogglePhase
 }: TaskLogsProps) {
+  const rawLogs = useTaskLogsStore(selectTaskLogs(task.id));
   return (
     <div
       ref={logsContainerRef}
@@ -153,10 +155,10 @@ export function TaskLogs({
             ))}
             <div ref={logsEndRef} />
           </>
-        ) : task.logs && task.logs.length > 0 ? (
+        ) : rawLogs.length > 0 ? (
           // Fallback to legacy raw logs if no phase logs exist
           <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all">
-            {task.logs.join('\n')}
+            {rawLogs.join('\n')}
             <div ref={logsEndRef} />
           </pre>
         ) : (
