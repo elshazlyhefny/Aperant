@@ -15,6 +15,7 @@ import { getClaudeProfileManager } from '../claude-profile-manager';
 import { ClaudeUsageSnapshot, ProfileUsageSummary, AllProfilesUsage } from '../../shared/types/agent';
 import { loadProfilesFile } from '../services/profile/profile-manager';
 import type { APIProfile } from '../../shared/types/profile';
+import { getKeyStatus, failoverTier } from '../../shared/utils/api-key-status';
 import { detectProvider as sharedDetectProvider, type ApiProvider } from '../../shared/utils/provider-detection';
 import { getCredentialsFromKeychain, clearKeychainCache } from './credential-utils';
 import { reactiveTokenRefresh, ensureValidToken } from './token-refresh';
@@ -2664,6 +2665,7 @@ export class UsageMonitor extends EventEmitter {
       name: string;
       type: 'oauth' | 'api';
       priorityIndex: number;
+      tier: 0 | 1;  // 1 = API key not yet verified, tried after everything else
     };
 
     const unifiedAccounts: UnifiedSwapTarget[] = [];
@@ -2679,7 +2681,8 @@ export class UsageMonitor extends EventEmitter {
           unifiedId,
           name: profile.name,
           type: 'oauth',
-          priorityIndex: priorityIndex === -1 ? Infinity : priorityIndex
+          priorityIndex: priorityIndex === -1 ? Infinity : priorityIndex,
+          tier: 0
         });
       }
     }
@@ -2688,7 +2691,7 @@ export class UsageMonitor extends EventEmitter {
     try {
       const profilesFile = await loadProfilesFile();
       for (const apiProfile of profilesFile.profiles) {
-        if (!excludeIds.has(apiProfile.id) && apiProfile.apiKey) {
+        if (!excludeIds.has(apiProfile.id) && apiProfile.apiKey && getKeyStatus(apiProfile) !== 'rejected') {
           const unifiedId = `api-${apiProfile.id}`;
           const priorityIndex = priorityOrder.indexOf(unifiedId);
           unifiedAccounts.push({
@@ -2696,7 +2699,8 @@ export class UsageMonitor extends EventEmitter {
             unifiedId,
             name: apiProfile.name,
             type: 'api',
-            priorityIndex: priorityIndex === -1 ? Infinity : priorityIndex
+            priorityIndex: priorityIndex === -1 ? Infinity : priorityIndex,
+            tier: failoverTier(getKeyStatus(apiProfile))
           });
         }
       }
@@ -2717,6 +2721,8 @@ export class UsageMonitor extends EventEmitter {
     // Sort by priority order (lower index = higher priority)
     // If no priority order is set, OAuth profiles come first (they were already sorted by availability)
     unifiedAccounts.sort((a, b) => {
+      // Verified/non-API accounts before unverified API keys
+      if (a.tier !== b.tier) return a.tier - b.tier;
       // If both have priority indices, use them
       if (a.priorityIndex !== Infinity || b.priorityIndex !== Infinity) {
         return a.priorityIndex - b.priorityIndex;

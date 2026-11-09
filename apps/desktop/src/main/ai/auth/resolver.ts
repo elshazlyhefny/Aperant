@@ -28,6 +28,7 @@ import type { ProviderAccount } from '../../../shared/types/provider-account';
 import type { BuiltinProvider } from '../../../shared/types/provider-account';
 import { resolveModelEquivalent } from '../../../shared/constants/models';
 import { scoreProviderAccount } from '../../claude-profile/profile-scorer';
+import { getKeyStatus } from '../../../shared/utils/api-key-status';
 import type { ClaudeAutoSwitchSettings } from '../../../shared/types/agent';
 
 // ============================================
@@ -353,7 +354,10 @@ const BUILTIN_TO_SUPPORTED: Record<string, SupportedProvider> = {
  *
  * Algorithm:
  * 1. Walk queue in order
- * 2. Skip excluded accounts (previously failed)
+ * 2. Skip excluded accounts (previously failed). Rejected API keys are dropped
+ *    by scoring. During failover (excludeAccountIds non-empty), unverified API
+ *    keys are tried after every other account; priority order is kept within
+ *    each group. Without exclusions the queue order is untouched.
  * 3. Check availability (scoring: subscription = check limits, pay-per-use = always available)
  * 4. Find model equivalent for account's provider (user overrides → defaults)
  * 5. Resolve credentials (OAuth token refresh, API key, etc.)
@@ -380,7 +384,14 @@ export async function resolveAuthFromQueue(
   };
   const settings = options?.autoSwitchSettings ?? defaultSettings;
 
-  for (const account of queue) {
+  const isUnverifiedApiKey = (a: ProviderAccount) =>
+    a.authType === 'api-key' && getKeyStatus(a) !== 'valid';
+  const orderedQueue =
+    excludeSet.size > 0
+      ? [...queue.filter((a) => !isUnverifiedApiKey(a)), ...queue.filter(isUnverifiedApiKey)]
+      : queue;
+
+  for (const account of orderedQueue) {
     // Skip excluded accounts
     if (excludeSet.has(account.id)) continue;
 
