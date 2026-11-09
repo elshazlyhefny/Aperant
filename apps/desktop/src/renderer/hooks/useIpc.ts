@@ -203,7 +203,8 @@ export function useIpcListeners(): void {
       (taskId: string, log: string, projectId?: string) => {
         // Filter by project to prevent multi-project interference (issue #723)
         if (!isTaskForCurrentProject(projectId)) return;
-        // Logs are now batched to reduce state updates (was causing 100+ updates/sec)
+        // Logs are batched to reduce state updates (was causing 100+ updates/sec).
+        // Log flushes go to the task-logs store and no longer touch the tasks array.
         queueUpdate(taskId, { logs: [log] });
       }
     );

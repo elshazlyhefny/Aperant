@@ -27,6 +27,11 @@ on:
       - '.github/workflows/ci.yml'
       - '.github/actions/**'
 
+  # Weekly run: new advisories appear without code changes. Path filters only
+  # apply to push and pull_request, so they are unaffected.
+  schedule:
+    - cron: '0 6 * * 1'
+
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -98,21 +103,42 @@ jobs:
         run: npm run build
 
   # --------------------------------------------------------------------------
+  # Dependency Audit
+  # --------------------------------------------------------------------------
+  dependency-audit:
+    name: dependency-audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js frontend
+        uses: ./.github/actions/setup-node-frontend
+        with:
+          ignore-scripts: 'true'
+
+      - name: Run dependency audit gate
+        working-directory: apps/desktop
+        run: npm run audit:gate
+
+  # --------------------------------------------------------------------------
   # Gate Job - Single check for branch protection
   # --------------------------------------------------------------------------
   ci-complete:
     name: CI Complete
     runs-on: ubuntu-latest
-    needs: [test-frontend]
+    needs: [test-frontend, dependency-audit]
     if: always()
     steps:
       - name: Check all CI jobs passed
         run: |
           echo "CI Job Results:"
           echo "  test-frontend: ${{ needs.test-frontend.result }}"
+          echo "  dependency-audit: ${{ needs.dependency-audit.result }}"
           echo ""
 
-          if [[ "${{ needs.test-frontend.result }}" != "success" ]]; then
+          if [[ "${{ needs.test-frontend.result }}" != "success" || "${{ needs.dependency-audit.result }}" != "success" ]]; then
             echo "❌ One or more CI jobs failed"
             exit 1
           fi

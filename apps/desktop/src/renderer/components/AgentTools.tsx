@@ -41,6 +41,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle
 } from './ui/dialog';
@@ -629,6 +630,12 @@ export function agentMemoryRow(
   return { on: false, key: 'settings:mcp.servers.memory.agentUnavailable', text: status?.reason };
 }
 
+/** zeenha fork: launch line exactly as stored (unexpanded); args needing quoting are JSON-escaped. */
+export function formatLaunchLine(command: string | undefined, args: string[] | undefined): string {
+  const quote = (a: string) => (/^[\w@%+=:,./-]+$/.test(a) ? a : JSON.stringify(a));
+  return [command ?? '', ...(args ?? [])].map(quote).join(' ');
+}
+
 export function AgentTools() {
   const { t } = useTranslation(['settings']);
   const settings = useSettingsStore((state) => state.settings);
@@ -645,6 +652,10 @@ export function AgentTools() {
   // Custom MCP server dialog state
   const [showCustomMcpDialog, setShowCustomMcpDialog] = useState(false);
   const [editingCustomServer, setEditingCustomServer] = useState<CustomMcpServer | null>(null);
+
+  // zeenha fork: approval flow state
+  const [approvingServer, setApprovingServer] = useState<CustomMcpServer | null>(null);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   // Health status tracking for custom servers
   const [serverHealthStatus, setServerHealthStatus] = useState<Record<string, McpHealthCheckResult>>({});
@@ -697,6 +708,34 @@ export function AgentTools() {
       setEnvConfig(null);
     }
   }, [selectedProjectId, selectedProject?.autoBuildPath]);
+
+  const reloadEnvConfig = useCallback(async () => {
+    if (!selectedProjectId) return;
+    const result = await window.electronAPI.getProjectEnv(selectedProjectId);
+    if (result.success && result.data) setEnvConfig(result.data);
+  }, [selectedProjectId]);
+
+  const handleConfirmApprove = useCallback(async () => {
+    if (!selectedProjectId || !approvingServer) return;
+    const hash = envConfig?.customMcpServerTrust?.[approvingServer.id]?.hash;
+    if (!hash) return;
+    const result = await window.electronAPI.approveMcpServer(selectedProjectId, approvingServer.id, hash);
+    if (result.success) {
+      setApprovingServer(null);
+      setApprovalError(null);
+      await reloadEnvConfig();
+    } else {
+      setApprovalError(result.error || t('settings:mcp.approval.changedSinceShown'));
+      await reloadEnvConfig();
+    }
+  }, [selectedProjectId, approvingServer, envConfig, reloadEnvConfig, t]);
+
+  const handleApproveChrome = useCallback(async () => {
+    const exePath = envConfig?.mcpServers?.chromeDevtoolsExecutable;
+    if (!selectedProjectId || !exePath) return;
+    await window.electronAPI.approveChromeExecutable(selectedProjectId, exePath);
+    await reloadEnvConfig();
+  }, [selectedProjectId, envConfig, reloadEnvConfig]);
 
   // Update MCP server toggle
   const updateMcpServer = useCallback(async (
@@ -1089,6 +1128,15 @@ export function AgentTools() {
           {/* MCP Server Configuration */}
           {envConfig && (
             <div className="rounded-lg border border-border bg-card p-4">
+              {envConfig.envTrackedByGit === true && (
+                <div
+                  data-testid="mcp-tracked-env-warning"
+                  className="mb-4 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs text-destructive"
+                >
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>{t('settings:mcp.approval.trackedEnvWarning')}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-medium text-foreground">{t('settings:mcp.configuration')}</h2>
                 <span className="text-xs text-muted-foreground">
@@ -1190,6 +1238,26 @@ export function AgentTools() {
                           <p className="mt-1 text-xs text-muted-foreground">
                             {t('settings:mcp.servers.chromeDevtools.executableHint')}
                           </p>
+                          {mcpServers.chromeDevtoolsExecutable && envConfig.chromeDevtoolsExecutableApproved !== true && (
+                            <div
+                              data-testid="mcp-chrome-approval-warning"
+                              className="mt-2 flex items-start justify-between gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs text-amber-600 dark:text-amber-400"
+                            >
+                              <div className="min-w-0">
+                                <p>{t('settings:mcp.approval.chromeExecutableNotApproved')}</p>
+                                <code className="mt-1 block break-all font-mono">{mcpServers.chromeDevtoolsExecutable}</code>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 shrink-0 text-xs"
+                                data-testid="mcp-chrome-approve"
+                                onClick={handleApproveChrome}
+                              >
+                                {t('settings:mcp.approval.chromeExecutableApprove')}
+                              </Button>
+                            </div>
+                          )}
                         </div>
                         <div>
                           <label htmlFor="mcp-chrome-secure-origins" className="text-xs font-medium">
@@ -1271,6 +1339,9 @@ export function AgentTools() {
                           }
                         };
 
+                        const trust = envConfig.customMcpServerTrust?.[server.id];
+                        const isApproved = trust?.approved === true;
+
                         return (
                           <div
                             key={server.id}
@@ -1287,6 +1358,14 @@ export function AgentTools() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                   <span className="text-sm font-medium">{server.name}</span>
+                                  {!isApproved && (
+                                    <span
+                                      data-testid={`mcp-not-approved-${server.id}`}
+                                      className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+                                    >
+                                      {t('settings:mcp.approval.notApproved')}
+                                    </span>
+                                  )}
                                   {health?.responseTime && (
                                     <span className="text-[10px] text-muted-foreground">
                                       {health.responseTime}ms
@@ -1301,6 +1380,21 @@ export function AgentTools() {
                               </div>
                             </div>
                             <div className="flex items-center gap-1">
+                              {!isApproved && (trust ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  data-testid={`mcp-approve-${server.id}`}
+                                  onClick={() => { setApprovalError(null); setApprovingServer(server); }}
+                                  className="h-7 px-2 text-xs"
+                                >
+                                  {t('settings:mcp.approval.approve')}
+                                </Button>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground">
+                                  {t('settings:mcp.approval.cannotRun')}
+                                </span>
+                              ))}
                               {/* Test button - always visible */}
                               <Button
                                 variant="ghost"
@@ -1408,6 +1502,47 @@ export function AgentTools() {
           })}
         </div>
       </ScrollArea>
+
+      {/* zeenha fork: approval confirmation dialog */}
+      <Dialog
+        open={approvingServer !== null}
+        onOpenChange={(open) => { if (!open) { setApprovingServer(null); setApprovalError(null); } }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('settings:mcp.approval.approveTitle', { name: approvingServer?.name ?? '' })}</DialogTitle>
+            <DialogDescription>{t('settings:mcp.approval.approveDescription')}</DialogDescription>
+          </DialogHeader>
+          {approvingServer && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium">
+                {approvingServer.type === 'command'
+                  ? t('settings:mcp.approval.commandLabel')
+                  : t('settings:mcp.approval.urlLabel')}
+              </p>
+              <pre
+                data-testid="mcp-approve-launch-line"
+                className="whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs"
+              >
+                {approvingServer.type === 'command'
+                  ? formatLaunchLine(approvingServer.command, approvingServer.args)
+                  : approvingServer.url}
+              </pre>
+              {approvalError && (
+                <p data-testid="mcp-approve-error" className="text-xs text-destructive">{approvalError}</p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApprovingServer(null)}>
+              {t('settings:mcp.approval.cancel')}
+            </Button>
+            <Button data-testid="mcp-approve-confirm" onClick={handleConfirmApprove}>
+              {t('settings:mcp.approval.approve')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Custom MCP Server Dialog */}
       <CustomMcpDialog

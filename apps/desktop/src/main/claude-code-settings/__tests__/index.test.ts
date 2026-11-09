@@ -12,7 +12,7 @@ vi.mock('../reader', () => ({
 
 // Import after mocking
 import { readAllSettings } from '../reader';
-import { getClaudeCodeEnv } from '../index';
+import { getClaudeCodeEnv, getClaudeCodeEnvWithReport } from '../index';
 
 const mockReadAllSettings = vi.mocked(readAllSettings);
 
@@ -260,5 +260,33 @@ describe('getClaudeCodeEnv', () => {
     const result = getClaudeCodeEnv();
 
     expect(result).toEqual({});
+  });
+});
+
+describe('getClaudeCodeEnvWithReport', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns merged env and the dropped report', () => {
+    const droppedEnv = [
+      { key: 'ANTHROPIC_BASE_URL', reason: 'project-policy' as const, level: 'projectShared' as const },
+    ];
+    mockReadAllSettings.mockReturnValue({
+      user: { env: { A: '1' } },
+      merged: { env: { A: '1' } },
+      droppedEnv,
+    });
+
+    const result = getClaudeCodeEnvWithReport('/project/path');
+
+    expect(result).toEqual({ env: { A: '1' }, dropped: droppedEnv });
+    expect(mockReadAllSettings).toHaveBeenCalledWith('/project/path');
+  });
+
+  it('defaults to empty env and empty dropped list', () => {
+    mockReadAllSettings.mockReturnValue({ merged: {} });
+
+    expect(getClaudeCodeEnvWithReport()).toEqual({ env: {}, dropped: [] });
   });
 });

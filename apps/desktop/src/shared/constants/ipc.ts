@@ -68,7 +68,6 @@ export const IPC_CHANNELS = {
   TASK_LOGS_WATCH: 'task:logsWatch',       // Start watching for log changes
   TASK_LOGS_UNWATCH: 'task:logsUnwatch',   // Stop watching for log changes
   TASK_LOGS_CHANGED: 'task:logsChanged',   // Event: logs changed (main -> renderer)
-  TASK_LOGS_STREAM: 'task:logsStream',     // Event: streaming log chunk (main -> renderer)
   TASK_MERGE_PROGRESS: 'task:mergeProgress',  // Event: merge progress update (main -> renderer)
 
   // Terminal operations
@@ -569,6 +568,8 @@ export const IPC_CHANNELS = {
   // MCP Server health checks
   MCP_CHECK_HEALTH: 'mcp:checkHealth',           // Quick connectivity check
   MCP_TEST_CONNECTION: 'mcp:testConnection',     // Full MCP protocol test
+  MCP_APPROVE_SERVER: 'mcp:approveServer',       // Approve a project-declared custom server
+  MCP_APPROVE_CHROME_EXECUTABLE: 'mcp:approveChromeExecutable', // Approve CHROME_DEVTOOLS_EXECUTABLE
 
   // Sentry error reporting
   SENTRY_STATE_CHANGED: 'sentry:state-changed',  // Notify main process when setting changes

@@ -43,7 +43,8 @@ export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, 
     transform,
     transition,
     isDragging,
-    isOver
+    isOver,
+    active
   } = useSortable({
     id: task.id,
     // Prevent dragging tasks that are currently running or stuck, or when dragging is disabled
@@ -82,14 +83,19 @@ export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, 
         listeners?.onKeyDown?.(e);
       }}
     >
-      <TaskCard
-        task={task}
-        onClick={handleClick}
-        onStatusChange={onStatusChange}
-        isSelectable={isSelectable}
-        isSelected={isSelected}
-        onToggleSelect={onToggleSelect}
-      />
+      {/* Inner wrapper (not the dnd-kit node): content-visibility implies paint containment,
+          so padding + equal negative margin keep ring-2 and hover glow from being clipped.
+          Disabled during a drag so dnd-kit never measures cards whose size changes. */}
+      <div className={cn(!active && 'kanban-card-offscreen-skip p-2 -m-2')}>
+        <TaskCard
+          task={task}
+          onClick={handleClick}
+          onStatusChange={onStatusChange}
+          isSelectable={isSelectable}
+          isSelected={isSelected}
+          onToggleSelect={onToggleSelect}
+        />
+      </div>
     </div>
   );
 }, sortableTaskCardPropsAreEqual);
