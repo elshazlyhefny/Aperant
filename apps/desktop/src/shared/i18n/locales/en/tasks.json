@@ -419,6 +419,10 @@
     "note": "Entries carry tokens and durations only; no monetary cost is shown."
   },
   "overlap": {
+    "badge": "Overlaps with {{title}}",
+    "badgeMore": "Overlaps with {{title}} +{{count}}",
+    "waitingFor": "Waiting for {{title}}",
+    "tooltip": "{{title}}: {{count}} shared file(s)",
     "heldToast": "Task \"{{title}}\" is held in the queue until the overlapping task finishes."
   }
 }
