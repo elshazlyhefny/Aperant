@@ -1,0 +1,84 @@
+{
+  "settings": {
+    "enable": "Activer l'intégration Jira",
+    "enableDescription": "Importer les tickets Jira comme tâches",
+    "siteUrl": {
+      "label": "URL du site Jira",
+      "placeholder": "https://votre-entreprise.atlassian.net",
+      "help": "L'URL de base de votre site Jira Cloud"
+    },
+    "email": {
+      "label": "E-mail",
+      "placeholder": "vous@entreprise.com"
+    },
+    "apiToken": {
+      "label": "Jeton d'API",
+      "help": "Créez un jeton d'API dans votre compte Atlassian :",
+      "linkText": "Jetons d'API Atlassian",
+      "linkUrl": "https://id.atlassian.com/manage-profile/security/api-tokens"
+    },
+    "defaultProject": {
+      "label": "Clé du projet par défaut",
+      "placeholder": "PROJ"
+    },
+    "connection": {
+      "checking": "Vérification de la connexion...",
+      "connectedAs": "Connecté en tant que {{name}}",
+      "notConnected": "Non connecté",
+      "invalidSiteUrl": "URL du site invalide. Utilisez une URL comme https://votre-entreprise.atlassian.net"
+    }
+  },
+  "import": {
+    "title": "Importer depuis Jira",
+    "description": "Sélectionnez les tickets Jira à importer comme tâches",
+    "projectSelect": {
+      "label": "Projet",
+      "all": "Tous les projets"
+    },
+    "searchPlaceholder": "Rechercher des tickets...",
+    "refresh": "Actualiser",
+    "loadMore": "Charger plus",
+    "selectAll": "Tout sélectionner",
+    "deselectAll": "Tout désélectionner",
+    "selectedCount_one": "{{count}} ticket sélectionné",
+    "selectedCount_other": "{{count}} tickets sélectionnés",
+    "empty": {
+      "noIssues": "Aucun ticket trouvé",
+      "noMatch": "Aucun ticket ne correspond à votre recherche"
+    },
+    "loading": "Chargement des tickets...",
+    "importButton_one": "Importer {{count}} ticket",
+    "importButton_other": "Importer {{count}} tickets",
+    "importing": "Importation...",
+    "cancel": "Annuler",
+    "done": "Terminé",
+    "alreadyImported": "Déjà importé",
+    "duplicateWarning": {
+      "title": "Certains tickets ont déjà été importés",
+      "body_one": "{{count}} ticket sélectionné a déjà été importé comme tâche. Voulez-vous l'importer à nouveau ?",
+      "body_other": "{{count}} tickets sélectionnés ont déjà été importés comme tâches. Voulez-vous les importer à nouveau ?"
+    },
+    "confirmReimport": "Importer à nouveau",
+    "skipReimport": "Ignorer les doublons",
+    "successImported_one": "{{count}} ticket importé",
+    "successImported_other": "{{count}} tickets importés",
+    "skippedDuplicates_one": "{{count}} doublon ignoré",
+    "skippedDuplicates_other": "{{count}} doublons ignorés",
+    "partialFailure": "Certains tickets n'ont pas pu être importés",
+    "errors": {
+      "loadProjects": "Échec du chargement des projets Jira",
+      "loadIssues": "Échec du chargement des tickets Jira",
+      "import": "Échec de l'importation des tickets",
+      "notConfigured": "Jira n'est pas configuré pour ce projet"
+    }
+  },
+  "issue": {
+    "status": "Statut",
+    "priority": "Priorité",
+    "type": "Type",
+    "assignee": "Assigné à",
+    "unassigned": "Non assigné",
+    "labels": "Étiquettes",
+    "noDescription": "Aucune description fournie."
+  }
+}

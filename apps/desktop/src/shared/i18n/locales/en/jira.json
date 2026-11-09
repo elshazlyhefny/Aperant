@@ -1,0 +1,84 @@
+{
+  "settings": {
+    "enable": "Enable Jira Integration",
+    "enableDescription": "Import Jira issues as tasks",
+    "siteUrl": {
+      "label": "Jira Site URL",
+      "placeholder": "https://your-company.atlassian.net",
+      "help": "The base URL of your Jira Cloud site"
+    },
+    "email": {
+      "label": "Email",
+      "placeholder": "you@company.com"
+    },
+    "apiToken": {
+      "label": "API Token",
+      "help": "Create an API token in your Atlassian account:",
+      "linkText": "Atlassian API tokens",
+      "linkUrl": "https://id.atlassian.com/manage-profile/security/api-tokens"
+    },
+    "defaultProject": {
+      "label": "Default Project Key",
+      "placeholder": "PROJ"
+    },
+    "connection": {
+      "checking": "Checking connection...",
+      "connectedAs": "Connected as {{name}}",
+      "notConnected": "Not connected",
+      "invalidSiteUrl": "Invalid site URL. Use a URL like https://your-company.atlassian.net"
+    }
+  },
+  "import": {
+    "title": "Import from Jira",
+    "description": "Select Jira issues to import as tasks",
+    "projectSelect": {
+      "label": "Project",
+      "all": "All projects"
+    },
+    "searchPlaceholder": "Search issues...",
+    "refresh": "Refresh",
+    "loadMore": "Load more",
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
+    "selectedCount_one": "{{count}} issue selected",
+    "selectedCount_other": "{{count}} issues selected",
+    "empty": {
+      "noIssues": "No issues found",
+      "noMatch": "No issues match your search"
+    },
+    "loading": "Loading issues...",
+    "importButton_one": "Import {{count}} issue",
+    "importButton_other": "Import {{count}} issues",
+    "importing": "Importing...",
+    "cancel": "Cancel",
+    "done": "Done",
+    "alreadyImported": "Already imported",
+    "duplicateWarning": {
+      "title": "Some issues were already imported",
+      "body_one": "{{count}} selected issue has already been imported as a task. Do you want to import it again?",
+      "body_other": "{{count}} selected issues have already been imported as tasks. Do you want to import them again?"
+    },
+    "confirmReimport": "Import again",
+    "skipReimport": "Skip duplicates",
+    "successImported_one": "{{count}} issue imported",
+    "successImported_other": "{{count}} issues imported",
+    "skippedDuplicates_one": "{{count}} duplicate skipped",
+    "skippedDuplicates_other": "{{count}} duplicates skipped",
+    "partialFailure": "Some issues could not be imported",
+    "errors": {
+      "loadProjects": "Failed to load Jira projects",
+      "loadIssues": "Failed to load Jira issues",
+      "import": "Failed to import issues",
+      "notConfigured": "Jira is not configured for this project"
+    }
+  },
+  "issue": {
+    "status": "Status",
+    "priority": "Priority",
+    "type": "Type",
+    "assignee": "Assignee",
+    "unassigned": "Unassigned",
+    "labels": "Labels",
+    "noDescription": "No description provided."
+  }
+}

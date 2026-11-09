@@ -420,6 +420,13 @@
       "integrationDescription": "Connect to GitLab for issue tracking",
       "syncDescription": "Sync with GitLab Issues"
     },
+    "jira": {
+      "title": "Jira",
+      "description": "Jira issues sync",
+      "integrationTitle": "Jira Integration",
+      "integrationDescription": "Connect to Jira to import issues as tasks",
+      "syncDescription": "Import from Jira Issues"
+    },
     "memory": {
       "title": "Memory",
       "description": "Built-in agent memory",
