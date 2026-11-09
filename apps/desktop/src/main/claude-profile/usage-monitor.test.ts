@@ -1596,7 +1596,7 @@ describe('usage-monitor', () => {
 
       // Log any console.error calls for debugging
       if (errorSpy.mock.calls.length > 0) {
-        console.log('console.error was called:', errorSpy.mock.calls);
+        console.info('console.error was called:', errorSpy.mock.calls);
       }
 
       // Should successfully fetch usage using the passed profile
