@@ -5,6 +5,10 @@
  * is under its parallel limit. Dependencies are injected so it can be tested.
  */
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { getSpecsDir } from '../shared/constants/config';
+import { readRunMetrics } from './ai/logging/run-metrics';
+import { findTaskWorktree } from './worktree-paths';
 import type { Project, Task } from '../shared/types';
 import type { RecurringSchedule, ScheduleRunRecord, ScheduleTemplate } from '../shared/types/schedule';
 import { advancePast, computeNextRun } from '../shared/utils/schedule-time';
@@ -29,6 +33,31 @@ export interface ScheduleServiceDeps {
   startTask(taskId: string): Promise<void>;
   isRunning(taskId: string): boolean;
   notifyChanged(projectId: string): void;
+  /** Total tokens (input + output) a task has used so far; 0 when unknown. Never throws. */
+  readTaskTokens(projectId: string, specId: string): number;
+  /** Stops a running task (execution-handlers stopTask; it emits USER_STOPPED itself). */
+  stopTask(taskId: string): void;
+}
+
+function sumTokens(directory: string): number {
+  return readRunMetrics(directory).reduce((sum, s) => sum + (s.tokens?.input ?? 0) + (s.tokens?.output ?? 0), 0);
+}
+
+/**
+ * Real `readTaskTokens`: the larger of the main spec dir and the worktree spec
+ * dir. In worktree mode each session is written to both, so adding them would
+ * double count.
+ */
+export function readTaskTokensFromDisk(project: Project, specId: string): number {
+  try {
+    const specsRel = getSpecsDir(project.autoBuildPath);
+    let best = sumTokens(path.join(project.path, specsRel, specId));
+    const worktree = findTaskWorktree(project.path, specId);
+    if (worktree) best = Math.max(best, sumTokens(path.join(worktree, specsRel, specId)));
+    return best;
+  } catch {
+    return 0;
+  }
 }
 
 export interface ScheduleService {
@@ -52,6 +81,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
   let ticking = false;
   let rerun = false;
   const starting = new Set<string>();
+  const budgetStopped = new Set<string>();
 
   function isUnfinished(projectId: string, taskId: string | undefined): boolean {
     if (!taskId) return false;
@@ -137,6 +167,56 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     }
   }
 
+  /**
+   * Stops scheduled tasks that reached their token budget. Usage is appended to
+   * run_metrics.json only when an agent session ends, so the ceiling is enforced
+   * between sessions, not mid-session.
+   */
+  function enforceBudgets(projectIds: Set<string>): void {
+    let schedules: RecurringSchedule[];
+    try {
+      schedules = deps.listSchedules();
+    } catch {
+      return;
+    }
+    for (const projectId of projectIds) {
+      try {
+        for (const task of deps.listTasks(projectId)) {
+          const scheduleId = task.metadata?.scheduleId;
+          if (!scheduleId || budgetStopped.has(task.id) || task.metadata?.archivedAt) continue;
+          if (FINISHED_STATUSES.has(task.status)) continue;
+          if (!(task.status === 'in_progress' || deps.isRunning(task.id))) continue;
+          const schedule = schedules.find((s) => s.id === scheduleId);
+          const budget = task.metadata?.tokenBudget ?? schedule?.template.tokenBudget;
+          if (!budget || budget <= 0) continue;
+          let used = 0;
+          try {
+            used = deps.readTaskTokens(projectId, task.specId);
+          } catch {
+            used = 0;
+          }
+          if (used < budget) continue;
+          budgetStopped.add(task.id);
+          try {
+            deps.stopTask(task.id);
+          } catch {
+            // Still record below; the task is not retried
+          }
+          if (schedule) {
+            const fresh = deps.listSchedules().find((s) => s.id === schedule.id) ?? schedule;
+            deps.saveSchedule({
+              ...fresh,
+              history: [...fresh.history, record('budget_exceeded', deps.now(), { taskId: task.id, detail: `${used}/${budget}` })],
+            });
+          }
+          deps.notifyChanged(projectId);
+        }
+      } catch {
+        // One project failing must not stop the others
+      }
+    }
+  }
+
   function scheduledProjectIds(): Set<string> {
     const ids = new Set<string>();
     try {
@@ -172,6 +252,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         }
       }
       await promote(scheduledProjectIds());
+      enforceBudgets(scheduledProjectIds());
       for (const projectId of changed) {
         try {
           deps.notifyChanged(projectId);
@@ -212,6 +293,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
           return;
         }
         await promote(scheduledProjectIds());
+        enforceBudgets(scheduledProjectIds());
       })();
     },
   };

@@ -33,6 +33,7 @@ function setup(opts: { schedules?: RecurringSchedule[]; maxParallel?: number; no
   let now = opts.now ?? T0;
   let counter = 0;
   const running = new Set<string>();
+  const tokens = { value: 0 };
   const deps: ScheduleServiceDeps = {
     now: () => now,
     listSchedules: () => schedules.map((s) => ({ ...s })),
@@ -59,8 +60,11 @@ function setup(opts: { schedules?: RecurringSchedule[]; maxParallel?: number; no
     }),
     isRunning: (id) => running.has(id),
     notifyChanged: vi.fn(),
+    readTaskTokens: vi.fn(() => tokens.value),
+    stopTask: vi.fn(),
   };
   return {
+    tokens,
     deps,
     schedules,
     tasks,
@@ -151,5 +155,57 @@ describe('schedule service', () => {
     expect(tasks[0].status).toBe('queue');
     await service.tick();
     expect(tasks[0].status).toBe('in_progress');
+  });
+
+  describe('token budget', () => {
+    const runOne = async (metadata: Record<string, unknown> = {}) => {
+      const ctx = setup();
+      await ctx.service.tick();
+      Object.assign(ctx.tasks[0].metadata as object, metadata);
+      return ctx;
+    };
+
+    it('keeps a task below budget running', async () => {
+      const ctx = await runOne({ tokenBudget: 1000 });
+      ctx.tokens.value = 999;
+      await ctx.service.tick();
+      expect(ctx.deps.stopTask).not.toHaveBeenCalled();
+    });
+
+    it('stops at the budget once and records budget_exceeded', async () => {
+      const ctx = await runOne({ tokenBudget: 1000 });
+      ctx.tokens.value = 1000;
+      await ctx.service.tick();
+      await ctx.service.tick();
+      expect(ctx.deps.stopTask).toHaveBeenCalledTimes(1);
+      expect(ctx.deps.stopTask).toHaveBeenCalledWith('t1');
+      const kinds = ctx.schedules[0].history.map((h) => h.kind);
+      expect(kinds.filter((k) => k === 'budget_exceeded')).toHaveLength(1);
+      expect(ctx.schedules[0].history.at(-1)?.detail).toBe('1000/1000');
+    });
+
+    it('falls back to the template budget when the task has none', async () => {
+      const ctx = await runOne();
+      ctx.tokens.value = 5000;
+      await ctx.service.tick();
+      expect(ctx.deps.stopTask).toHaveBeenCalledWith('t1');
+    });
+
+    it('never stops non-scheduled tasks', async () => {
+      const ctx = setup({ schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
+      ctx.tasks.push({ id: 'x', specId: 'x', status: 'in_progress', createdAt: new Date(0), metadata: { tokenBudget: 1 } } as unknown as Task);
+      ctx.tokens.value = 99999;
+      await ctx.service.tick();
+      expect(ctx.deps.stopTask).not.toHaveBeenCalled();
+    });
+
+    it('survives readTaskTokens throwing', async () => {
+      const ctx = await runOne({ tokenBudget: 10 });
+      (ctx.deps.readTaskTokens as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new Error('disk');
+      });
+      await expect(ctx.service.tick()).resolves.toBeUndefined();
+      expect(ctx.deps.stopTask).not.toHaveBeenCalled();
+    });
   });
 });
