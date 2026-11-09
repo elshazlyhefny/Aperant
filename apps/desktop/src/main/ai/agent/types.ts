@@ -189,6 +189,8 @@ export interface SerializedSecurityProfile {
   prOnlyLanding?: boolean;
   /** zeenha fork: env var names kept in Bash child environments (project setting). */
   envPassthrough?: string[];
+  /** zeenha fork: per-project Bash sandbox mode (project setting). */
+  bashSandbox?: string;
 }
 
 // =============================================================================

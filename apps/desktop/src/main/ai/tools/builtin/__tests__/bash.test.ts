@@ -27,6 +27,13 @@ vi.mock('../../../security/bash-validator', () => ({
   bashSecurityHook: (_input: unknown, _profile?: unknown) => mockBashSecurityHook(),
 }));
 
+const mockWrapForSandbox = vi.fn();
+vi.mock('../../../security/sandbox', () => ({
+  parseSandboxMode: (v: unknown) =>
+    v === 'home-hidden' || v === 'home-hidden-no-network' ? v : 'off',
+  wrapForSandbox: (...args: unknown[]) => mockWrapForSandbox(...args),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -289,6 +296,51 @@ describe('Bash Tool', () => {
       await bashTool.config.execute({ command: 'sleep 1', run_in_background: true }, baseContext);
       const opts = mockExecFile.mock.calls[0][2] as { env: NodeJS.ProcessEnv };
       expect(opts.env.GITHUB_TOKEN).toBeUndefined();
+    });
+  });
+
+  describe('sandbox', () => {
+    const sandboxCtx = {
+      ...baseContext,
+      securityProfile: { ...baseContext.securityProfile, bashSandbox: 'home-hidden' },
+    } as unknown as ToolContext;
+
+    it('runs the wrapped file and args when the sandbox is available', async () => {
+      mockWrapForSandbox.mockReturnValue({ ok: true, file: '/usr/bin/bwrap', args: ['--x', '--', '/bin/bash', '-c', 'ls'] });
+      setupExecFile('ok', '', 0);
+      await bashTool.config.execute({ command: 'ls' }, sandboxCtx);
+      expect(mockWrapForSandbox).toHaveBeenCalledWith(
+        '/bin/bash',
+        ['-c', 'ls'],
+        expect.objectContaining({ mode: 'home-hidden', cwd: '/test/project', projectDir: '/test/project', writablePaths: ['/test/specs/001'] }),
+      );
+      expect(mockExecFile).toHaveBeenCalledWith(
+        '/usr/bin/bwrap',
+        ['--x', '--', '/bin/bash', '-c', 'ls'],
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+
+    it('refuses to run when the sandbox is unavailable', async () => {
+      mockWrapForSandbox.mockReturnValue({ ok: false, reason: 'bwrap missing' });
+      const result = await bashTool.config.execute({ command: 'ls' }, sandboxCtx);
+      expect(result).toContain('Sandbox unavailable');
+      expect(result).toContain('bwrap missing');
+      expect(mockExecFile).not.toHaveBeenCalled();
+    });
+
+    it('fails closed for background runs too', async () => {
+      mockWrapForSandbox.mockReturnValue({ ok: false, reason: 'bwrap missing' });
+      const result = await bashTool.config.execute({ command: 'ls', run_in_background: true }, sandboxCtx);
+      expect(result).toContain('Sandbox unavailable');
+      expect(mockExecFile).not.toHaveBeenCalled();
+    });
+
+    it('does not call the wrapper when mode is off', async () => {
+      setupExecFile('ok', '', 0);
+      await bashTool.config.execute({ command: 'ls' }, baseContext);
+      expect(mockWrapForSandbox).not.toHaveBeenCalled();
     });
   });
 });

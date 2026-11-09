@@ -25,6 +25,7 @@ import type { BuiltinProvider } from '../../shared/types/provider-account';
 import type { AgentExecutorConfig, SerializableSessionConfig, SerializedSecurityProfile } from '../ai/agent/types';
 import { getSecurityProfile } from '../ai/security/security-profile';
 import { parseEnvPassthrough } from '../ai/security/child-env';
+import { parseSandboxMode } from '../ai/security/sandbox';
 import { createOrGetWorktree } from '../ai/worktree';
 import { findTaskWorktree } from '../worktree-paths';
 import { landsThroughPullRequestsOnly } from '../../shared/utils/landing-policy';
@@ -435,6 +436,9 @@ export class AgentManager extends EventEmitter {
           parseEnvPassthrough(
             projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath)?.settings?.envPassthrough,
           ),
+          parseSandboxMode(
+            projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath)?.settings?.bashSandbox,
+          ),
         ),
       },
     };
@@ -564,7 +568,7 @@ export class AgentManager extends EventEmitter {
         projectDir: effectiveProjectDir,
         specDir: worktreeSpecDir,
         // zeenha fork: carry PR-only landing into the worker's Bash validator.
-        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough)),
+        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough), parseSandboxMode(project?.settings?.bashSandbox)),
       },
     };
 
@@ -669,7 +673,7 @@ export class AgentManager extends EventEmitter {
         projectDir: effectiveProjectDir,
         specDir: effectiveSpecDir,
         // zeenha fork: carry PR-only landing into the worker's Bash validator.
-        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough)),
+        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough), parseSandboxMode(project?.settings?.bashSandbox)),
       },
     };
 
@@ -957,12 +961,13 @@ export class AgentManager extends EventEmitter {
    * Serialize a project's SecurityProfile (Sets) into a SerializedSecurityProfile (arrays)
    * for transfer across worker thread boundaries.
    */
-  private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean, envPassthrough: string[]): SerializedSecurityProfile {
+  private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean, envPassthrough: string[], bashSandbox: string): SerializedSecurityProfile {
     const profile = getSecurityProfile(projectDir);
     return {
       // zeenha fork: the worker cannot read the project store, so the setting travels here.
       prOnlyLanding,
       envPassthrough,
+      bashSandbox,
       baseCommands: [...profile.baseCommands],
       stackCommands: [...profile.stackCommands],
       scriptCommands: [...profile.scriptCommands],

@@ -42,6 +42,12 @@ export interface ProjectSettings {
    * what a build really needs. See main/ai/security/child-env.ts.
    */
   envPassthrough?: string[];
+  /**
+   * zeenha fork: run agent Bash commands in an OS sandbox that hides the home
+   * directory (bubblewrap on Linux, sandbox-exec on macOS). 'home-hidden-no-network'
+   * also blocks network access. Default 'off'. See main/ai/security/sandbox.ts.
+   */
+  bashSandbox?: 'off' | 'home-hidden' | 'home-hidden-no-network';
 }
 
 export interface NotificationSettings {

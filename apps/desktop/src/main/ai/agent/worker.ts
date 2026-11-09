@@ -27,6 +27,7 @@ import { SubagentExecutorImpl } from '../orchestration/subagent-executor';
 import type { ToolContext } from '../tools/types';
 import type { SecurityProfile } from '../security/bash-validator';
 import { parseEnvPassthrough } from '../security/child-env';
+import { parseSandboxMode } from '../security/sandbox';
 import type {
   WorkerConfig,
   WorkerMessage,
@@ -170,6 +171,7 @@ function buildSecurityProfile(session: SerializableSessionConfig): SecurityProfi
     // zeenha fork: carried from the main process; left undefined (= ON) when missing.
     prOnlyLanding: serialized?.prOnlyLanding,
     envPassthrough: parseEnvPassthrough(serialized?.envPassthrough),
+    bashSandbox: parseSandboxMode(serialized?.bashSandbox),
     getAllAllowedCommands() {
       return new Set([
         ...this.baseCommands,
