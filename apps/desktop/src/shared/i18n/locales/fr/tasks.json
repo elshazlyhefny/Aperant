@@ -8,7 +8,19 @@
     "cycleError": "Cela créerait un cycle de dépendances : {{path}}",
     "selfError": "Une tâche ne peut pas dépendre d'elle-même.",
     "unknownError": "Une des dépendances sélectionnées n'existe plus.",
-    "searchPlaceholder": "Rechercher des tâches..."
+    "searchPlaceholder": "Rechercher des tâches...",
+    "waitingFor": "En attente de {{title}}",
+    "waitingForMore": " +{{count}} autre(s)",
+    "heldFailed": "Bloquée : {{title}} a échoué",
+    "heldMissing": "Bloquée : dépendance introuvable",
+    "reason": {
+      "not_finished": "Pas encore terminée",
+      "pr_not_merged": "PR pas encore fusionnée",
+      "failed": "Échec",
+      "missing": "La tâche n'existe plus",
+      "archived": "Archivée"
+    },
+    "heldHint": "Cette tâche reste en attente tant que vous ne retirez pas la dépendance, ne relancez pas la tâche en échec ou ne déplacez pas cette tâche."
   },
   "untitled": "Sans titre",
   "refreshTasks": "Actualiser les tâches",
@@ -359,14 +371,14 @@
     }
   },
   "deleteDialog": {
-    "title": "Supprimer la t\u00e2che",
-    "confirmMessage": "\u00cates-vous s\u00fbr de vouloir supprimer",
-    "destructiveWarning": "Cette action est irr\u00e9versible. Tous les fichiers de t\u00e2che, y compris la sp\u00e9cification, le plan d'impl\u00e9mentation et tout code g\u00e9n\u00e9r\u00e9 seront d\u00e9finitivement supprim\u00e9s du projet.",
-    "checkingChanges": "V\u00e9rification des changements non valid\u00e9s...",
-    "uncommittedChanges": "Le worktree de cette t\u00e2che contient {{count}} fichier(s) non valid\u00e9(s)",
-    "uncommittedChangesHint": "Ces changements n'ont pas \u00e9t\u00e9 valid\u00e9s ni fusionn\u00e9s. La suppression de cette t\u00e2che supprimera d\u00e9finitivement tout le travail non valid\u00e9 dans le worktree.",
+    "title": "Supprimer la tâche",
+    "confirmMessage": "Êtes-vous sûr de vouloir supprimer",
+    "destructiveWarning": "Cette action est irréversible. Tous les fichiers de tâche, y compris la spécification, le plan d'implémentation et tout code généré seront définitivement supprimés du projet.",
+    "checkingChanges": "Vérification des changements non validés...",
+    "uncommittedChanges": "Le worktree de cette tâche contient {{count}} fichier(s) non validé(s)",
+    "uncommittedChangesHint": "Ces changements n'ont pas été validés ni fusionnés. La suppression de cette tâche supprimera définitivement tout le travail non validé dans le worktree.",
     "cancel": "Annuler",
-    "deletePermanently": "Supprimer d\u00e9finitivement",
+    "deletePermanently": "Supprimer définitivement",
     "deleting": "Suppression..."
   },
   "failedTask": {
