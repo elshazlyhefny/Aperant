@@ -133,11 +133,23 @@ For Linux-specific builds (Flatpak, AppImage), see [guides/linux.md](guides/linu
 
 ## Security
 
-Aperant uses a three-layer security model:
+Aperant runs AI agents that execute shell commands and edit files. What it enforces:
 
-1. **OS Sandbox** - Bash commands run in isolation
-2. **Filesystem Restrictions** - Operations limited to project directory
-3. **Dynamic Command Allowlist** - Only approved commands based on detected project stack
+1. **Command denylist** - Some commands are always blocked: shutdown and reboot, disk formatting and `dd`, privilege escalation (`sudo`, `su`, `doas`, `chown`), firewall tools, `nmap`, `systemctl` and `service`, `crontab`, `mount` and `umount`, and user and group account management.
+2. **Per-command validators** - Extra checks run for `rm`, `chmod`, `git`, process killing (`pkill`, `kill`, `killall`), shell `-c` (`bash`, `sh`, `zsh`), and database clients (`psql`, `mysql`, `mysqladmin`, `redis-cli`, `mongosh`, `dropdb`, `dropuser`).
+3. **Path containment for file tools** - The Read, Write, Edit, Glob and Grep tools are limited to allowed paths.
+4. **Git worktree isolation** - Code changes are made in a separate worktree, so your main branch stays untouched until you merge.
+
+What it does **not** enforce:
+
+- There is no OS-level sandbox (no `sandbox-exec`, bubblewrap, seatbelt or landlock).
+- Every command not on the denylist is allowed by default.
+- Bash commands run in the task working directory with your user's permissions. They can reach outside the project unless a validator blocks them.
+- The validators are a guardrail, not a sandbox. A script the agent writes and then runs, or an interpreter one-liner, is not inspected.
+
+Only run agents on repositories and machines where that is acceptable.
+
+The `.auto-claude-allowlist` file is still read, but it no longer affects allow or deny decisions.
 
 All releases are:
 - Scanned with VirusTotal before publishing
