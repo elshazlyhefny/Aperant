@@ -16,6 +16,7 @@ import { registerTaskExecutionHandlers } from './execution-handlers';
 import { registerWorktreeHandlers } from './worktree-handlers';
 import { registerWorktreeToolHandlers } from './tool-handlers';
 import { registerTaskLogsHandlers } from './logs-handlers';
+import { registerProjectRunMetricsHandlers } from './project-run-metrics-handlers';
 import { registerTaskArchiveHandlers } from './archive-handlers';
 import { registerMergedCleanupHandlers } from './merged-cleanup-handlers';
 
@@ -40,6 +41,9 @@ export function registerTaskHandlers(
 
   // Register logs handlers (get, watch, unwatch)
   registerTaskLogsHandlers(getMainWindow);
+
+  // zeenha fork: project-wide delivery and token metrics
+  registerProjectRunMetricsHandlers();
 
   // Register archive handlers (archive, unarchive)
   registerTaskArchiveHandlers();
