@@ -3,7 +3,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const toolkit = vi.hoisted(() => ({ is: { dev: true } }));
 vi.mock('@electron-toolkit/utils', () => toolkit);
 
+import { readFileSync } from 'fs';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { ipcMain } from 'electron';
+import { getAppRendererUrl } from '../navigation-guard';
 import { isTrustedSender } from '../ipc-sender-validation';
 import { registerTerminalHandlers } from '../ipc-handlers/terminal-handlers';
 import { IPC_CHANNELS } from '../../shared/constants';
@@ -32,8 +36,14 @@ describe('isTrustedSender', () => {
 
   it('trusts the prod file URL', () => {
     toolkit.is.dev = false;
-    const url = new URL('../../renderer/index.html', `file://${__dirname.replace('__tests__', '')}/`).toString();
+    const url = getAppRendererUrl(dirname(fileURLToPath(new URL('../ipc-sender-validation.ts', import.meta.url))), false);
     expect(isTrustedSender({ senderFrame: { url } })).toBe(true);
+  });
+
+  it('defines its own ESM __dirname instead of relying on a global (undefined in the built bundle)', () => {
+    const source = readFileSync(fileURLToPath(new URL('../ipc-sender-validation.ts', import.meta.url)), 'utf8');
+    expect(source).toMatch(/const __dirname\s*=\s*dirname\(\s*__filename\s*\)/);
+    expect(source).toMatch(/const __filename\s*=\s*fileURLToPath\(\s*import\.meta\.url\s*\)/);
   });
 
   it('rejects an https attacker URL', () => {
