@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 interface GitHubOAuthFlowProps {
   onSuccess: (token: string, username?: string) => void;
@@ -20,17 +21,7 @@ interface GitHubOAuthFlowProps {
 }
 
 // Debug logging helper - logs when DEBUG env var is set or in development
-const DEBUG = process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true';
-
-function debugLog(message: string, data?: unknown) {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.warn(`[GitHubOAuth] ${message}`, data);
-    } else {
-      console.warn(`[GitHubOAuth] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitHubOAuth');
 
 // Authentication timeout in milliseconds (5 minutes)
 // GitHub device codes typically expire after 15 minutes, but 5 minutes is a reasonable UX timeout

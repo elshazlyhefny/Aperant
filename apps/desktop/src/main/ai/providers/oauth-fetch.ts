@@ -9,22 +9,13 @@
  */
 
 import * as fs from 'node:fs';
+import { createDebugLog, isDebugEnabled } from '../../../shared/utils/debug-logger';
 
 // =============================================================================
 // Debug Logging
 // =============================================================================
 
-const DEBUG = process.env.DEBUG === 'true' || process.argv.includes('--debug');
-
-function debugLog(message: string, data?: unknown): void {
-  if (!DEBUG) return;
-  const prefix = `[OAuthFetch ${new Date().toISOString()}]`;
-  if (data !== undefined) {
-    console.log(prefix, message, data);
-  } else {
-    console.log(prefix, message);
-  }
-}
+const debugLog = createDebugLog('OAuthFetch');
 
 // =============================================================================
 // OAuth Provider Registry
@@ -267,14 +258,14 @@ export function createOAuthProviderFetch(
       url = providerSpec.rewriteUrl(url);
     }
 
-    if (DEBUG && url !== originalUrl) {
+    if (isDebugEnabled() && url !== originalUrl) {
       debugLog(`${originalUrl} -> ${url} (token: [redacted])`);
     }
 
     const finalInit = { ...init, headers };
     const response = await globalThis.fetch(url, finalInit);
 
-    if (DEBUG) {
+    if (isDebugEnabled()) {
       debugLog(`Response: ${response.status} ${response.statusText}`, { url });
       if (response.status >= 400 && response.status < 500) {
         try {

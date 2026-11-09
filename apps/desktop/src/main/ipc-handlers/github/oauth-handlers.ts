@@ -3,6 +3,7 @@
  * Provides a simpler OAuth flow than manual PAT creation
  */
 
+import { createDebugLog } from '../../../shared/utils/debug-logger';
 import { ipcMain, shell, BrowserWindow } from 'electron';
 import { execSync, execFileSync, execFile, spawn } from 'child_process';
 import { promisify } from 'util';
@@ -76,17 +77,7 @@ async function getCurrentGitHubUsername(): Promise<string | null> {
 }
 
 // Debug logging helper
-const DEBUG = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development';
-
-function debugLog(message: string, data?: unknown): void {
-  if (DEBUG) {
-    if (data !== undefined) {
-      console.warn(`[GitHub OAuth] ${message}`, data);
-    } else {
-      console.warn(`[GitHub OAuth] ${message}`);
-    }
-  }
-}
+const debugLog = createDebugLog('GitHub OAuth');
 
 // Regex pattern to validate GitHub repository format (owner/repo)
 // Allows alphanumeric characters, hyphens, underscores, and periods
