@@ -48,7 +48,7 @@ import { getPhaseThinking, resolveSessionModelId } from '../config/phase-config'
 import { TaskLogWriter, phaseEndMessage } from '../logging/task-log-writer';
 import { loadProjectInstructions, injectContext, promptSearchDirs } from '../prompts/prompt-loader';
 import { buildSubtaskBrief } from '../prompts/subtask-brief';
-import { appendRunMetrics, buildSessionEntry, SessionMetricsCollector } from '../logging/run-metrics';
+import { appendRunMetrics, buildSessionEntry, readRunMetrics, SessionMetricsCollector } from '../logging/run-metrics';
 import { connectMcpServers, resolveMcpServersForAgent, mergeMcpTools, closeAllMcpClients } from '../mcp/client';
 import { mcpResolveOptionsForAgent } from '../mcp/project-settings';
 import type { McpClientResult } from '../mcp/types';
@@ -57,7 +57,11 @@ import { WorkerObserverProxy } from '../memory/ipc/worker-observer-proxy';
 import { createRecordMemoryTool } from '../memory/tools/record-memory';
 import { createSearchMemoryTool } from '../memory/tools/search-memory';
 import type { MemorySessionContext } from '../session/runner';
-import { buildOutcomeTaskEvents } from './build-outcome-events';
+import { buildOutcomeTaskEvents, budgetPauseMessage, budgetPauseTaskEvents } from './build-outcome-events';
+import { budgetGateResult, budgetPauseResult } from './budget-gate';
+import { TokenBudgetGuard } from '../session/token-budget';
+import { TOKEN_BUDGET_ERROR_CODE } from '../session/types';
+import { budgetTokens, parseTokenBudget } from '../../../shared/utils/token-budget';
 
 // =============================================================================
 // Validation
@@ -151,6 +155,36 @@ parentPort.on('message', (msg: MainToWorkerMessage) => {
     abortController.abort();
   }
 });
+
+// =============================================================================
+// Token Budget (zeenha fork)
+// =============================================================================
+
+let budgetGuard: TokenBudgetGuard | null = null;
+let budgetTrip: { used: number; limit: number } | null = null;
+
+/** Tokens already spent by this task. The worktree and main spec dir can differ; the larger one is the fuller record. */
+function readSpentTokens(session: SerializableSessionConfig): number {
+  const total = (dir: string | undefined): number => {
+    if (!dir) return 0;
+    return readRunMetrics(dir).reduce((sum, entry) => sum + (entry.tokens ? budgetTokens(entry.tokens) : 0), 0);
+  };
+  return Math.max(total(session.specDir), total(session.sourceSpecDir));
+}
+
+function createBudgetGuard(session: SerializableSessionConfig): TokenBudgetGuard | null {
+  const limit = parseTokenBudget(session.tokenBudget);
+  if (!limit) return null;
+  return new TokenBudgetGuard({ limit, readSpentTokens: () => readSpentTokens(session) });
+}
+
+/** Records the budget stop once, aborts the worker's work and logs the numbers. */
+function tripBudget(guard: TokenBudgetGuard): void {
+  if (budgetTrip) return;
+  budgetTrip = guard.snapshot();
+  abortController.abort();
+  postLog(budgetPauseMessage(budgetTrip));
+}
 
 // =============================================================================
 // Shared Helpers
@@ -359,6 +393,22 @@ async function runSingleSession(
     );
   };
 
+  // zeenha fork: token budget gate. Re-read the spent baseline for this session;
+  // when it is already used up, skip the model call entirely (no provider, no
+  // run_metrics entry) and report a budget stop.
+  if (budgetGuard) {
+    budgetGuard.beginSession();
+    const gated = budgetGateResult(budgetGuard);
+    if (gated) {
+      tripBudget(budgetGuard);
+      if (logWriter && !skipPhaseLogging) {
+        logWriter.endPhase(phase, true, budgetPauseMessage(budgetGuard.snapshot()));
+      }
+      if (logWriter) logWriter.setSubtask(undefined);
+      return gated;
+    }
+  }
+
   const model = createProvider({
     config: {
       provider: baseSession.provider as SupportedProvider,
@@ -401,6 +451,7 @@ async function runSingleSession(
     subtaskId,
     contextWindowLimit,
     outputSchema,
+    tokenBudget: budgetGuard ?? undefined,
   };
 
   // Start phase logging for this session (skip when orchestrator manages phases)
@@ -465,9 +516,15 @@ async function runSingleSession(
 
   recordMetrics(sessionResult);
 
+  // zeenha fork: the session stopped on the budget. Trip after recording metrics
+  // so the tokens it used are in run_metrics.json when the task resumes.
+  if (budgetGuard && sessionResult.error?.code === TOKEN_BUDGET_ERROR_CODE) {
+    tripBudget(budgetGuard);
+  }
+
   // End phase logging — mark as completed or failed based on outcome (skip when orchestrator manages phases)
   if (logWriter && !skipPhaseLogging) {
-    const success = sessionResult.outcome === 'completed' || sessionResult.outcome === 'max_steps' || sessionResult.outcome === 'context_window';
+    const success = budgetTrip !== null || sessionResult.outcome === 'completed' || sessionResult.outcome === 'max_steps' || sessionResult.outcome === 'context_window';
     logWriter.endPhase(phase, success, phaseEndMessage(phase, success, sessionResult.error?.message));
   }
   if (logWriter) {
@@ -487,6 +544,10 @@ async function run(): Promise<void> {
   postLog(`Starting agent session: type=${session.agentType}, model=${session.modelId}`);
 
   try {
+    // zeenha fork: spec creation is not budgeted; every other worker type is.
+    if (session.agentType !== 'spec_orchestrator') {
+      budgetGuard = createBudgetGuard(session);
+    }
     const securityProfile = buildSecurityProfile(session);
     const toolContext = buildToolContext(session, securityProfile);
     const registry = buildToolRegistry();
@@ -783,23 +844,26 @@ async function runBuildOrchestrator(
   });
 
   const outcome = await orchestrator.run();
+  const paused = budgetTrip;
 
   // End the final phase and flush any remaining accumulated log entries.
   // When the orchestrator reaches 'complete' or 'failed', finalPhase is a terminal
   // state that doesn't map to a log phase. In that case, close whichever log phase
   // is still marked 'active' so the UI shows "Complete" instead of "Running".
   if (logWriter) {
-    const endMessage = (phase: string) => phaseEndMessage(phase, outcome.success, outcome.error);
+    // zeenha fork: a budget pause ends the phase as stopped, not failed.
+    const phaseOk = outcome.success || paused !== null;
+    const endMessage = (phase: string) => paused ? budgetPauseMessage(paused) : phaseEndMessage(phase, outcome.success, outcome.error);
     const finalLogPhase = mapExecutionPhaseToPhase(outcome.finalPhase);
     if (finalLogPhase) {
-      logWriter.endPhase(finalLogPhase, outcome.success, endMessage(finalLogPhase));
+      logWriter.endPhase(finalLogPhase, phaseOk, endMessage(finalLogPhase));
     } else {
       // Terminal state (complete/failed) — close any still-active log phase
       const data = logWriter.getData();
       for (const phase of ['validation', 'coding', 'planning'] as const) {
         if (data.phases[phase]?.status === 'active') {
           const mapped = phase === 'validation' ? 'qa' : phase;
-          logWriter.endPhase(mapped as 'qa' | 'coding' | 'planning', outcome.success, endMessage(phase));
+          logWriter.endPhase(mapped as 'qa' | 'coding' | 'planning', phaseOk, endMessage(phase));
           break;
         }
       }
@@ -810,12 +874,12 @@ async function runBuildOrchestrator(
   // Emit task events based on orchestration outcome so XState machine
   // can transition to the correct state (e.g., human_review on success,
   // error via PLANNING_FAILED / CODING_FAILED / QA_MAX_ITERATIONS on failure).
-  for (const event of buildOutcomeTaskEvents(outcome)) {
+  for (const event of paused ? budgetPauseTaskEvents(paused) : buildOutcomeTaskEvents(outcome)) {
     postTaskEvent(event.type, event.extra);
   }
 
   // Map outcome to a SessionResult-compatible result for the bridge
-  const result: SessionResult = {
+  const result: SessionResult = paused ? budgetPauseResult(paused, outcome.totalIterations, outcome.durationMs) : {
     outcome: outcome.success ? 'completed' : 'error',
     stepsExecuted: outcome.totalIterations,
     usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
@@ -885,15 +949,22 @@ async function runQALoop(
   }
 
   const outcome = await qaLoop.run();
+  const paused = budgetTrip;
 
   // End QA validation phase and flush any remaining accumulated log entries
   if (logWriter) {
-    logWriter.endPhase('qa', outcome.approved, phaseEndMessage('qa', outcome.approved, outcome.error ?? outcome.reason));
+    logWriter.endPhase(
+      'qa',
+      outcome.approved || paused !== null,
+      paused ? budgetPauseMessage(paused) : phaseEndMessage('qa', outcome.approved, outcome.error ?? outcome.reason),
+    );
     logWriter.flush();
   }
 
   // Emit task events so XState machine transitions correctly.
-  if (outcome.approved) {
+  if (paused) {
+    for (const event of budgetPauseTaskEvents(paused)) postTaskEvent(event.type, event.extra);
+  } else if (outcome.approved) {
     postTaskEvent('QA_PASSED');
   } else if (outcome.reason === 'max_iterations') {
     postTaskEvent('QA_MAX_ITERATIONS');
@@ -901,7 +972,7 @@ async function runQALoop(
     postTaskEvent('QA_AGENT_ERROR', { error: outcome.error });
   }
 
-  const result: SessionResult = {
+  const result: SessionResult = paused ? budgetPauseResult(paused, outcome.totalIterations, outcome.durationMs) : {
     outcome: outcome.approved ? 'completed' : 'error',
     stepsExecuted: outcome.totalIterations,
     usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
