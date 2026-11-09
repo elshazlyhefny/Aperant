@@ -137,7 +137,10 @@ import type {
   GitLabInvestigationStatus,
   GitLabMRReviewResult,
   GitLabMRReviewProgress,
-  GitLabNewCommitsCheck
+  GitLabNewCommitsCheck,
+  BitbucketPullRequest,
+  BitbucketSyncStatus,
+  BitbucketDetectedRepository
 } from './integrations';
 import type { APIProfile, ProfilesFile, TestConnectionResult, DiscoverModelsResult } from './profile';
 import type { ProviderAccount } from './provider-account';
@@ -555,6 +558,14 @@ export interface ElectronAPI {
   onGitHubInvestigationError: (
     callback: (projectId: string, error: string) => void
   ) => () => void;
+
+  // Bitbucket integration operations
+  checkBitbucketConnection: (projectId: string) => Promise<IPCResult<BitbucketSyncStatus>>;
+  detectBitbucketRepository: (projectId: string) => Promise<IPCResult<BitbucketDetectedRepository | null>>;
+  getBitbucketPullRequests: (projectId: string, state?: string) => Promise<IPCResult<BitbucketPullRequest[]>>;
+  getBitbucketPullRequest: (projectId: string, prId: number) => Promise<IPCResult<BitbucketPullRequest>>;
+  getBitbucketPullRequestDiff: (projectId: string, prId: number) => Promise<IPCResult<string>>;
+  postBitbucketPullRequestComment: (projectId: string, prId: number, body: string) => Promise<IPCResult<{ id: number }>>;
 
   // GitLab integration operations
   getGitLabProjects: (projectId: string) => Promise<IPCResult<GitLabProject[]>>;

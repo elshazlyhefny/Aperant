@@ -170,6 +170,40 @@ export const integrationMock = {
     }
   }),
 
+  // Bitbucket Integration Operations
+  checkBitbucketConnection: async () => ({
+    success: true,
+    data: {
+      connected: false,
+      error: 'Not available in browser mock'
+    }
+  }),
+
+  detectBitbucketRepository: async () => ({
+    success: true,
+    data: null
+  }),
+
+  getBitbucketPullRequests: async () => ({
+    success: true,
+    data: []
+  }),
+
+  getBitbucketPullRequest: async () => ({
+    success: false,
+    error: 'Not available in browser mock'
+  }),
+
+  getBitbucketPullRequestDiff: async () => ({
+    success: true,
+    data: ''
+  }),
+
+  postBitbucketPullRequestComment: async () => ({
+    success: false,
+    error: 'Not available in browser mock'
+  }),
+
   // GitLab Integration Operations
   getGitLabProjects: async () => ({
     success: true,
