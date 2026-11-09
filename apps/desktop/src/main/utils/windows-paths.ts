@@ -15,7 +15,9 @@ import { promisify } from 'util';
 import path from 'path';
 import os from 'os';
 
-import { appLog } from '../app-logger';
+// zeenha fork: this file is loaded inside agent worker threads (through platform/).
+// app-logger imports Electron, which a worker cannot load: the worker dies at startup.
+import { debugLog } from '../../shared/utils/debug-logger';
 const execFileAsync = promisify(execFile);
 
 export interface WindowsToolPaths {
@@ -210,7 +212,7 @@ export function findWindowsExecutableViaWhere(
 
       // Validate the path exists and is secure
       if (existsSync(foundPath) && isSecurePath(foundPath)) {
-        appLog.info(`${logPrefix} Found via where: ${foundPath}`);
+        debugLog(`${logPrefix} Found via where: ${foundPath}`);
         return foundPath;
       }
     }
@@ -316,7 +318,7 @@ export async function findWindowsExecutableViaWhereAsync(
       try {
         await access(foundPath, constants.F_OK);
         if (isSecurePath(foundPath)) {
-          appLog.info(`${logPrefix} Found via where: ${foundPath}`);
+          debugLog(`${logPrefix} Found via where: ${foundPath}`);
           return foundPath;
         }
       } catch {
