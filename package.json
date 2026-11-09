@@ -20,7 +20,8 @@
     "package": "cd apps/desktop && npm run package",
     "package:mac": "cd apps/desktop && npm run package:mac",
     "package:win": "cd apps/desktop && npm run package:win",
-    "package:linux": "cd apps/desktop && npm run package:linux"
+    "package:linux": "cd apps/desktop && npm run package:linux",
+    "package:flatpak": "cd apps/desktop && npm run package:flatpak"
   },
   "engines": {
     "node": ">=24.0.0",
