@@ -103,6 +103,29 @@ jobs:
         run: npm run build
 
   # --------------------------------------------------------------------------
+  # Windows Bash sandbox - single file only
+  # --------------------------------------------------------------------------
+  # zeenha fork: the full Windows suite has known unported failures, so only the
+  # sandbox integration test runs here. It exercises the real AppContainer launcher.
+  test-windows-sandbox:
+    name: test-windows-sandbox
+    runs-on: windows-latest
+    continue-on-error: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js frontend
+        uses: ./.github/actions/setup-node-frontend
+        with:
+          ignore-scripts: 'true'
+
+      - name: Run Windows sandbox integration test
+        working-directory: apps/desktop
+        run: npx vitest run src/main/ai/security/__tests__/sandbox-windows.integration.test.ts
+
+  # --------------------------------------------------------------------------
   # Dependency Audit
   # --------------------------------------------------------------------------
   dependency-audit:

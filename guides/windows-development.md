@@ -68,6 +68,26 @@ Or use WSL2 to avoid the issue entirely.
 
 Windows filesystems are case-insensitive. Be consistent with casing in import paths — a mismatch that works on Windows will fail on Linux CI.
 
+## Testing the Bash sandbox
+
+On Windows the Bash sandbox runs commands inside an AppContainer that cannot read the user profile.
+
+**Prerequisites:** Windows 10/11, Git for Windows (Git Bash), PowerShell 5.1 or newer, and Node.js installed system-wide (for example under `C:\Program Files`).
+
+**Enable it:** open the project settings and set `bashSandbox` to `home-hidden` (or `home-hidden-no-network`). Then ask an agent to run the commands below, or run the automated test: `cd apps/desktop && npx vitest run src/main/ai/security/__tests__/sandbox-windows.integration.test.ts`.
+
+| Command (in the sandboxed shell) | Expected output |
+|---|---|
+| `type %USERPROFILE%\canary.txt` (create the file first) | Access denied; the file contents are not printed |
+| `dir %APPDATA%` | Access denied or an empty listing |
+| `npm test` in the worktree | Runs and passes; the worktree is readable and writable |
+| `curl https://example.com` in `home-hidden-no-network` | Fails to connect (no network capability) |
+
+**Known limits**
+
+- Tools installed under the user profile (nvm, per-user Node, per-user Git) are not readable. Install them system-wide, or add the install directory as a writable/readable path.
+- The sandbox limits file and network access. It is not a defence against a kernel exploit.
+
 ## Resources
 
 - [Node.js on Windows](https://nodejs.org/en/download/)
