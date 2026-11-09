@@ -8,7 +8,7 @@ The Claude Code settings module reads environment variables from `.claude/settin
 
 1. **User Global**: `~/.claude/settings.json` (trusted)
 2. **Shared Project**: `{projectPath}/.claude/settings.json` (shared with team, **UNTRUSTED**)
-3. **Local Project**: `{projectPath}/.claude/settings.local.json` (gitignored, trusted)
+3. **Local Project**: `{projectPath}/.claude/settings.local.json` (gitignored by convention, but **UNTRUSTED**: a hostile repository can still commit it)
 4. **Managed**: Platform-specific system path (trusted)
 
 These environment variables are injected into PTY (terminal) processes and agent subprocess environments.
@@ -37,6 +37,26 @@ When a user clones and opens this project, the dangerous env vars are automatica
 - **Shell command injection** (BASH_ENV, ENV, PROMPT_COMMAND)
 - **Path manipulation attacks** (CDPATH)
 
+### Vulnerability: Credential Redirect
+
+A project settings file can also point Claude Code at an attacker's endpoint or trust root without running any code of its own:
+
+- `ANTHROPIC_BASE_URL` sends API requests, with the user's credentials, to an attacker's server.
+- `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` route traffic through an attacker's proxy.
+- `NODE_EXTRA_CA_CERTS` (and other CA bundle variables) make the attacker's certificate trusted, so TLS interception goes unnoticed.
+- `CLAUDE_CONFIG_DIR` (and `HOME`, `XDG_CONFIG_HOME`) point the tool at an attacker-controlled configuration and credential directory.
+
+### Vulnerability: Git, Pager and Editor Command Execution
+
+Git and many CLI tools run external programs named in the environment. A project settings file can set:
+
+- `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `GIT_CONFIG_COUNT` (and `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n`) to inject arbitrary git config such as `core.fsmonitor` or `core.sshCommand`
+- `GIT_EXEC_PATH` to make git run attacker-provided subcommands
+- `GIT_ASKPASS`, `SSH_ASKPASS`, `GIT_EXTERNAL_DIFF`, `GIT_PROXY_COMMAND` to run a program during ordinary git operations
+- `GIT_PAGER`, `PAGER`, `MANPAGER`, `EDITOR`, `VISUAL`, `GIT_EDITOR` to run a program whenever output is paged or an editor opens
+
+See the [git-config environment reference](https://git-scm.com/docs/git-config#ENVIRONMENT) for the full list of variables git honors.
+
 ### Protection Mechanism
 
 #### Env Var Sanitization
@@ -58,31 +78,41 @@ The `env-sanitizer.ts` module filters dangerous environment variables before the
 - **Path Manipulation**: CDPATH
 - **Git Command Injection**: GIT_TRACE, GIT_SSH_COMMAND, GIT_ALLOW_PROTOCOL
 
+**Project-only Rules (UNTRUSTED levels):**
+
+On top of the list above, variables from `projectShared` and `projectLocal` are dropped when they match any of these rules (case-insensitive):
+
+- **Exact names**: credential/endpoint and proxy variables (ANTHROPIC_BASE_URL, HTTPS_PROXY, ...), TLS trust variables (NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, ...), git helpers (GIT_ASKPASS, GIT_EXEC_PATH, ...), pagers/editors (PAGER, EDITOR, ...), home/config directories (HOME, CLAUDE_CONFIG_DIR, CLAUDE_CODE_OAUTH_TOKEN, ...), and **PATH** and **SHELL**. The authoritative list is `PROJECT_BLOCKED_ENV_VARS` in `env-sanitizer.ts`.
+- **Prefixes**: `GIT_`, `ANTHROPIC_`, `NPM_CONFIG_`, `LD_`, `DYLD_`
+- **Suffixes**: `_PROXY`, `_BASE_URL`
+
+PATH and SHELL are dropped at project levels but remain allowed at the **user** and **managed** levels, which are unchanged.
+
 **Warning Variables (Allowed but Logged):**
 
-When set from project-level settings (shared or local):
-- **PATH**: Can hijack command execution
-- **SHELL**: Can affect shell behavior
-- **TERM**: Can affect terminal behavior
+When set from project-level settings: **TERM** (can affect terminal behavior).
 
 #### Implementation
 
 Sanitization happens during the merge phase (`merger.ts`):
 
 ```typescript
-import { sanitizeEnvVars } from './env-sanitizer';
+import { sanitizeEnvVarsWithReport } from './env-sanitizer';
 
-// Each settings level is sanitized before merging
-const sanitizedLower = sanitizeEnvVars(lower, lowerLevel);
-const sanitizedHigher = sanitizeEnvVars(higher, higherLevel);
+// Each settings level is sanitized exactly once, with its own label,
+// and dropped keys (never values) are collected for reporting
+const report = sanitizeEnvVarsWithReport(settings.env, level);
 ```
 
 **Trust Levels:**
 
 Dangerous env vars (LD_PRELOAD, NODE_OPTIONS, etc.) are blocked from **ALL** levels unconditionally.
-The trust level only affects warning behavior for PATH/SHELL/TERM:
-- **user** and **managed** settings: No warnings for PATH/SHELL
-- **projectShared** and **projectLocal**: Warnings logged for PATH/SHELL
+- **user** and **managed** settings: trusted; only the dangerous list is blocked
+- **projectShared** and **projectLocal**: untrusted; the dangerous list plus the project-only rules above
+
+#### Terminal Notice
+
+When project-level variables are dropped, the terminal shows a short notice (`env-drop-notice.ts`). It lists variable **names only**, never values. Names are scrubbed to `[A-Za-z0-9_]`, truncated, deduplicated and capped in number, so a hostile settings file cannot inject escape sequences or flood the terminal.
 
 ### Logging and Observability
 
@@ -91,14 +121,17 @@ The sanitizer provides detailed security logging:
 ```
 [EnvSanitizer] BLOCKED dangerous env var from projectShared: LD_PRELOAD (prevents code injection attack)
 [EnvSanitizer] Blocked 3 dangerous env var(s) from projectShared: LD_PRELOAD, NODE_OPTIONS, PYTHONSTARTUP
-[EnvSanitizer] WARNING: PATH set from projectShared settings (can affect command execution, verify this is intentional)
+[EnvSanitizer] DROPPED env var from projectShared by project policy: ANTHROPIC_BASE_URL
+[EnvSanitizer] Dropped 2 project-policy env var(s) from projectShared: ANTHROPIC_BASE_URL, PATH
+[EnvSanitizer] WARNING: TERM set from projectShared settings (can affect command execution, verify this is intentional)
 ```
 
 ### Testing
 
 Comprehensive test coverage in:
-- `__tests__/env-sanitizer.test.ts` (36 tests) - Unit tests for sanitization logic
-- `__tests__/merger.test.ts` (26 tests, 6 security-focused) - Integration tests
+- `__tests__/env-sanitizer.test.ts` - Unit tests for sanitization logic and project-only rules
+- `__tests__/merger.test.ts` - Integration tests, including per-level sanitization and the dropped report
+- `__tests__/env-drop-notice.test.ts` - Terminal notice formatting and scrubbing
 
 ### Comparison to Claude Code CLI
 
@@ -123,4 +156,5 @@ Potential improvements for consideration:
 - User-configurable blocklist extensions
 - Telemetry for blocked env var attempts
 - Integration with security scanning tools
-- Warning UI notifications for blocked vars
+- A project-UI surface showing which variables were ignored (today only the terminal notice exists)
+- Moving project levels from a blocklist to a default-deny allowlist
