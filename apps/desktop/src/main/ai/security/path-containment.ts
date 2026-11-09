@@ -8,6 +8,9 @@
  * Handles symlink resolution, relative path traversal (../),
  * and cross-platform path normalization.
  *
+ * Applied by the Read, Write, Edit, Glob and Grep tools only. It is NOT applied
+ * to Bash, so shell commands are not contained.
+ *
  * See apps/desktop/src/main/ai/security/path-containment.ts for the TypeScript implementation.
  */
 

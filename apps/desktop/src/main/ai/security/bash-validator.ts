@@ -4,6 +4,7 @@
  *
  * Pre-tool-use hook that validates bash commands for security.
  * Main enforcement point for the security system.
+ * This is a guardrail, not a sandbox: path containment does not apply to Bash.
  *
  * Security model: DENYLIST-based (allow-by-default). This is a guardrail, not
  * a sandbox; the opt-in OS sandbox (see sandbox.ts) is the real isolation.

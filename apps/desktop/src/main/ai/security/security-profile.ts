@@ -12,6 +12,9 @@
  *
  * The bash validator now uses a static BLOCKED_COMMANDS denylist instead of
  * reading commands from these sets.
+ *
+ * The .auto-claude-allowlist file is still parsed into customCommands, but that
+ * is informational only and never affects allow/deny decisions.
  */
 
 import * as fs from 'node:fs';
@@ -24,6 +27,7 @@ import type { SecurityProfile } from './bash-validator';
 // ---------------------------------------------------------------------------
 
 const PROFILE_FILENAME = '.auto-claude-security.json';
+// Parsed into customCommands for information only; never affects allow/deny decisions.
 const ALLOWLIST_FILENAME = '.auto-claude-allowlist';
 
 // ---------------------------------------------------------------------------
@@ -71,6 +75,7 @@ function parseProfileFile(filePath: string): SecurityProfile | null {
 /**
  * Parse the allowlist file and return additional command names.
  * Each non-empty, non-comment line is a command name.
+ * Informational only: the result never affects allow/deny decisions.
  */
 function parseAllowlistFile(filePath: string): string[] {
   try {

@@ -29,7 +29,7 @@ TypeScript code should use `path.join()` or `path.posix.join()` rather than hard
 
 ## Shell Commands
 
-The Bash tool in the AI agent layer validates commands against the allowlist defined in `apps/desktop/src/main/ai/security/`. On Windows, `.cmd` and `.bat` files require `shell: true` — the platform module's `requiresShell()` helper handles this automatically.
+The Bash tool in the AI agent layer validates commands against the denylist and per-command validators defined in `apps/desktop/src/main/ai/security/`. On Windows, `.cmd` and `.bat` files require `shell: true` — the platform module's `requiresShell()` helper handles this automatically.
 
 ## Testing Windows Compatibility
 
