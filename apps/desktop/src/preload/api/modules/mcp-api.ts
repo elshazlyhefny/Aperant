@@ -14,6 +14,10 @@ export interface McpAPI {
   checkMcpHealth: (server: CustomMcpServer, projectId?: string) => Promise<IPCResult<McpHealthCheckResult>>;
   /** Full MCP connection test */
   testMcpConnection: (server: CustomMcpServer, projectId?: string) => Promise<IPCResult<McpTestConnectionResult>>;
+  /** Approve a project-declared custom server; `hash` is the one the page showed */
+  approveMcpServer: (projectId: string, serverId: string, hash: string) => Promise<IPCResult>;
+  /** Approve the project's CHROME_DEVTOOLS_EXECUTABLE; `exePath` is the one the page showed */
+  approveChromeExecutable: (projectId: string, exePath: string) => Promise<IPCResult>;
 }
 
 export function createMcpAPI(): McpAPI {
@@ -23,5 +27,11 @@ export function createMcpAPI(): McpAPI {
 
     testMcpConnection: (server: CustomMcpServer, projectId?: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.MCP_TEST_CONNECTION, server, projectId),
+
+    approveMcpServer: (projectId: string, serverId: string, hash: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.MCP_APPROVE_SERVER, projectId, serverId, hash),
+
+    approveChromeExecutable: (projectId: string, exePath: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.MCP_APPROVE_CHROME_EXECUTABLE, projectId, exePath),
   };
 }

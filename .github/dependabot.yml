@@ -11,6 +11,16 @@ updates:
       - javascript
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      # Electron updates arrive together
+      electron:
+        patterns:
+          - "electron"
+          - "electron-builder"
+          - "electron-updater"
+          - "electron-vite"
+          - "@electron/*"
+          - "electron-log"
 
   # GitHub Actions
   - package-ecosystem: github-actions

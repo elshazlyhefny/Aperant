@@ -393,6 +393,24 @@
       "autoCleanupMergedWorktrees": {
         "label": "Nettoyer les worktrees après la fusion",
         "description": "Supprimer le worktree et la branche locale d'une tâche une fois sa pull request fusionnée. Un worktree avec des changements non commités, ou des commits faits après la fusion, est conservé."
+      },
+      "credentialIsolation": {
+        "title": "Isolation des identifiants",
+        "envPassthrough": {
+          "label": "Variables d'environnement transmises aux commandes de l'agent",
+          "description": "Noms de variables séparés par des virgules ou des espaces. Les variables correspondant à *_TOKEN, *_API_KEY, *_SECRET, *_PASSWORD et AWS_* sont masquées aux commandes shell de l'agent par défaut ; indiquez un nom ici pour le laisser passer.",
+          "placeholder": "NPM_TOKEN, MY_SERVICE_URL",
+          "invalid": "Noms de variables invalides ignorés : {{names}}"
+        },
+        "bashSandbox": {
+          "label": "Bac à sable des commandes shell",
+          "description": "Nécessite bubblewrap (Linux) ou sandbox-exec (macOS). Si le bac à sable est indisponible, les commandes shell de l'agent sont refusées au lieu d'être exécutées sans isolation.",
+          "options": {
+            "off": "Désactivé",
+            "homeHidden": "Répertoire personnel masqué",
+            "homeHiddenNoNetwork": "Répertoire personnel masqué et sans réseau"
+          }
+        }
       }
     },
     "gitlab": {
@@ -943,6 +961,20 @@
     }
   },
   "mcp": {
+    "approval": {
+      "notApproved": "Non approuvé - ne sera pas exécuté",
+      "approve": "Approuver",
+      "cancel": "Annuler",
+      "approveTitle": "Approuver {{name}} ?",
+      "approveDescription": "Ce serveur est défini dans la configuration du projet. Si vous l'approuvez, il s'exécutera sur cette machine avec vos privilèges d'utilisateur. N'approuvez-le que si vous faites confiance à la source de cette définition.",
+      "commandLabel": "Commande qui sera exécutée",
+      "urlLabel": "URL qui sera contactée",
+      "cannotRun": "Exécution impossible : définition invalide",
+      "changedSinceShown": "La définition du serveur a changé depuis son affichage. Vérifiez-la à nouveau avant d'approuver.",
+      "chromeExecutableNotApproved": "Cet exécutable Chrome n'est pas approuvé. Tant que vous ne l'approuvez pas, le Chrome installé est utilisé :",
+      "chromeExecutableApprove": "Approuver l'exécutable",
+      "trackedEnvWarning": ".auto-claude/.env est versionné dans git. Toute personne pouvant pousser vers ce dépôt peut y définir des commandes ; les serveurs ne sont donc jamais exécutés avant votre approbation."
+    },
     "title": "Aperçu des serveurs MCP",
     "titleWithProject": "Aperçu des serveurs MCP pour {{projectName}}",
     "description": "Configurez quels serveurs MCP sont disponibles pour les agents dans ce projet",

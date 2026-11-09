@@ -8,6 +8,7 @@ import { Badge } from '../../ui/badge';
 import { Checkbox } from '../../ui/checkbox';
 import { cn } from '../../../lib/utils';
 import { getCategoryIcon } from '../constants/severity-config';
+import type { PRReviewCategory } from '@shared/types/pr-review';
 import type { PRReviewFinding } from '../hooks/useGitHubPRs';
 
 interface FindingItemProps {
@@ -18,20 +19,33 @@ interface FindingItemProps {
   onToggle: () => void;
 }
 
+const CATEGORY_TRANSLATION_KEYS: Record<PRReviewCategory, string> = {
+  security: 'prReview.category.security',
+  quality: 'prReview.category.quality',
+  style: 'prReview.category.style',
+  test: 'prReview.category.test',
+  docs: 'prReview.category.docs',
+  pattern: 'prReview.category.pattern',
+  performance: 'prReview.category.performance',
+  verification_failed: 'prReview.category.verification_failed',
+};
+
+// Categories that older saved reviews may still contain
+const LEGACY_CATEGORY_TRANSLATION_KEYS: Record<string, string> = {
+  logic: 'prReview.category.logic',
+  documentation: 'prReview.category.documentation',
+  testing: 'prReview.category.testing',
+  other: 'prReview.category.other',
+};
+
 // Helper to translate category names
 function getCategoryTranslationKey(category: string): string {
-  // Map category values to translation keys
-  const categoryMap: Record<string, string> = {
-    'security': 'prReview.category.security',
-    'logic': 'prReview.category.logic',
-    'quality': 'prReview.category.quality',
-    'performance': 'prReview.category.performance',
-    'style': 'prReview.category.style',
-    'documentation': 'prReview.category.documentation',
-    'testing': 'prReview.category.testing',
-    'other': 'prReview.category.other',
-  };
-  return categoryMap[category.toLowerCase()] || category;
+  const normalized = category.toLowerCase();
+  return (
+    (CATEGORY_TRANSLATION_KEYS as Record<string, string>)[normalized] ||
+    LEGACY_CATEGORY_TRANSLATION_KEYS[normalized] ||
+    category
+  );
 }
 
 export function FindingItem({ finding, selected, posted = false, disputed = false, onToggle }: FindingItemProps) {

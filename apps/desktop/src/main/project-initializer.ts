@@ -371,6 +371,23 @@ export function ensureDataDirectories(projectPath: string): InitializationResult
 }
 
 /**
+ * zeenha fork: true when `<autoBuildPath>/.env` is tracked by git. That file
+ * feeds custom MCP servers and the Chrome executable, so a tracked copy means
+ * the repository (not the user) authored it. False on any error or non-repo.
+ */
+export function isAutoBuildEnvTrackedByGit(projectPath: string, autoBuildPath = '.auto-claude'): boolean {
+  try {
+    execFileSync(getToolPath('git'), ['ls-files', '--error-unmatch', '--', `${autoBuildPath}/.env`], {
+      cwd: projectPath,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Get the auto-claude folder path for a project.
  *
  * IMPORTANT: Only .auto-claude/ is considered a valid "installed" auto-claude.

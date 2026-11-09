@@ -170,9 +170,11 @@ Prompt files that exist today: `planner`, `coder`, `coder_recovery`, `followup_p
 
 Tool permission is enforced when a tool runs, not by hiding tools, so most agents receive the full builtin set. The code is in `security/`:
 
-- `bash-validator.ts`, `command-parser.ts` and `security-profile.ts` check each Bash command against an allowlist derived from the project's security profile. `validators/` holds the per-command checks (`shell`, `git`, `filesystem`, `process`, `database`, `landing`).
+- `bash-validator.ts`, `command-parser.ts` and `security-profile.ts` check each Bash command against a denylist (allow-by-default, a guardrail rather than a sandbox). `validators/` holds the per-command checks (`shell`, `git`, `filesystem`, `process`, `database`, `landing`).
 - `path-containment.ts` keeps file tools inside the allowed project and worktree directories.
 - `denylist.ts` blocks protected paths and commands.
+- `child-env.ts` scrubs credential variables from the environment of Bash and MCP child processes.
+- `sandbox.ts` is the opt-in OS sandbox (bubblewrap or `sandbox-exec`), the real isolation control.
 - `secret-scanner.ts` detects secrets.
 - `tool-input-validator.ts` checks tool inputs before execution.
 

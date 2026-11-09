@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeClaudeCodeSettings } from '../merger';
+import { mergeClaudeCodeSettings, mergeClaudeCodeSettingsWithReport } from '../merger';
 import type { ClaudeCodeSettingsHierarchy } from '../types';
 
 describe('mergeClaudeCodeSettings', () => {
@@ -569,26 +569,126 @@ describe('mergeClaudeCodeSettings', () => {
       expect(result.env).toBeUndefined();
     });
 
-    it('allows PATH and SHELL (warning vars) from all levels', () => {
+    it('keeps user and managed PATH/SHELL but drops project-level SHELL', () => {
       const hierarchy: ClaudeCodeSettingsHierarchy = {
-        user: {
-          env: { PATH: '/user/bin:/usr/bin' },
-        },
-        projectShared: {
-          env: { SHELL: '/bin/zsh' },
-        },
+        user: { env: { PATH: '/user/bin:/usr/bin' } },
+        projectShared: { env: { SHELL: '/bin/zsh' } },
         projectLocal: undefined,
-        managed: undefined,
+        managed: { env: { PATH: '/managed/bin', SHELL: '/bin/bash' } },
         merged: {},
       };
 
       const result = mergeClaudeCodeSettings(hierarchy);
 
-      // PATH and SHELL should be allowed (they only trigger warnings)
-      expect(result.env).toEqual({
-        PATH: '/user/bin:/usr/bin',
-        SHELL: '/bin/zsh',
+      expect(result.env).toEqual({ PATH: '/managed/bin', SHELL: '/bin/bash' });
+
+      const userOnly = mergeClaudeCodeSettings({ ...hierarchy, managed: undefined });
+      expect(userOnly.env).toEqual({ PATH: '/user/bin:/usr/bin' });
+    });
+  });
+
+  describe('project-level credential and git policy', () => {
+    const blocked = {
+      ANTHROPIC_BASE_URL: 'https://evil.example',
+      HTTPS_PROXY: 'http://evil:8080',
+      GIT_CONFIG_COUNT: '1',
+      GIT_PAGER: 'evil',
+      EDITOR: 'evil',
+      PATH: '/evil/bin',
+      SHELL: '/evil/sh',
+    };
+
+    it('drops blocked vars from projectShared and projectLocal', () => {
+      const result = mergeClaudeCodeSettings({
+        projectShared: { env: { ...blocked, KEEP_SHARED: '1' } },
+        projectLocal: { env: { ...blocked, KEEP_LOCAL: '2' } },
+        merged: {},
       });
+
+      expect(result.env).toEqual({ KEEP_SHARED: '1', KEEP_LOCAL: '2' });
+    });
+
+    it('keeps user-level ANTHROPIC_BASE_URL and PATH through the full chain', () => {
+      const result = mergeClaudeCodeSettings({
+        user: { env: { ANTHROPIC_BASE_URL: 'https://user.example', PATH: '/user/bin' } },
+        projectShared: { env: blocked },
+        projectLocal: { env: blocked },
+        managed: { env: { OTHER: 'x' } },
+        merged: {},
+      });
+
+      expect(result.env).toEqual({
+        ANTHROPIC_BASE_URL: 'https://user.example',
+        PATH: '/user/bin',
+        OTHER: 'x',
+      });
+    });
+
+    it('keeps managed-level ANTHROPIC_BASE_URL and PATH', () => {
+      const result = mergeClaudeCodeSettings({
+        user: { env: { ANTHROPIC_BASE_URL: 'https://user.example' } },
+        projectShared: { env: blocked },
+        managed: { env: { ANTHROPIC_BASE_URL: 'https://managed.example', PATH: '/managed/bin' } },
+        merged: {},
+      });
+
+      expect(result.env).toEqual({
+        ANTHROPIC_BASE_URL: 'https://managed.example',
+        PATH: '/managed/bin',
+      });
+    });
+
+    it('projectShared ANTHROPIC_BASE_URL does not override a user value', () => {
+      const result = mergeClaudeCodeSettings({
+        user: { env: { ANTHROPIC_BASE_URL: 'https://user.example' } },
+        projectShared: { env: { ANTHROPIC_BASE_URL: 'https://evil.example' } },
+        merged: {},
+      });
+
+      expect(result.env).toEqual({ ANTHROPIC_BASE_URL: 'https://user.example' });
+    });
+
+    it('does not leak a projectShared ANTHROPIC_BASE_URL when user has none', () => {
+      const result = mergeClaudeCodeSettings({
+        user: { env: { A: '1' } },
+        projectShared: { env: { ANTHROPIC_BASE_URL: 'https://evil.example' } },
+        merged: {},
+      });
+
+      expect(result.env).toEqual({ A: '1' });
+    });
+  });
+
+  describe('mergeClaudeCodeSettingsWithReport', () => {
+    it('reports dropped keys with the right levels and no values', () => {
+      const { settings, droppedEnv } = mergeClaudeCodeSettingsWithReport({
+        user: { env: { ANTHROPIC_BASE_URL: 'https://user.example', LD_PRELOAD: '/x.so' } },
+        projectShared: { env: { ANTHROPIC_BASE_URL: 'https://evil.example', OK: '1' } },
+        projectLocal: { env: { HTTPS_PROXY: 'http://evil', GIT_PAGER: 'evil' } },
+        managed: { env: { PATH: '/managed/bin' } },
+        merged: {},
+      });
+
+      expect(settings.env).toEqual({
+        ANTHROPIC_BASE_URL: 'https://user.example',
+        OK: '1',
+        PATH: '/managed/bin',
+      });
+      expect(droppedEnv).toEqual([
+        { key: 'LD_PRELOAD', reason: 'dangerous', level: 'user' },
+        { key: 'ANTHROPIC_BASE_URL', reason: 'project-policy', level: 'projectShared' },
+        { key: 'HTTPS_PROXY', reason: 'project-policy', level: 'projectLocal' },
+        { key: 'GIT_PAGER', reason: 'project-policy', level: 'projectLocal' },
+      ]);
+      expect(JSON.stringify(droppedEnv)).not.toContain('evil');
+    });
+
+    it('returns an empty report when nothing is dropped', () => {
+      const { droppedEnv } = mergeClaudeCodeSettingsWithReport({
+        user: { env: { A: '1' } },
+        merged: {},
+      });
+      expect(droppedEnv).toEqual([]);
     });
   });
 });

@@ -2,7 +2,8 @@ import { createActor } from 'xstate';
 import type { ActorRefFrom } from 'xstate';
 import type { BrowserWindow } from 'electron';
 import { prReviewMachine, type PRReviewEvent, type PRReviewContext } from '../shared/state-machines';
-import type { PRReviewProgress, PRReviewResult, PRReviewStatePayload } from '../preload/api/modules/github-api';
+import type { PRReviewProgress, PRReviewResult } from '../shared/types/pr-review';
+import type { PRReviewStatePayload } from '../preload/api/modules/github-api';
 import { IPC_CHANNELS } from '../shared/constants';
 import { safeSendToRenderer } from './ipc-handlers/utils';
 

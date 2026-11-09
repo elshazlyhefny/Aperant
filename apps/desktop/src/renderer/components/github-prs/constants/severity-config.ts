@@ -8,11 +8,13 @@ import {
   AlertCircle,
   CheckCircle,
   Shield,
+  ShieldAlert,
   Code,
   FileText,
   TestTube,
   Zap,
 } from 'lucide-react';
+import type { PRReviewCategory } from '@shared/types/pr-review';
 
 export type SeverityGroup = 'critical' | 'high' | 'medium' | 'low';
 
@@ -55,7 +57,7 @@ export const SEVERITY_CONFIG: Record<SeverityGroup, {
   },
 };
 
-export const CATEGORY_ICONS: Record<string, typeof Shield> = {
+export const CATEGORY_ICONS: Record<PRReviewCategory, typeof Shield> = {
   security: Shield,
   quality: Code,
   docs: FileText,
@@ -63,9 +65,10 @@ export const CATEGORY_ICONS: Record<string, typeof Shield> = {
   performance: Zap,
   style: Code,
   pattern: Code,
-  logic: AlertCircle,
+  verification_failed: ShieldAlert,
 };
 
 export function getCategoryIcon(category: string) {
-  return CATEGORY_ICONS[category] || Code;
+  // Old saved reviews may carry categories outside the union; fall back to Code.
+  return (CATEGORY_ICONS as Record<string, typeof Shield>)[category] || Code;
 }
