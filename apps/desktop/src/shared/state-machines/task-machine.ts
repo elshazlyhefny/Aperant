@@ -33,7 +33,8 @@ export type TaskEvent =
   | { type: 'USER_RESUMED' }
   | { type: 'MARK_DONE' }
   | { type: 'CREATE_PR' }
-  | { type: 'PR_CREATED'; prUrl: string };
+  | { type: 'PR_CREATED'; prUrl: string }
+  | { type: 'PR_FOLLOWUP_STARTED' };
 
 export const taskMachine = createMachine(
   {
@@ -157,6 +158,9 @@ export const taskMachine = createMachine(
       },
       pr_created: {
         on: {
+          // zeenha fork: failing CI / review feedback on the PR is sent back to the
+          // agent, so the task re-enters coding instead of being stuck at pr_created.
+          PR_FOLLOWUP_STARTED: { target: 'coding', actions: 'clearReviewReason' },
           MARK_DONE: 'done'
         }
       },
