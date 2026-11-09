@@ -53,6 +53,7 @@ export const IPC_CHANNELS = {
   TASK_CLEANUP_MERGED_WORKTREES: 'task:cleanupMergedWorktrees',  // zeenha fork
   TASK_ARCHIVE: 'task:archive',
   TASK_UNARCHIVE: 'task:unarchive',
+  TASK_QUEUE_GET_STATE: 'task:queueGetState',
   TASK_CLEAR_STAGED_STATE: 'task:clearStagedState',
 
   // Task events (main -> renderer)
@@ -60,6 +61,7 @@ export const IPC_CHANNELS = {
   TASK_ERROR: 'task:error',
   TASK_LOG: 'task:log',
   TASK_STATUS_CHANGE: 'task:statusChange',
+  TASK_QUEUE_STATE_CHANGE: 'task:queueStateChange',
   TASK_EXECUTION_PROGRESS: 'task:executionProgress',
 
   // Task phase logs (persistent, collapsible logs by phase)

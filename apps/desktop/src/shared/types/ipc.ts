@@ -28,6 +28,7 @@ import type {
   McpTestConnectionResult
 } from './project';
 import type { TaskRunMetrics } from './run-metrics';
+import type { TaskQueueState } from './task-queue';
 import type { ScreenshotSource } from './screenshot';
 import type {
   Task,
@@ -243,6 +244,8 @@ export interface ElectronAPI {
   onTaskLog: (callback: (taskId: string, log: string, projectId?: string) => void) => () => void;
   onTaskStatusChange: (callback: (taskId: string, status: TaskStatus, projectId?: string, reviewReason?: ReviewReason, failureReason?: string) => void) => () => void;
   onTaskExecutionProgress: (callback: (taskId: string, progress: ExecutionProgress, projectId?: string) => void) => () => void;
+  getTaskQueueState: (projectId: string) => Promise<IPCResult<TaskQueueState>>;
+  onTaskQueueStateChange: (callback: (state: TaskQueueState) => void) => () => void;
 
   // Terminal operations
   createTerminal: (options: TerminalCreateOptions) => Promise<IPCResult>;

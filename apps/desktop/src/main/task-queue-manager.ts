@@ -1,19 +1,11 @@
-import type { Project, Task, TaskStatus } from '../shared/types';
+import type { Project, Task, TaskStatus, TaskQueueState } from '../shared/types';
 import { DEFAULT_MAX_PARALLEL_TASKS } from '../shared/constants/queue';
 import { appLog } from './app-logger';
 
 /** Safety limit that stops a pass when promotions keep failing */
 const MAX_CONSECUTIVE_FAILURES = 10;
 
-export interface QueueState {
-  projectId: string;
-  maxParallelTasks: number;
-  inProgressCount: number;
-  /** Queued task ids, oldest first */
-  queuedTaskIds: string[];
-  /** Task ids skipped in the last pass because promotion failed */
-  skippedTaskIds: string[];
-}
+export type QueueState = TaskQueueState;
 
 export interface PromoteResult {
   success: boolean;
