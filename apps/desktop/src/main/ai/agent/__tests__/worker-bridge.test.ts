@@ -328,6 +328,22 @@ describe('WorkerBridge', () => {
       expect(bridge.isActive).toBe(false);
     });
 
+    // zeenha fork: a worker that crashes (for example at import) raises 'error'
+    // and then 'exit'. Exit must be reported exactly once or the task never ends.
+    it('reports exit 1 exactly once when the worker crashes', () => {
+      const exitHandler = vi.fn();
+      bridge.on('error', vi.fn());
+      bridge.on('exit', exitHandler);
+      bridge.spawn(createConfig());
+      const worker = getWorker();
+
+      worker.emit('error', new Error('Worker crashed'));
+      worker.emit('exit', 1);
+
+      expect(exitHandler).toHaveBeenCalledTimes(1);
+      expect(exitHandler).toHaveBeenCalledWith('task-123', 1, 'task-execution', 'proj-456');
+    });
+
     it('emits exit on worker exit event (non-zero code)', () => {
       const exitHandler = vi.fn();
       bridge.on('exit', exitHandler);

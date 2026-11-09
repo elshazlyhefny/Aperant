@@ -123,6 +123,10 @@ export class WorkerBridge extends EventEmitter {
     this.worker.on('error', (error: Error) => {
       this.finalizeMemory('failure');
       this.emitTyped('error', this.taskId, error.message, this.projectId);
+      // zeenha fork: cleanup() clears this.worker, so the 'exit' handler below
+      // stays silent after a crash. Without this exit the task stayed "running"
+      // forever and kept its queue slot.
+      this.emitTyped('exit', this.taskId, 1, this.processType, this.projectId);
       this.cleanup();
     });
 
