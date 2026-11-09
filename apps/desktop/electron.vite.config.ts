@@ -105,6 +105,9 @@ export default defineConfig({
     define: sentryDefines,
     root: resolve(__dirname, 'src/renderer'),
     build: {
+      // zeenha fork: electron-vite's renderer default is minify:false, which
+      // ships an unminified entry chunk. Minifying roughly halves its size.
+      minify: 'esbuild',
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html')
