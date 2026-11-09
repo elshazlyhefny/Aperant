@@ -22,6 +22,7 @@ import { registerEnvHandlers } from './env-handlers';
 import { registerLinearHandlers } from './linear-handlers';
 import { registerGithubHandlers } from './github-handlers';
 import { registerGitlabHandlers } from './gitlab-handlers';
+import { registerBitbucketHandlers } from './bitbucket-handlers';
 import { registerIdeationHandlers } from './ideation-handlers';
 import { registerChangelogHandlers } from './changelog-handlers';
 import { registerInsightsHandlers } from './insights-handlers';
@@ -94,6 +95,9 @@ export function setupIpcHandlers(
   // GitLab integration handlers
   registerGitlabHandlers(agentManager, getMainWindow);
 
+  // Bitbucket integration handlers
+  registerBitbucketHandlers();
+
   // Ideation handlers
   registerIdeationHandlers(agentManager, getMainWindow);
 
@@ -145,6 +149,7 @@ export {
   registerLinearHandlers,
   registerGithubHandlers,
   registerGitlabHandlers,
+  registerBitbucketHandlers,
   registerIdeationHandlers,
   registerChangelogHandlers,
   registerInsightsHandlers,
