@@ -1,9 +1,11 @@
 import path from 'path';
-import { existsSync, readFileSync, } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { EventEmitter } from 'events';
 import type { TaskLogs, TaskLogPhase, TaskLogStreamChunk, TaskPhaseLog } from '../shared/types';
 import { findTaskWorktree } from './worktree-paths';
 import { debugLog, debugWarn, debugError } from '../shared/utils/debug-logger';
+
+type FileSignature = { mtimeMs: number; size: number };
 
 function findWorktreeSpecDir(projectPath: string, specId: string, specsRelPath: string): string | null {
   const worktreePath = findTaskWorktree(projectPath, specId);
@@ -241,6 +243,22 @@ export class TaskLogService extends EventEmitter {
   }
 
   /**
+   * Stat a file and return its change signature, or null if it cannot be read
+   */
+  private statSignature(file: string): FileSignature | null {
+    try {
+      const st = statSync(file);
+      return { mtimeMs: st.mtimeMs, size: st.size };
+    } catch {
+      return null;
+    }
+  }
+
+  private signatureChanged(prev: FileSignature | null, next: FileSignature): boolean {
+    return !prev || prev.mtimeMs !== next.mtimeMs || prev.size !== next.size;
+  }
+
+  /**
    * Start watching a spec directory for log changes
    * Also watches the worktree spec directory if it exists (for coding/validation phases)
    *
@@ -282,29 +300,11 @@ export class TaskLogService extends EventEmitter {
       specsRelPath: specsRelPath || ''
     });
 
-    let lastMainContent = '';
-    let lastWorktreeContent = '';
-
-    // Initial load from main spec dir
-    if (existsSync(mainLogFile)) {
-      try {
-        lastMainContent = readFileSync(mainLogFile, 'utf-8');
-      } catch (_e) {
-        // Ignore parse errors on initial load
-      }
-    }
-
-    // Initial load from worktree spec dir
-    if (worktreeSpecDir) {
-      const worktreeLogFile = path.join(worktreeSpecDir, 'task_logs.json');
-      if (existsSync(worktreeLogFile)) {
-        try {
-          lastWorktreeContent = readFileSync(worktreeLogFile, 'utf-8');
-        } catch (_e) {
-          // Ignore parse errors on initial load
-        }
-      }
-    }
+    // Cheap change detection: compare stat signatures instead of file contents
+    let lastMainSig = this.statSignature(mainLogFile);
+    let lastWorktreeSig: FileSignature | null = worktreeSpecDir
+      ? this.statSignature(path.join(worktreeSpecDir, 'task_logs.json'))
+      : null;
 
     // Do initial merged load
     debugLog('[TaskLogService.startWatching] Loading initial logs');
@@ -353,32 +353,19 @@ export class TaskLogService extends EventEmitter {
       }
 
       // Check main spec dir
-      if (existsSync(mainLogFile)) {
-        try {
-          const currentContent = readFileSync(mainLogFile, 'utf-8');
-          if (currentContent !== lastMainContent) {
-            lastMainContent = currentContent;
-            mainChanged = true;
-          }
-        } catch (_error) {
-          // Ignore read/parse errors
-        }
+      const mainSig = this.statSignature(mainLogFile);
+      if (mainSig && this.signatureChanged(lastMainSig, mainSig)) {
+        mainChanged = true;
       }
+      lastMainSig = mainSig;
 
       // Check worktree spec dir
       if (currentWorktreeSpecDir) {
-        const worktreeLogFile = path.join(currentWorktreeSpecDir, 'task_logs.json');
-        if (existsSync(worktreeLogFile)) {
-          try {
-            const currentContent = readFileSync(worktreeLogFile, 'utf-8');
-            if (currentContent !== lastWorktreeContent) {
-              lastWorktreeContent = currentContent;
-              worktreeChanged = true;
-            }
-          } catch (_error) {
-            // Ignore read/parse errors
-          }
+        const worktreeSig = this.statSignature(path.join(currentWorktreeSpecDir, 'task_logs.json'));
+        if (worktreeSig && this.signatureChanged(lastWorktreeSig, worktreeSig)) {
+          worktreeChanged = true;
         }
+        lastWorktreeSig = worktreeSig;
       }
 
       // If either file changed, reload and emit
