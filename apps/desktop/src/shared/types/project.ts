@@ -18,6 +18,8 @@ export interface ProjectSettings {
   linearSync: boolean;
   linearTeamId?: string;
   notifications: NotificationSettings;
+  /** zeenha fork: default token budget per task (input+output tokens). Unset = unlimited. */
+  tokenBudget?: number;
   /** Main branch name for worktree creation (default: auto-detected or 'main') */
   mainBranch?: string;
   /** Whether newly created branches should be pushed to origin and track their remote branch (default: true) */

@@ -394,6 +394,12 @@
         "label": "Nettoyer les worktrees après la fusion",
         "description": "Supprimer le worktree et la branche locale d'une tâche une fois sa pull request fusionnée. Un worktree avec des changements non commités, ou des commits faits après la fusion, est conservé."
       },
+      "tokenBudget": {
+        "label": "Budget de tokens",
+        "description": "Met une tâche en pause lorsqu'elle atteint ce nombre de tokens. Laissez vide pour ne pas avoir de budget. Compte les tokens d'entrée et de sortie (les lectures de cache sont déjà incluses dans l'entrée). Vérifié avant chaque requête au modèle. S'applique aux sessions de planification, de codage et de QA, avec les moteurs Vercel AI SDK et Claude Code. Ne s'applique pas à la création de spécifications, aux insights ni aux autres exécuteurs.",
+        "placeholder": "Aucun budget",
+        "invalid": "Saisissez un entier supérieur à 0, ou laissez vide pour ne pas avoir de budget."
+      },
       "credentialIsolation": {
         "title": "Isolation des identifiants",
         "envPassthrough": {

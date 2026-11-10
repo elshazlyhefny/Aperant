@@ -67,6 +67,13 @@ export interface RunMetricsSummary {
   slowest: Array<SlowToolCall & { agentType: string; phase: string }>;
 }
 
+/** zeenha fork: token budget state for a task. `limit` undefined = unlimited. */
+export interface TokenBudgetStatus {
+  limit?: number;
+  used: number;
+  source: 'task' | 'project' | 'none';
+}
+
 export interface TaskRunMetrics {
   sessions: SessionMetricsEntry[];
   summary: RunMetricsSummary;
