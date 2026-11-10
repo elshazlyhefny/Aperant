@@ -56,6 +56,9 @@ describe.skipIf(process.platform !== 'win32')('Windows sandbox (integration)', {
     // On a GitHub runner os.tmpdir() is inside the user profile, so the worktree
     // only works because the sandbox grants it explicitly.
     worktree = mkdtempSync(path.join(os.tmpdir(), 'aperant-sbx-wt-'));
+    // Created before the first grant: the grant must reach existing files too.
+    mkdirSync(path.join(worktree, 'existing', 'nested'), { recursive: true });
+    writeFileSync(path.join(worktree, 'existing', 'nested', 'old.txt'), 'pre-existing');
     canaryDir = path.join(os.homedir(), `aperant-sbx-canary-${process.pid}-${Date.now()}`);
     mkdirSync(canaryDir, { recursive: true });
     canary = path.join(canaryDir, 'canary.txt');
@@ -91,8 +94,11 @@ describe.skipIf(process.platform !== 'win32')('Windows sandbox (integration)', {
   });
 
   it('can write and read a file in the worktree', async () => {
-    const r = await sandboxed('echo hello > probe.txt && cat probe.txt && cat <<EOF\nheredoc-ok\nEOF');
+    const r = await sandboxed(
+      'echo hello > probe.txt && cat probe.txt && cat existing/nested/old.txt && echo more >> existing/nested/old.txt && cat <<EOF\nheredoc-ok\nEOF'
+    );
     expect(r.code, describeRun(r)).toBe(0);
+    expect(r.stdout).toContain('pre-existing');
     expect(r.stdout).toContain('hello');
     expect(r.stdout).toContain('heredoc-ok');
     expect(readFileSync(path.join(worktree, 'probe.txt'), 'utf8')).toContain('hello');

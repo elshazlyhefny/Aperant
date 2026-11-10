@@ -231,21 +231,26 @@ function Quote([string]$a) {
   $s = [regex]::Replace($s, '(\\+)$', { param($m) $m.Groups[1].Value * 2 })
   return '"' + $s + '"'
 }
-function Grant([string]$path, [string]$perm) {
-  $acl = (& icacls.exe $path | Out-String)
-  if ($LASTEXITCODE -ne 0) { Fail "could not read the access list of $path" }
-  if ($acl.Contains($p.sid)) { return }
-  & icacls.exe $path /grant ('*' + $p.sid + ':' + $perm) /Q | Out-Null
-  if ($LASTEXITCODE -ne 0) { Fail "could not grant access to $path" }
+# icacls cannot be used: it refuses a SID that does not map to an account.
+# SetAccessControl writes only the DACL and propagates inheritable entries to existing children.
+$sandboxSid = New-Object Security.Principal.SecurityIdentifier($p.sid)
+function Grant([string]$path, [string]$rights) {
+  try {
+    $item = Get-Item -LiteralPath $path -Force
+    $acl = $item.GetAccessControl('Access')
+    foreach ($rule in $acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier])) {
+      if ($rule.IdentityReference -eq $sandboxSid -and $rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]$rights) -eq [Security.AccessControl.FileSystemRights]$rights) { return }
+    }
+    $inherit = if ($item.PSIsContainer) { 'ContainerInherit,ObjectInherit' } else { 'None' }
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sandboxSid, $rights, $inherit, 'None', 'Allow')))
+    $item.SetAccessControl($acl)
+  } catch { Fail "could not grant access to $path - $($_.Exception.Message)" }
 }
-foreach ($d in @($p.rwPaths)) { Grant $d '(OI)(CI)F' }
-foreach ($r in @($p.readPaths)) {
-  if (Test-Path -LiteralPath $r -PathType Container) { Grant $r '(OI)(CI)RX' }
-  elseif (Test-Path -LiteralPath $r -PathType Leaf) { Grant $r 'R' }
-}
+foreach ($d in @($p.rwPaths)) { Grant $d 'FullControl' }
+foreach ($r in @($p.readPaths)) { if (Test-Path -LiteralPath $r) { Grant $r 'ReadAndExecute' } }
 $tmp = Join-Path ([IO.Path]::GetTempPath()) 'aperant-bash-sandbox'
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-Grant $tmp '(OI)(CI)F'
+Grant $tmp 'FullControl'
 $env:TEMP = $tmp
 $env:TMP = $tmp
 $cmd = (@($p.shell) + @($p.args) | ForEach-Object { Quote ([string]$_) }) -join ' '
