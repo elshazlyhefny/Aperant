@@ -18,6 +18,7 @@ import type {
   ImageAttachment
 } from '../../shared/types';
 import type { TaskRunMetrics } from '../../shared/types/run-metrics';
+import type { TaskQueueState } from '../../shared/types/task-queue';
 
 export interface TaskAPI {
   // Task Operations
@@ -71,6 +72,8 @@ export interface TaskAPI {
   clearStagedState: (taskId: string) => Promise<IPCResult<{ cleared: boolean }>>;
   listWorktrees: (projectId: string, options?: { includeStats?: boolean }) => Promise<IPCResult<import('../../shared/types').WorktreeListResult>>;
   cleanupMergedWorktrees: (projectId?: string) => Promise<IPCResult<import('../../shared/types').MergedCleanupOutcome[]>>;
+  getPRFeedback: (taskId: string) => Promise<IPCResult<import('../../shared/types').PRFeedbackResult> & { code?: string }>;
+  startPRFollowUp: (taskId: string, itemIds: string[]) => Promise<IPCResult<import('../../shared/types').StartPRFollowUpResult> & { code?: string }>;
   worktreeOpenInIDE: (worktreePath: string, ide: SupportedIDE, customPath?: string) => Promise<IPCResult<{ opened: boolean }>>;
   worktreeOpenInTerminal: (worktreePath: string, terminal: SupportedTerminal, customPath?: string) => Promise<IPCResult<{ opened: boolean }>>;
   worktreeDetectTools: () => Promise<IPCResult<{ ides: Array<{ id: string; name: string; path: string; installed: boolean }>; terminals: Array<{ id: string; name: string; path: string; installed: boolean }> }>>;
@@ -88,6 +91,10 @@ export interface TaskAPI {
   onTaskExecutionProgress: (
     callback: (taskId: string, progress: import('../../shared/types').ExecutionProgress, projectId?: string) => void
   ) => () => void;
+
+  // Task Queue
+  getTaskQueueState: (projectId: string) => Promise<IPCResult<TaskQueueState>>;
+  onTaskQueueStateChange: (callback: (state: TaskQueueState) => void) => () => void;
 
   // Task Phase Logs
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
@@ -194,6 +201,12 @@ export const createTaskAPI = (): TaskAPI => ({
   cleanupMergedWorktrees: (projectId?: string): Promise<IPCResult<import('../../shared/types').MergedCleanupOutcome[]>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_CLEANUP_MERGED_WORKTREES, projectId),
 
+  getPRFeedback: (taskId: string): Promise<IPCResult<import('../../shared/types').PRFeedbackResult> & { code?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_PR_FEEDBACK_GET, taskId),
+
+  startPRFollowUp: (taskId: string, itemIds: string[]): Promise<IPCResult<import('../../shared/types').StartPRFollowUpResult> & { code?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_PR_FOLLOWUP_START, taskId, itemIds),
+
   worktreeOpenInIDE: (worktreePath: string, ide: SupportedIDE, customPath?: string): Promise<IPCResult<{ opened: boolean }>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_WORKTREE_OPEN_IN_IDE, worktreePath, ide, customPath),
 
@@ -288,6 +301,19 @@ export const createTaskAPI = (): TaskAPI => ({
     ipcRenderer.on(IPC_CHANNELS.TASK_STATUS_CHANGE, handler);
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.TASK_STATUS_CHANGE, handler);
+    };
+  },
+
+  getTaskQueueState: (projectId: string): Promise<IPCResult<TaskQueueState>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_QUEUE_GET_STATE, projectId),
+
+  onTaskQueueStateChange: (callback: (state: TaskQueueState) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: TaskQueueState): void => {
+      callback(state);
+    };
+    ipcRenderer.on(IPC_CHANNELS.TASK_QUEUE_STATE_CHANGE, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.TASK_QUEUE_STATE_CHANGE, handler);
     };
   },
 

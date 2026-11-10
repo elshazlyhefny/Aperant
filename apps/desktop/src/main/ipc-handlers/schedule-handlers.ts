@@ -14,7 +14,7 @@ import { projectStore } from '../project-store';
 import { createScheduleService, readTaskTokensFromDisk, type ScheduleService } from '../schedule-service';
 import * as scheduleStore from '../schedule-store';
 import { createTaskSpec } from './task/create-task';
-import { applyTaskStatus, stopTask } from './task/execution-handlers';
+import { applyTaskStatusUpdate, stopTask } from './task/execution-handlers';
 
 function fail<T = never>(error: unknown): IPCResult<T> {
   return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -71,13 +71,13 @@ export function registerScheduleHandlers(
         ...(template.thinkingLevel ? { thinkingLevel: template.thinkingLevel } : {}),
       });
       if (!created.success || !created.data) throw new Error(created.error ?? 'Failed to create task');
-      const queued = await applyTaskStatus(agentManager, getMainWindow, created.data.id, 'queue');
+      const queued = await applyTaskStatusUpdate(agentManager, getMainWindow, created.data.id, 'queue');
       if (!queued.success) throw new Error(queued.error ?? 'Failed to queue task');
       projectStore.invalidateTasksCache(projectId);
       return created.data.id;
     },
     startTask: async (taskId) => {
-      const result = await applyTaskStatus(agentManager, getMainWindow, taskId, 'in_progress');
+      const result = await applyTaskStatusUpdate(agentManager, getMainWindow, taskId, 'in_progress');
       if (!result.success) throw new Error(result.error ?? 'Failed to start task');
     },
     isRunning: (taskId) => agentManager.isRunning(taskId),

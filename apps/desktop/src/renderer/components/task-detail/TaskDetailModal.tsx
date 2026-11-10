@@ -38,11 +38,13 @@ import { TASK_STATUS_LABELS } from '../../../shared/constants';
 import { TaskEditDialog } from '../TaskEditDialog';
 import { useTaskDetail } from './hooks/useTaskDetail';
 import { TaskMetadata } from './TaskMetadata';
+import { PRFeedbackPanel } from './PRFeedbackPanel';
 import { TaskWarnings } from './TaskWarnings';
 import { TaskSubtasks } from './TaskSubtasks';
 import { TaskLogs } from './TaskLogs';
 import { TaskFiles } from './TaskFiles';
 import { TaskUsage } from './TaskUsage';
+import { TokenBudgetBanner } from './TokenBudgetBanner';
 import { TaskReview } from './TaskReview';
 import { FailedTaskPanel } from './FailedTaskPanel';
 import type { Task, WorktreeCreatePROptions } from '../../../shared/types';
@@ -464,6 +466,12 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                 </div>
               )}
 
+              {task.status === 'human_review' && task.reviewReason === 'token_budget' && (
+                <div className="mt-3">
+                  <TokenBudgetBanner task={task} />
+                </div>
+              )}
+
               {/* Warnings - compact inline */}
               {(state.isStuck || state.isIncomplete) && (
                 <div className="mt-3">
@@ -523,6 +531,11 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                     <div className="p-5 space-y-5 overflow-x-hidden max-w-full">
                       {/* Metadata */}
                       <TaskMetadata task={task} />
+
+                      {/* zeenha fork: failing CI / review feedback of the task's PR */}
+                      {task.metadata?.prUrl && (task.status === 'pr_created' || task.status === 'done') && (
+                        <PRFeedbackPanel task={task} />
+                      )}
 
                       {/* zeenha fork: a task that failed before any work: reason + Retry / Re-plan, no Create PR */}
                       {task.status === 'error' && (

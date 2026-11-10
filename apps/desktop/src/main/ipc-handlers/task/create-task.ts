@@ -6,6 +6,22 @@ import { projectStore } from '../../project-store';
 import { titleGenerator } from '../../title-generator';
 import { safeBreadcrumb } from '../../sentry';
 import { buildSpecId } from '../../utils/spec-slug';
+import { normalizeTaskTokenBudget } from '../../../shared/utils/token-budget';
+import { NEW_TASK_PLACEHOLDER_ID, validateDependenciesForSave } from './dependency-validation';
+
+/**
+ * zeenha fork: normalise the per-task token budget in place. 0 means "no limit
+ * for this task"; invalid or missing values are removed so the task inherits
+ * the project default.
+ */
+export function applyTokenBudget(metadata: TaskMetadata): void {
+  const normalized = normalizeTaskTokenBudget(metadata.tokenBudget);
+  if (normalized === undefined) {
+    delete metadata.tokenBudget;
+  } else {
+    metadata.tokenBudget = normalized;
+  }
+}
 
 /**
  * Sanitize thinking levels in task metadata in-place.
@@ -108,6 +124,22 @@ export async function createTaskSpec(
     return { success: false, error: 'Project not found' };
   }
 
+  // zeenha fork: validate task dependencies before writing anything. The
+  // new task has no id in the graph yet, so only unknown/duplicates apply.
+  let validatedDeps: string[] | undefined;
+  if (metadata?.taskDependencies !== undefined) {
+    const validation = validateDependenciesForSave(
+      NEW_TASK_PLACEHOLDER_ID,
+      metadata.taskDependencies,
+      projectStore.getTasks(projectId)
+    );
+    if (!validation.ok) {
+      console.warn(`[TASK_CREATE] Rejected task dependencies: ${validation.error}`);
+      return { success: false, error: validation.error };
+    }
+    validatedDeps = validation.deps;
+  }
+
   // Auto-generate title if empty using Claude AI
   let finalTitle = title;
   if (!title || !title.trim()) {
@@ -151,6 +183,9 @@ export async function createTaskSpec(
     sourceType: 'manual',
     ...metadata
   };
+  if (validatedDeps !== undefined) {
+    taskMetadata.taskDependencies = validatedDeps;
+  }
 
   // Process and save attached images
   if (taskMetadata.attachedImages && taskMetadata.attachedImages.length > 0) {
@@ -227,6 +262,7 @@ export async function createTaskSpec(
   // Save task metadata if provided (sanitize thinking levels before writing)
   if (taskMetadata) {
     sanitizeThinkingLevels(taskMetadata);
+    applyTokenBudget(taskMetadata);
     const metadataPath = path.join(specDir, 'task_metadata.json');
     writeFileSync(metadataPath, JSON.stringify(taskMetadata, null, 2), 'utf-8');
     console.warn(`[TASK_CREATE] [Fast Mode] ${taskMetadata.fastMode ? 'ENABLED' : 'disabled'} — written to task_metadata.json for spec ${specId}`);

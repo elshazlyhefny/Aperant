@@ -95,7 +95,13 @@
       "label": "Tester la connexion",
       "testing": "Test en cours...",
       "success": "Connexion réussie",
-      "failure": "Échec de la connexion"
+      "failure": "Échec de la connexion",
+      "toast": {
+        "successTitle": "Connexion réussie",
+        "successDescription": "Vos identifiants API sont valides.",
+        "failureTitle": "Échec du test de connexion",
+        "failureFallback": "Impossible de tester la connexion"
+      }
     },
     "models": {
       "title": "Optionnel : correspondance des noms de modèles",
@@ -343,7 +349,31 @@
     "onReviewNeeded": "Révision requise",
     "onReviewNeededDescription": "Notifier quand le QA nécessite votre révision",
     "sound": "Son",
-    "soundDescription": "Jouer un son avec les notifications"
+    "soundDescription": "Jouer un son avec les notifications",
+    "webhook": {
+      "title": "Webhook des résultats de tâches",
+      "description": "Envoyer un message à Slack (ou à tout webhook compatible) lorsqu'une tâche nécessite votre attention.",
+      "enable": "Activer le webhook",
+      "enableDescription": "Publier les résultats des tâches vers l'URL du webhook ci-dessous",
+      "urlLabel": "URL du webhook",
+      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlInvalid": "Saisissez une URL https:// valide (http n'est autorisé que pour localhost), sans identifiants.",
+      "show": "Afficher l'URL",
+      "hide": "Masquer l'URL",
+      "storedLocallyNote": "L'URL du webhook est stockée uniquement dans les paramètres de cette application et n'est jamais lue depuis un projet.",
+      "events": {
+        "reviewReady": "Revue prête",
+        "reviewReadyDescription": "Une tâche est terminée et prête pour votre revue",
+        "failed": "Tâche en échec",
+        "failedDescription": "Une tâche s'est arrêtée à cause d'une erreur",
+        "blocked": "Tâche bloquée",
+        "blockedDescription": "La QA a rejeté la tâche ou trouvé des erreurs qui nécessitent votre attention"
+      },
+      "sendTest": "Envoyer un message de test",
+      "sending": "Envoi...",
+      "testSuccess": "Message de test envoyé",
+      "testFailed": "Impossible d'envoyer le message de test"
+    }
   },
   "actions": {
     "save": "Enregistrer les paramètres",
@@ -394,6 +424,12 @@
         "label": "Nettoyer les worktrees après la fusion",
         "description": "Supprimer le worktree et la branche locale d'une tâche une fois sa pull request fusionnée. Un worktree avec des changements non commités, ou des commits faits après la fusion, est conservé."
       },
+      "tokenBudget": {
+        "label": "Budget de tokens",
+        "description": "Met une tâche en pause lorsqu'elle atteint ce nombre de tokens. Laissez vide pour ne pas avoir de budget. Compte les tokens d'entrée et de sortie (les lectures de cache sont déjà incluses dans l'entrée). Vérifié avant chaque requête au modèle. S'applique aux sessions de planification, de codage et de QA, avec les moteurs Vercel AI SDK et Claude Code. Ne s'applique pas à la création de spécifications, aux insights ni aux autres exécuteurs.",
+        "placeholder": "Aucun budget",
+        "invalid": "Saisissez un entier supérieur à 0, ou laissez vide pour ne pas avoir de budget."
+      },
       "credentialIsolation": {
         "title": "Isolation des identifiants",
         "envPassthrough": {
@@ -401,15 +437,6 @@
           "description": "Noms de variables séparés par des virgules ou des espaces. Les variables correspondant à *_TOKEN, *_API_KEY, *_SECRET, *_PASSWORD et AWS_* sont masquées aux commandes shell de l'agent par défaut ; indiquez un nom ici pour le laisser passer.",
           "placeholder": "NPM_TOKEN, MY_SERVICE_URL",
           "invalid": "Noms de variables invalides ignorés : {{names}}"
-        },
-        "bashSandbox": {
-          "label": "Bac à sable des commandes shell",
-          "description": "Nécessite bubblewrap (Linux) ou sandbox-exec (macOS). Si le bac à sable est indisponible, les commandes shell de l'agent sont refusées au lieu d'être exécutées sans isolation.",
-          "options": {
-            "off": "Désactivé",
-            "homeHidden": "Répertoire personnel masqué",
-            "homeHiddenNoNetwork": "Répertoire personnel masqué et sans réseau"
-          }
         }
       }
     },
@@ -419,6 +446,38 @@
       "integrationTitle": "Intégration GitLab",
       "integrationDescription": "Se connecter à GitLab pour le suivi des issues",
       "syncDescription": "Synchroniser avec GitLab Issues"
+    },
+    "security": {
+      "title": "Sécurité",
+      "description": "Isoler les commandes shell des agents",
+      "status": {
+        "active": "Bac à sable actif",
+        "available-off": "Disponible, désactivé",
+        "tool-missing": "Outil du bac à sable manquant",
+        "unsupported": "Non pris en charge sur cette plateforme",
+        "checking": "Vérification..."
+      },
+      "statusDetail": {
+        "active": "Les commandes shell des agents s'exécutent dans le bac à sable.",
+        "available-off": "{{tool}} est installé, mais les commandes shell des agents s'exécutent actuellement sans isolation. Activez-le ci-dessous.",
+        "tool-missing": "{{tool}} est introuvable, le bac à sable ne peut donc pas fonctionner.",
+        "unsupported": "Le bac à sable shell n'est pas disponible sur ce système d'exploitation."
+      },
+      "installHint": {
+        "linux": "Installez bubblewrap avec votre gestionnaire de paquets, par exemple : sudo apt install bubblewrap, sudo dnf install bubblewrap ou sudo pacman -S bubblewrap.",
+        "macos": "sandbox-exec est fourni avec macOS et devrait se trouver dans /usr/bin/sandbox-exec. Vérifiez qu'il n'a pas été supprimé."
+      },
+      "mode": {
+        "label": "Bac à sable des commandes shell",
+        "description": "Choisissez ce que les commandes shell des agents peuvent voir de votre machine.",
+        "off": "Désactivé",
+        "homeHidden": "Dossier personnel masqué",
+        "homeHiddenNoNetwork": "Dossier personnel masqué et pas de réseau",
+        "offExplanation": "Désactivé : les commandes s'exécutent avec tous vos droits. Rien n'est isolé.",
+        "homeHiddenExplanation": "Dossier personnel masqué : les commandes ne peuvent pas lire votre dossier personnel (clés, jetons, autres projets), seulement le projet.",
+        "homeHiddenNoNetworkExplanation": "Dossier personnel masqué et pas de réseau : comme ci-dessus, et les commandes n'ont pas accès au réseau."
+      },
+      "refusedWarning": "Le bac à sable ne peut pas fonctionner sur cette machine. Avec ce mode, chaque commande shell d'un agent sera refusée au lieu d'être exécutée sans isolation."
     },
     "memory": {
       "title": "Mémoire",

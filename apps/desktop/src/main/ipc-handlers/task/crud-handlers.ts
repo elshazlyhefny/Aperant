@@ -14,9 +14,12 @@ import { cleanupWorktree } from '../../utils/worktree-cleanup';
 import { getToolPath } from '../../cli-tool-manager';
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
 import { taskStateManager } from '../../task-state-manager';
-import { createTaskSpec, generateTitleWithFallback, sanitizeThinkingLevels } from './create-task';
+import { applyTokenBudget, createTaskSpec, generateTitleWithFallback, sanitizeThinkingLevels } from './create-task';
 import { canResetPlan, resetPlanFiles } from './reset-plan';
 import { taskSpecDirs } from '../../task-failure-facts';
+import { validateDependenciesForSave } from './dependency-validation';
+
+export { applyTokenBudget };
 
 /**
  * Update a linked roadmap feature when a task is deleted.
@@ -210,6 +213,21 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
           return { success: false, error: 'Spec directory not found' };
         }
 
+        // zeenha fork: validate task dependencies before writing anything.
+        let validatedDeps: string[] | undefined;
+        if (updates.metadata?.taskDependencies !== undefined) {
+          const validation = validateDependenciesForSave(
+            taskId,
+            updates.metadata.taskDependencies,
+            projectStore.getTasks(project.id)
+          );
+          if (!validation.ok) {
+            console.warn(`[TASK_UPDATE] Rejected task dependencies: ${validation.error}`);
+            return { success: false, error: validation.error };
+          }
+          validatedDeps = validation.deps;
+        }
+
         // Auto-generate title if empty
         let finalTitle = updates.title;
         if (updates.title !== undefined && !updates.title.trim()) {
@@ -274,6 +292,9 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
         let updatedMetadata = task.metadata;
         if (updates.metadata) {
           updatedMetadata = { ...task.metadata, ...updates.metadata };
+          if (validatedDeps !== undefined) {
+            updatedMetadata.taskDependencies = validatedDeps;
+          }
 
           // Process and save attached images if provided
           if (updates.metadata.attachedImages && updates.metadata.attachedImages.length > 0) {
@@ -335,6 +356,7 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
 
           // Sanitize thinking levels and update task_metadata.json
           sanitizeThinkingLevels(updatedMetadata);
+          applyTokenBudget(updatedMetadata);
           const metadataPath = path.join(specDir, 'task_metadata.json');
           try {
             writeFileSync(metadataPath, JSON.stringify(updatedMetadata, null, 2), 'utf-8');

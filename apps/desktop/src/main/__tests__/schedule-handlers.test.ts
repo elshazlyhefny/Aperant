@@ -39,7 +39,7 @@ vi.mock('../project-store', () => ({
 }));
 
 vi.mock('../ipc-handlers/task/create-task', () => ({ createTaskSpec: vi.fn() }));
-vi.mock('../ipc-handlers/task/execution-handlers', () => ({ applyTaskStatus: vi.fn(), stopTask: vi.fn() }));
+vi.mock('../ipc-handlers/task/execution-handlers', () => ({ applyTaskStatusUpdate: vi.fn(), stopTask: vi.fn() }));
 vi.mock('../schedule-service', () => ({
   createScheduleService: () => ({ start: vi.fn(), stop: vi.fn(), tick: vi.fn(), onAgentExit: vi.fn() }),
   readTaskTokensFromDisk: () => 0,
