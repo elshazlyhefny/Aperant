@@ -542,3 +542,12 @@ export interface FileNode {
   name: string;
   isDirectory: boolean;
 }
+
+// zeenha fork: whether the OS-level Bash sandbox tool can run on this machine
+export type BashSandboxMode = NonNullable<ProjectSettings['bashSandbox']>;
+export type SandboxStatusKind = 'active' | 'available-off' | 'tool-missing' | 'unsupported';
+export interface SandboxAvailability {
+  state: 'available' | 'tool-missing' | 'unsupported';
+  tool: 'bwrap' | 'sandbox-exec' | null;
+  installHint: 'bubblewrap' | null;
+}

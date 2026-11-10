@@ -407,15 +407,6 @@
           "description": "Comma or space separated variable names. Variables matching *_TOKEN, *_API_KEY, *_SECRET, *_PASSWORD and AWS_* are hidden from agent shell commands by default; list a name here to let it through.",
           "placeholder": "NPM_TOKEN, MY_SERVICE_URL",
           "invalid": "Invalid variable names ignored: {{names}}"
-        },
-        "bashSandbox": {
-          "label": "Shell command sandbox",
-          "description": "Needs bubblewrap (Linux) or sandbox-exec (macOS). If the sandbox is unavailable, agent shell commands are refused rather than run unsandboxed.",
-          "options": {
-            "off": "Off",
-            "homeHidden": "Home directory hidden",
-            "homeHiddenNoNetwork": "Home directory hidden and no network"
-          }
         }
       }
     },
@@ -425,6 +416,38 @@
       "integrationTitle": "GitLab Integration",
       "integrationDescription": "Connect to GitLab for issue tracking",
       "syncDescription": "Sync with GitLab Issues"
+    },
+    "security": {
+      "title": "Security",
+      "description": "Isolate agent shell commands",
+      "status": {
+        "active": "Sandbox active",
+        "available-off": "Available, off",
+        "tool-missing": "Sandbox tool missing",
+        "unsupported": "Not supported on this platform",
+        "checking": "Checking..."
+      },
+      "statusDetail": {
+        "active": "Agent shell commands run inside the sandbox.",
+        "available-off": "{{tool}} is installed, but agent shell commands currently run unsandboxed. Turn it on below.",
+        "tool-missing": "{{tool}} was not found, so the sandbox cannot run.",
+        "unsupported": "The shell sandbox is not available on this operating system."
+      },
+      "installHint": {
+        "linux": "Install bubblewrap with your package manager, for example: sudo apt install bubblewrap, sudo dnf install bubblewrap or sudo pacman -S bubblewrap.",
+        "macos": "sandbox-exec ships with macOS and should be at /usr/bin/sandbox-exec. Check that your system is not missing it."
+      },
+      "mode": {
+        "label": "Shell command sandbox",
+        "description": "Choose how much of your machine agent shell commands can see.",
+        "off": "Off",
+        "homeHidden": "Home directory hidden",
+        "homeHiddenNoNetwork": "Home directory hidden and no network",
+        "offExplanation": "Off: commands run with your full permissions. Nothing is isolated.",
+        "homeHiddenExplanation": "Home directory hidden: commands cannot read your home directory (keys, tokens, other projects), only the project.",
+        "homeHiddenNoNetworkExplanation": "Home directory hidden and no network: as above, and commands cannot reach the network."
+      },
+      "refusedWarning": "The sandbox cannot run on this machine. With this mode on, every agent shell command will be refused instead of run unsandboxed."
     },
     "memory": {
       "title": "Memory",

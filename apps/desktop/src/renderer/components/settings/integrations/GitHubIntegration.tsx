@@ -5,7 +5,6 @@ import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { Switch } from '../../ui/switch';
 import { Separator } from '../../ui/separator';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { Button } from '../../ui/button';
 import { Combobox } from '../../ui/combobox';
 import { GitHubOAuthFlow } from '../../project-settings/GitHubOAuthFlow';
@@ -18,8 +17,6 @@ import { createDebugLog } from '../../../../shared/utils/debug-logger';
 
 // Debug logging
 const debugLog = createDebugLog('GitHubIntegration');
-
-type BashSandboxMode = NonNullable<ProjectSettings['bashSandbox']>;
 
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -244,8 +241,7 @@ export function GitHubIntegration({
   const prOnlyLanding = settings?.prOnlyLanding !== false;
   // zeenha fork: remove worktrees once their PR merged (default on) — main/worktree-auto-cleanup.ts
   const autoCleanupMerged = cleansUpMergedWorktrees(settings);
-  // zeenha fork: credential isolation (envPassthrough / bashSandbox)
-  const bashSandbox: BashSandboxMode = settings?.bashSandbox ?? 'off';
+  // zeenha fork: credential isolation (envPassthrough)
   const invalidEnvNames = parseEnvNames(envPassthroughText).invalid;
   const tokenBudgetInvalid = tokenBudgetText.trim() !== '' && parseTokenBudget(Number(tokenBudgetText)) === undefined;
 
@@ -544,34 +540,6 @@ export function GitHubIntegration({
                       })}
                     </p>
                   )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="font-normal text-foreground">
-                    {t('settings:projectSections.github.credentialIsolation.bashSandbox.label')}
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t('settings:projectSections.github.credentialIsolation.bashSandbox.description')}
-                  </p>
-                  <Select
-                    value={bashSandbox}
-                    onValueChange={(value) => setSettings(prev => ({ ...prev, bashSandbox: value as BashSandboxMode }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="off">
-                        {t('settings:projectSections.github.credentialIsolation.bashSandbox.options.off')}
-                      </SelectItem>
-                      <SelectItem value="home-hidden">
-                        {t('settings:projectSections.github.credentialIsolation.bashSandbox.options.homeHidden')}
-                      </SelectItem>
-                      <SelectItem value="home-hidden-no-network">
-                        {t('settings:projectSections.github.credentialIsolation.bashSandbox.options.homeHiddenNoNetwork')}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               </div>
             </>
