@@ -167,6 +167,23 @@ describe('TaskQueueManager', () => {
     expect(mgr.getState('p1')).toMatchObject({ inProgressCount: 1, queuedTaskIds: ['b'] });
   });
 
+  it('holds a task until its dependencies are done, without marking it failed', async () => {
+    const parent = makeTask('parent', 'human_review', { createdAt: 1 });
+    const child = makeTask('child', 'queue', { createdAt: 2 });
+    child.metadata = { taskDependencies: ['parent'] } as Task['metadata'];
+    const later = makeTask('later', 'queue', { createdAt: 3 });
+    const { mgr, promote, emitState } = setup([makeProject('p1', 1)], { p1: [parent, child, later] });
+
+    await mgr.requestProcess('p1');
+    expect(promotedOrder(promote)).toEqual(['later']);
+    expect(emitState.mock.calls.at(-1)?.[1].skippedTaskIds).toEqual([]);
+
+    later.status = 'done' as Task['status'];
+    parent.status = 'done' as Task['status'];
+    await mgr.onTaskStatusChanged('parent', 'done', 'p1');
+    expect(promotedOrder(promote)).toEqual(['later', 'child']);
+  });
+
   it('keeps going when one project throws', async () => {
     const good = [makeTask('g1', 'queue')];
     const promote = vi.fn(async () => ({ success: true }));

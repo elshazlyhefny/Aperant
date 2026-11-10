@@ -10,6 +10,7 @@ Detailed documentation for Auto Claude setup and usage.
 | **[windows-development.md](windows-development.md)** | Windows-specific development guide (file encoding, paths, line endings) |
 | **[linux.md](linux.md)** | Linux-specific installation and build guide (Flatpak, AppImage) |
 | **[project-configuration.md](project-configuration.md)** | Reference for the per-project `.aperant.json` and `.auto-claude/.env` files |
+| **[task-dependencies.md](task-dependencies.md)** | How tasks wait for other tasks, and when a dependency counts as finished |
 
 ## Quick Links
 

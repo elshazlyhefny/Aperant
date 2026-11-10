@@ -1,5 +1,6 @@
 import type { Project, Task, TaskStatus, TaskQueueState } from '../shared/types';
 import { DEFAULT_MAX_PARALLEL_TASKS } from '../shared/constants/queue';
+import { evaluateTaskDependencies } from '../shared/utils/task-dependencies';
 import { appLog } from './app-logger';
 
 /** Safety limit that stops a pass when promotions keep failing */
@@ -143,7 +144,11 @@ export class TaskQueueManager {
         promoted = this.promotedIds.get(projectId);
 
         const inProgressCount = this.countRunning(tasks, promoted);
-        const queued = this.candidates(tasks, promoted, attempted);
+        // zeenha fork: tasks with unfinished dependencies are held, not failed. They
+        // stay out of `attempted` and are promoted once a later pass finds them ready.
+        const queued = this.candidates(tasks, promoted, attempted).filter(
+          (t) => evaluateTaskDependencies(t, tasks).state === 'ready'
+        );
         if (inProgressCount >= limit || queued.length === 0) break;
 
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {

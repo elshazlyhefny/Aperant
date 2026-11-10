@@ -1,4 +1,27 @@
 {
+  "dependencies": {
+    "title": "Dépend de",
+    "add": "Ajouter la dépendance : {{title}}",
+    "addButton": "Ajouter",
+    "remove": "Retirer la dépendance : {{title}}",
+    "none": "Aucune dépendance",
+    "cycleError": "Cela créerait un cycle de dépendances : {{path}}",
+    "selfError": "Une tâche ne peut pas dépendre d'elle-même.",
+    "unknownError": "Une des dépendances sélectionnées n'existe plus.",
+    "searchPlaceholder": "Rechercher des tâches...",
+    "waitingFor": "En attente de {{title}}",
+    "waitingForMore": " +{{count}} autre(s)",
+    "heldFailed": "Bloquée : {{title}} a échoué",
+    "heldMissing": "Bloquée : dépendance introuvable",
+    "reason": {
+      "not_finished": "Pas encore terminée",
+      "pr_not_merged": "PR pas encore fusionnée",
+      "failed": "Échec",
+      "missing": "La tâche n'existe plus",
+      "archived": "Archivée"
+    },
+    "heldHint": "Cette tâche reste en attente tant que vous ne retirez pas la dépendance, ne relancez pas la tâche en échec ou ne déplacez pas cette tâche."
+  },
   "untitled": "Sans titre",
   "refreshTasks": "Actualiser les tâches",
   "status": {
