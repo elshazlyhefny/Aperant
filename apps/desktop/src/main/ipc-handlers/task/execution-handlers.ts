@@ -687,28 +687,7 @@ export function registerTaskExecutionHandlers(
    * Stop a task
    */
   ipcMain.on(IPC_CHANNELS.TASK_STOP, (_, taskId: string) => {
-    agentManager.killTask(taskId);
-    fileWatcher.unwatch(taskId).catch((err) => {
-      console.error('[TASK_STOP] Failed to unwatch:', err);
-    });
-
-    // Find task and project to emit USER_STOPPED with plan context
-    const { task, project } = findTaskAndProject(taskId);
-
-    if (!task || !project) return;
-
-    // Use shared utility to determine if a valid implementation plan exists
-    const hasPlan = hasPlanWithSubtasks(project, task);
-
-    taskStateManager.handleUiEvent(
-      taskId,
-      { type: 'USER_STOPPED', hasPlan },
-      task,
-      project
-    );
-
-    // Clear stale tracking state so a subsequent restart works correctly
-    taskStateManager.prepareForRestart(taskId);
+    stopTask(agentManager, taskId);
   });
 
   /**
@@ -1428,4 +1407,32 @@ export function registerTaskExecutionHandlers(
       }
     }
   );
+}
+
+/**
+ * Stop a task. Shared by the TASK_STOP IPC handler and the scheduler.
+ */
+export function stopTask(agentManager: AgentManager, taskId: string): void {
+  agentManager.killTask(taskId);
+  fileWatcher.unwatch(taskId).catch((err) => {
+    console.error('[TASK_STOP] Failed to unwatch:', err);
+  });
+
+  // Find task and project to emit USER_STOPPED with plan context
+  const { task, project } = findTaskAndProject(taskId);
+
+  if (!task || !project) return;
+
+  // Use shared utility to determine if a valid implementation plan exists
+  const hasPlan = hasPlanWithSubtasks(project, task);
+
+  taskStateManager.handleUiEvent(
+    taskId,
+    { type: 'USER_STOPPED', hasPlan },
+    task,
+    project
+  );
+
+  // Clear stale tracking state so a subsequent restart works correctly
+  taskStateManager.prepareForRestart(taskId);
 }

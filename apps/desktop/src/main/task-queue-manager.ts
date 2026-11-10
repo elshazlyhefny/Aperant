@@ -147,9 +147,14 @@ export class TaskQueueManager {
         const inProgressCount = this.countRunning(tasks, promoted);
         // zeenha fork: tasks with unfinished dependencies are held, not failed. They
         // stay out of `attempted` and are promoted once a later pass finds them ready.
+        // zeenha fork: scheduled tasks are started by schedule-service, which applies
+        // its own limit; promoting them here too could start the same task twice.
         const queued = this.candidates(tasks, promoted, attempted).filter(
-          // zeenha fork: a task held until an overlapping task finishes waits too
-          (t) => evaluateTaskDependencies(t, tasks).state === 'ready' && !isHoldActive(t, tasks)
+          (t) =>
+            !t.metadata?.scheduleId &&
+            evaluateTaskDependencies(t, tasks).state === 'ready' &&
+            // zeenha fork: a task held until an overlapping task finishes waits too
+            !isHoldActive(t, tasks)
         );
         if (inProgressCount >= limit || queued.length === 0) break;
 

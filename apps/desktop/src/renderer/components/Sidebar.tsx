@@ -23,6 +23,7 @@ import {
   Wrench,
   PanelLeft,
   PanelLeftClose,
+  CalendarClock,
   BarChart3
 } from 'lucide-react';
 import { Button } from './ui/button';
@@ -60,9 +61,10 @@ import { RateLimitIndicator } from './RateLimitIndicator';
 import { AuthFailureIndicator } from './AuthFailureIndicator';
 
 import { UpdateBanner } from './UpdateBanner';
+import { useScheduleStore, countUnacknowledgedReports } from '../stores/schedule-store';
 import type { Project, GitStatus } from '../../shared/types';
 
-export type SidebarView = 'kanban' | 'terminals' | 'roadmap' | 'context' | 'ideation' | 'github-issues' | 'gitlab-issues' | 'github-prs' | 'gitlab-merge-requests' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools' | 'delivery';
+export type SidebarView = 'kanban' | 'terminals' | 'roadmap' | 'context' | 'ideation' | 'github-issues' | 'gitlab-issues' | 'github-prs' | 'gitlab-merge-requests' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools' | 'delivery' | 'schedules';
 
 interface SidebarProps {
   onSettingsClick: () => void;
@@ -89,6 +91,7 @@ const baseNavItems: NavItem[] = [
   { id: 'context', labelKey: 'navigation:items.context', icon: BookOpen, shortcut: 'C' },
   { id: 'agent-tools', labelKey: 'navigation:items.agentTools', icon: Wrench, shortcut: 'M' },
   { id: 'worktrees', labelKey: 'navigation:items.worktrees', icon: GitBranch, shortcut: 'W' },
+  { id: 'schedules', labelKey: 'navigation:items.schedules', icon: CalendarClock, shortcut: 'S' },
   { id: 'delivery', labelKey: 'navigation:items.delivery', icon: BarChart3, shortcut: 'E' }
 ];
 
@@ -123,6 +126,7 @@ export function Sidebar({
   const [isInitializing, setIsInitializing] = useState(false);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const scheduleReportCount = useScheduleStore((state) => countUnacknowledgedReports(state.schedules));
 
   // Sidebar collapsed state from settings
   const isCollapsed = settings.sidebarCollapsed ?? false;
@@ -315,6 +319,11 @@ export function Sidebar({
         {!isCollapsed && (
           <>
             <span className="flex-1 text-left">{t(item.labelKey)}</span>
+            {item.id === 'schedules' && scheduleReportCount > 0 && (
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-medium text-primary-foreground">
+                {scheduleReportCount}
+              </span>
+            )}
             {item.shortcut && (
               <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded-md border border-border bg-secondary px-1.5 font-mono text-[10px] font-medium text-muted-foreground sm:flex">
                 {item.shortcut}

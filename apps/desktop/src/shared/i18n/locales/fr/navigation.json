@@ -4,6 +4,7 @@
     "tools": "Outils"
   },
   "items": {
+    "schedules": "Planifications",
     "kanban": "Tableau Kanban",
     "terminals": "Terminaux Agent",
     "insights": "Insights",
