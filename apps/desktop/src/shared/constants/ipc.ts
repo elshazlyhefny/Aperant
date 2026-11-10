@@ -36,6 +36,9 @@ export const IPC_CHANNELS = {
   TASK_LOAD_IMAGE_THUMBNAIL: 'task:loadImageThumbnail',
   TASK_CHECK_WORKTREE_CHANGES: 'task:checkWorktreeChanges',
   TASK_RESET_PLAN: 'task:resetPlan',  // zeenha fork: discard a failed task's plan (Re-plan)
+  // zeenha fork: send a PR's failing CI / review feedback back to the task's agent
+  TASK_PR_FEEDBACK_GET: 'task:prFeedback:get',
+  TASK_PR_FOLLOWUP_START: 'task:prFollowUp:start',  // (taskId, itemIds) - IDs only, never text
 
   // Workspace management (for human review)
   // Per-spec architecture: Each spec has its own worktree at .worktrees/{spec-name}/

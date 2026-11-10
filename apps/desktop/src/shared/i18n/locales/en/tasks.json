@@ -493,6 +493,27 @@
     },
     "note": "Rate-limit recovery is not recorded, so time lost to rate limits is not shown separately."
   },
+  "prFeedback": {
+    "title": "PR feedback",
+    "refresh": "Refresh",
+    "failedChecks": "Failed checks",
+    "unresolvedComments": "Unresolved review comments",
+    "changeRequests": "Change requests",
+    "empty": "No failing checks or open review feedback.",
+    "open": "Open on GitHub",
+    "send": "Send selected to agent",
+    "started": "Follow-up started. The agent will push to the pull request only after QA approves.",
+    "sendFailed": "Could not start the follow-up",
+    "loadFailed": "Could not load PR feedback: {{error}}",
+    "blocked": {
+      "worktree_missing": "This task's worktree no longer exists (for example it was removed after the PR merged, or by cleanup), so no follow-up can run here. Create a new task from the PR instead.",
+      "pr_not_open": "The pull request is no longer open, so feedback cannot be sent to the agent.",
+      "agent_running": "The agent is already running for this task. Wait for it to finish.",
+      "auth_required": "GitHub authentication is required to send feedback. Sign in to GitHub and refresh.",
+      "no_github_config": "GitHub is not configured for this project.",
+      "branch_mismatch": "The task's worktree is not on the pull request's branch, so no follow-up can run here."
+    }
+  },
   "tokenBudgetBanner": {
     "title": "Paused: token budget reached",
     "usage": "Paused: {{used}} of {{limit}} tokens used",

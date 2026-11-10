@@ -72,6 +72,8 @@ export interface TaskAPI {
   clearStagedState: (taskId: string) => Promise<IPCResult<{ cleared: boolean }>>;
   listWorktrees: (projectId: string, options?: { includeStats?: boolean }) => Promise<IPCResult<import('../../shared/types').WorktreeListResult>>;
   cleanupMergedWorktrees: (projectId?: string) => Promise<IPCResult<import('../../shared/types').MergedCleanupOutcome[]>>;
+  getPRFeedback: (taskId: string) => Promise<IPCResult<import('../../shared/types').PRFeedbackResult> & { code?: string }>;
+  startPRFollowUp: (taskId: string, itemIds: string[]) => Promise<IPCResult<import('../../shared/types').StartPRFollowUpResult> & { code?: string }>;
   worktreeOpenInIDE: (worktreePath: string, ide: SupportedIDE, customPath?: string) => Promise<IPCResult<{ opened: boolean }>>;
   worktreeOpenInTerminal: (worktreePath: string, terminal: SupportedTerminal, customPath?: string) => Promise<IPCResult<{ opened: boolean }>>;
   worktreeDetectTools: () => Promise<IPCResult<{ ides: Array<{ id: string; name: string; path: string; installed: boolean }>; terminals: Array<{ id: string; name: string; path: string; installed: boolean }> }>>;
@@ -200,6 +202,12 @@ export const createTaskAPI = (): TaskAPI => ({
 
   cleanupMergedWorktrees: (projectId?: string): Promise<IPCResult<import('../../shared/types').MergedCleanupOutcome[]>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_CLEANUP_MERGED_WORKTREES, projectId),
+
+  getPRFeedback: (taskId: string): Promise<IPCResult<import('../../shared/types').PRFeedbackResult> & { code?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_PR_FEEDBACK_GET, taskId),
+
+  startPRFollowUp: (taskId: string, itemIds: string[]): Promise<IPCResult<import('../../shared/types').StartPRFollowUpResult> & { code?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_PR_FOLLOWUP_START, taskId, itemIds),
 
   worktreeOpenInIDE: (worktreePath: string, ide: SupportedIDE, customPath?: string): Promise<IPCResult<{ opened: boolean }>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_WORKTREE_OPEN_IN_IDE, worktreePath, ide, customPath),
