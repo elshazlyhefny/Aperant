@@ -999,7 +999,12 @@
       "description": "Please re-authenticate your Claude profile to continue using Aperant.",
       "taskAffected": "Task affected",
       "technicalDetails": "Technical details",
-      "goToSettings": "Go to Settings"
+      "goToSettings": "Go to Settings",
+      "indicator": {
+        "title": "Account needs attention",
+        "ariaLabel": "Authentication failed for {{profile}}. Open details",
+        "clickToFix": "Click to fix →"
+      }
     }
   },
   "git": {
