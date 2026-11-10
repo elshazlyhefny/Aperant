@@ -123,7 +123,7 @@ jobs:
 
       - name: Run Windows sandbox integration test
         working-directory: apps/desktop
-        run: npx vitest run src/main/ai/security/__tests__/sandbox-windows.integration.test.ts
+        run: npx vitest run src/main/ai/security/__tests__/sandbox-windows.integration.test.ts src/main/ai/security/__tests__/sandbox-diag.integration.test.ts
 
   # --------------------------------------------------------------------------
   # Dependency Audit
