@@ -9,7 +9,7 @@
 
 import { homedir } from 'os';
 import { getClaudeProfileManager } from '../../claude-profile-manager';
-import { loadProfilesFile } from '../../services/profile/profile-manager';
+import { loadProfilesFile } from '../../services/profile/api-profile-store';
 import type { ProviderAccount } from '../../../shared/types/provider-account';
 import { getCredentialsFromKeychain } from '../credential-utils';
 import { ensureValidToken } from '../token-refresh';
