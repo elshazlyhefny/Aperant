@@ -25,7 +25,14 @@
 import * as ai from 'ai';
 import type { Tool as AITool } from 'ai';
 
-import { effortFromProviderOptions, isRecord, renderPrompt, systemFromMessages } from './cli-args';
+import {
+  effortFromProviderOptions,
+  extractImages,
+  isRecord,
+  type PromptImage,
+  renderPrompt,
+  systemFromMessages,
+} from './cli-args';
 import type { ClaudeCodePart, CliStep, CliUsage } from './cli-events';
 import type { ClaudeCodeRunResult } from './engine';
 import { type ClaudeCodeLanguageModel, isClaudeCodeModel } from './model';
@@ -104,6 +111,7 @@ interface PreparedRun {
   model: ClaudeCodeLanguageModel;
   system?: string;
   prompt: string;
+  images: PromptImage[];
   tools: Record<string, AITool>;
   output?: OutputLike;
   stopConditions: StopCondition[];
@@ -120,6 +128,7 @@ function prepare(options: LooseCallOptions): PreparedRun {
     model: options.model as ClaudeCodeLanguageModel,
     system: systemParts.join('\n\n') || undefined,
     prompt: renderPrompt(messages),
+    images: extractImages(messages),
     tools: options.tools as Record<string, AITool>,
     output: isOutputLike(options.output) ? options.output : undefined,
     stopConditions,
@@ -143,6 +152,7 @@ async function execute(
     modelId: prepared.model.modelId,
     system: prepared.system,
     prompt: prepared.prompt,
+    images: prepared.images,
     tools: prepared.tools,
     effort: effortFromProviderOptions(providerOptions),
     jsonSchema,

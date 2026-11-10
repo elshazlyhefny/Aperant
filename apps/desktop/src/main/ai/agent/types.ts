@@ -55,6 +55,12 @@ export interface SerializableSessionConfig {
   thinkingLevel?: SessionConfig['thinkingLevel'];
   sessionNumber?: SessionConfig['sessionNumber'];
   subtaskId?: SessionConfig['subtaskId'];
+  /**
+   * zeenha fork: resolved token budget (task override else project default).
+   * Serialized like securityProfile.bashSandbox because workers cannot read
+   * main-process stores. Absent means no budget.
+   */
+  tokenBudget?: number;
   /** Provider identifier for model reconstruction */
   provider: string;
   /** Model ID for model reconstruction */

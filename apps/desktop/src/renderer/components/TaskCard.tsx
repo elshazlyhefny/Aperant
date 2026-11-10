@@ -353,6 +353,8 @@ export const TaskCard = memo(function TaskCard({
         return { label: t('reviewReason.approvePlan'), variant: 'warning' };
       case 'stopped':
         return { label: t('reviewReason.stopped'), variant: 'warning' };
+      case 'token_budget':
+        return { label: t('reviewReason.tokenBudget'), variant: 'warning' };
       default:
         return null;
     }

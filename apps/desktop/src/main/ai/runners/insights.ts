@@ -49,6 +49,8 @@ export interface InsightsConfig {
   thinkingLevel?: ThinkingLevel;
   /** Abort signal for cancellation */
   abortSignal?: AbortSignal;
+  /** Images attached to the current message (base64 data, no data: prefix). Current turn only. */
+  images?: Array<{ data: string; mimeType: string }>;
 }
 
 /** Result of an insights query */
@@ -230,6 +232,7 @@ export async function runInsightsQuery(
     modelShorthand = 'sonnet',
     thinkingLevel = 'medium',
     abortSignal,
+    images = [],
   } = config;
 
   const systemPrompt = buildSystemPrompt(projectDir);
@@ -276,7 +279,24 @@ export async function runInsightsQuery(
     const result = streamText({
       model: client.model,
       system: isCodexInsights ? undefined : client.systemPrompt,
-      prompt: fullPrompt,
+      // History stays text-only inside fullPrompt, so images are sent only on the current turn
+      ...(images.length > 0
+        ? {
+            messages: [
+              {
+                role: 'user' as const,
+                content: [
+                  { type: 'text' as const, text: fullPrompt },
+                  ...images.map((i) => ({
+                    type: 'image' as const,
+                    image: i.data,
+                    mediaType: i.mimeType,
+                  })),
+                ],
+              },
+            ],
+          }
+        : { prompt: fullPrompt }),
       tools: client.tools,
       stopWhen: stepCountIs(client.maxSteps),
       abortSignal,

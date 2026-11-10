@@ -12,6 +12,7 @@ import { InsightsConfig } from './config';
 import { detectRateLimit, createSDKRateLimitInfo } from '../rate-limit-detector';
 import { runInsightsQuery } from '../ai/runners/insights';
 import type { ModelShorthand } from '../ai/config/types';
+import { modelSupportsVision } from '../../shared/constants/models';
 
 /**
  * Message processor result
@@ -95,12 +96,28 @@ export class InsightsExecutor extends EventEmitter {
         content: m.content,
       }));
 
+    // Only entries that carry data can be delivered to the model
+    const deliverable = (images ?? []).filter(
+      (img): img is ImageAttachment & { data: string } => !!img.data
+    );
+    const canSeeImages = modelSupportsVision(modelConfig?.model);
+    let effectiveMessage = message;
+    if (deliverable.length > 0 && !canSeeImages) {
+      // Text-only model: drop the images but still let the request succeed
+      effectiveMessage = `${message}\n[User attached ${deliverable.length} image(s); this model cannot view images]`;
+    }
+    const imagePayload =
+      deliverable.length > 0 && canSeeImages
+        ? deliverable.map((img) => ({ data: img.data, mimeType: img.mimeType }))
+        : undefined;
+
     try {
       const result = await runInsightsQuery(
         {
           projectDir: projectPath,
-          message,
+          message: effectiveMessage,
           history,
+          images: imagePayload,
           modelShorthand,
           thinkingLevel,
           abortSignal: controller.signal,

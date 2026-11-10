@@ -14,7 +14,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-import { loadPrompt } from './prompt-loader';
+import { buildReferenceImagesSection, loadPrompt } from './prompt-loader';
 import type {
   PlannerPromptConfig,
   SubtaskPromptConfig,
@@ -139,7 +139,8 @@ function generateEnvironmentContext(projectDir: string, specDir: string): string
     `- Plan: \`${relativeSpec}/implementation_plan.json\`\n` +
     `- Progress: \`${relativeSpec}/build-progress.txt\`\n` +
     `- Context: \`${relativeSpec}/context.json\`\n\n` +
-    `---\n\n`
+    `---\n\n` +
+    buildReferenceImagesSection(specDir, projectDir)
   );
 
   return sections.join('');

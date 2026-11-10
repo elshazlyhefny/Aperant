@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { is } from '@electron-toolkit/utils';
 import { assertTrustedSender } from '../ipc-sender-validation';
 
+import { sendTestWebhook, validateWebhookUrl } from '../task-webhook';
 import { appLog } from '../app-logger';
 // ESM-compatible __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -25,7 +26,7 @@ import { configureTools, getToolPath, getToolInfo, isPathFromWrongPlatform, preW
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import type { APIProfile } from '../../shared/types/profile';
 import type { ClaudeProfile } from '../../shared/types/agent';
-import { loadProfilesFile } from '../utils/profile-manager';
+import { loadProfilesFile } from '../services/profile';
 import { loadProfileStore } from '../claude-profile/profile-storage';
 import { isMacOS, isWindows } from '../platform';
 
@@ -429,6 +430,19 @@ export function registerSettingsHandlers(
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.WEBHOOK_SEND_TEST,
+    async (event, url: unknown): Promise<IPCResult<{ success: boolean }>> => {
+      if (!assertTrustedSender(event, 'WEBHOOK_SEND_TEST')) return { success: false, error: 'untrusted_sender' };
+      if (typeof url !== 'string' || !validateWebhookUrl(url.trim()).ok) {
+        return { success: false, error: 'invalid_url' };
+      }
+      const result = await sendTestWebhook(url.trim());
+      if (!result.success) return { success: false, error: result.error ?? 'delivery_failed' };
+      return { success: true, data: { success: true } };
+    }
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.SETTINGS_SAVE,
     async (_, settings: Partial<AppSettings>): Promise<IPCResult> => {
       try {
@@ -441,6 +455,24 @@ export function registerSettingsHandlers(
         // to prevent the general settings save from clobbering them.
         const { providerAccounts: _pa, globalPriorityOrder: _gpo, ...safeSettings } = settings;
         const newSettings = { ...currentSettings, ...safeSettings };
+
+        if (safeSettings.webhook !== undefined) {
+          const raw = (safeSettings.webhook ?? {}) as Partial<NonNullable<AppSettings['webhook']>>;
+          const url = typeof raw.url === 'string' ? raw.url.trim() : '';
+          const enabled = raw.enabled === true;
+          if (enabled && !validateWebhookUrl(url).ok) {
+            return { success: false, error: 'invalid_webhook_url' };
+          }
+          newSettings.webhook = {
+            enabled,
+            url,
+            events: {
+              reviewReady: raw.events?.reviewReady === true,
+              failed: raw.events?.failed === true,
+              blocked: raw.events?.blocked === true,
+            },
+          };
+        }
 
         // Sync defaultModel when agent profile changes (#414)
         if (settings.selectedAgentProfile) {

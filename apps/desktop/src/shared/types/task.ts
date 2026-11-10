@@ -15,7 +15,8 @@ export type TaskOrderState = Record<TaskStatus, string[]>;
 // - 'errors': Subtasks failed during execution
 // - 'qa_rejected': QA found issues that need fixing
 // - 'plan_review': Spec/plan created and awaiting approval before coding starts
-export type ReviewReason = 'completed' | 'errors' | 'qa_rejected' | 'plan_review' | 'stopped';
+// zeenha fork: 'token_budget' = paused because the task reached its token budget
+export type ReviewReason = 'completed' | 'errors' | 'qa_rejected' | 'plan_review' | 'stopped' | 'token_budget';
 
 export type SubtaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
@@ -142,6 +143,7 @@ export interface TaskDraft {
   requireReviewBeforeCoding?: boolean;
   fastMode?: boolean;
   pushNewBranches?: boolean;
+  tokenBudget?: number;  // Per-task token budget override (0 = no limit, undefined = inherit)
   savedAt: Date;
 }
 
@@ -165,6 +167,8 @@ export type TaskCategory =
   | 'testing';
 
 export interface TaskMetadata {
+  /** zeenha fork: token budget in tokens (input+output). 0 on a task = unlimited override of the project limit. */
+  tokenBudget?: number;
   // Origin tracking
   sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab';
   ideationType?: string;  // e.g., 'code_improvements', 'security_hardening'
@@ -470,10 +474,34 @@ export interface WorktreeCreatePROptions {
 }
 
 /**
+ * zeenha fork: machine-readable reason a PR creation failed, so callers do not
+ * have to match on error message text.
+ */
+export const WORKTREE_CREATE_PR_ERROR_CODES = [
+  'TASK_NOT_FOUND',
+  'SPEC_DIR_NOT_FOUND',
+  'NO_WORKTREE',
+  'INVALID_TARGET_BRANCH',
+  'INVALID_TITLE_LENGTH',
+  'INVALID_TITLE_CHARS',
+  'NO_CHANGES',
+  'BRANCH_REFUSED',
+  'COMMIT_FAILED',
+  'PUSH_FAILED',
+  'GH_TIMEOUT',
+  'GH_FAILED',
+  'RETRIES_EXHAUSTED',
+  'UNKNOWN'
+] as const;
+
+export type WorktreeCreatePRErrorCode = typeof WORKTREE_CREATE_PR_ERROR_CODES[number];
+
+/**
  * Result of creating a PR from a worktree
  */
 export interface WorktreeCreatePRResult {
   success: boolean;
+  errorCode?: WorktreeCreatePRErrorCode;
   prUrl?: string;
   error?: string;
   message?: string;  // Human-readable message for both success and error cases

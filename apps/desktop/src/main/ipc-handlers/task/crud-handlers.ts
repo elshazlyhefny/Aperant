@@ -18,8 +18,23 @@ import { taskStateManager } from '../../task-state-manager';
 import { safeBreadcrumb } from '../../sentry';
 import { buildSpecId } from '../../utils/spec-slug';
 import { canResetPlan, resetPlanFiles } from './reset-plan';
+import { normalizeTaskTokenBudget } from '../../../shared/utils/token-budget';
 import { taskSpecDirs } from '../../task-failure-facts';
 import { NEW_TASK_PLACEHOLDER_ID, validateDependenciesForSave } from './dependency-validation';
+
+/**
+ * zeenha fork: normalise the per-task token budget in place. 0 means "no limit
+ * for this task"; invalid or missing values are removed so the task inherits
+ * the project default.
+ */
+export function applyTokenBudget(metadata: TaskMetadata): void {
+  const normalized = normalizeTaskTokenBudget(metadata.tokenBudget);
+  if (normalized === undefined) {
+    delete metadata.tokenBudget;
+  } else {
+    metadata.tokenBudget = normalized;
+  }
+}
 
 /**
  * Sanitize thinking levels in task metadata in-place.
@@ -306,6 +321,7 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
       // Save task metadata if provided (sanitize thinking levels before writing)
       if (taskMetadata) {
         sanitizeThinkingLevels(taskMetadata);
+        applyTokenBudget(taskMetadata);
         const metadataPath = path.join(specDir, 'task_metadata.json');
         writeFileSync(metadataPath, JSON.stringify(taskMetadata, null, 2), 'utf-8');
         console.warn(`[TASK_CREATE] [Fast Mode] ${taskMetadata.fastMode ? 'ENABLED' : 'disabled'} — written to task_metadata.json for spec ${specId}`);
@@ -630,6 +646,7 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
 
           // Sanitize thinking levels and update task_metadata.json
           sanitizeThinkingLevels(updatedMetadata);
+          applyTokenBudget(updatedMetadata);
           const metadataPath = path.join(specDir, 'task_metadata.json');
           try {
             writeFileSync(metadataPath, JSON.stringify(updatedMetadata, null, 2), 'utf-8');

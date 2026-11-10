@@ -24,6 +24,7 @@ import { TaskFileExplorerDrawer } from './TaskFileExplorerDrawer';
 import { FileAutocomplete } from './FileAutocomplete';
 import { createTask, useTaskStore, saveDraft, loadDraft, clearDraft, isDraftEmpty } from '../stores/task-store';
 import { useProjectStore } from '../stores/project-store';
+import { parseTokenBudgetText } from '../../shared/utils/token-budget';
 import { buildBranchOptions } from '../lib/branch-utils';
 import { cn } from '../lib/utils';
 import type { TaskCategory, TaskPriority, TaskComplexity, TaskImpact, TaskMetadata, ImageAttachment, TaskDraft, ModelType, ThinkingLevel, ReferencedFile, GitBranchDetail } from '../../shared/types';
@@ -150,6 +151,13 @@ export function TaskCreationWizard({
   // Fast mode
   const [fastMode, setFastMode] = useState(false);
 
+  // Token budget override ('' = inherit project default, '0' = no limit)
+  const [tokenBudgetText, setTokenBudgetText] = useState('');
+  const inheritedTokenBudget = useMemo(
+    () => projects.find((p) => p.id === projectId)?.settings?.tokenBudget,
+    [projects, projectId]
+  );
+
   // Show Fast Mode toggle when any phase uses an Opus model
   const showFastModeToggle = useMemo(() => {
     if (!isAnthropic) return false;
@@ -196,6 +204,7 @@ export function TaskCreationWizard({
         setReferencedFiles(draft.referencedFiles ?? []);
         setRequireReviewBeforeCoding(draft.requireReviewBeforeCoding ?? false);
         setFastMode(draft.fastMode ?? false);
+        setTokenBudgetText(draft.tokenBudget !== undefined ? String(draft.tokenBudget) : '');
         setPushNewBranches(draft.pushNewBranches ?? projectPushNewBranches);
         setIsDraftRestored(true);
 
@@ -220,6 +229,7 @@ export function TaskCreationWizard({
         setReferencedFiles([]);
         setRequireReviewBeforeCoding(false);
         setFastMode(false);
+        setTokenBudgetText('');
         setBaseBranch(PROJECT_DEFAULT_BRANCH);
         setUseWorktree(true);
         setPushNewBranches(projectPushNewBranches);
@@ -299,8 +309,9 @@ export function TaskCreationWizard({
     requireReviewBeforeCoding,
     fastMode,
     pushNewBranches,
+    tokenBudget: parseTokenBudgetText(tokenBudgetText),
     savedAt: new Date()
-  }), [projectId, title, description, category, priority, complexity, impact, profileId, model, thinkingLevel, phaseModels, phaseThinking, images, referencedFiles, requireReviewBeforeCoding, fastMode, pushNewBranches]);
+  }), [projectId, title, description, category, priority, complexity, impact, profileId, model, thinkingLevel, phaseModels, phaseThinking, images, referencedFiles, requireReviewBeforeCoding, fastMode, pushNewBranches, tokenBudgetText]);
 
   /**
    * Detect @ mention being typed and show autocomplete
@@ -512,6 +523,8 @@ export function TaskCreationWizard({
       if (!pushNewBranches) metadata.pushNewBranches = false;
       metadata.fastMode = fastMode;
       if (taskDependencies.length > 0) metadata.taskDependencies = taskDependencies;
+      const budgetOverride = parseTokenBudgetText(tokenBudgetText);
+      if (budgetOverride !== undefined) metadata.tokenBudget = budgetOverride;
 
       const task = await createTask(projectId, title.trim(), description.trim(), metadata);
       if (task) {
@@ -731,6 +744,9 @@ export function TaskCreationWizard({
           fastMode={fastMode}
           onFastModeChange={setFastMode}
           showFastModeToggle={showFastModeToggle}
+          tokenBudgetText={tokenBudgetText}
+          onTokenBudgetTextChange={setTokenBudgetText}
+          inheritedTokenBudget={inheritedTokenBudget}
           disabled={isCreating}
           error={error}
           onError={setError}

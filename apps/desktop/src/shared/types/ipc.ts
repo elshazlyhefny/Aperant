@@ -28,6 +28,7 @@ import type {
   McpTestConnectionResult
 } from './project';
 import type { TaskRunMetrics } from './run-metrics';
+import type { TaskQueueState } from './task-queue';
 import type { ScreenshotSource } from './screenshot';
 import type {
   Task,
@@ -243,6 +244,8 @@ export interface ElectronAPI {
   onTaskLog: (callback: (taskId: string, log: string, projectId?: string) => void) => () => void;
   onTaskStatusChange: (callback: (taskId: string, status: TaskStatus, projectId?: string, reviewReason?: ReviewReason, failureReason?: string) => void) => () => void;
   onTaskExecutionProgress: (callback: (taskId: string, progress: ExecutionProgress, projectId?: string) => void) => () => void;
+  getTaskQueueState: (projectId: string) => Promise<IPCResult<TaskQueueState>>;
+  onTaskQueueStateChange: (callback: (state: TaskQueueState) => void) => () => void;
 
   // Terminal operations
   createTerminal: (options: TerminalCreateOptions) => Promise<IPCResult>;
@@ -707,10 +710,16 @@ export interface ElectronAPI {
 
   // Electron app update operations
   checkAppUpdate: () => Promise<IPCResult<AppUpdateInfo | null>>;
+  sendTestWebhook: (url: string) => Promise<IPCResult<{ success: boolean }>>;
   downloadAppUpdate: () => Promise<IPCResult>;
   downloadStableUpdate: () => Promise<IPCResult>;
   installAppUpdate: () => void;
   getDownloadedAppUpdate: () => Promise<IPCResult<AppUpdateInfo | null>>;
+
+  // Desktop notification click: open project and task
+  onNotificationOpenTask: (
+    callback: (target: { projectId: string; taskId: string }) => void
+  ) => () => void;
 
   // Electron app update event listeners
   onAppUpdateAvailable: (
@@ -842,6 +851,7 @@ export interface ElectronAPI {
   detectMainBranch: (projectPath: string, options?: { declaredOnly?: boolean }) => Promise<IPCResult<string | null>>;
   checkGitStatus: (projectPath: string) => Promise<IPCResult<GitStatus>>;
   initializeGit: (projectPath: string) => Promise<IPCResult<InitializationResult>>;
+  getSandboxAvailability: () => Promise<IPCResult<import('./project').SandboxAvailability>>;
 
   // Ollama model detection operations
   checkOllamaStatus: (baseUrl?: string) => Promise<IPCResult<{
