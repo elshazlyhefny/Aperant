@@ -1,4 +1,5 @@
 import { debugLog } from '@shared/utils/debug-logger';
+import { isHoldActive, findFileOverlaps, type TaskFileOverlap } from '@shared/utils/file-overlap';
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useViewState } from '../contexts/ViewStateContext';
@@ -99,6 +100,9 @@ interface DroppableColumnProps {
   // Search props
   isDragDisabled?: boolean;
   isSearchActive?: boolean;
+  // zeenha fork: planned-file overlaps and hold blocker titles, by task id
+  fileOverlaps?: Map<string, TaskFileOverlap[]>;
+  holdBlockerTitles?: Map<string, string>;
 }
 
 /**
@@ -158,6 +162,8 @@ function droppableColumnPropsAreEqual(
   if (prevProps.onToggleLocked !== nextProps.onToggleLocked) return false;
   if (prevProps.isDragDisabled !== nextProps.isDragDisabled) return false;
   if (prevProps.isSearchActive !== nextProps.isSearchActive) return false;
+  if (prevProps.fileOverlaps !== nextProps.fileOverlaps) return false;
+  if (prevProps.holdBlockerTitles !== nextProps.holdBlockerTitles) return false;
 
   // Compare selection props
   const prevSelected = prevProps.selectedTaskIds;
@@ -228,7 +234,7 @@ const getEmptyStateContent = (status: TaskStatus, t: (key: string) => string): {
   }
 };
 
-const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskClick, onStatusChange, isOver, onAddClick, onArchiveAll, onQueueSettings, onQueueAll, maxParallelTasks, archivedCount, showArchived, onToggleArchived, selectedTaskIds, onSelectAll, onDeselectAll, onToggleSelect, isCollapsed, onToggleCollapsed, columnWidth, isResizing, onResizeStart, onResizeEnd, isLocked, onToggleLocked, isDragDisabled, isSearchActive }: DroppableColumnProps) {
+const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskClick, onStatusChange, isOver, onAddClick, onArchiveAll, onQueueSettings, onQueueAll, maxParallelTasks, archivedCount, showArchived, onToggleArchived, selectedTaskIds, onSelectAll, onDeselectAll, onToggleSelect, isCollapsed, onToggleCollapsed, columnWidth, isResizing, onResizeStart, onResizeEnd, isLocked, onToggleLocked, isDragDisabled, isSearchActive, fileOverlaps, holdBlockerTitles }: DroppableColumnProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const { setNodeRef } = useDroppable({
     id: status
@@ -301,9 +307,11 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
         isSelected={isSelectable ? selectedTaskIds?.has(task.id) : undefined}
         onToggleSelect={onToggleSelectHandlers?.get(task.id)}
         isDragDisabled={isDragDisabled}
+        fileOverlaps={fileOverlaps?.get(task.id)}
+        holdBlockerTitle={holdBlockerTitles?.get(task.id)}
       />
     ));
-  }, [tasks, onClickHandlers, onStatusChangeHandlers, onToggleSelectHandlers, selectedTaskIds, isDragDisabled]);
+  }, [tasks, onClickHandlers, onStatusChangeHandlers, onToggleSelectHandlers, selectedTaskIds, isDragDisabled, fileOverlaps, holdBlockerTitles]);
 
   const getColumnBorderColor = (): string => {
     switch (status) {
@@ -643,6 +651,17 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
 }, droppableColumnPropsAreEqual);
 
 export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isRefreshing }: KanbanBoardProps) {
+  // zeenha fork: tasks that plan to change the same files, and who a held task waits for
+  const fileOverlaps = useMemo(() => findFileOverlaps(tasks), [tasks]);
+  const holdBlockerTitles = useMemo(() => {
+    const titles = new Map<string, string>();
+    for (const task of tasks) {
+      if (!isHoldActive(task, tasks)) continue;
+      const blocker = tasks.find((t) => t.id === task.metadata?.holdUntilTaskId);
+      if (blocker) titles.set(task.id, blocker.title);
+    }
+    return titles;
+  }, [tasks]);
   const { t } = useTranslation(['tasks', 'dialogs', 'common']);
   const { toast } = useToast();
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -1002,6 +1021,11 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     // ============================================
     if (newStatus === 'in_progress' && isQueueAtCapacity(taskId)) {
       debugLog('[Queue] In Progress full, redirecting task to Queue');
+      newStatus = 'queue';
+    }
+    // zeenha fork: a task held until an overlapping task finishes cannot start yet
+    if (newStatus === 'in_progress' && task && isHoldActive(task, useTaskStore.getState().tasks)) {
+      debugLog('[Queue] Task has an active overlap hold, redirecting to Queue');
       newStatus = 'queue';
     }
 
@@ -1473,6 +1497,8 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
               isOver={false}
               isDragDisabled={isSearchActive}
               isSearchActive={isSearchActive}
+              fileOverlaps={fileOverlaps}
+              holdBlockerTitles={holdBlockerTitles}
             />
           ) : (
             <DroppableColumn
@@ -1481,6 +1507,8 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
               tasks={visibleTasksByStatus[status]}
               isDragDisabled={isSearchActive}
               isSearchActive={isSearchActive}
+              fileOverlaps={fileOverlaps}
+              holdBlockerTitles={holdBlockerTitles}
               onTaskClick={onTaskClick}
               onStatusChange={handleStatusChange}
               isOver={overColumnId === status}

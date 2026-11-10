@@ -17,6 +17,7 @@ import { taskStateManager } from '../../task-state-manager';
 import { applyTokenBudget, createTaskSpec, generateTitleWithFallback, sanitizeThinkingLevels } from './create-task';
 import { canResetPlan, resetPlanFiles } from './reset-plan';
 import { taskSpecDirs } from '../../task-failure-facts';
+import { taskQueueManager } from '../../task-queue-manager';
 import { validateDependenciesForSave } from './dependency-validation';
 
 export { applyTokenBudget };
@@ -396,6 +397,12 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
 
         // Invalidate cache since a task was updated
         projectStore.invalidateTasksCache(project.id);
+
+        // zeenha fork: clearing an overlap hold can free a queued task, and the
+        // queue is promoted in main, so re-run it after a hold change.
+        if (updates.metadata && 'holdUntilTaskId' in updates.metadata) {
+          void taskQueueManager.requestProcess(project.id);
+        }
 
         return { success: true, data: updatedTask };
       } catch (error) {

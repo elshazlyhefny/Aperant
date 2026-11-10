@@ -37,6 +37,7 @@ import { useToast } from '../hooks/use-toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { evaluateTaskDependencies, type DependencyEvaluation } from '../../shared/utils/task-dependencies';
 import type { Task, TaskCategory, ReviewReason, TaskStatus } from '../../shared/types';
+import type { TaskFileOverlap } from '../../shared/utils/file-overlap';
 
 // Category icon mapping
 const CategoryIcon: Record<TaskCategory, typeof Zap> = {
@@ -65,6 +66,14 @@ interface TaskCardProps {
   isSelectable?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
+  // zeenha fork: other tasks planning to change the same files, and the title of the task this one waits for
+  fileOverlaps?: TaskFileOverlap[];
+  holdBlockerTitle?: string;
+}
+
+/** Stable signature of an overlap list, so the memo comparator sees content changes. */
+function overlapSignature(overlaps?: TaskFileOverlap[]): string {
+  return overlaps ? overlaps.map((o) => `${o.taskId}:${o.title}:${o.files.length}`).join('|') : '';
 }
 
 // Custom comparator for React.memo - only re-render when relevant task data changes
@@ -79,7 +88,9 @@ function taskCardPropsAreEqual(prevProps: TaskCardProps, nextProps: TaskCardProp
     prevProps.onStatusChange === nextProps.onStatusChange &&
     prevProps.isSelectable === nextProps.isSelectable &&
     prevProps.isSelected === nextProps.isSelected &&
-    prevProps.onToggleSelect === nextProps.onToggleSelect
+    prevProps.onToggleSelect === nextProps.onToggleSelect &&
+    prevProps.fileOverlaps === nextProps.fileOverlaps &&
+    prevProps.holdBlockerTitle === nextProps.holdBlockerTitle
   ) {
     return true;
   }
@@ -87,7 +98,9 @@ function taskCardPropsAreEqual(prevProps: TaskCardProps, nextProps: TaskCardProp
   // Check selectable props first (cheap comparison)
   if (
     prevProps.isSelectable !== nextProps.isSelectable ||
-    prevProps.isSelected !== nextProps.isSelected
+    prevProps.isSelected !== nextProps.isSelected ||
+    prevProps.holdBlockerTitle !== nextProps.holdBlockerTitle ||
+    overlapSignature(prevProps.fileOverlaps) !== overlapSignature(nextProps.fileOverlaps)
   ) {
     return false;
   }
@@ -109,6 +122,7 @@ function taskCardPropsAreEqual(prevProps: TaskCardProps, nextProps: TaskCardProp
     prevTask.metadata?.complexity === nextTask.metadata?.complexity &&
     prevTask.metadata?.archivedAt === nextTask.metadata?.archivedAt &&
     prevTask.metadata?.prUrl === nextTask.metadata?.prUrl &&
+    prevTask.metadata?.holdUntilTaskId === nextTask.metadata?.holdUntilTaskId &&
     // Check if any subtask statuses changed (compare all subtasks)
     prevTask.subtasks.every((s, i) => s.status === nextTask.subtasks[i]?.status)
   );
@@ -135,7 +149,9 @@ export const TaskCard = memo(function TaskCard({
   onStatusChange,
   isSelectable,
   isSelected,
-  onToggleSelect
+  onToggleSelect,
+  fileOverlaps,
+  holdBlockerTitle
 }: TaskCardProps) {
   const { t } = useTranslation(['tasks', 'errors']);
   const { toast } = useToast();
@@ -157,6 +173,10 @@ export const TaskCard = memo(function TaskCard({
   }, [heldKey]);
 
   const isRunning = task.status === 'in_progress';
+  // zeenha fork: advisory warnings, only for tasks still in play
+  const overlapList = task.metadata?.archivedAt || task.status === 'done' ? [] : (fileOverlaps ?? []);
+  const hasOverlap = overlapList.length > 0;
+  const isWaiting = !!holdBlockerTitle && !task.metadata?.archivedAt && task.status !== 'done';
   // zeenha fork: the run failed before doing any work (Failed column)
   const isFailed = task.status === 'error';
   const executionPhase = task.executionProgress?.phase;
@@ -259,6 +279,8 @@ export const TaskCard = memo(function TaskCard({
           description: result.error,
           variant: 'destructive',
         });
+      } else if (result.action === 'held') {
+        toast({ title: t('tasks:overlap.heldToast', { title: task.title }) });
       } else if (result.action === 'queued') {
         toast({ title: t('tasks:queue.movedToQueue') });
       }
@@ -275,6 +297,8 @@ export const TaskCard = memo(function TaskCard({
         description: result.error,
         variant: 'destructive',
       });
+    } else if (result.action === 'held') {
+      toast({ title: t('tasks:overlap.heldToast', { title: task.title }) });
     } else if (result.action === 'queued') {
       toast({ title: t('tasks:queue.movedToQueue') });
     }
@@ -421,7 +445,7 @@ export const TaskCard = memo(function TaskCard({
         )}
 
         {/* Metadata badges */}
-        {(task.metadata || held || isStuck || isIncomplete || hasActiveExecution || reviewReasonInfo || isFailed) && (
+        {(task.metadata || held || isStuck || isIncomplete || hasActiveExecution || reviewReasonInfo || isFailed || hasOverlap || isWaiting) && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {/* Stuck indicator - highest priority */}
             {isStuck && (
@@ -441,6 +465,33 @@ export const TaskCard = memo(function TaskCard({
               >
                 <AlertTriangle className="h-2.5 w-2.5" />
                 {t('labels.incomplete')}
+              </Badge>
+            )}
+            {/* zeenha fork: waiting on a task this one overlaps with */}
+            {isWaiting && (
+              <Badge
+                variant="outline"
+                data-testid="task-card-waiting-badge"
+                className="text-[10px] px-1.5 py-0.5 flex items-center gap-1 bg-warning/10 text-warning border-warning/30"
+              >
+                <Clock className="h-2.5 w-2.5" />
+                {t('overlap.waitingFor', { title: holdBlockerTitle })}
+              </Badge>
+            )}
+            {/* zeenha fork: other tasks plan to change the same files */}
+            {hasOverlap && (
+              <Badge
+                variant="outline"
+                data-testid="task-card-overlap-badge"
+                title={overlapList
+                  .map((o) => t('overlap.tooltip', { title: o.title, count: o.files.length }))
+                  .join('\n')}
+                className="text-[10px] px-1.5 py-0.5 flex items-center gap-1 bg-warning/10 text-warning border-warning/30"
+              >
+                <AlertTriangle className="h-2.5 w-2.5" />
+                {overlapList.length > 1
+                  ? t('overlap.badgeMore', { title: overlapList[0].title, count: overlapList.length - 1 })
+                  : t('overlap.badge', { title: overlapList[0].title })}
               </Badge>
             )}
             {/* zeenha fork: queued task held by unfinished / failed task dependencies */}

@@ -243,6 +243,9 @@ export interface TaskMetadata {
   // Archive status
   archivedAt?: string;  // ISO date when task was archived
   archivedInVersion?: string;  // Version in which task was archived (from changelog)
+
+  // zeenha fork: the task this one waits for because their planned files overlap
+  holdUntilTaskId?: string;
 }
 
 export interface Task {
@@ -311,6 +314,10 @@ export interface PlanSubtask {
   /** Detailed implementation notes for the coder agent */
   description: string;
   status: SubtaskStatus;
+  /** zeenha fork: files the planner expects this subtask to change (used for overlap warnings) */
+  files_to_modify?: string[];
+  /** zeenha fork: files the planner expects this subtask to create */
+  files_to_create?: string[];
   verification?: {
     type: string;
     run?: string;

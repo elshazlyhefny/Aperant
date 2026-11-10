@@ -522,5 +522,19 @@
     "unlimited": "Illimité",
     "resume": "Augmenter la limite et reprendre",
     "saveFailed": "Impossible d'enregistrer la nouvelle limite"
+  },
+  "overlap": {
+    "badge": "Chevauche « {{title}} »",
+    "badgeMore": "Chevauche « {{title}} » +{{count}}",
+    "waitingFor": "En attente de « {{title}} »",
+    "tooltip": "{{title}} : {{count}} fichier(s) en commun",
+    "heldToast": "La tâche « {{title}} » reste en file d'attente jusqu'à la fin de la tâche qui chevauche.",
+    "title": "Les fichiers prévus se chevauchent avec une autre tâche",
+    "sharedWith": "{{title}} : {{count}} fichier(s) en commun",
+    "wait": "Attendre {{title}}",
+    "stopWaiting": "Arrêter d'attendre",
+    "none": "Aucun chevauchement de fichiers prévus avec les autres tâches actives.",
+    "unknown": "Les fichiers prévus sont inconnus car le plan ne liste aucun fichier.",
+    "holdFailed": "Impossible d'enregistrer l'attente"
   }
 }
