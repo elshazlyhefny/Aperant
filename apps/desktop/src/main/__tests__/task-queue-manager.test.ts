@@ -184,6 +184,15 @@ describe('TaskQueueManager', () => {
     expect(promotedOrder(promote)).toEqual(['later', 'child']);
   });
 
+  it('leaves scheduled tasks to the scheduler', async () => {
+    const scheduled = makeTask('scheduled', 'queue', { createdAt: 1 });
+    scheduled.metadata = { scheduleId: 's1' } as Task['metadata'];
+    const manual = makeTask('manual', 'queue', { createdAt: 2 });
+    const { mgr, promote } = setup([makeProject('p1', 2)], { p1: [scheduled, manual] });
+    await mgr.requestProcess('p1');
+    expect(promotedOrder(promote)).toEqual(['manual']);
+  });
+
   it('keeps going when one project throws', async () => {
     const good = [makeTask('g1', 'queue')];
     const promote = vi.fn(async () => ({ success: true }));

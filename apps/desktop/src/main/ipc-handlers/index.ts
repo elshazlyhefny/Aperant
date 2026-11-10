@@ -35,6 +35,8 @@ import { registerProfileHandlers } from './profile-handlers';
 import { registerScreenshotHandlers } from './screenshot-handlers';
 import { registerTerminalWorktreeIpcHandlers } from './terminal';
 import { registerCodexAuthHandlers } from './codex-auth-handlers';
+import { registerScheduleHandlers } from './schedule-handlers';
+import type { ScheduleService } from '../schedule-service';
 import { notificationService } from '../notification-service';
 import { setAgentManagerRef, safeSendToRenderer } from './utils';
 import { IPC_CHANNELS } from '../../shared/constants';
@@ -55,7 +57,7 @@ export function setupIpcHandlers(
   agentManager: AgentManager,
   terminalManager: TerminalManager,
   getMainWindow: () => BrowserWindow | null
-): void {
+): ScheduleService {
   // Initialize notification service
   notificationService.initialize(getMainWindow);
 
@@ -160,7 +162,11 @@ export function setupIpcHandlers(
   // Codex OAuth authentication handlers
   registerCodexAuthHandlers();
 
+  // zeenha fork: recurring task schedules; the caller starts the returned service
+  const scheduleService = registerScheduleHandlers(agentManager, getMainWindow);
+
   console.warn('[IPC] All handler modules registered successfully');
+  return scheduleService;
 }
 
 // Re-export all individual registration functions for potential custom usage
@@ -189,5 +195,6 @@ export {
   registerMcpHandlers,
   registerProfileHandlers,
   registerScreenshotHandlers,
-  registerCodexAuthHandlers
+  registerCodexAuthHandlers,
+  registerScheduleHandlers
 };

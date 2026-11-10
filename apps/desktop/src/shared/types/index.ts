@@ -29,3 +29,4 @@ export * from './task-queue';
 
 // IPC types (must be last to use types from other modules)
 export * from './ipc';
+export * from './schedule';

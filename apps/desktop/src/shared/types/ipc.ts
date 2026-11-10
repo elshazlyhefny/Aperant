@@ -180,7 +180,9 @@ export interface TabState {
   tabOrder: string[];
 }
 
-export interface ElectronAPI {
+import type { ScheduleAPI } from '../../preload/api/schedule-api';
+
+export interface ElectronAPI extends ScheduleAPI {
   // Project operations
   addProject: (projectPath: string) => Promise<IPCResult<Project>>;
   removeProject: (projectId: string) => Promise<IPCResult>;

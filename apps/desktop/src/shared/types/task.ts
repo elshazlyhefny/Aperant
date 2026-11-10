@@ -170,7 +170,9 @@ export interface TaskMetadata {
   /** zeenha fork: token budget in tokens (input+output). 0 on a task = unlimited override of the project limit. */
   tokenBudget?: number;
   // Origin tracking
-  sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab';
+  sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab' | 'schedule';
+  scheduleId?: string;  // Recurring schedule that created this task
+  scheduledFor?: number;  // Epoch ms of the schedule occurrence
   ideationType?: string;  // e.g., 'code_improvements', 'security_hardening'
   ideaId?: string;  // Reference to original idea if converted
   featureId?: string;  // Reference to roadmap feature if from roadmap
