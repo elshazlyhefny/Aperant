@@ -305,6 +305,39 @@ export interface GitLabSyncStatus {
   error?: string;
 }
 
+export interface BitbucketPullRequest {
+  id: number;
+  title: string;
+  description?: string;
+  state: 'OPEN' | 'MERGED' | 'DECLINED' | 'SUPERSEDED';
+  sourceBranch: string;
+  targetBranch: string;
+  author: {
+    displayName: string;
+    avatarUrl?: string;
+  };
+  reviewers: Array<{
+    displayName: string;
+    avatarUrl?: string;
+  }>;
+  commentCount: number;
+  webUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BitbucketSyncStatus {
+  connected: boolean;
+  repoFullName?: string; // workspace/repo_slug
+  error?: string;
+}
+
+export interface BitbucketDetectedRepository {
+  workspace: string;
+  repoSlug: string;
+  fullName: string; // workspace/repo_slug
+}
+
 export interface GitLabImportResult {
   success: boolean;
   imported: number;

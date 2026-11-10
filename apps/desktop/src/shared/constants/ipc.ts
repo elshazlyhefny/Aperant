@@ -374,6 +374,14 @@ export const IPC_CHANNELS = {
   GITLAB_AUTOFIX_BATCH_COMPLETE: 'gitlab:autofix:batchComplete',
   GITLAB_AUTOFIX_BATCH_ERROR: 'gitlab:autofix:batchError',
 
+  // Bitbucket integration
+  BITBUCKET_CHECK_CONNECTION: 'bitbucket:checkConnection',
+  BITBUCKET_DETECT_REPOSITORY: 'bitbucket:detectRepository',
+  BITBUCKET_GET_PULL_REQUESTS: 'bitbucket:getPullRequests',
+  BITBUCKET_GET_PULL_REQUEST: 'bitbucket:getPullRequest',
+  BITBUCKET_GET_PULL_REQUEST_DIFF: 'bitbucket:getPullRequestDiff',
+  BITBUCKET_POST_PULL_REQUEST_COMMENT: 'bitbucket:postPullRequestComment',
+
   // GitLab Issue Analysis Preview (proactive batch workflow)
   GITLAB_AUTOFIX_ANALYZE_PREVIEW: 'gitlab:autofix:analyzePreview',
   GITLAB_AUTOFIX_ANALYZE_PREVIEW_PROGRESS: 'gitlab:autofix:analyzePreviewProgress',
