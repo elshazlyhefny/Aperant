@@ -4,7 +4,7 @@
  * Tests calibration factor application and step limit adjustment.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { buildMemoryAwareStopCondition, getCalibrationFactor } from '../../injection/memory-stop-condition';
 import type { MemoryService, Memory } from '../../types';
 

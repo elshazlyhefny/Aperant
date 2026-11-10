@@ -10,7 +10,7 @@
  * and keeps the agent focused on ONE task.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 

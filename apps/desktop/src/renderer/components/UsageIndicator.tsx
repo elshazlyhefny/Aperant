@@ -19,12 +19,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from './ui/popover';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from './ui/tooltip';
 import { useTranslation } from 'react-i18next';
 import { formatTimeRemaining, localizeUsageWindowLabel, hasHardcodedText } from '../../shared/utils/format-time';
 import type { ClaudeUsageSnapshot, ProfileUsageSummary } from '../../shared/types/agent';
@@ -146,7 +140,6 @@ export function UsageIndicator() {
   const hasUsageMonitoring = activeAccount ? accountHasUsageMonitoring(activeAccount) : false;
   // Subscription accounts (any provider) have rate limits even though we can't monitor them
   const hasSubscriptionLimits = activeAccount?.billingModel === 'subscription';
-  const isPayPerUse = activeAccount?.billingModel === 'pay-per-use';
   const isCrossProviderMode = settings.customMixedProfileActive === true && !!settings.customMixedPhaseConfig;
   const crossProviderConfig = settings.customMixedPhaseConfig;
   const crossProviderOrder = useMemo(() => {

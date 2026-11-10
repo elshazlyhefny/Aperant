@@ -6,9 +6,8 @@
 
 import { ipcMain } from 'electron';
 import { execFileSync } from 'child_process';
-import * as path from 'path';
 import * as fs from 'fs';
-import { getOllamaExecutablePaths, getOllamaInstallCommand as getPlatformOllamaInstallCommand, getWhichCommand, getCurrentOS } from '../platform';
+import { getOllamaExecutablePaths, getOllamaInstallCommand as getPlatformOllamaInstallCommand, getWhichCommand } from '../platform';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type {
   IPCResult,

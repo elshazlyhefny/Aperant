@@ -81,8 +81,6 @@ export function validateWorktreeBranch(
   };
 }
 
-const execFileAsync = promisify(execFile);
-
 /**
  * zeenha fork: subtask counts from the first readable implementation_plan.json
  * among `specDirs` (the worktree's copy first: the coder updates that one).

@@ -703,7 +703,6 @@ export async function runValidationFixer(
     }
 
     // Build AI fixer prompt
-    const errorList = lastResult.errors.map((e) => `  - ${e}`).join('\n');
     const prompt = buildFixerPrompt(specDir, checkpoint, lastResult.errors);
 
     try {

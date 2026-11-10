@@ -112,7 +112,7 @@ describe('StepInjectionDecider', () => {
         return passesFilter ? [gotcha] : [];
       });
 
-      const result = await decider.decide(5, {
+      await decider.decide(5, {
         toolCalls: [{ toolName: 'Read', args: { file_path: '/src/auth.ts' } }],
         injectedMemoryIds: new Set(['gotcha-already-seen']),
       });

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PRStatusPoller, getPRStatusPoller } from '../pr-status-poller';
+import { PRStatusPoller } from '../pr-status-poller';
 import { POLLING_INTERVALS, RATE_LIMIT_THRESHOLDS } from '../../../shared/types/pr-status';
 import type { PRStatusUpdate, PollingMetadata, PRStatus } from '../../../shared/types/pr-status';
 
@@ -50,31 +50,6 @@ describe('PRStatusPoller Integration Tests', () => {
       },
       isDestroyed: () => false
     } as unknown as Electron.BrowserWindow;
-  }
-
-  /**
-   * Helper to create a standard successful PR response
-   */
-  function createSuccessfulPRResponse(prNumber: number, options?: {
-    updatedAt?: string;
-    mergeableState?: string;
-    checksState?: 'success' | 'pending' | 'failure';
-    reviewState?: 'APPROVED' | 'CHANGES_REQUESTED' | 'PENDING';
-  }) {
-    const opts = options ?? {};
-    const updatedAt = opts.updatedAt ?? new Date().toISOString();
-
-    return {
-      data: {
-        number: prNumber,
-        updated_at: updatedAt,
-        head: { sha: `sha-${prNumber}` },
-        mergeable: opts.mergeableState !== 'dirty',
-        mergeable_state: opts.mergeableState ?? 'clean'
-      },
-      fromCache: false,
-      rateLimitInfo: { remaining: 4500, reset: new Date(Date.now() + 3600000), limit: 5000 }
-    };
   }
 
   /**

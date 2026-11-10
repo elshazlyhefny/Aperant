@@ -10,7 +10,6 @@ import {
   Bug,
   Sparkles,
   RefreshCcw,
-  BookOpen,
   BarChart2
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
