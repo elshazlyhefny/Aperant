@@ -16,7 +16,9 @@ vi.mock('react-i18next', () => ({
 }));
 
 const project = { id: 'p1', name: 'Demo', path: '/tmp/demo' } as Project;
-const availability: SandboxAvailability = { state: 'available', tool: 'bwrap', installHint: null };
+const availability: SandboxAvailability = {
+  state: 'available', tool: 'bwrap', installHint: null, unsupportedModes: ['restricted-rights'],
+};
 
 function renderIt(avail: SandboxAvailability = availability) {
   const onEnable = vi.fn();
@@ -48,10 +50,21 @@ describe('SandboxOfferDialog', () => {
     expect(onEnable).toHaveBeenCalledWith('home-hidden-no-network');
   });
 
-  it('does not offer the no-network mode where the platform refuses it', () => {
-    renderIt({ state: 'available', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden-no-network'] });
+  it('offers only restricted rights on Windows', () => {
+    const { onEnable } = renderIt({
+      state: 'available', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden', 'home-hidden-no-network'],
+    });
     expect(screen.queryByRole('button', { name: 'sandboxOffer.homeHiddenNoNetwork.label' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'sandboxOffer.homeHidden.label' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'sandboxOffer.homeHidden.label' })).not.toBeInTheDocument();
+    expect(screen.getByText('sandboxOffer.restrictedRights.description')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'sandboxOffer.restrictedRights.label' }));
+    expect(onEnable).toHaveBeenCalledWith('restricted-rights');
+  });
+
+  it('does not offer restricted rights on Linux or macOS', () => {
+    renderIt();
+    expect(screen.queryByRole('button', { name: 'sandboxOffer.restrictedRights.label' })).not.toBeInTheDocument();
+    expect(screen.queryByText('sandboxOffer.restrictedRights.description')).not.toBeInTheDocument();
   });
 
   it('skips with Not now', () => {

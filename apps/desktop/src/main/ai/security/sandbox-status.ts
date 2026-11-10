@@ -34,21 +34,25 @@ export function getSandboxAvailability(opts: SandboxAvailabilityOptions = {}): S
   const platform = resolvePlatform(opts.platformName);
   const find = opts.find ?? ((name: string) => findExecutable(name));
 
+  // zeenha fork: 'restricted-rights' exists only on Windows, and Windows offers nothing else.
+  const unixOnly: SandboxMode[] = ['restricted-rights'];
   if (platform === 'linux') {
     return find('bwrap')
-      ? { state: 'available', tool: 'bwrap', installHint: null }
-      : { state: 'tool-missing', tool: 'bwrap', installHint: 'bubblewrap' };
+      ? { state: 'available', tool: 'bwrap', installHint: null, unsupportedModes: unixOnly }
+      : { state: 'tool-missing', tool: 'bwrap', installHint: 'bubblewrap', unsupportedModes: unixOnly };
   }
   if (platform === 'darwin') {
     return find('sandbox-exec')
-      ? { state: 'available', tool: 'sandbox-exec', installHint: null }
-      : { state: 'tool-missing', tool: 'sandbox-exec', installHint: null };
+      ? { state: 'available', tool: 'sandbox-exec', installHint: null, unsupportedModes: unixOnly }
+      : { state: 'tool-missing', tool: 'sandbox-exec', installHint: null, unsupportedModes: unixOnly };
   }
-  // zeenha fork: Windows runs the sandbox (restricted token + Job object) through
-  // a PowerShell launcher. It cannot block the network, so that mode is refused.
+  // zeenha fork: Windows runs 'restricted-rights' (restricted token + Job object)
+  // through a PowerShell launcher. Git Bash cannot run with the profile hidden,
+  // so both home-hidden modes are refused.
+  const windowsUnsupported: SandboxMode[] = ['home-hidden', 'home-hidden-no-network'];
   return resolvePowerShell(opts.find)
-    ? { state: 'available', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden-no-network'] }
-    : { state: 'tool-missing', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden-no-network'] };
+    ? { state: 'available', tool: 'powershell', installHint: null, unsupportedModes: windowsUnsupported }
+    : { state: 'tool-missing', tool: 'powershell', installHint: null, unsupportedModes: windowsUnsupported };
 }
 
 export { deriveSandboxStatus } from '../../../shared/utils/sandbox-status';

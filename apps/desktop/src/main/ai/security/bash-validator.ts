@@ -82,7 +82,7 @@ export interface SecurityProfile {
   prOnlyLanding?: boolean;
   /** zeenha fork: env var names that stay visible to Bash commands despite looking like credentials. */
   envPassthrough?: string[];
-  /** zeenha fork: per-project Bash sandbox mode ('off' | 'home-hidden' | 'home-hidden-no-network'). */
+  /** zeenha fork: per-project Bash sandbox mode ('off' | 'home-hidden' | 'home-hidden-no-network' | 'restricted-rights'). */
   bashSandbox?: string;
 }
 

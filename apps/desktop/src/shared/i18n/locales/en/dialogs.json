@@ -248,6 +248,10 @@
       "description": "As above, and commands cannot reach the network."
     },
     "failClosed": "If the sandbox cannot run later, agent shell commands are refused instead of run unsandboxed.",
-    "skip": "Not now"
+    "skip": "Not now",
+    "restrictedRights": {
+      "label": "Restricted rights",
+      "description": "Commands run without administrator rights or privileges, and leftover processes are stopped when a command ends. Your home directory is not hidden and the network is not blocked."
+    }
   }
 }

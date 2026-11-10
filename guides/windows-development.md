@@ -70,37 +70,33 @@ Windows filesystems are case-insensitive. Be consistent with casing in import pa
 
 ## Testing the Bash sandbox
 
-On Windows the Bash sandbox starts Git Bash with a restricted copy of your own token and puts it in a Job object (see `apps/desktop/src/main/ai/security/sandbox-windows.ts`).
+On Windows the Bash sandbox offers one mode, `restricted-rights` ("Restricted rights"). It starts Git Bash with a restricted copy of your own token and puts it in a Job object (see `apps/desktop/src/main/ai/security/sandbox-windows.ts`).
 
-**What it guarantees in `home-hidden` mode**
+| Mode | Windows behaviour |
+|---|---|
+| `off` | Commands run with your full rights. |
+| `restricted-rights` | Administrators and every other non-generic group become deny-only. Every privilege except `SeChangeNotifyPrivilege` is removed. The Job object stops every process the command started when the command ends or is killed, does not allow breakaway, and blocks clipboard, desktop and other UI access. **It does not hide your home directory and does not block the network.** Commands still run as you and can read and write everything your account can. |
+| `home-hidden`, `home-hidden-no-network` | Refused. Every agent shell command fails while one of these is selected, and the settings page shows "Mode not supported here". |
 
-- Files that only your account can open, which is your whole user profile (SSH keys, tokens, other projects), cannot be read or written. The token's restricting SIDs do not include your user SID, so a second access check fails for them. The project paths are opened up by granting a fixed sandbox SID on them, and `~/.gitconfig` and `~/.config/git` are granted read so git keeps your identity.
-- Administrators and every other non-generic group are deny-only, and every privilege except `SeChangeNotifyPrivilege` is removed.
-- The Job object kills every remaining process when the command ends or is killed, does not allow breakaway, and blocks clipboard, desktop and other UI access.
-- `TEMP` and `TMP` point to `%TEMP%\aperant-bash-sandbox`, the only temp folder the sandbox can write.
+**Why the home-hidden modes are refused.** Git Bash (MSYS2) protects its own pipes and shared memory with an access list for your user, Administrators and SYSTEM. Your profile folder has the same access list. A restricted token that lets Git Bash open its own objects can therefore also read your profile. An AppContainer is no better, because MSYS2 programs die at startup inside one. Low integrity is not used either, because it would also block writes to the project.
 
-**What it does not do**
+**How the launcher runs.** The launcher script is written to `%LOCALAPPDATA%\Aperant\bash-sandbox`. Before running it, the PowerShell bootstrap checks the script's SHA-256, so a script changed by a sandboxed command is refused instead of run.
 
-- `home-hidden-no-network` is refused: neither a restricted token nor a Job object can block network access, so every agent shell command fails closed in that mode. Choose `home-hidden` instead.
-- Low integrity is not used. It would block only writes, not reads, and the worktree would have to be relabelled. As a result, folders that every user may write to (for example `C:\ProgramData` or `C:\Users\Public`) stay writable, and files that grant `Users` or `Everyone` read stay readable.
-- The access grants are written into the ACLs of the project folders and the git config files and stay there. They only apply to processes started by the sandbox.
+**Prerequisites:** Windows 10/11, Git for Windows (Git Bash) and PowerShell 5.1 or newer.
 
-**Prerequisites:** Windows 10/11, Git for Windows (Git Bash), PowerShell 5.1 or newer, and Node.js installed system-wide (for example under `C:\Program Files`).
-
-**Enable it:** open the project settings and set `bashSandbox` to `home-hidden`. Then ask an agent to run the commands below, or run the automated test: `cd apps/desktop && npx vitest run src/main/ai/security/__tests__/sandbox-windows.integration.test.ts`.
+**Enable it:** open the project settings and choose "Restricted rights (Windows only)". Then ask an agent to run the commands below, or run the automated test: `cd apps/desktop && npx vitest run src/main/ai/security/__tests__/sandbox-windows.integration.test.ts`.
 
 | Command (in the sandboxed shell) | Expected output |
 |---|---|
-| `cat ~/canary.txt` (create the file first) | `Permission denied`; the file contents are not printed |
-| `echo x > ~/probe.txt` | `Permission denied` |
-| `npm test` in the worktree | Runs and passes; the worktree is readable and writable |
-| `whoami.exe /groups` | `BUILTIN\Administrators` shows `Group used for deny only` |
+| `npm test` in the worktree | Runs and passes |
+| `whoami.exe /groups` | `BUILTIN\Administrators` shows `Group used for deny only` (when your account is an administrator) |
+| `whoami.exe /priv` | Only `SeChangeNotifyPrivilege` |
+| `(sleep 5; touch late.txt) &` | `late.txt` never appears: the background process is stopped when the command ends |
 
 **Known limits**
 
-- Tools installed under the user profile (nvm, per-user Node, per-user Git) are not readable. Install them system-wide, or add the install directory as a writable path.
-- Links from the worktree to folders inside your profile (for example a linked `node_modules`) are not readable unless the target is added as a writable path.
-- The sandbox limits file access. It is not a defence against a kernel exploit.
+- This mode is not a security boundary between the agent and your files or your other processes. It drops administrator rights and cleans up processes, nothing more.
+- It is not a defence against a kernel exploit.
 
 ## Resources
 

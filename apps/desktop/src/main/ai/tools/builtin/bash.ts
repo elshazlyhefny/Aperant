@@ -9,8 +9,9 @@
  * NOTE: Commands run via execFile in the task cwd with the user's permissions
  * and are NOT covered by path-containment.ts. The child process gets a scrubbed
  * environment (credential variables removed), and the real isolation control is
- * the opt-in OS sandbox (bubblewrap on Linux, sandbox-exec on macOS, a
- * restricted token plus a Job object on Windows). Foreground and background runs share the
+ * the opt-in OS sandbox (bubblewrap on Linux, sandbox-exec on macOS; on Windows
+ * only a weaker restricted token plus Job object that does not hide the home
+ * directory). Foreground and background runs share the
  * same wrapped file/args, and the tool fails closed when the sandbox is unavailable.
  * Supports timeouts, background execution, and descriptive metadata.
  */

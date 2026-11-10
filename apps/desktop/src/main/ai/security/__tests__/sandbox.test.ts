@@ -88,10 +88,10 @@ describe('wrapForSandbox', () => {
     if (!w.ok) expect(w.reason).toMatch(/Windows/);
   });
 
-  it('builds a PowerShell launcher on win32 when powershell is found', () => {
+  it('builds a PowerShell launcher on win32 for restricted-rights when powershell is found', () => {
     const r = wrapForSandbox('C:\\Git\\bash.exe', [], {
       ...base, cwd: 'C:\\work\\wt', projectDir: 'C:\\work\\main', writablePaths: [], homeDir: 'C:\\Users\\u',
-      mode: 'home-hidden', platformName: 'win32', find: (n: string) => `C:\\bin\\${n}`,
+      mode: 'restricted-rights', platformName: 'win32', find: (n: string) => `C:\\bin\\${n}`,
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -101,13 +101,23 @@ describe('wrapForSandbox', () => {
     expect(r.args).toContain('-Command');
   });
 
-  it('refuses home-hidden-no-network on win32 even when powershell is found', () => {
-    const r = wrapForSandbox('C:\\Git\\bash.exe', [], {
-      ...base, cwd: 'C:\\work\\wt', projectDir: 'C:\\work\\main', writablePaths: [], homeDir: 'C:\\Users\\u',
-      mode: 'home-hidden-no-network', platformName: 'win32', find: (n: string) => `C:\\bin\\${n}`,
-    });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/network/);
+  it('refuses both home-hidden modes on win32 even when powershell is found', () => {
+    for (const mode of ['home-hidden', 'home-hidden-no-network'] as const) {
+      const r = wrapForSandbox('C:\\Git\\bash.exe', [], {
+        ...base, cwd: 'C:\\work\\wt', projectDir: 'C:\\work\\main', writablePaths: [], homeDir: 'C:\\Users\\u',
+        mode, platformName: 'win32', find: (n: string) => `C:\\bin\\${n}`,
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/not supported on Windows/);
+    }
+  });
+
+  it('refuses restricted-rights on linux and macOS even when the sandbox tool is found', () => {
+    for (const platformName of ['linux', 'darwin'] as const) {
+      const r = wrapForSandbox('/bin/bash', ['-c', 'ls'], { ...base, mode: 'restricted-rights', platformName, find: found });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/only available on Windows/);
+    }
   });
 });
 
@@ -115,6 +125,7 @@ describe('parseSandboxMode', () => {
   it('accepts valid modes and defaults to off', () => {
     expect(parseSandboxMode('home-hidden')).toBe('home-hidden');
     expect(parseSandboxMode('home-hidden-no-network')).toBe('home-hidden-no-network');
+    expect(parseSandboxMode('restricted-rights')).toBe('restricted-rights');
     for (const v of [undefined, null, 5, 'nope', {}, '']) expect(parseSandboxMode(v)).toBe('off');
   });
 });

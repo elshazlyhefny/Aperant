@@ -1,9 +1,10 @@
-// zeenha fork: runs the real Windows restricted-token + Job object launcher.
-// Only meaningful on Windows, so it is skipped elsewhere (a test file may check
-// the OS directly). Every isolation assertion is paired with a positive control
-// in the same shell run, so a test cannot pass just because bash failed to start.
+// zeenha fork: runs the real Windows "restricted rights" launcher (restricted
+// token + Job object). Only meaningful on Windows, so it is skipped elsewhere (a
+// test file may check the OS directly). Each assertion runs a real shell; tests
+// that check a restriction also check that the shell ran, so a test cannot pass
+// just because bash failed to start.
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -45,38 +46,31 @@ function describeRun(r: RunResult): string {
 }
 
 // Each run starts PowerShell and compiles the launcher, so allow a generous timeout.
-describe.skipIf(process.platform !== 'win32')('Windows sandbox (integration)', { timeout: 120_000 }, () => {
+describe.skipIf(process.platform !== 'win32')('Windows restricted-rights sandbox (integration)', { timeout: 120_000 }, () => {
   let worktree: string;
-  let canaryDir: string;
-  let canary: string;
   let bash: string;
 
   beforeAll(() => {
     bash = BASH_CANDIDATES.find((p) => existsSync(p)) ?? '';
-    // On a GitHub runner os.tmpdir() is inside the user profile, so the worktree
-    // only works because the sandbox grants it explicitly.
     worktree = mkdtempSync(path.join(os.tmpdir(), 'aperant-sbx-wt-'));
-    // Created before the first grant: the grant must reach existing files too.
-    mkdirSync(path.join(worktree, 'existing', 'nested'), { recursive: true });
-    writeFileSync(path.join(worktree, 'existing', 'nested', 'old.txt'), 'pre-existing');
-    canaryDir = path.join(os.homedir(), `aperant-sbx-canary-${process.pid}-${Date.now()}`);
-    mkdirSync(canaryDir, { recursive: true });
-    canary = path.join(canaryDir, 'canary.txt');
-    writeFileSync(canary, 'SECRET-CANARY');
   });
 
   afterAll(() => {
-    rmSync(canaryDir, { recursive: true, force: true });
     rmSync(worktree, { recursive: true, force: true });
   });
 
-  function sandboxed(script: string, mode: SandboxMode = 'home-hidden'): Promise<RunResult> {
-    const wrapped = wrapForSandbox(bash, ['-c', script], {
+  function wrap(script: string, mode: SandboxMode = 'restricted-rights', launcherDir?: string) {
+    return wrapForSandbox(bash, ['-c', script], {
       mode,
       cwd: worktree,
       projectDir: worktree,
       writablePaths: [],
+      launcherDir,
     });
+  }
+
+  function sandboxed(script: string): Promise<RunResult> {
+    const wrapped = wrap(script);
     if (!wrapped.ok) throw new Error(wrapped.reason);
     return exec(wrapped.file, wrapped.args, worktree);
   }
@@ -93,18 +87,15 @@ describe.skipIf(process.platform !== 'win32')('Windows sandbox (integration)', {
     expect(r.stdout).toContain('done');
   });
 
-  it('can write and read a file in the worktree', async () => {
-    const r = await sandboxed(
-      'echo hello > probe.txt && cat probe.txt && cat existing/nested/old.txt && echo more >> existing/nested/old.txt && cat <<EOF\nheredoc-ok\nEOF'
-    );
+  it('can write and read files in the project', async () => {
+    const r = await sandboxed('echo hello > probe.txt && cat probe.txt && cat <<EOF\nheredoc-ok\nEOF');
     expect(r.code, describeRun(r)).toBe(0);
-    expect(r.stdout).toContain('pre-existing');
     expect(r.stdout).toContain('hello');
     expect(r.stdout).toContain('heredoc-ok');
     expect(readFileSync(path.join(worktree, 'probe.txt'), 'utf8')).toContain('hello');
   });
 
-  it('runs node and git, including a git repository in the worktree', async () => {
+  it('runs node and git, including a git repository in the project', async () => {
     const r = await sandboxed(
       'node --version && git --version && git init -q repo && cd repo && echo x > f && git add f && git status --short'
     );
@@ -114,28 +105,10 @@ describe.skipIf(process.platform !== 'win32')('Windows sandbox (integration)', {
     expect(r.stdout).toContain('A  f');
   });
 
-  it('cannot read a canary file under the home directory', async () => {
-    const r = await sandboxed(`echo control-ok; cat "${toPosix(canary)}"`);
-    expect(r.stdout, describeRun(r)).toContain('control-ok');
-    expect(r.code).not.toBe(0);
-    expect(r.stdout).not.toContain('SECRET-CANARY');
-    expect(r.stderr).toMatch(/Permission denied/i);
-  });
-
-  it('cannot list or write into the home directory', async () => {
-    const target = path.join(canaryDir, 'written-by-sandbox.txt');
-    const r = await sandboxed(
-      `echo control-ok; ls "${toPosix(canaryDir)}"; echo pwned > "${toPosix(target)}"`
-    );
-    expect(r.stdout, describeRun(r)).toContain('control-ok');
-    expect(r.stdout).not.toContain('canary.txt');
-    expect(r.code).not.toBe(0);
-    expect(existsSync(target)).toBe(false);
-  });
-
   it('makes the Administrators group deny-only and keeps only SeChangeNotifyPrivilege', async () => {
     const whoami = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe');
     const outside = await exec(whoami, ['/groups', '/fo', 'csv'], worktree);
+    const outsidePrivs = await exec(whoami, ['/priv', '/fo', 'csv'], worktree);
     const r = await sandboxed(
       `${NO_PATH_CONVERSION} "${toPosix(whoami)}" /groups /fo csv && echo ---- && ${NO_PATH_CONVERSION} "${toPosix(whoami)}" /priv /fo csv`
     );
@@ -152,6 +125,8 @@ describe.skipIf(process.platform !== 'win32')('Windows sandbox (integration)', {
       .map((l) => l.trim())
       .filter((l) => l.startsWith('"Se'));
     expect(privRows.map((l) => l.split(',')[0]), privs).toEqual(['"SeChangeNotifyPrivilege"']);
+    // Control: the unsandboxed process really had more privileges to drop.
+    expect(outsidePrivs.stdout.split(/\r?\n/).filter((l) => l.trim().startsWith('"Se')).length).toBeGreaterThan(1);
   });
 
   it('kills leftover background processes when the command ends', async () => {
@@ -159,35 +134,50 @@ describe.skipIf(process.platform !== 'win32')('Windows sandbox (integration)', {
       `(sleep 5; echo late > ${marker}) </dev/null >/dev/null 2>&1 & echo started`;
 
     // Control: without the sandbox the orphaned background process survives and writes its marker.
-    const plain = wrapForSandbox(bash, ['-c', script('late-plain.txt')], {
-      mode: 'off', cwd: worktree, projectDir: worktree, writablePaths: [],
-    });
+    const plain = wrap(script('late-plain.txt'), 'off');
     if (!plain.ok) throw new Error(plain.reason);
     const control = await exec(plain.file, plain.args, worktree);
     expect(control.stdout, describeRun(control)).toContain('started');
 
     const r = await sandboxed(script('late-sandboxed.txt'));
-    expect(r.stdout, describeRun(r)).toContain('started');
+    expect(r.code, describeRun(r)).toBe(0);
+    expect(r.stdout).toContain('started');
 
     await sleep(9_000);
     expect(existsSync(path.join(worktree, 'late-plain.txt'))).toBe(true);
     expect(existsSync(path.join(worktree, 'late-sandboxed.txt'))).toBe(false);
   });
 
-  it('refuses the no-network mode, which Windows cannot enforce', () => {
-    const r = wrapForSandbox(bash, ['-c', 'echo hi'], {
-      mode: 'home-hidden-no-network',
-      cwd: worktree,
-      projectDir: worktree,
-      writablePaths: [],
-    });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/not supported on Windows/);
+  it('refuses a launcher script that was replaced after it was written', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'aperant-sbx-launcher-'));
+    try {
+      const wrapped = wrap('echo should-not-run', 'restricted-rights', dir);
+      if (!wrapped.ok) throw new Error(wrapped.reason);
+      const command = wrapped.args[wrapped.args.indexOf('-Command') + 1];
+      const file = command.match(/ReadAllText\('([^']+)'\)/)?.[1];
+      expect(file).toBeDefined();
+      writeFileSync(file as string, "Set-Content -Path 'pwned.txt' -Value x");
+      const r = await exec(wrapped.file, wrapped.args, worktree);
+      expect(r.code, describeRun(r)).toBe(125);
+      expect(r.stderr).toMatch(/modified/);
+      expect(r.stdout).not.toContain('should-not-run');
+      expect(existsSync(path.join(worktree, 'pwned.txt'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses both home-hidden modes, which Windows cannot enforce for Git Bash', () => {
+    for (const mode of ['home-hidden', 'home-hidden-no-network'] as const) {
+      const r = wrap('echo hi', mode);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/not supported on Windows/);
+    }
   });
 
   it('fails closed when PowerShell cannot be found', () => {
     const r = wrapForSandbox(bash || 'C:\\Git\\bin\\bash.exe', ['-c', 'ls'], {
-      mode: 'home-hidden',
+      mode: 'restricted-rights',
       cwd: worktree,
       projectDir: worktree,
       writablePaths: [],

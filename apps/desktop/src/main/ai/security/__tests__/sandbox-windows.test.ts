@@ -1,23 +1,25 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { isWindows } from '../../../platform/index';
 import { wrapForSandbox } from '../sandbox';
 import {
+  defaultLauncherDir,
   ensureLauncherFile,
   findWindowsTool,
-  SANDBOX_SID,
+  LAUNCHER_SHA256,
   type WindowsLauncherPayload,
 } from '../sandbox-windows';
 
 const SHELL = 'C:\\Git\\bin\\bash.exe';
-const HOME = 'C:\\Users\\u';
 const launcherDir = mkdtempSync(path.join(os.tmpdir(), 'aperant-sbx-unit-'));
 const base = {
   cwd: 'C:\\work\\wt',
   projectDir: 'C:\\work\\main',
   writablePaths: ['C:\\work\\extra'],
-  homeDir: HOME,
+  homeDir: 'C:\\Users\\u',
   platformName: 'win32' as const,
   find: (n: string) => `C:\\bin\\${n}`,
   launcherDir,
@@ -28,14 +30,14 @@ afterAll(() => {
 });
 
 function run(overrides: Record<string, unknown> = {}, args: string[] = ['-c', 'ls'], shell = SHELL) {
-  return wrapForSandbox(shell, args, { ...base, mode: 'home-hidden', ...overrides } as never);
+  return wrapForSandbox(shell, args, { ...base, mode: 'restricted-rights', ...overrides } as never);
 }
 
 function decode(r: ReturnType<typeof run>): { command: string; script: string; payload: WindowsLauncherPayload } {
   if (!r.ok) throw new Error(`expected ok, got: ${r.reason}`);
   const command = r.args[r.args.indexOf('-Command') + 1];
   const file = command.match(/ReadAllText\('([^']+)'\)/);
-  const b64 = command.match(/\)\)\) '([A-Za-z0-9+/=]+)'$/);
+  const b64 = command.match(/::Create\(\$t\)\) '([A-Za-z0-9+/=]+)'$/);
   if (!file || !b64) throw new Error(`unexpected bootstrap: ${command}`);
   return {
     command,
@@ -44,7 +46,7 @@ function decode(r: ReturnType<typeof run>): { command: string; script: string; p
   };
 }
 
-describe('Windows sandbox launcher', () => {
+describe('Windows restricted-rights launcher', () => {
   it('runs PowerShell with a short -Command bootstrap', () => {
     const r = run();
     expect(r.ok).toBe(true);
@@ -63,42 +65,41 @@ describe('Windows sandbox launcher', () => {
     expect(decode(r).payload.args[1]).toBe(long);
   });
 
-  it('builds a restricted token and a kill-on-close Job object, not an AppContainer', () => {
+  it('builds a restricted token without restricting SIDs and a kill-on-close Job object', () => {
     const { script } = decode(run());
-    expect(script).toContain('CreateRestrictedToken');
-    expect(script).toContain('DISABLE_MAX_PRIVILEGE');
+    expect(script).toContain('CreateRestrictedToken(tok, DISABLE_MAX_PRIVILEGE');
+    expect(script).toContain('0, IntPtr.Zero, 0, null, out rtok');
     expect(script).toContain('CreateProcessAsUserW');
     expect(script).toMatch(/JOB_LIMIT_FLAGS = 0x2000 \| 0x400;/);
+    expect(script).toContain('JOB_UI_LIMITS = 0xFF');
     expect(script).toContain('AssignProcessToJobObject');
-    expect(script).not.toMatch(/AppContainer|SECURITY_CAPABILITIES/);
-    // the user SID is never put on the restricting list
-    expect(script).not.toMatch(/restrict\.Add\([^)]*userSid/);
+    expect(script).not.toMatch(/AppContainer|SECURITY_CAPABILITIES|SetAccessControl|icacls/);
   });
 
-  it('grants the sandbox SID on cwd, projectDir and writablePaths but never the home directory', () => {
+  it('carries only the shell, its arguments and the cwd', () => {
     const { payload } = decode(run());
-    expect(payload.sid).toBe(SANDBOX_SID);
-    expect(payload.rwPaths).not.toContain(HOME);
-    expect(payload.rwPaths).toEqual(['C:\\work\\wt', 'C:\\work\\main', 'C:\\work\\extra']);
-    expect(payload.readPaths).toEqual([`${HOME}\\.gitconfig`, `${HOME}\\.config\\git`]);
+    expect(payload).toEqual({ shell: SHELL, args: ['-c', 'ls'], cwd: 'C:\\work\\wt' });
   });
 
-  it('refuses to make the home directory writable', () => {
-    expect(run({ writablePaths: [HOME] }).ok).toBe(false);
-    expect(run({ writablePaths: [`${HOME}\\`] }).ok).toBe(false);
+  it('refuses both home-hidden modes, which Windows cannot enforce for Git Bash', () => {
+    for (const mode of ['home-hidden', 'home-hidden-no-network']) {
+      const r = run({ mode });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/not supported on Windows/);
+    }
   });
 
-  it('refuses the no-network mode, which Windows cannot enforce', () => {
-    const r = run({ mode: 'home-hidden-no-network' });
+  it('fails closed when PowerShell cannot be found', () => {
+    const r = run({ find: () => null });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/not supported on Windows/);
+    if (!r.ok) expect(r.reason).toMatch(/powershell/i);
   });
 
   it('rejects control characters and relative paths', () => {
     expect(run({ cwd: 'C:\\work\\w\u0000t' }).ok).toBe(false);
     expect(run({ cwd: 'C:\\work\\w\nt' }).ok).toBe(false);
-    expect(run({ projectDir: 'work\\main' }).ok).toBe(false);
-    expect(run({ writablePaths: ['..\\x'] }).ok).toBe(false);
+    expect(run({ cwd: 'work\\wt' }).ok).toBe(false);
+    expect(run({ cwd: '\\\\server\\share' }).ok).toBe(false);
     expect(run({}, ['-c', 'ls'], 'bash.exe').ok).toBe(false);
     expect(run({}, ['a\u0000b']).ok).toBe(false);
   });
@@ -106,11 +107,19 @@ describe('Windows sandbox launcher', () => {
   it('carries shell and args only in the payload, never in the command text or script', () => {
     const evil = `"; calc; ' & calc`;
     const { command, script, payload } = decode(run({}, ['-c', evil]));
-    expect(payload.shell).toBe(SHELL);
     expect(payload.args).toEqual(['-c', evil]);
     expect(command).not.toContain(evil);
     expect(command).not.toContain(SHELL);
     expect(script).not.toContain(evil);
+  });
+
+  it('makes the bootstrap verify the launcher hash before running it', () => {
+    const { command, script } = decode(run());
+    expect(createHash('sha256').update(script, 'utf8').digest('hex')).toBe(LAUNCHER_SHA256);
+    expect(command).toContain(`if ($h -ne '${LAUNCHER_SHA256}')`);
+    // the checked text is what runs: the file is read once
+    expect(command.match(/ReadAllText/g)).toHaveLength(1);
+    expect(command).toContain('[scriptblock]::Create($t)');
   });
 });
 
@@ -121,6 +130,18 @@ describe('ensureLauncherFile', () => {
     writeFileSync(file, 'Write-Output pwned');
     expect(ensureLauncherFile(launcherDir)).toBe(file);
     expect(readFileSync(file, 'utf8')).toBe(original);
+  });
+
+  it('leaves no temporary files behind and keeps the file owner-only where supported', () => {
+    const file = ensureLauncherFile(launcherDir);
+    expect(readdirSync(launcherDir).filter((n) => n.endsWith('.tmp'))).toEqual([]);
+    if (!isWindows()) expect(statSync(file).mode & 0o077).toBe(0);
+  });
+
+  it('defaults to a per-user directory outside the shared temp directory', () => {
+    expect(defaultLauncherDir({ LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local' })).toBe(
+      path.join('C:\\Users\\u\\AppData\\Local', 'Aperant', 'bash-sandbox')
+    );
   });
 });
 
