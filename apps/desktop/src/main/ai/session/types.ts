@@ -18,6 +18,7 @@ import type { AgentType } from '../config/agent-configs';
 import type { ModelShorthand, Phase, ThinkingLevel } from '../config/types';
 import type { McpClientResult } from '../mcp/types';
 import type { ToolContext } from '../tools/types';
+import type { TokenBudgetGuard } from './token-budget';
 
 // =============================================================================
 // Session Configuration
@@ -48,6 +49,8 @@ export interface SessionConfig {
   mcpClients?: McpClientResult[];
   /** Spec directory for the current task */
   specDir: string;
+  /** zeenha fork: optional token budget; the session stops when it is reached */
+  tokenBudget?: TokenBudgetGuard;
   /** Project directory root */
   projectDir: string;
   /** Current phase for model/thinking resolution */
@@ -142,6 +145,9 @@ export interface TokenUsage {
   /** Cache creation tokens (Anthropic prompt caching) */
   cacheCreationTokens?: number;
 }
+
+/** SessionError code used when a session stops because the task token budget was reached */
+export const TOKEN_BUDGET_ERROR_CODE = 'token_budget';
 
 /** Structured error from a session */
 export interface SessionError {

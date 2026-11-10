@@ -30,6 +30,7 @@ import {
   resolveTaskModelId,
   resolveTaskPhaseProvider,
   buildDefaultPlannerPrompt,
+  resolveTaskTokenBudget,
 } from '../ai/agent/task-session';
 import { parseEnvPassthrough } from '../ai/security/child-env';
 import { parseSandboxMode } from '../ai/security/sandbox';
@@ -570,6 +571,7 @@ export class AgentManager extends EventEmitter {
       // When running in a worktree, sourceSpecDir points to the main project spec dir
       // so the subtask iterator can sync phase updates in real time (not just on exit).
       sourceSpecDir: worktreePath ? specDir : undefined,
+      tokenBudget: this.resolveTaskTokenBudget(specDir, project?.settings),
       provider: resolved.provider,
       modelId: resolved.modelId,
       apiKey: resolved.auth?.apiKey,
@@ -675,6 +677,7 @@ export class AgentManager extends EventEmitter {
       maxSteps: 1000,
       specDir: effectiveSpecDir,
       projectDir: effectiveProjectDir,
+      tokenBudget: this.resolveTaskTokenBudget(specDir, project?.settings),
       provider: resolved.provider,
       modelId: resolved.modelId,
       apiKey: resolved.auth?.apiKey,
@@ -973,6 +976,15 @@ export class AgentManager extends EventEmitter {
 
   private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean, envPassthrough: string[], bashSandbox: string): SerializedSecurityProfile {
     return serializeSecurityProfile(projectDir, { prOnlyLanding, envPassthrough, bashSandbox });
+  }
+
+  /**
+   * zeenha fork: the effective token budget for a task: its task_metadata.json
+   * override (0 = unlimited) else the project default. Serialized into the
+   * worker config because workers cannot read main-process stores.
+   */
+  resolveTaskTokenBudget(specDir: string, projectSettings?: { tokenBudget?: number }): number | undefined {
+    return resolveTaskTokenBudget(specDir, projectSettings);
   }
 
   private resolveTaskModelId(specDir: string, phase: 'planning' | 'coding' | 'qa' | 'spec'): Promise<string> {

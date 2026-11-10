@@ -28,12 +28,14 @@ export type TaskEvent =
   | { type: 'QA_MAX_ITERATIONS'; iteration: number; maxIterations: number }
   | { type: 'QA_AGENT_ERROR'; iteration: number; consecutiveErrors: number }
   | { type: 'PROCESS_EXITED'; exitCode: number; signal?: string; unexpected?: boolean }
+  | { type: 'TOKEN_BUDGET_REACHED'; used?: number; limit?: number }
   | { type: 'USER_STOPPED'; hasPlan?: boolean }
   | { type: 'USER_MOVED_TO_BACKLOG' }
   | { type: 'USER_RESUMED' }
   | { type: 'MARK_DONE' }
   | { type: 'CREATE_PR' }
-  | { type: 'PR_CREATED'; prUrl: string };
+  | { type: 'PR_CREATED'; prUrl: string }
+  | { type: 'PR_FOLLOWUP_STARTED' };
 
 export const taskMachine = createMachine(
   {
@@ -75,6 +77,7 @@ export const taskMachine = createMachine(
           // Fallback: if QA_PASSED arrives while in planning (entire build completed), go to human_review
           QA_PASSED: { target: 'human_review', actions: 'setReviewReasonCompleted' },
           PLANNING_FAILED: { target: 'error', actions: ['setReviewReasonErrors', 'setError'] },
+          TOKEN_BUDGET_REACHED: { target: 'human_review', actions: 'setReviewReasonTokenBudget' },
           USER_STOPPED: [
             { target: 'backlog', guard: 'noPlanYet', actions: 'clearReviewReason' },
             { target: 'human_review', actions: 'setReviewReasonStopped' }
@@ -104,6 +107,7 @@ export const taskMachine = createMachine(
           // Fallback: if QA fails while XState is still in coding (missed QA_STARTED), handle gracefully
           QA_MAX_ITERATIONS: { target: 'error', actions: 'setReviewReasonErrors' },
           QA_AGENT_ERROR: { target: 'error', actions: 'setReviewReasonErrors' },
+          TOKEN_BUDGET_REACHED: { target: 'human_review', actions: 'setReviewReasonTokenBudget' },
           USER_STOPPED: { target: 'human_review', actions: 'setReviewReasonStopped' },
           PROCESS_EXITED: { target: 'error', guard: 'unexpectedExit', actions: 'setReviewReasonErrors' }
         }
@@ -114,6 +118,7 @@ export const taskMachine = createMachine(
           QA_PASSED: { target: 'human_review', actions: 'setReviewReasonCompleted' },
           QA_MAX_ITERATIONS: { target: 'error', actions: 'setReviewReasonErrors' },
           QA_AGENT_ERROR: { target: 'error', actions: 'setReviewReasonErrors' },
+          TOKEN_BUDGET_REACHED: { target: 'human_review', actions: 'setReviewReasonTokenBudget' },
           USER_STOPPED: { target: 'human_review', actions: 'setReviewReasonStopped' },
           PROCESS_EXITED: { target: 'error', guard: 'unexpectedExit', actions: 'setReviewReasonErrors' }
         }
@@ -125,6 +130,7 @@ export const taskMachine = createMachine(
           QA_PASSED: { target: 'human_review', actions: 'setReviewReasonCompleted' },
           QA_MAX_ITERATIONS: { target: 'error', actions: 'setReviewReasonErrors' },
           QA_AGENT_ERROR: { target: 'error', actions: 'setReviewReasonErrors' },
+          TOKEN_BUDGET_REACHED: { target: 'human_review', actions: 'setReviewReasonTokenBudget' },
           USER_STOPPED: { target: 'human_review', actions: 'setReviewReasonStopped' },
           PROCESS_EXITED: { target: 'error', guard: 'unexpectedExit', actions: 'setReviewReasonErrors' }
         }
@@ -157,6 +163,9 @@ export const taskMachine = createMachine(
       },
       pr_created: {
         on: {
+          // zeenha fork: failing CI / review feedback on the PR is sent back to the
+          // agent, so the task re-enters coding instead of being stuck at pr_created.
+          PR_FOLLOWUP_STARTED: { target: 'coding', actions: 'clearReviewReason' },
           MARK_DONE: 'done'
         }
       },
@@ -177,6 +186,7 @@ export const taskMachine = createMachine(
       setReviewReasonCompleted: assign({ reviewReason: () => 'completed' }),
       setReviewReasonStopped: assign({ reviewReason: () => 'stopped' }),
       setReviewReasonQaRejected: assign({ reviewReason: () => 'qa_rejected' }),
+      setReviewReasonTokenBudget: assign({ reviewReason: () => 'token_budget' }),
       setReviewReasonErrors: assign({ reviewReason: () => 'errors' }),
       clearReviewReason: assign({ reviewReason: () => undefined, error: () => undefined }),
       setError: assign({

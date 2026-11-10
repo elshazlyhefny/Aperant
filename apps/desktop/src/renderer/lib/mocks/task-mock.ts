@@ -62,6 +62,10 @@ export const taskMock = {
   // Task status operations
   updateTaskStatus: async (_taskId: string, _status: string, _options?: { forceCleanup?: boolean }) => ({ success: true }),
 
+  getPRFeedback: async () => ({ success: false, error: 'Not available in browser mode' }),
+
+  startPRFollowUp: async () => ({ success: false, error: 'Not available in browser mode' }),
+
   recoverStuckTask: async (taskId: string, options?: TaskRecoveryOptions) => ({
     success: true,
     data: {
@@ -101,6 +105,12 @@ export const taskMock = {
     data: null
   }),
 
+  // zeenha fork: project-wide delivery and token metrics
+  getProjectRunMetrics: async () => ({
+    success: true,
+    data: null
+  }),
+
   watchTaskLogs: async () => ({ success: true }),
 
   unwatchTaskLogs: async () => ({ success: true }),
@@ -110,6 +120,11 @@ export const taskMock = {
   onTaskError: () => () => {},
   onTaskLog: () => () => {},
   onTaskStatusChange: () => () => {},
+  getTaskQueueState: async () => ({
+    success: true,
+    data: { projectId: '', maxParallelTasks: 0, inProgressCount: 0, queuedTaskIds: [], skippedTaskIds: [] }
+  }),
+  onTaskQueueStateChange: () => () => {},
   onTaskExecutionProgress: () => () => {},
   onTaskLogsChanged: () => () => {},
   onMergeProgress: () => () => {}

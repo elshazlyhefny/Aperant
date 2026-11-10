@@ -4,6 +4,7 @@
     "tools": "Outils"
   },
   "items": {
+    "schedules": "Planifications",
     "kanban": "Tableau Kanban",
     "terminals": "Terminaux Agent",
     "insights": "Insights",
@@ -16,7 +17,8 @@
     "gitlabIssues": "Issues GitLab",
     "gitlabMRs": "MRs GitLab",
     "worktrees": "Worktrees",
-    "agentTools": "Aperçu MCP"
+    "agentTools": "Aperçu MCP",
+    "delivery": "Livraison"
   },
   "actions": {
     "settings": "Paramètres",

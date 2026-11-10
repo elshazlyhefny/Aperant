@@ -134,9 +134,10 @@ export function readRunMetrics(directory: string): SessionMetricsEntry[] {
   return readSessions(join(directory, RUN_METRICS_FILE));
 }
 
-const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+// zeenha fork: exported so the project-wide aggregator shares the same guards.
+export const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
-const emptyTokens = () => ({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
+export const emptyTokens = () => ({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
 
 function addGroup(groups: Map<string, RunMetricsGroup>, key: string, entry: SessionMetricsEntry): void {
   const group =

@@ -1,10 +1,10 @@
-# Auto Claude
+# Aperant (formerly Auto Claude)
 
-Auto Claude is a desktop application. Most functionality is accessed through the Electron desktop UI. One task can also be run without the UI from a command line, for example in CI; see [Running a task headlessly](#running-a-task-headlessly).
+Aperant is the current name of the product formerly called Auto Claude. It is a desktop application. Most functionality is accessed through the Electron desktop UI. One task can also be run without the UI from a command line, for example in CI; see [Running a task headlessly](#running-a-task-headlessly).
 
 ## Getting Started
 
-1. Download the latest release for your platform from the [Releases page](https://github.com/AndyMik90/Auto-Claude/releases)
+1. Install the app by following the [Install section of the README](../README.md#install)
 2. Install and launch the application
 3. Open your project (a git repository folder)
 4. Connect Claude via the OAuth setup guide in the app
@@ -29,7 +29,7 @@ App-wide configuration is done through the app's Settings UI. Two per-project fi
 
 - Connect Claude accounts (OAuth or API key)
 - Configure multiple provider profiles (Anthropic, OpenAI, Google, etc.)
-- Enable the Graphiti memory system
+- Turn the memory system on or off (the `memoryEnabled` setting; memory is stored locally in the app's data folder)
 - Set default models and thinking budgets
 - Configure Linear/GitHub/GitLab integrations
 

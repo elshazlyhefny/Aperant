@@ -11,6 +11,7 @@ import { existsSync, readFileSync } from 'fs';
 import { resolveModelId } from '../config/phase-config';
 import { resolveModelEquivalent } from '../../../shared/constants/models';
 import type { BuiltinProvider } from '../../../shared/types/provider-account';
+import { resolveTokenBudget } from '../../../shared/utils/token-budget';
 import { getSecurityProfile } from '../security/security-profile';
 import type { SerializedSecurityProfile } from './types';
 
@@ -116,6 +117,8 @@ export interface TaskMetadata {
   phaseProviders?: Record<string, string>;
   provider?: string;
   model?: string;
+  /** zeenha fork: per-task token budget override (0 = unlimited, undefined = inherit). */
+  tokenBudget?: number;
 }
 
 /**
@@ -132,6 +135,18 @@ export function readTaskMetadata(specDir: string): TaskMetadata | null {
     // Fall through
   }
   return null;
+}
+
+/**
+ * zeenha fork: the effective token budget for a task: its task_metadata.json
+ * override (0 = unlimited) else the project default. Serialized into the
+ * worker config because workers cannot read main-process stores.
+ */
+export function resolveTaskTokenBudget(
+  specDir: string,
+  projectSettings?: { tokenBudget?: number },
+): number | undefined {
+  return resolveTokenBudget(readTaskMetadata(specDir) ?? undefined, projectSettings);
 }
 
 /**

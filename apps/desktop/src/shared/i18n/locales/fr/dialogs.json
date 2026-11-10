@@ -235,5 +235,19 @@
     "step3": "Cliquez sur « Réauthentifier » sur votre profil",
     "gotIt": "Compris",
     "goToSettings": "Aller aux paramètres"
+  },
+  "sandboxOffer": {
+    "title": "Exécuter les commandes des agents dans un bac à sable ?",
+    "description": "{{projectName}} peut exécuter les commandes shell des agents dans un bac à sable. {{tool}} est installé sur cette machine.",
+    "homeHidden": {
+      "label": "Masquer le dossier personnel",
+      "description": "Les commandes ne peuvent pas lire votre dossier personnel (clés, jetons, autres projets), seulement le projet."
+    },
+    "homeHiddenNoNetwork": {
+      "label": "Masquer le dossier personnel, sans réseau",
+      "description": "Comme ci-dessus, et les commandes n'ont pas accès au réseau."
+    },
+    "failClosed": "Si le bac à sable ne peut plus fonctionner, les commandes shell des agents sont refusées au lieu d'être exécutées sans isolation.",
+    "skip": "Pas maintenant"
   }
 }

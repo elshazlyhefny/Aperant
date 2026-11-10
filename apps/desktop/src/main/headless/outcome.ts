@@ -62,6 +62,21 @@ export function classifyRun(input: RunInput): RunOutcome {
     };
   }
 
+  // zeenha fork: the worker stopped because the task's token budget was reached.
+  // It exits cleanly, so without this the run reported no build result.
+  const budget = events.find((e) => e.type === 'TOKEN_BUDGET_REACHED');
+  if (budget) {
+    const used = budget.extra?.used ?? budget.used;
+    const limit = budget.extra?.limit ?? budget.limit;
+    return {
+      kind: 'error',
+      exitCode: EXIT_ERROR,
+      reason: used !== undefined && limit !== undefined
+        ? `token budget reached: ${String(used)} of ${String(limit)} tokens used`
+        : 'token budget reached',
+    };
+  }
+
   const failed = events.find((e) => e.type === 'PLANNING_FAILED' || e.type === 'CODING_FAILED');
   if (failed) {
     return {

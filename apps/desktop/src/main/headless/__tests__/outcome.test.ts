@@ -18,6 +18,10 @@ describe('classifyRun', () => {
     expect(classifyRun({ events: [{ type: 'PLANNING_FAILED', extra: { error: 'bad plan' } }] })).toEqual({ kind: 'error', exitCode: 1, reason: 'bad plan' });
     expect(classifyRun({ events: [{ type: 'CODING_FAILED', error: 'boom' }] }).reason).toBe('boom');
   });
+  it('TOKEN_BUDGET_REACHED is error with the budget numbers', () => {
+    const r = classifyRun({ events: [{ type: 'TOKEN_BUDGET_REACHED', extra: { used: 120, limit: 100 } }], exit: { code: 0 } });
+    expect(r).toEqual({ kind: 'error', exitCode: 1, reason: 'token budget reached: 120 of 100 tokens used' });
+  });
   it('worker error event is error', () => {
     expect(classifyRun({ events: [], errors: ['x', 'oops'], exit: { code: 0 } })).toEqual({ kind: 'error', exitCode: 1, reason: 'oops' });
   });

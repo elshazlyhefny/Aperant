@@ -47,6 +47,11 @@ export const DEFAULT_APP_SETTINGS = {
     onReviewNeeded: true,
     sound: false
   },
+  webhook: {
+    enabled: false,
+    url: '',
+    events: { reviewReady: true, failed: true, blocked: true }
+  },
   // Global API keys (used as defaults for all projects)
   globalOpenAIApiKey: undefined as string | undefined,
   // Selected agent profile - defaults to 'auto' for per-phase optimized model selection

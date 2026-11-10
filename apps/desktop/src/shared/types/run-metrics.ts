@@ -67,7 +67,72 @@ export interface RunMetricsSummary {
   slowest: Array<SlowToolCall & { agentType: string; phase: string }>;
 }
 
+/** zeenha fork: token budget state for a task. `limit` undefined = unlimited. */
+export interface TokenBudgetStatus {
+  limit?: number;
+  used: number;
+  source: 'task' | 'project' | 'none';
+}
+
 export interface TaskRunMetrics {
   sessions: SessionMetricsEntry[];
   summary: RunMetricsSummary;
+}
+
+/** zeenha fork: request for project-wide metrics; null periodDays means all time. */
+export interface ProjectRunMetricsRequest {
+  periodDays: number | null;
+}
+
+/** zeenha fork: tasks/sessions/tokens aggregated by phase or model. */
+export interface ProjectRunMetricsGroup {
+  key: string;
+  tasks: number;
+  sessions: number;
+  durationMs: number;
+  tokens: RunMetricsTokens;
+  totalTokens: number;
+}
+
+/** zeenha fork: one day of the delivery trend. */
+export interface ProjectRunMetricsTrendPoint {
+  /** YYYY-MM-DD */
+  date: string;
+  completedTasks: number;
+  totalTokens: number;
+  tokensPerCompletedTask: number | null;
+}
+
+/** zeenha fork: project-wide delivery and token metrics. */
+export interface ProjectRunMetrics {
+  periodDays: number | null;
+  generatedAt: string;
+  /** Tasks scanned in the period. */
+  taskCount: number;
+  /** Tasks with valid metrics. */
+  included: number;
+  excluded: { missing: number; corrupt: number };
+  completedTasks: number;
+  failedBeforeWork: {
+    count: number;
+    /** Capped at 50 entries. */
+    tasks?: Array<{ specId: string; title?: string }>;
+  };
+  totals: {
+    sessions: number;
+    durationMs: number;
+    tokens: RunMetricsTokens;
+    totalTokens: number;
+  };
+  /** Null when there are no completed tasks. */
+  perCompletedTask: { totalTokens: number; durationMs: number } | null;
+  qa: {
+    tasksWithQa: number;
+    totalIterations: number;
+    /** Null when no task has QA. */
+    averageIterations: number | null;
+  };
+  byPhase: ProjectRunMetricsGroup[];
+  byModel: ProjectRunMetricsGroup[];
+  trend: ProjectRunMetricsTrendPoint[];
 }

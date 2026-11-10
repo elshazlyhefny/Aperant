@@ -32,9 +32,11 @@ import { Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { TaskModalLayout } from './task-form/TaskModalLayout';
 import { TaskFormFields } from './task-form/TaskFormFields';
+import { TaskDependencyPicker, mapDependencyError } from './task-form/TaskDependencyPicker';
 import { type FileReferenceData } from './task-form/useImageUpload';
-import { persistUpdateTask } from '../stores/task-store';
+import { persistUpdateTask, useTaskStore } from '../stores/task-store';
 import { useProjectStore } from '../stores/project-store';
+import { parseTokenBudgetText } from '../../shared/utils/token-budget';
 import type { Task, ImageAttachment, TaskCategory, TaskPriority, TaskComplexity, TaskImpact, ModelType, ThinkingLevel } from '../../shared/types';
 import {
   DEFAULT_AGENT_PROFILES,
@@ -90,6 +92,9 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
   const [description, setDescription] = useState(task.description);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [taskDependencies, setTaskDependencies] = useState<string[]>(task.metadata?.taskDependencies || []);
+  const allTasks = useTaskStore((state) => state.tasks);
+  const projectTasks = useMemo(() => allTasks.filter((x) => x.projectId === task.projectId), [allTasks, task.projectId]);
   const [showClassification, setShowClassification] = useState(false);
 
   // Classification fields
@@ -134,6 +139,11 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
 
   // Fast mode
   const [fastMode, setFastMode] = useState(task.metadata?.fastMode ?? false);
+
+  // Token budget override ('' = inherit project default, '0' = no limit)
+  const initialTokenBudgetText = task.metadata?.tokenBudget !== undefined ? String(task.metadata.tokenBudget) : '';
+  const [tokenBudgetText, setTokenBudgetText] = useState(initialTokenBudgetText);
+  const inheritedTokenBudget = projects.find((p) => p.id === task.projectId)?.settings?.tokenBudget;
 
   // Show Fast Mode toggle when any phase uses an Opus model
   const showFastModeToggle = useMemo(() => {
@@ -186,6 +196,8 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
       setImages(task.metadata?.attachedImages || []);
       setRequireReviewBeforeCoding(task.metadata?.requireReviewBeforeCoding ?? false);
       setFastMode(task.metadata?.fastMode ?? false);
+      setTaskDependencies(task.metadata?.taskDependencies || []);
+      setTokenBudgetText(task.metadata?.tokenBudget !== undefined ? String(task.metadata.tokenBudget) : '');
       setError(null);
 
       // Auto-expand classification if it has content
@@ -231,6 +243,8 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
       thinkingLevel !== (task.metadata?.thinkingLevel || '') ||
       requireReviewBeforeCoding !== (task.metadata?.requireReviewBeforeCoding ?? false) ||
       fastMode !== (task.metadata?.fastMode ?? false) ||
+      JSON.stringify(taskDependencies) !== JSON.stringify(task.metadata?.taskDependencies || []) ||
+      parseTokenBudgetText(tokenBudgetText) !== task.metadata?.tokenBudget ||
       JSON.stringify(images) !== JSON.stringify(task.metadata?.attachedImages || []) ||
       JSON.stringify(phaseModels) !== JSON.stringify(task.metadata?.phaseModels || DEFAULT_PHASE_MODELS) ||
       JSON.stringify(phaseThinking) !== JSON.stringify(task.metadata?.phaseThinking || DEFAULT_PHASE_THINKING);
@@ -261,6 +275,9 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     metadataUpdates.attachedImages = images.length > 0 ? images : [];
     metadataUpdates.requireReviewBeforeCoding = requireReviewBeforeCoding;
     metadataUpdates.fastMode = fastMode;
+    metadataUpdates.taskDependencies = taskDependencies;
+    // undefined clears the override so the task inherits the project default
+    metadataUpdates.tokenBudget = parseTokenBudgetText(tokenBudgetText);
 
     const success = await persistUpdateTask(task.id, {
       title: trimmedTitle,
@@ -272,7 +289,7 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
       onOpenChange(false);
       onSaved?.();
     } else {
-      setError(t('tasks:edit.errors.updateFailed'));
+      setError(mapDependencyError(useTaskStore.getState().error, t) ?? t('tasks:edit.errors.updateFailed'));
     }
 
     setIsSaving(false);
@@ -343,10 +360,21 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
         fastMode={fastMode}
         onFastModeChange={setFastMode}
         showFastModeToggle={showFastModeToggle && isFastModeEditable}
+        tokenBudgetText={tokenBudgetText}
+        onTokenBudgetTextChange={setTokenBudgetText}
+        inheritedTokenBudget={inheritedTokenBudget}
         disabled={isSaving}
         error={error}
         onError={setError}
         onFileReferenceDrop={handleFileReferenceDrop}
+        idPrefix="edit"
+      />
+      <TaskDependencyPicker
+        value={taskDependencies}
+        onChange={setTaskDependencies}
+        tasks={projectTasks}
+        excludeTaskId={task.id}
+        disabled={isSaving}
         idPrefix="edit"
       />
     </TaskModalLayout>

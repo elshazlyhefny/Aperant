@@ -1,11 +1,13 @@
 /**
  * Profile Service - Barrel Export
  *
- * Re-exports all profile-related functionality for convenient importing.
+ * Re-exports API profile functionality: api-profile-store (profiles.json I/O)
+ * and profile-service (validation, CRUD, connection test, model discovery).
+ * Claude OAuth accounts live in claude-profile-manager.ts, not here.
  * Main process code should import from this index file.
  */
 
-// Profile Manager utilities
+// API profile store (profiles.json I/O)
 export {
   loadProfilesFile,
   saveProfilesFile,
@@ -14,7 +16,7 @@ export {
   getProfilesFilePath,
   withProfilesLock,
   atomicModifyProfiles
-} from './profile-manager';
+} from './api-profile-store';
 
 // Profile Service
 export {

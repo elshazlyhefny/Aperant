@@ -5,6 +5,7 @@ import type { APIProfile, ProfileFormData, TestConnectionResult, ModelInfo } fro
 import type { BuiltinProvider, ProviderAccount } from '@shared/types/provider-account';
 import type { IPCResult } from '@shared/types/common';
 import { DEFAULT_APP_SETTINGS } from '../../shared/constants';
+import i18n from '../../shared/i18n';
 import { toast } from '../hooks/use-toast';
 import { markSettingsLoaded } from '../lib/sentry';
 
@@ -233,12 +234,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         set({ testConnectionResult: result.data, isTestingConnection: false });
 
         // Show toast on success
-        // TODO: Use i18n translation keys (settings:connection.successTitle, settings:connection.successDescription)
-        // Note: Zustand stores can't use useTranslation() hook - need to pass t() or use i18n.t()
         if (result.data.success) {
           toast({
-            title: 'Connection successful',
-            description: 'Your API credentials are valid.'
+            title: i18n.t('settings:apiProfiles.testConnection.toast.successTitle'),
+            description: i18n.t('settings:apiProfiles.testConnection.toast.successDescription')
           });
         }
         return result.data;
@@ -248,13 +247,13 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       const errorResult: TestConnectionResult = {
         success: false,
         errorType: 'unknown',
-        message: result.error || 'Failed to test connection'
+        message: result.error || i18n.t('settings:apiProfiles.testConnection.toast.failureFallback')
       };
       set({ testConnectionResult: errorResult, isTestingConnection: false });
       toast({
         variant: 'destructive',
-        title: 'Connection test failed',
-        description: result.error || 'Failed to test connection'
+        title: i18n.t('settings:apiProfiles.testConnection.toast.failureTitle'),
+        description: result.error || i18n.t('settings:apiProfiles.testConnection.toast.failureFallback')
       });
       return errorResult;
     } catch (error) {
@@ -262,13 +261,13 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       const errorResult: TestConnectionResult = {
         success: false,
         errorType: 'unknown',
-        message: error instanceof Error ? error.message : 'Failed to test connection'
+        message: error instanceof Error ? error.message : i18n.t('settings:apiProfiles.testConnection.toast.failureFallback')
       };
       set({ testConnectionResult: errorResult, isTestingConnection: false });
       toast({
         variant: 'destructive',
-        title: 'Connection test failed',
-        description: error instanceof Error ? error.message : 'Failed to test connection'
+        title: i18n.t('settings:apiProfiles.testConnection.toast.failureTitle'),
+        description: error instanceof Error ? error.message : i18n.t('settings:apiProfiles.testConnection.toast.failureFallback')
       });
       return errorResult;
     }

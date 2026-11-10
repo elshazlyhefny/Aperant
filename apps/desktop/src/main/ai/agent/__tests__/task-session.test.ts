@@ -19,6 +19,7 @@ import {
   readTaskMetadata,
   resolveTaskPhaseProvider,
   resolveTaskModelId,
+  resolveTaskTokenBudget,
 } from '../task-session';
 
 let dir: string;
@@ -96,5 +97,16 @@ describe('task metadata resolution', () => {
     const id = await resolveTaskModelId(dir, 'coding', reader);
     expect(reader).toHaveBeenCalledWith('ollama');
     expect(id).toContain('my-local-model');
+  });
+});
+
+describe('resolveTaskTokenBudget', () => {
+  it('uses the task override, else the project default', () => {
+    expect(resolveTaskTokenBudget(dir)).toBeUndefined();
+    expect(resolveTaskTokenBudget(dir, { tokenBudget: 100 })).toBe(100);
+    writeFileSync(path.join(dir, 'task_metadata.json'), JSON.stringify({ tokenBudget: 500 }));
+    expect(resolveTaskTokenBudget(dir, { tokenBudget: 100 })).toBe(500);
+    writeFileSync(path.join(dir, 'task_metadata.json'), JSON.stringify({ tokenBudget: 0 }));
+    expect(resolveTaskTokenBudget(dir, { tokenBudget: 100 })).toBeUndefined();
   });
 });

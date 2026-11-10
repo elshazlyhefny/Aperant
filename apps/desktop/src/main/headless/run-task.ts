@@ -23,6 +23,7 @@ import {
   buildTaskExecutionMessages,
   resolveTaskModelId,
   resolveTaskPhaseProvider,
+  resolveTaskTokenBudget,
   serializeSecurityProfile,
 } from '../ai/agent/task-session';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
@@ -172,6 +173,9 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
       specDir: worktreeSpecDir,
       projectDir: worktreePath,
       sourceSpecDir: specDir,
+      // zeenha fork: the task's token budget from task_metadata.json, as in the app.
+      // The CLI has no project store, so there is no project default.
+      tokenBudget: resolveTaskTokenBudget(specDir),
       provider: resolvedAuth.provider,
       modelId: resolvedAuth.modelId,
       apiKey: resolvedAuth.auth.apiKey,
