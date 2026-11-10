@@ -18,6 +18,8 @@ export interface ProjectSettings {
   linearSync: boolean;
   linearTeamId?: string;
   notifications: NotificationSettings;
+  /** zeenha fork: default token budget per task (input+output tokens). Unset = unlimited. */
+  tokenBudget?: number;
   /** Main branch name for worktree creation (default: auto-detected or 'main') */
   mainBranch?: string;
   /** Whether newly created branches should be pushed to origin and track their remote branch (default: true) */
@@ -539,4 +541,13 @@ export interface FileNode {
   path: string;
   name: string;
   isDirectory: boolean;
+}
+
+// zeenha fork: whether the OS-level Bash sandbox tool can run on this machine
+export type BashSandboxMode = NonNullable<ProjectSettings['bashSandbox']>;
+export type SandboxStatusKind = 'active' | 'available-off' | 'tool-missing' | 'unsupported';
+export interface SandboxAvailability {
+  state: 'available' | 'tool-missing' | 'unsupported';
+  tool: 'bwrap' | 'sandbox-exec' | 'powershell' | null;
+  installHint: 'bubblewrap' | null;
 }

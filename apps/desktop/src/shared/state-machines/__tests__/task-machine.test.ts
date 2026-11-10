@@ -23,6 +23,26 @@ function runEvents(events: TaskEvent[], initialState?: string) {
 }
 
 describe('taskMachine', () => {
+
+  describe('TOKEN_BUDGET_REACHED', () => {
+    it.each(['planning', 'coding', 'qa_review', 'qa_fixing'])(
+      'should pause %s into human_review with token_budget',
+      (state) => {
+        const snapshot = runEvents([{ type: 'TOKEN_BUDGET_REACHED', used: 10, limit: 5 }], state);
+        expect(snapshot.value).toBe('human_review');
+        expect(snapshot.context.reviewReason).toBe('token_budget');
+      }
+    );
+
+    it('should resume to coding with reviewReason cleared', () => {
+      const snapshot = runEvents(
+        [{ type: 'TOKEN_BUDGET_REACHED' }, { type: 'USER_RESUMED' }],
+        'coding'
+      );
+      expect(snapshot.value).toBe('coding');
+      expect(snapshot.context.reviewReason).toBeUndefined();
+    });
+  });
   describe('initial state', () => {
     it('should start in backlog state', () => {
       const actor = createActor(taskMachine);

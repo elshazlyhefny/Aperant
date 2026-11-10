@@ -137,7 +137,7 @@ export function wrapForSandbox(
     return buildMac(shell, shellArgs, options, home, exec);
   }
   // zeenha fork: Windows uses an AppContainer launched through PowerShell.
-  const powershell = resolvePowerShell(find);
+  const powershell = resolvePowerShell(options.find);
   if (!powershell) {
     return { ok: false, reason: 'Bash sandbox requested but powershell.exe was not found on Windows. Disable the sandbox to run commands.' };
   }

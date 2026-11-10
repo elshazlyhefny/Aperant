@@ -13,6 +13,7 @@ import { updateRoadmapFeatureOutcome, revertRoadmapFeatureOutcome } from './util
 import { safeParseJson } from './utils/json-repair';
 import { FileParseCache } from './utils/file-parse-cache';
 import { readProjectRepoConfig } from './ai/worktree/project-repo-config';
+import { parseTokenBudget } from '../shared/utils/token-budget';
 import { failedRunStatus, isFailedRun } from '../shared/utils/task-failure';
 import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
 
@@ -351,6 +352,10 @@ export class ProjectStore {
     const project = this.data.projects.find((p) => p.id === projectId);
     if (project) {
       project.settings = { ...project.settings, ...settings };
+      // zeenha fork: drop junk token budgets instead of storing them
+      if ('tokenBudget' in settings) {
+        project.settings.tokenBudget = parseTokenBudget(settings.tokenBudget);
+      }
       applyDeclaredBaseBranch(project);
       project.updatedAt = new Date();
       this.save();

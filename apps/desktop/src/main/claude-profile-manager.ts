@@ -1,6 +1,13 @@
 /**
  * Claude Profile Manager
- * Main coordinator for multi-account profile management
+ * ClaudeProfileManager: the single coordinator for Claude OAuth accounts
+ * (switching, rate limits, usage, auto-swap), persisted through
+ * claude-profile/profile-storage.ts.
+ *
+ * Related modules (not handled here):
+ * - services/profile/api-profile-store.ts: the only reader/writer of profiles.json
+ * - services/profile/profile-service.ts: validation, CRUD and connection tests
+ *   for API (custom endpoint) profiles
  *
  * This class delegates to specialized modules:
  * - token-encryption: OAuth token encryption/decryption
@@ -46,7 +53,7 @@ import {
   getBestAvailableUnifiedAccount
 } from './claude-profile/profile-scorer';
 import { getCredentialsFromKeychain, normalizeWindowsPath, updateProfileSubscriptionMetadata } from './claude-profile/credential-utils';
-import { loadProfilesFile } from './services/profile/profile-manager';
+import { loadProfilesFile } from './services/profile/api-profile-store';
 import {
   CLAUDE_PROFILES_DIR,
   generateProfileId as generateProfileIdImpl,

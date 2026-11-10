@@ -7,7 +7,7 @@ import { createActor } from 'xstate';
 import { describe, expect, it } from 'vitest';
 
 import { taskMachine, type TaskEvent } from '../../../../shared/state-machines/task-machine';
-import { buildOutcomeTaskEvents } from '../build-outcome-events';
+import { budgetPauseMessage, budgetPauseTaskEvents, buildOutcomeTaskEvents } from '../build-outcome-events';
 
 const base = { success: false, error: 'boom', codingCompleted: false, codingStarted: false, totalIterations: 2 };
 
@@ -43,5 +43,29 @@ describe('buildOutcomeTaskEvents', () => {
     expect(actor.getSnapshot().value).toBe('error');
     expect(actor.getSnapshot().context.error).toBe('boom');
     actor.stop();
+  });
+});
+
+describe('budgetPauseTaskEvents', () => {
+  it('posts only TOKEN_BUDGET_REACHED with used and limit', () => {
+    expect(budgetPauseTaskEvents({ used: 1234567, limit: 1000000 })).toEqual([
+      { type: 'TOKEN_BUDGET_REACHED', extra: { used: 1234567, limit: 1000000 } },
+    ]);
+  });
+
+  it('moves a coding task to human_review with reviewReason token_budget', () => {
+    const actor = createActor(taskMachine, {
+      snapshot: taskMachine.resolveState({ value: 'coding', context: {} }),
+    });
+    actor.start();
+    for (const e of budgetPauseTaskEvents({ used: 5, limit: 4 })) actor.send({ type: e.type, ...e.extra } as TaskEvent);
+    // PROCESS_EXITED after the pause is ignored
+    actor.send({ type: 'PROCESS_EXITED', exitCode: 1, unexpected: true } as TaskEvent);
+    expect(actor.getSnapshot().value).toBe('human_review');
+    expect(actor.getSnapshot().context.reviewReason).toBe('token_budget');
+  });
+
+  it('formats the pause message with thousands separators', () => {
+    expect(budgetPauseMessage({ used: 1234567, limit: 1000000 })).toBe('Token budget reached: 1,234,567 of 1,000,000 tokens used');
   });
 });

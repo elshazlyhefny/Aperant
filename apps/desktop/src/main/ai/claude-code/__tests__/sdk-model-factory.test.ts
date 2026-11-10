@@ -9,6 +9,7 @@ import { emptyUsage, type ClaudeCodePart, type CliStep } from '../cli-events';
 import type { ClaudeCodeRunOptions, ClaudeCodeRunResult } from '../engine';
 import { ClaudeCodeLanguageModel, isClaudeCodeModel } from '../model';
 import { generateText, streamText } from '../sdk';
+import { TokenBudgetGuard } from '../../session/token-budget';
 
 function step(text: string, finishReason = 'tool-calls', toolName = 'Read'): CliStep {
   return { text, finishReason, toolCalls: [{ toolCallId: `id-${text}`, toolName }], usage: { ...emptyUsage(), inputTokens: 10, outputTokens: 2, totalTokens: 12, promptTokens: 10, completionTokens: 2 } };
@@ -100,6 +101,23 @@ describe('drop-in streamText with a Claude Code model and tools', () => {
     // stepCountIs is synchronous, so the answer must be too (not a promise).
     expect(shouldStop?.([step('a'), step('b')])).toBe(false);
     expect(shouldStop?.([step('a'), step('b'), step('c')])).toBe(true);
+  });
+
+  it('ends the run when a stopWhen array containing a token budget condition is crossed', async () => {
+    const { run, calls } = fakeEngine({});
+    const model = new ClaudeCodeLanguageModel('m', run);
+    const guard = new TokenBudgetGuard({ limit: 20, readSpentTokens: () => 0 });
+    const result = streamText({
+      model,
+      prompt: 'Go',
+      tools: { Read: readTool([]) },
+      stopWhen: [stepCountIs(50), guard.buildStopCondition()],
+    });
+    for await (const _ of result.fullStream) { /* drain */ }
+    const shouldStop = calls[0].shouldStop;
+    // Each step() reports 12 tokens: one step is under 20, two cross it.
+    expect(shouldStop?.([step('a')])).toBe(false);
+    expect(shouldStop?.([step('a'), step('b')])).toBe(true);
   });
 
   it('throws the engine error from fullStream so callers can classify it', async () => {

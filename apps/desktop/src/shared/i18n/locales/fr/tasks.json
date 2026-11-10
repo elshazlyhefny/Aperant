@@ -41,7 +41,8 @@
     "hasErrors": "Contient des erreurs",
     "qaIssues": "Problèmes QA",
     "approvePlan": "Approuver le plan",
-    "stopped": "Arrêté"
+    "stopped": "Arrêté",
+    "tokenBudget": "Budget de jetons atteint"
   },
   "tooltips": {
     "archiveTask": "Archiver la tâche",
@@ -268,6 +269,12 @@
     "fastModeLabel": "Mode Rapide",
     "fastModeDescription": "Même modèle Opus 4.6 avec une sortie plus rapide. Coût plus élevé par token.",
     "fastModeNotice": "Nécessite « utilisation supplémentaire » activée sur votre abonnement Claude.",
+    "tokenBudgetLabel": "Budget de tokens",
+    "tokenBudgetDescription": "Met cette tâche en pause quand elle a utilisé ce nombre de tokens (entrée + sortie). Laissez vide pour utiliser la valeur par défaut du projet.",
+    "tokenBudgetInherited": "Valeur par défaut du projet : {{value}} tokens",
+    "tokenBudgetInheritedNone": "Valeur par défaut du projet : aucune",
+    "tokenBudgetPlaceholder": "ex. 500000",
+    "tokenBudgetNoLimit": "Aucune limite pour cette tâche",
     "errors": {
       "descriptionRequired": "Veuillez fournir une description",
       "maxImagesReached": "Maximum de 5 images autorisé",
@@ -348,14 +355,14 @@
     }
   },
   "deleteDialog": {
-    "title": "Supprimer la t\u00e2che",
-    "confirmMessage": "\u00cates-vous s\u00fbr de vouloir supprimer",
-    "destructiveWarning": "Cette action est irr\u00e9versible. Tous les fichiers de t\u00e2che, y compris la sp\u00e9cification, le plan d'impl\u00e9mentation et tout code g\u00e9n\u00e9r\u00e9 seront d\u00e9finitivement supprim\u00e9s du projet.",
-    "checkingChanges": "V\u00e9rification des changements non valid\u00e9s...",
-    "uncommittedChanges": "Le worktree de cette t\u00e2che contient {{count}} fichier(s) non valid\u00e9(s)",
-    "uncommittedChangesHint": "Ces changements n'ont pas \u00e9t\u00e9 valid\u00e9s ni fusionn\u00e9s. La suppression de cette t\u00e2che supprimera d\u00e9finitivement tout le travail non valid\u00e9 dans le worktree.",
+    "title": "Supprimer la tâche",
+    "confirmMessage": "Êtes-vous sûr de vouloir supprimer",
+    "destructiveWarning": "Cette action est irréversible. Tous les fichiers de tâche, y compris la spécification, le plan d'implémentation et tout code généré seront définitivement supprimés du projet.",
+    "checkingChanges": "Vérification des changements non validés...",
+    "uncommittedChanges": "Le worktree de cette tâche contient {{count}} fichier(s) non validé(s)",
+    "uncommittedChangesHint": "Ces changements n'ont pas été validés ni fusionnés. La suppression de cette tâche supprimera définitivement tout le travail non validé dans le worktree.",
     "cancel": "Annuler",
-    "deletePermanently": "Supprimer d\u00e9finitivement",
+    "deletePermanently": "Supprimer définitivement",
     "deleting": "Suppression..."
   },
   "failedTask": {
@@ -411,11 +418,22 @@
       "detail": "Détail"
     },
     "tokens": {
+      "budget": "Tokens du budget (entrée + sortie)",
       "input": "Jetons d'entrée",
       "output": "Jetons de sortie",
       "cacheRead": "Jetons lus du cache",
       "cacheCreation": "Jetons de création du cache"
     },
-    "note": "Les entrées ne contiennent que des jetons et des durées ; aucun coût monétaire n'est affiché."
+    "budgetUsed": "{{used}} sur {{limit}} tokens ({{percent}}%)",
+    "note": "Les entrées ne contiennent que des jetons et des durées ; aucun coût monétaire n'est affiché. Les lectures de cache sont incluses dans les tokens d'entrée et ne sont pas ajoutées une seconde fois au budget."
+  },
+  "tokenBudgetBanner": {
+    "title": "En pause : budget de tokens atteint",
+    "usage": "En pause : {{used}} sur {{limit}} tokens utilisés",
+    "body": "Le worktree et les sous-tâches terminées sont conservés. Augmentez la limite pour continuer, ou reprenez sans limite. Reprendre sans l'augmenter remet la tâche en pause aussitôt.",
+    "fieldLabel": "Nouvelle limite de tokens",
+    "unlimited": "Illimité",
+    "resume": "Augmenter la limite et reprendre",
+    "saveFailed": "Impossible d'enregistrer la nouvelle limite"
   }
 }

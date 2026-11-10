@@ -20,6 +20,7 @@ import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { Progress } from '../ui/progress';
 import { SettingsSection } from './SettingsSection';
+import { WebhookSettings } from './WebhookSettings';
 import type {
   AppSettings,
   AppUpdateAvailableEvent,
@@ -588,6 +589,7 @@ export function AdvancedSettings({ settings, onSettingsChange, section, version 
             />
           </div>
         ))}
+        <WebhookSettings settings={settings} onSettingsChange={onSettingsChange} />
       </div>
     </SettingsSection>
   );

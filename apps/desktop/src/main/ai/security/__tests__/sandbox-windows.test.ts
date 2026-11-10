@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { wrapForSandbox } from '../sandbox';
-import type { WindowsLauncherPayload } from '../sandbox-windows';
+import { findWindowsTool, type WindowsLauncherPayload } from '../sandbox-windows';
 
 const SHELL = 'C:\\Git\\bin\\bash.exe';
 const HOME = 'C:\\Users\\u';
@@ -58,5 +58,11 @@ describe('Windows sandbox launcher', () => {
     expect(payload.args).toEqual(['-c', evil]);
     expect(script).not.toContain(evil);
     expect(script).not.toContain(SHELL);
+  });
+});
+
+describe('findWindowsTool', () => {
+  it('checks an absolute path directly instead of searching PATH', () => {
+    expect(findWindowsTool('C:\\no-such-dir\\powershell.exe')).toBeNull();
   });
 });

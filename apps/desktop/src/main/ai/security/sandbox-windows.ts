@@ -8,7 +8,9 @@
  * never interpolated into script text.
  */
 
+import { existsSync } from 'node:fs';
 import * as path from 'node:path';
+import { findExecutable } from '../../platform/index';
 import type { SandboxOptions, SandboxResult } from './sandbox';
 
 export const APPCONTAINER_NAME = 'aperant.bash-sandbox';
@@ -25,9 +27,19 @@ export interface WindowsLauncherPayload {
   capabilities: string[];
 }
 
+/**
+ * zeenha fork: findExecutable() joins each name onto PATH directories and always
+ * appends an extension on Windows, so it can resolve neither an absolute path
+ * nor "powershell.exe" (it looks for "powershell.exe.exe").
+ */
+export function findWindowsTool(name: string): string | null {
+  if (path.win32.isAbsolute(name)) return existsSync(name) ? name : null;
+  return findExecutable(name.replace(/\.exe$/i, ''));
+}
+
 /** zeenha fork: resolve powershell.exe from System32, else look it up on PATH. */
 export function resolvePowerShell(
-  find: (name: string) => string | null,
+  find: (name: string) => string | null = findWindowsTool,
   env: NodeJS.ProcessEnv = process.env
 ): string | null {
   const root = env.SystemRoot ?? env.SYSTEMROOT ?? env.windir;
