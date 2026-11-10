@@ -95,7 +95,13 @@
       "label": "Tester la connexion",
       "testing": "Test en cours...",
       "success": "Connexion réussie",
-      "failure": "Échec de la connexion"
+      "failure": "Échec de la connexion",
+      "toast": {
+        "successTitle": "Connexion réussie",
+        "successDescription": "Vos identifiants API sont valides.",
+        "failureTitle": "Échec du test de connexion",
+        "failureFallback": "Impossible de tester la connexion"
+      }
     },
     "models": {
       "title": "Optionnel : correspondance des noms de modèles",
