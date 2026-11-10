@@ -170,7 +170,7 @@ export interface TaskMetadata {
   /** zeenha fork: token budget in tokens (input+output). 0 on a task = unlimited override of the project limit. */
   tokenBudget?: number;
   // Origin tracking
-  sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab' | 'schedule';
+  sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab' | 'jira' | 'schedule';
   scheduleId?: string;  // Recurring schedule that created this task
   scheduledFor?: number;  // Epoch ms of the schedule occurrence
   ideationType?: string;  // e.g., 'code_improvements', 'security_hardening'
@@ -179,6 +179,10 @@ export interface TaskMetadata {
   linearIssueId?: string;  // Reference to Linear issue if from Linear
   linearIdentifier?: string;  // Linear issue identifier (e.g., 'ABC-123')
   linearUrl?: string;  // Linear issue URL
+  jiraIssueKey?: string;  // Jira issue key (e.g., 'PROJ-123')
+  jiraIssueId?: string;  // Jira issue id
+  jiraUrl?: string;  // Jira issue URL
+  jiraSiteUrl?: string;  // Jira site base URL the issue came from
   githubIssueNumber?: number;  // Reference to GitHub issue number if from GitHub (single issue)
   githubIssueNumbers?: number[];  // Reference to multiple GitHub issues if from a batch
   githubUrl?: string;  // GitHub issue URL

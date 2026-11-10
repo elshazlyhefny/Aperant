@@ -210,6 +210,7 @@
     "fastMode": "Rapide",
     "severity": "sévérité",
     "pullRequest": "Pull Request",
+    "openInJira": "Ouvrir {{key}} dans Jira",
     "showMore": "Afficher plus",
     "showLess": "Afficher moins"
   },
