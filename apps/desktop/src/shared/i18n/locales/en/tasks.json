@@ -1,4 +1,27 @@
 {
+  "dependencies": {
+    "title": "Depends on",
+    "add": "Add dependency: {{title}}",
+    "addButton": "Add",
+    "remove": "Remove dependency: {{title}}",
+    "none": "No dependencies",
+    "cycleError": "This would create a dependency cycle: {{path}}",
+    "selfError": "A task cannot depend on itself.",
+    "unknownError": "One of the selected dependencies no longer exists.",
+    "searchPlaceholder": "Search tasks...",
+    "waitingFor": "Waiting for {{title}}",
+    "waitingForMore": " +{{count}} more",
+    "heldFailed": "Held: {{title}} failed",
+    "heldMissing": "Held: dependency missing",
+    "reason": {
+      "not_finished": "Not finished yet",
+      "pr_not_merged": "PR not merged yet",
+      "failed": "Failed",
+      "missing": "Task no longer exists",
+      "archived": "Archived"
+    },
+    "heldHint": "This task stays held until you remove the dependency, retry the failed task, or move this task."
+  },
   "refreshTasks": "Refresh Tasks",
   "status": {
     "backlog": "Backlog",
@@ -40,7 +63,8 @@
     "hasErrors": "Has Errors",
     "qaIssues": "QA Issues",
     "approvePlan": "Approve Plan",
-    "stopped": "Stopped"
+    "stopped": "Stopped",
+    "tokenBudget": "Token Budget Reached"
   },
   "tooltips": {
     "archiveTask": "Archive task",
@@ -267,6 +291,12 @@
     "fastModeLabel": "Fast Mode",
     "fastModeDescription": "Same Opus 4.6 model with faster output. Higher cost per token.",
     "fastModeNotice": "Requires \"extra usage\" enabled on your Claude subscription.",
+    "tokenBudgetLabel": "Token budget",
+    "tokenBudgetDescription": "Pause this task when it has used this many input + output tokens. Leave blank to use the project default.",
+    "tokenBudgetInherited": "Project default: {{value}} tokens",
+    "tokenBudgetInheritedNone": "Project default: none",
+    "tokenBudgetPlaceholder": "e.g. 500000",
+    "tokenBudgetNoLimit": "No limit for this task",
     "errors": {
       "descriptionRequired": "Please provide a description",
       "maxImagesReached": "Maximum of 5 images allowed",
@@ -411,12 +441,14 @@
       "detail": "Detail"
     },
     "tokens": {
+      "budget": "Budget tokens (input + output)",
       "input": "Input tokens",
       "output": "Output tokens",
       "cacheRead": "Cache read tokens",
       "cacheCreation": "Cache creation tokens"
     },
-    "note": "Entries carry tokens and durations only; no monetary cost is shown."
+    "budgetUsed": "{{used}} of {{limit}} tokens ({{percent}}%)",
+    "note": "Entries carry tokens and durations only; no monetary cost is shown. Cache reads are included in input tokens and are not added again to the budget."
   },
   "delivery": {
     "title": "Delivery and token usage",
@@ -460,5 +492,14 @@
       "total": "Total"
     },
     "note": "Rate-limit recovery is not recorded, so time lost to rate limits is not shown separately."
+  },
+  "tokenBudgetBanner": {
+    "title": "Paused: token budget reached",
+    "usage": "Paused: {{used}} of {{limit}} tokens used",
+    "body": "The worktree and completed subtasks are kept. Raise the limit to continue, or resume without a limit. Resuming without raising it pauses the task again right away.",
+    "fieldLabel": "New token limit",
+    "unlimited": "Unlimited",
+    "resume": "Raise limit and resume",
+    "saveFailed": "Could not save the new limit"
   }
 }

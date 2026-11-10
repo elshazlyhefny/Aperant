@@ -125,5 +125,10 @@ export const projectMock = {
   initializeGit: async () => ({
     success: true,
     data: { success: true }
+  }),
+
+  getSandboxAvailability: async () => ({
+    success: true,
+    data: { state: 'available' as const, tool: 'bwrap' as const, installHint: null }
   })
 };

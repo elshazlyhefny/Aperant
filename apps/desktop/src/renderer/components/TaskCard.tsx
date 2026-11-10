@@ -32,8 +32,10 @@ import {
   JSON_ERROR_PREFIX,
   JSON_ERROR_TITLE_SUFFIX
 } from '../../shared/constants';
-import { stopTask, checkTaskRunning, recoverStuckTask, isIncompleteHumanReview, archiveTasks, hasRecentActivity, startTaskOrQueue, retryFailedTask, replanFailedTask } from '../stores/task-store';
+import { useTaskStore, stopTask, checkTaskRunning, recoverStuckTask, isIncompleteHumanReview, archiveTasks, hasRecentActivity, startTaskOrQueue, retryFailedTask, replanFailedTask } from '../stores/task-store';
 import { useToast } from '../hooks/use-toast';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { evaluateTaskDependencies, type DependencyEvaluation } from '../../shared/utils/task-dependencies';
 import type { Task, TaskCategory, ReviewReason, TaskStatus } from '../../shared/types';
 
 // Category icon mapping
@@ -140,6 +142,19 @@ export const TaskCard = memo(function TaskCard({
   const [isStuck, setIsStuck] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const stuckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // zeenha fork: a queued task with task dependencies is held until they are Done.
+  // The selector returns a primitive (serialised evaluation) so unrelated store
+  // changes do not re-render every card.
+  const hasTaskDeps = task.status === 'queue' && (task.metadata?.taskDependencies?.length ?? 0) > 0;
+  const heldKey = useTaskStore((s) =>
+    hasTaskDeps ? JSON.stringify(evaluateTaskDependencies(task, s.tasks)) : ''
+  );
+  const held = useMemo<DependencyEvaluation | null>(() => {
+    if (!heldKey) return null;
+    const parsed = JSON.parse(heldKey) as DependencyEvaluation;
+    return parsed.state === 'ready' ? null : parsed;
+  }, [heldKey]);
 
   const isRunning = task.status === 'in_progress';
   // zeenha fork: the run failed before doing any work (Failed column)
@@ -338,6 +353,8 @@ export const TaskCard = memo(function TaskCard({
         return { label: t('reviewReason.approvePlan'), variant: 'warning' };
       case 'stopped':
         return { label: t('reviewReason.stopped'), variant: 'warning' };
+      case 'token_budget':
+        return { label: t('reviewReason.tokenBudget'), variant: 'warning' };
       default:
         return null;
     }
@@ -404,7 +421,7 @@ export const TaskCard = memo(function TaskCard({
         )}
 
         {/* Metadata badges */}
-        {(task.metadata || isStuck || isIncomplete || hasActiveExecution || reviewReasonInfo || isFailed) && (
+        {(task.metadata || held || isStuck || isIncomplete || hasActiveExecution || reviewReasonInfo || isFailed) && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {/* Stuck indicator - highest priority */}
             {isStuck && (
@@ -425,6 +442,44 @@ export const TaskCard = memo(function TaskCard({
                 <AlertTriangle className="h-2.5 w-2.5" />
                 {t('labels.incomplete')}
               </Badge>
+            )}
+            {/* zeenha fork: queued task held by unfinished / failed task dependencies */}
+            {held && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    data-testid="task-card-dependency-hold"
+                    data-state={held.state}
+                    className={cn(
+                      'text-[10px] px-1.5 py-0.5 flex items-center gap-1',
+                      held.state === 'blocked'
+                        ? 'bg-warning/10 text-warning border-warning/30'
+                        : 'bg-muted text-muted-foreground border-border'
+                    )}
+                  >
+                    {held.state === 'blocked' ? <AlertTriangle className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
+                    {held.state === 'blocked'
+                      ? held.blockers[0].reason === 'failed'
+                        ? t('tasks:dependencies.heldFailed', { title: held.blockers[0].title })
+                        : t('tasks:dependencies.heldMissing', { title: held.blockers[0].title })
+                      : t('tasks:dependencies.waitingFor', { title: held.blockers[0].title })}
+                    {held.blockers.length > 1 && (
+                      <span>{t('tasks:dependencies.waitingForMore', { count: held.blockers.length - 1 })}</span>
+                    )}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <ul className="space-y-0.5 text-xs">
+                    {held.blockers.map((b) => (
+                      <li key={b.taskId}>
+                        {b.title}: {t(`tasks:dependencies.reason.${b.reason}`)}
+                      </li>
+                    ))}
+                  </ul>
+                  {held.state === 'blocked' && <p className="mt-1 text-xs">{t('tasks:dependencies.heldHint')}</p>}
+                </TooltipContent>
+              </Tooltip>
             )}
             {/* Archived indicator - task has been released */}
             {task.metadata?.archivedAt && (

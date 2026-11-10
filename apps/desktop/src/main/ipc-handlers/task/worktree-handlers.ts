@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { IPC_CHANNELS, AUTO_BUILD_PATHS, getSpecsDir } from '../../../shared/constants';
-import type { IPCResult, WorktreeStatus, WorktreeDiff, WorktreeDiffFile, WorktreeMergeResult, WorktreeDiscardResult, WorktreeListResult, WorktreeListItem, WorktreeCreatePROptions, WorktreeCreatePRResult } from '../../../shared/types';
+import type { IPCResult, WorktreeStatus, WorktreeDiff, WorktreeDiffFile, WorktreeMergeResult, WorktreeDiscardResult, WorktreeListResult, WorktreeListItem, WorktreeCreatePROptions, WorktreeCreatePRResult, WorktreeCreatePRErrorCode } from '../../../shared/types';
 import path from 'path';
 import { existsSync, statSync, readFileSync, realpathSync, promises as fsPromises } from 'fs';
 import { execFileSync, execFile } from 'child_process';
@@ -911,13 +911,21 @@ export function registerWorktreeHandlers(
         }
       };
 
+      // zeenha fork: top-level success/error stay as before; the code rides in
+      // data so callers need not match on the message text.
+      const fail = (errorCode: WorktreeCreatePRErrorCode, error: string): IPCResult<WorktreeCreatePRResult> => ({
+        success: false,
+        error,
+        data: { success: false, error, errorCode }
+      });
+
       try {
         debug('Handler called with taskId:', taskId, 'options:', options);
 
         const { task, project } = findTaskAndProject(taskId);
         if (!task || !project) {
           debug('Task or project not found');
-          return { success: false, error: 'Task not found' };
+          return fail('TASK_NOT_FOUND', 'Task not found');
         }
 
         debug('Found task:', task.specId, 'project:', project.path);
@@ -930,7 +938,7 @@ export function registerWorktreeHandlers(
         } catch (err) {
           if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
             debug('Spec directory not found:', specDir);
-            return { success: false, error: 'Spec directory not found' };
+            return fail('SPEC_DIR_NOT_FOUND', 'Spec directory not found');
           }
           throw err; // Re-throw unexpected errors
         }
@@ -939,20 +947,20 @@ export function registerWorktreeHandlers(
         const worktreePath = findTaskWorktree(project.path, task.specId);
         if (!worktreePath) {
           debug('No worktree found for spec:', task.specId);
-          return { success: false, error: 'No worktree found for this task' };
+          return fail('NO_WORKTREE', 'No worktree found for this task');
         }
         debug('Worktree path:', worktreePath);
 
         // Validate options
         if (options?.targetBranch && !GIT_BRANCH_REGEX.test(options.targetBranch)) {
-          return { success: false, error: 'Invalid target branch name' };
+          return fail('INVALID_TARGET_BRANCH', 'Invalid target branch name');
         }
         if (options?.title) {
           if (options.title.length > MAX_PR_TITLE_LENGTH) {
-            return { success: false, error: `PR title exceeds maximum length of ${MAX_PR_TITLE_LENGTH} characters` };
+            return fail('INVALID_TITLE_LENGTH', `PR title exceeds maximum length of ${MAX_PR_TITLE_LENGTH} characters`);
           }
           if (!PRINTABLE_CHARS_REGEX.test(options.title)) {
-            return { success: false, error: 'PR title contains invalid characters' };
+            return fail('INVALID_TITLE_CHARS', 'PR title contains invalid characters');
           }
         }
 
@@ -1046,16 +1054,10 @@ export function registerWorktreeHandlers(
           };
         }
 
-        return {
-          success: false,
-          error: result.error || 'Failed to create PR'
-        };
+        return fail(result.errorCode ?? 'UNKNOWN', result.error || 'Failed to create PR');
       } catch (error) {
         console.error('[CREATE_PR] Exception in handler:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to create PR'
-        };
+        return fail('UNKNOWN', error instanceof Error ? error.message : 'Failed to create PR');
       }
     }
   );

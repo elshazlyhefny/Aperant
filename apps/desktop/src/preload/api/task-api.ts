@@ -18,6 +18,7 @@ import type {
   ImageAttachment
 } from '../../shared/types';
 import type { TaskRunMetrics, ProjectRunMetrics } from '../../shared/types/run-metrics';
+import type { TaskQueueState } from '../../shared/types/task-queue';
 
 export interface TaskAPI {
   // Task Operations
@@ -88,6 +89,10 @@ export interface TaskAPI {
   onTaskExecutionProgress: (
     callback: (taskId: string, progress: import('../../shared/types').ExecutionProgress, projectId?: string) => void
   ) => () => void;
+
+  // Task Queue
+  getTaskQueueState: (projectId: string) => Promise<IPCResult<TaskQueueState>>;
+  onTaskQueueStateChange: (callback: (state: TaskQueueState) => void) => () => void;
 
   // Task Phase Logs
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
@@ -290,6 +295,19 @@ export const createTaskAPI = (): TaskAPI => ({
     ipcRenderer.on(IPC_CHANNELS.TASK_STATUS_CHANGE, handler);
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.TASK_STATUS_CHANGE, handler);
+    };
+  },
+
+  getTaskQueueState: (projectId: string): Promise<IPCResult<TaskQueueState>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_QUEUE_GET_STATE, projectId),
+
+  onTaskQueueStateChange: (callback: (state: TaskQueueState) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: TaskQueueState): void => {
+      callback(state);
+    };
+    ipcRenderer.on(IPC_CHANNELS.TASK_QUEUE_STATE_CHANGE, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.TASK_QUEUE_STATE_CHANGE, handler);
     };
   },
 

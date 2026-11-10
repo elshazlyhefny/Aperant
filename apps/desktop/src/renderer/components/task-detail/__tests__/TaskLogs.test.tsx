@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
+  initReactI18next: { type: '3rdParty', init: () => {} },
 }));
 
 import { TaskLogs } from '../TaskLogs';

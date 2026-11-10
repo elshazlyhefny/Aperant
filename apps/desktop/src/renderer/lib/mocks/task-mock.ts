@@ -116,6 +116,11 @@ export const taskMock = {
   onTaskError: () => () => {},
   onTaskLog: () => () => {},
   onTaskStatusChange: () => () => {},
+  getTaskQueueState: async () => ({
+    success: true,
+    data: { projectId: '', maxParallelTasks: 0, inProgressCount: 0, queuedTaskIds: [], skippedTaskIds: [] }
+  }),
+  onTaskQueueStateChange: () => () => {},
   onTaskExecutionProgress: () => () => {},
   onTaskLogsChanged: () => () => {},
   onMergeProgress: () => () => {}
