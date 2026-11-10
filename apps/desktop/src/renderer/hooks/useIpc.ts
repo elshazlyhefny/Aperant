@@ -1,4 +1,5 @@
 import { debugLog } from '@shared/utils/debug-logger';
+import { useTaskQueueStore } from '../stores/task-queue-store';
 import { useEffect } from 'react';
 import { unstable_batchedUpdates } from 'react-dom';
 import { useTaskStore } from '../stores/task-store';
@@ -388,6 +389,9 @@ export function useIpcListeners(): void {
         clearAuthFailure();
       }
     });
+    const cleanupTaskQueueState = window.electronAPI.onTaskQueueStateChange(
+      (state) => useTaskQueueStore.getState().setState(state)
+    );
 
     // Cleanup on unmount
     return () => {
@@ -410,6 +414,7 @@ export function useIpcListeners(): void {
       cleanupSDKRateLimit();
       cleanupAuthFailure();
       cleanupOAuthToken();
+      cleanupTaskQueueState();
     };
   }, [appendLog, setError]);
 }

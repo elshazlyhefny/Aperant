@@ -1,6 +1,7 @@
 import { Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import { projectStore } from './project-store';
+import { IPC_CHANNELS } from '../shared/constants';
 
 export type NotificationType = 'task-complete' | 'task-failed' | 'review-needed';
 
@@ -82,13 +83,7 @@ class NotificationService {
 
       // Focus window when notification is clicked
       notification.on('click', () => {
-        const window = this.mainWindow?.();
-        if (window) {
-          if (window.isMinimized()) {
-            window.restore();
-          }
-          window.focus();
-        }
+        this.handleClick(options);
       });
 
       notification.show();
@@ -97,6 +92,45 @@ class NotificationService {
     // Play sound if enabled (system beep)
     if (settings.sound) {
       this.playNotificationSound();
+    }
+  }
+
+  /**
+   * Restore and focus the window, then ask the renderer to open the task
+   */
+  private handleClick(options: NotificationOptions): void {
+    try {
+      const window = this.mainWindow?.();
+      if (!window || window.isDestroyed()) {
+        return;
+      }
+      if (window.isMinimized()) {
+        window.restore();
+      }
+      window.show();
+      window.focus();
+
+      const { projectId, taskId } = options;
+      if (!projectId || !taskId) {
+        return;
+      }
+      const target = { projectId, taskId };
+      const webContents = window.webContents;
+      if (!webContents || webContents.isDestroyed()) {
+        return;
+      }
+      if (webContents.isLoading()) {
+        // Renderer still loading: deliver once it has finished
+        webContents.once('did-finish-load', () => {
+          if (!webContents.isDestroyed()) {
+            webContents.send(IPC_CHANNELS.NOTIFICATION_OPEN_TASK, target);
+          }
+        });
+      } else {
+        webContents.send(IPC_CHANNELS.NOTIFICATION_OPEN_TASK, target);
+      }
+    } catch (error) {
+      console.warn('[NotificationService] Failed to handle notification click:', error);
     }
   }
 

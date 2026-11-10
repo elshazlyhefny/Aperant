@@ -6,6 +6,7 @@ import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { useProjectStore } from '../../stores/project-store';
 import { formatDuration, formatTokens } from './usage-format';
+import { budgetPercent, budgetTokens, resolveTokenBudget } from '../../../shared/utils/token-budget';
 import type { Task } from '../../../shared/types';
 import type { TaskRunMetrics, RunMetricsGroup } from '../../../shared/types/run-metrics';
 
@@ -83,10 +84,15 @@ export function TaskUsage({ task }: TaskUsageProps) {
 
   const { summary } = metrics;
 
+  const used = budgetTokens(summary.tokens);
+  const limit = resolveTokenBudget(task.metadata, activeProject?.settings);
+  const percent = budgetPercent(used, limit);
+
   const cards: Array<{ label: string; value: string }> = [
     { label: t('tasks:usage.totals.sessions'), value: fmt(summary.sessionCount) },
     { label: t('tasks:usage.totals.duration'), value: formatDuration(summary.durationMs) },
     { label: t('tasks:usage.totals.toolTime'), value: formatDuration(summary.toolTimeMs) },
+    { label: t('tasks:usage.tokens.budget'), value: fmt(used) },
     { label: t('tasks:usage.tokens.input'), value: fmt(summary.tokens.input) },
     { label: t('tasks:usage.tokens.output'), value: fmt(summary.tokens.output) },
     { label: t('tasks:usage.tokens.cacheRead'), value: fmt(summary.tokens.cacheRead) },
@@ -149,6 +155,21 @@ export function TaskUsage({ task }: TaskUsageProps) {
             </div>
           ))}
         </div>
+
+        {limit !== undefined && (
+          <div className="rounded-md border border-border p-3 space-y-2" data-testid="usage-budget">
+            <div className="text-xs text-muted-foreground">
+              {t('tasks:usage.budgetUsed', { used: fmt(used), limit: fmt(limit), percent })}
+            </div>
+            <div className="h-2 w-full rounded bg-muted overflow-hidden">
+              <div
+                className={cn('h-full', percent >= 100 ? 'bg-destructive' : 'bg-primary')}
+                style={{ width: `${Math.min(percent, 100)}%` }}
+                data-testid="usage-budget-bar"
+              />
+            </div>
+          </div>
+        )}
 
         {renderGroups(t('tasks:usage.byPhase'), t('tasks:usage.columns.phase'), summary.byPhase, 'usage-by-phase')}
         {renderGroups(t('tasks:usage.byAgent'), t('tasks:usage.columns.agent'), summary.byAgent, 'usage-by-agent')}

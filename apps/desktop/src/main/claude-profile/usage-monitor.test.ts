@@ -52,7 +52,7 @@ const mockLoadProfilesFile = vi.fn(async () => ({
   version: 1
 }));
 
-vi.mock('../services/profile/profile-manager', () => ({
+vi.mock('../services/profile/api-profile-store', () => ({
   loadProfilesFile: () => mockLoadProfilesFile()
 }));
 

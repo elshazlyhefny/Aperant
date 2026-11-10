@@ -95,6 +95,8 @@ export interface ClaudeArgsInput {
   effort?: ClaudeEffort;
   /** JSON schema for structured output (`--json-schema`). */
   jsonSchema?: Record<string, unknown>;
+  /** Prompt is sent as a stream-json user message (needed to carry images). */
+  inputStreamJson?: boolean;
 }
 
 /**
@@ -136,6 +138,9 @@ export function buildClaudeArgs(input: ClaudeArgsInput): string[] {
   }
   if (input.jsonSchema) {
     args.push('--json-schema', JSON.stringify(input.jsonSchema));
+  }
+  if (input.inputStreamJson) {
+    args.push('--input-format', 'stream-json');
   }
   return args;
 }
@@ -223,9 +228,81 @@ function partToText(part: unknown): string {
       return `[called tool ${String(part.toolName)} with ${stringify(part.input ?? part.args)}]`;
     case 'tool-result':
       return `[tool ${String(part.toolName)} returned: ${stringify(unwrapToolOutput(part.output ?? part.result))}]`;
+    case 'image':
+      return '[image attached]';
+    case 'file':
+      return isImageMediaType(part.mediaType) ? '[image attached]' : '[file content omitted]';
     default:
       return `[${String(part.type)} content omitted]`;
   }
+}
+
+/** An image taken from a prompt, ready for the CLI's stream-json input. */
+export interface PromptImage {
+  mediaType: string;
+  /** Base64 data without a `data:` prefix. */
+  data: string;
+}
+
+function isImageMediaType(value: unknown): value is string {
+  return typeof value === 'string' && value.toLowerCase().startsWith('image/');
+}
+
+function toBase64(data: unknown): string | null {
+  if (typeof data === 'string') {
+    if (/^https?:\/\//i.test(data)) return null;
+    const match = /^data:[^,]*;base64,(.*)$/s.exec(data);
+    return match ? match[1] : data;
+  }
+  if (data instanceof Uint8Array) return Buffer.from(data).toString('base64');
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString('base64');
+  return null;
+}
+
+/**
+ * Images in the last user message (ModelMessage `image` parts and V3 `file`
+ * parts with an image media type). Remote URLs are skipped. Earlier turns are
+ * rendered as text, so their images are not sent again.
+ */
+export function extractImages(messages: LooseMessage[]): PromptImage[] {
+  let last: LooseMessage | undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      last = messages[i];
+      break;
+    }
+  }
+  if (!last || !Array.isArray(last.content)) return [];
+  const images: PromptImage[] = [];
+  for (const part of last.content) {
+    if (!isRecord(part)) continue;
+    let raw: unknown;
+    let mediaType: unknown = part.mediaType;
+    if (part.type === 'image') {
+      raw = part.image ?? part.data;
+      if (!isImageMediaType(mediaType)) {
+        const dataUrl = typeof raw === 'string' ? /^data:([^;,]+)/.exec(raw) : null;
+        mediaType = dataUrl ? dataUrl[1] : 'image/png';
+      }
+    } else if (part.type === 'file' && isImageMediaType(mediaType)) {
+      raw = part.data;
+    } else {
+      continue;
+    }
+    const data = toBase64(raw);
+    if (data) images.push({ mediaType: mediaType as string, data });
+  }
+  return images;
+}
+
+/** The single stream-json user message line carrying the prompt text and its images. */
+export function buildStreamJsonUserMessage(prompt: string, images: PromptImage[]): string {
+  const content: unknown[] = images.map((image) => ({
+    type: 'image',
+    source: { type: 'base64', media_type: image.mediaType, data: image.data },
+  }));
+  content.push({ type: 'text', text: prompt });
+  return `${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`;
 }
 
 /** V3 tool results arrive as `{ type: 'text' | 'json' | ..., value }`. */

@@ -5,6 +5,7 @@ import {
   buildClaudeArgs,
   buildClaudeEnv,
   effortFromProviderOptions,
+  extractImages,
   renderPrompt,
   systemFromMessages,
 } from '../cli-args';
@@ -239,5 +240,54 @@ describe('cliFailureError', () => {
     expect(error.message).toContain('exit code 2');
     expect(error.message).toContain('boom');
     expect(classifyError(error).outcome).toBe('error');
+  });
+});
+
+describe('image input', () => {
+  it('adds --input-format stream-json only when asked', () => {
+    const base = { modelId: 'm', mcpConfig: '{}', hasTools: false };
+    expect(argValue(buildClaudeArgs(base), '--input-format')).toBeUndefined();
+    expect(argValue(buildClaudeArgs({ ...base, inputStreamJson: true }), '--input-format')).toBe('stream-json');
+  });
+
+  it('extracts ModelMessage image parts from the last user message', () => {
+    const messages = [
+      { role: 'user', content: [{ type: 'image', image: 'AAAA', mediaType: 'image/jpeg' }] },
+      { role: 'assistant', content: 'ok' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'look' },
+          { type: 'image', image: new Uint8Array([1, 2, 3]), mediaType: 'image/png' },
+          { type: 'image', image: 'data:image/webp;base64,QkJC' },
+          { type: 'image', image: 'https://example.com/a.png' },
+        ],
+      },
+    ];
+    expect(extractImages(messages)).toEqual([
+      { mediaType: 'image/png', data: 'AQID' },
+      { mediaType: 'image/webp', data: 'QkJC' },
+    ]);
+  });
+
+  it('extracts V3 file parts with an image media type only', () => {
+    const messages = [
+      {
+        role: 'user',
+        content: [
+          { type: 'file', mediaType: 'image/png', data: new Uint8Array([4, 5]) },
+          { type: 'file', mediaType: 'application/pdf', data: new Uint8Array([6]) },
+        ],
+      },
+    ];
+    expect(extractImages(messages)).toEqual([{ mediaType: 'image/png', data: 'BAU=' }]);
+  });
+
+  it('marks delivered images in the prompt instead of saying they were omitted', () => {
+    const prompt = renderPrompt([
+      { role: 'user', content: [{ type: 'text', text: 'hi' }, { type: 'image', image: 'AAAA', mediaType: 'image/png' }] },
+    ]);
+    expect(prompt).toContain('[image attached]');
+    expect(prompt).not.toContain('omitted');
   });
 });
