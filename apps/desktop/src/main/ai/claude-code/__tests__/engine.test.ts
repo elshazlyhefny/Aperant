@@ -119,6 +119,40 @@ describe('runClaudeCode', () => {
     expect(existsSync(rec.sysFile)).toBe(false);
   });
 
+  it('sends images as a stream-json user message on stdin', async () => {
+    const { env, read } = scenario('ok');
+    await runClaudeCode({
+      modelId: 'claude-opus-5-5',
+      prompt: 'What is this?',
+      images: [{ mediaType: 'image/png', data: 'AQID' }],
+      binaryPath: fake,
+      env,
+      onPart: () => undefined,
+    });
+    const rec = read();
+    expect(rec.args[rec.args.indexOf('--input-format') + 1]).toBe('stream-json');
+    const lines = rec.stdin.trim().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0])).toEqual({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AQID' } },
+          { type: 'text', text: 'What is this?' },
+        ],
+      },
+    });
+  });
+
+  it('keeps plain-text stdin and no input-format flag without images', async () => {
+    const { env, read } = scenario('ok');
+    await runClaudeCode({ modelId: 'm', prompt: 'plain', images: [], binaryPath: fake, env, onPart: () => undefined });
+    const rec = read();
+    expect(rec.stdin).toBe('plain');
+    expect(rec.args).not.toContain('--input-format');
+  });
+
   it('starts the tool bridge and hands the CLI a private config naming it', async () => {
     const { env, read } = scenario('ok');
     const tools = {

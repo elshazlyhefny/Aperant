@@ -158,6 +158,18 @@
     "skipped": "skipped",
     "alreadyExisted": "already existed",
     "noWorktree": "No worktree found for this task",
+    "errors": {
+      "taskNotFound": "Task not found",
+      "specDirNotFound": "Task spec directory not found",
+      "invalidTargetBranch": "Invalid target branch name",
+      "invalidTitleLength": "PR title is too long",
+      "invalidTitleChars": "PR title contains invalid characters",
+      "branchRefused": "Pushing this branch was refused for safety reasons",
+      "commitFailed": "Could not commit the task's changes",
+      "pushFailed": "Failed to push the branch",
+      "ghTimeout": "Creating the PR timed out",
+      "retriesExhausted": "PR creation failed after several attempts"
+    },
     "resultsDescriptionWithSkipped": "{{success}} succeeded, {{skipped}} skipped, {{failed}} failed"
   }
 }

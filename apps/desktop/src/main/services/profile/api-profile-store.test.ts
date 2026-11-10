@@ -1,18 +1,29 @@
 /**
- * Tests for profile-manager.ts
- *
- * Red phase - write failing tests first
+ * Tests for api-profile-store.ts
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { promises as fsPromises } from 'fs';
 import {
   loadProfilesFile,
   saveProfilesFile,
   generateProfileId,
   validateFilePermissions
-} from './profile-manager';
-import type { ProfilesFile } from '../../shared/types/profile';
+} from './api-profile-store';
+import path from 'path';
+import type { ProfilesFile } from '@shared/types/profile';
+
+// Use vi.hoisted to define mock functions that need to be accessible in vi.mock
+const { fsMocks } = vi.hoisted(() => ({
+  fsMocks: {
+    readFile: vi.fn(),
+    writeFile: vi.fn(),
+    mkdir: vi.fn(),
+    chmod: vi.fn(),
+    access: vi.fn(),
+    unlink: vi.fn(),
+    rename: vi.fn()
+  }
+}));
 
 // Mock Electron app.getPath
 vi.mock('electron', () => ({
@@ -26,30 +37,33 @@ vi.mock('electron', () => ({
   }
 }));
 
-// Mock fs module - mock the promises export which is used by profile-manager.ts
-vi.mock('fs', () => {
-  const promises = {
-    readFile: vi.fn(),
-    writeFile: vi.fn(),
-    mkdir: vi.fn(),
-    chmod: vi.fn()
-  };
-  return {
-    default: { promises }, // Default export contains promises
-    promises, // Named export for promises
-    existsSync: vi.fn(),
-    constants: {
-      O_RDONLY: 0,
-      S_IRUSR: 0o400
-    }
-  };
-});
+// Mock proper-lockfile
+vi.mock('proper-lockfile', () => ({
+  default: {
+    lock: vi.fn().mockResolvedValue(vi.fn().mockResolvedValue(undefined))
+  }
+}));
 
-describe('profile-manager', () => {
-  const _mockProfilesPath = '/mock/userdata/profiles.json';
+// Mock fs module
+vi.mock('fs', () => ({
+  default: {
+    promises: fsMocks
+  },
+  promises: fsMocks,
+  existsSync: vi.fn(),
+  constants: {
+    O_RDONLY: 0,
+    S_IRUSR: 0o400
+  }
+}));
 
+describe('api-profile-store', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Setup default mocks to resolve
+    fsMocks.mkdir.mockResolvedValue(undefined);
+    fsMocks.writeFile.mockResolvedValue(undefined);
+    fsMocks.chmod.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -58,7 +72,7 @@ describe('profile-manager', () => {
 
   describe('loadProfilesFile', () => {
     it('should return default profiles file when file does not exist', async () => {
-      vi.mocked(fsPromises.readFile).mockRejectedValue(new Error('ENOENT'));
+      fsMocks.readFile.mockRejectedValue(new Error('ENOENT'));
 
       const result = await loadProfilesFile();
 
@@ -70,7 +84,7 @@ describe('profile-manager', () => {
     });
 
     it('should return default profiles file when file is corrupted JSON', async () => {
-      vi.mocked(fsPromises.readFile).mockResolvedValue(Buffer.from('invalid json{'));
+      fsMocks.readFile.mockResolvedValue(Buffer.from('invalid json{'));
 
       const result = await loadProfilesFile();
 
@@ -97,7 +111,7 @@ describe('profile-manager', () => {
         version: 1
       };
 
-      vi.mocked(fsPromises.readFile).mockResolvedValue(
+      fsMocks.readFile.mockResolvedValue(
         Buffer.from(JSON.stringify(mockData))
       );
 
@@ -107,12 +121,12 @@ describe('profile-manager', () => {
     });
 
     it('should use auto-claude directory for profiles.json path', async () => {
-      vi.mocked(fsPromises.readFile).mockRejectedValue(new Error('ENOENT'));
+      fsMocks.readFile.mockRejectedValue(new Error('ENOENT'));
 
       await loadProfilesFile();
 
       // Verify the file path includes auto-claude
-      const readFileCalls = vi.mocked(fsPromises.readFile).mock.calls;
+      const readFileCalls = fsMocks.readFile.mock.calls;
       const filePath = readFileCalls[0]?.[0];
       expect(filePath).toContain('auto-claude');
       expect(filePath).toContain('profiles.json');
@@ -127,12 +141,10 @@ describe('profile-manager', () => {
         version: 1
       };
 
-      vi.mocked(fsPromises.writeFile).mockResolvedValue(undefined);
-
       await saveProfilesFile(mockData);
 
-      expect(fsPromises.writeFile).toHaveBeenCalled();
-      const writeFileCall = vi.mocked(fsPromises.writeFile).mock.calls[0];
+      expect(fsMocks.writeFile).toHaveBeenCalled();
+      const writeFileCall = fsMocks.writeFile.mock.calls[0];
       const filePath = writeFileCall?.[0];
       const content = writeFileCall?.[1];
 
@@ -148,9 +160,55 @@ describe('profile-manager', () => {
         version: 1
       };
 
-      vi.mocked(fsPromises.writeFile).mockRejectedValue(new Error('Write failed'));
+      fsMocks.writeFile.mockRejectedValue(new Error('Write failed'));
 
       await expect(saveProfilesFile(mockData)).rejects.toThrow('Write failed');
+    });
+  });
+
+  describe('stored profile compatibility', () => {
+    const fixtureJson = JSON.stringify(
+      {
+        profiles: [
+          {
+            id: 'fixture-id-1',
+            name: 'Fixture Profile',
+            baseUrl: 'https://api.example.com',
+            apiKey: 'sk-fixture-key',
+            models: { default: 'claude-sonnet' },
+            createdAt: 1700000000000,
+            updatedAt: 1700000001000
+          }
+        ],
+        activeProfileId: 'fixture-id-1',
+        version: 1
+      },
+      null,
+      2
+    );
+
+    it('should load a v1 profiles.json from <userData>/auto-claude/profiles.json unchanged', async () => {
+      fsMocks.readFile.mockResolvedValue(Buffer.from(fixtureJson));
+
+      const result = await loadProfilesFile();
+
+      expect(fsMocks.readFile.mock.calls[0]?.[0]).toBe(
+        path.join('/mock/userdata', 'auto-claude', 'profiles.json')
+      );
+      expect(result).toEqual(JSON.parse(fixtureJson));
+    });
+
+    it('should round-trip save then load with byte-equivalent JSON', async () => {
+      fsMocks.readFile.mockResolvedValue(Buffer.from(fixtureJson));
+      const loaded = await loadProfilesFile();
+
+      await saveProfilesFile(loaded);
+
+      const written = fsMocks.writeFile.mock.calls[0]?.[1];
+      expect(written).toBe(fixtureJson);
+
+      fsMocks.readFile.mockResolvedValue(Buffer.from(written));
+      expect(await loadProfilesFile()).toEqual(loaded);
     });
   });
 
@@ -179,7 +237,7 @@ describe('profile-manager', () => {
   describe('validateFilePermissions', () => {
     it('should validate user-readable only file permissions', async () => {
       // Mock successful chmod
-      vi.mocked(fsPromises.chmod).mockResolvedValue(undefined);
+      fsMocks.chmod.mockResolvedValue(undefined);
 
       const result = await validateFilePermissions('/mock/path/to/file.json');
 
@@ -187,7 +245,7 @@ describe('profile-manager', () => {
     });
 
     it('should return false if chmod fails', async () => {
-      vi.mocked(fsPromises.chmod).mockRejectedValue(new Error('Permission denied'));
+      fsMocks.chmod.mockRejectedValue(new Error('Permission denied'));
 
       const result = await validateFilePermissions('/mock/path/to/file.json');
 

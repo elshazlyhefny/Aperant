@@ -80,8 +80,8 @@ vi.mock('@anthropic-ai/sdk', () => {
   };
 });
 
-// Mock profile-manager
-vi.mock('./profile-manager', () => ({
+// Mock api-profile-store
+vi.mock('./api-profile-store', () => ({
   loadProfilesFile: vi.fn(),
   saveProfilesFile: vi.fn(),
   generateProfileId: vi.fn(() => 'mock-uuid-1234'),
@@ -89,7 +89,7 @@ vi.mock('./profile-manager', () => ({
   getProfilesFilePath: vi.fn(() => '/mock/profiles.json'),
   atomicModifyProfiles: vi.fn(async (modifier: (file: ProfilesFile) => ProfilesFile) => {
     // Get the current mock file from loadProfilesFile
-    const { loadProfilesFile, saveProfilesFile } = await import('./profile-manager');
+    const { loadProfilesFile, saveProfilesFile } = await import('./api-profile-store');
     const file = await loadProfilesFile();
     const modified = modifier(file);
     await saveProfilesFile(modified);
@@ -168,7 +168,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await validateProfileNameUnique('New Profile');
@@ -191,7 +191,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await validateProfileNameUnique('Existing Profile');
@@ -214,7 +214,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result1 = await validateProfileNameUnique('my profile');
@@ -239,7 +239,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await validateProfileNameUnique('  My Profile  ');
@@ -256,7 +256,7 @@ describe('profile-service', () => {
       };
 
       const { loadProfilesFile, saveProfilesFile, generateProfileId } =
-        await import('./profile-manager');
+        await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
       vi.mocked(saveProfilesFile).mockResolvedValue(undefined);
       vi.mocked(generateProfileId).mockReturnValue('generated-id-123');
@@ -287,7 +287,7 @@ describe('profile-service', () => {
     });
 
     it('should throw error for invalid base URL', async () => {
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue({
         profiles: [],
         activeProfileId: null,
@@ -304,7 +304,7 @@ describe('profile-service', () => {
     });
 
     it('should throw error for invalid API key', async () => {
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue({
         profiles: [],
         activeProfileId: null,
@@ -336,7 +336,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const input = {
@@ -368,7 +368,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile, saveProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile, saveProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
       vi.mocked(saveProfilesFile).mockResolvedValue(undefined);
 
@@ -407,7 +407,7 @@ describe('profile-service', () => {
         activeProfileId: null,
         version: 1
       });
-      const { loadProfilesFile, saveProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile, saveProfilesFile } = await import('./api-profile-store');
       vi.mocked(saveProfilesFile).mockResolvedValue(undefined);
 
       vi.mocked(loadProfilesFile).mockResolvedValue(make());
@@ -447,7 +447,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile, saveProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile, saveProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
       vi.mocked(saveProfilesFile).mockResolvedValue(undefined);
 
@@ -487,7 +487,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const input = {
@@ -518,7 +518,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const input = {
@@ -547,7 +547,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const input = {
@@ -567,7 +567,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const input = {
@@ -598,7 +598,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -627,7 +627,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -663,7 +663,7 @@ describe('profile-service', () => {
         version: 1
       };
 
-      const { loadProfilesFile } = await import('./profile-manager');
+      const { loadProfilesFile } = await import('./api-profile-store');
       vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
 
       const result = await getAPIProfileEnv();
@@ -674,6 +674,226 @@ describe('profile-service', () => {
       expect(result).toEqual({
         ANTHROPIC_AUTH_TOKEN: 'sk-test-key-12345678',
         ANTHROPIC_MODEL: 'claude-sonnet-4-5-20250929'
+      });
+    });
+
+    it('should return empty object when activeProfileId is empty string', async () => {
+      const mockFile: ProfilesFile = {
+        profiles: [
+          {
+            id: 'profile-1',
+            name: 'Test Profile',
+            baseUrl: 'https://api.example.com',
+            apiKey: 'sk-test-key-12345678',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          }
+        ],
+        activeProfileId: '',
+        version: 1
+      };
+
+      const { loadProfilesFile } = await import('./api-profile-store');
+      vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
+
+      const result = await getAPIProfileEnv();
+      expect(result).toEqual({});
+    });
+
+    it('should handle missing models object', async () => {
+      const mockFile: ProfilesFile = {
+        profiles: [
+          {
+            id: 'profile-1',
+            name: 'Test Profile',
+            baseUrl: 'https://api.example.com',
+            apiKey: 'sk-test-key-12345678',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+            // No models property
+          }
+        ],
+        activeProfileId: 'profile-1',
+        version: 1
+      };
+
+      const { loadProfilesFile } = await import('./api-profile-store');
+      vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
+
+      const result = await getAPIProfileEnv();
+
+      expect(result).toEqual({
+        ANTHROPIC_BASE_URL: 'https://api.example.com',
+        ANTHROPIC_AUTH_TOKEN: 'sk-test-key-12345678'
+      });
+      expect(result).not.toHaveProperty('ANTHROPIC_MODEL');
+      expect(result).not.toHaveProperty('ANTHROPIC_DEFAULT_HAIKU_MODEL');
+      expect(result).not.toHaveProperty('ANTHROPIC_DEFAULT_SONNET_MODEL');
+      expect(result).not.toHaveProperty('ANTHROPIC_DEFAULT_OPUS_MODEL');
+    });
+
+    it('should handle partial model configurations', async () => {
+      const mockFile: ProfilesFile = {
+        profiles: [
+          {
+            id: 'profile-1',
+            name: 'Test Profile',
+            baseUrl: 'https://api.example.com',
+            apiKey: 'sk-test-key-12345678',
+            models: {
+              default: 'claude-sonnet-4-5-20250929'
+              // Only default model set
+            },
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          }
+        ],
+        activeProfileId: 'profile-1',
+        version: 1
+      };
+
+      const { loadProfilesFile } = await import('./api-profile-store');
+      vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
+
+      const result = await getAPIProfileEnv();
+
+      expect(result).toEqual({
+        ANTHROPIC_BASE_URL: 'https://api.example.com',
+        ANTHROPIC_AUTH_TOKEN: 'sk-test-key-12345678',
+        ANTHROPIC_MODEL: 'claude-sonnet-4-5-20250929'
+      });
+      expect(result).not.toHaveProperty('ANTHROPIC_DEFAULT_HAIKU_MODEL');
+      expect(result).not.toHaveProperty('ANTHROPIC_DEFAULT_SONNET_MODEL');
+      expect(result).not.toHaveProperty('ANTHROPIC_DEFAULT_OPUS_MODEL');
+    });
+
+    it('should find active profile by id when multiple profiles exist', async () => {
+      const mockFile: ProfilesFile = {
+        profiles: [
+          {
+            id: 'profile-1',
+            name: 'Profile One',
+            baseUrl: 'https://api1.example.com',
+            apiKey: 'sk-key-one-12345678',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          },
+          {
+            id: 'profile-2',
+            name: 'Profile Two',
+            baseUrl: 'https://api2.example.com',
+            apiKey: 'sk-key-two-12345678',
+            models: { default: 'claude-sonnet-4-5-20250929' },
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          },
+          {
+            id: 'profile-3',
+            name: 'Profile Three',
+            baseUrl: 'https://api3.example.com',
+            apiKey: 'sk-key-three-12345678',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          }
+        ],
+        activeProfileId: 'profile-2',
+        version: 1
+      };
+
+      const { loadProfilesFile } = await import('./api-profile-store');
+      vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
+
+      const result = await getAPIProfileEnv();
+
+      expect(result).toEqual({
+        ANTHROPIC_BASE_URL: 'https://api2.example.com',
+        ANTHROPIC_AUTH_TOKEN: 'sk-key-two-12345678',
+        ANTHROPIC_MODEL: 'claude-sonnet-4-5-20250929'
+      });
+    });
+
+    it('should handle profile not found (activeProfileId points to non-existent profile)', async () => {
+      const mockFile: ProfilesFile = {
+        profiles: [
+          {
+            id: 'profile-1',
+            name: 'Profile One',
+            baseUrl: 'https://api1.example.com',
+            apiKey: 'sk-key-one-12345678',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          }
+        ],
+        activeProfileId: 'non-existent-id', // Points to profile that doesn't exist
+        version: 1
+      };
+
+      const { loadProfilesFile } = await import('./api-profile-store');
+      vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
+
+      const result = await getAPIProfileEnv();
+
+      // Should return empty object gracefully
+      expect(result).toEqual({});
+    });
+
+    it('should trim whitespace from values before filtering', async () => {
+      const mockFile: ProfilesFile = {
+        profiles: [
+          {
+            id: 'profile-1',
+            name: 'Test Profile',
+            baseUrl: '  https://api.example.com  ', // Has whitespace
+            apiKey: 'sk-test-key-12345678',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          }
+        ],
+        activeProfileId: 'profile-1',
+        version: 1
+      };
+
+      const { loadProfilesFile } = await import('./api-profile-store');
+      vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
+
+      const result = await getAPIProfileEnv();
+
+      // Whitespace should be trimmed, not filtered out
+      expect(result).toEqual({
+        ANTHROPIC_BASE_URL: 'https://api.example.com', // Trimmed
+        ANTHROPIC_AUTH_TOKEN: 'sk-test-key-12345678'
+      });
+    });
+
+    it('should filter out whitespace-only values', async () => {
+      const mockFile: ProfilesFile = {
+        profiles: [
+          {
+            id: 'profile-1',
+            name: 'Test Profile',
+            baseUrl: '   ', // Whitespace only
+            apiKey: 'sk-test-key-12345678',
+            models: {
+              default: '   ' // Whitespace only
+            },
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          }
+        ],
+        activeProfileId: 'profile-1',
+        version: 1
+      };
+
+      const { loadProfilesFile } = await import('./api-profile-store');
+      vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
+
+      const result = await getAPIProfileEnv();
+
+      // Whitespace-only values should be filtered out
+      expect(result).not.toHaveProperty('ANTHROPIC_BASE_URL');
+      expect(result).not.toHaveProperty('ANTHROPIC_MODEL');
+      expect(result).toEqual({
+        ANTHROPIC_AUTH_TOKEN: 'sk-test-key-12345678'
       });
     });
   });

@@ -509,9 +509,9 @@
       "invalidType": "Type de fichier invalide. Veuillez utiliser PNG, JPEG, GIF ou WebP.",
       "processFailed": "Échec du traitement de l'image",
       "dragOver": "Déposer l'image pour joindre",
-      "analysisUnsupported": "Note : L'analyse d'images n'est pas encore prise en charge. Les images sont stockées pour référence mais ne peuvent pas être analysées par le modèle.",
+      "analysisUnsupported": "Le modèle sélectionné ne peut pas voir les images. Les images jointes seront stockées pour référence mais ne lui seront pas envoyées. Choisissez un modèle compatible avec la vision pour les faire analyser.",
       "screenshotTooLarge": "La capture d'écran est trop volumineuse ({{size}}Mo). La taille maximale est de {{max}}Mo. Essayez de capturer une zone plus petite.",
-      "notAnalyzed": "Les images ont été stockées pour référence mais n'ont pas été analysées par le modèle."
+      "notAnalyzed": "Ce modèle n'a pas pu voir les images jointes."
     }
   },
   "ideation": {

@@ -9,7 +9,7 @@
  */
 
 import { readSettingsFile, writeSettingsFile } from '../settings-utils';
-import { atomicModifyProfiles } from './profile/profile-manager';
+import { atomicModifyProfiles } from './profile/api-profile-store';
 import { extractProfileId } from '../../shared/utils/unified-account';
 import { getKeyStatus, withKeyStatus } from '../../shared/utils/api-key-status';
 import type { ApiKeyStatus, ConnectionErrorType } from '../../shared/types/profile';

@@ -95,7 +95,13 @@
       "label": "Test Connection",
       "testing": "Testing...",
       "success": "Connection Successful",
-      "failure": "Connection Failed"
+      "failure": "Connection Failed",
+      "toast": {
+        "successTitle": "Connection successful",
+        "successDescription": "Your API credentials are valid.",
+        "failureTitle": "Connection test failed",
+        "failureFallback": "Failed to test connection"
+      }
     },
     "models": {
       "title": "Optional: Model Name Mappings",
@@ -345,7 +351,31 @@
     "onReviewNeeded": "On Review Needed",
     "onReviewNeededDescription": "Notify when QA requires your review",
     "sound": "Sound",
-    "soundDescription": "Play sound with notifications"
+    "soundDescription": "Play sound with notifications",
+    "webhook": {
+      "title": "Task outcome webhook",
+      "description": "Send a message to Slack (or any compatible webhook) when a task needs attention.",
+      "enable": "Enable webhook",
+      "enableDescription": "Post task outcomes to the webhook URL below",
+      "urlLabel": "Webhook URL",
+      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlInvalid": "Enter a valid https:// URL (http is only allowed for localhost) without credentials.",
+      "show": "Show URL",
+      "hide": "Hide URL",
+      "storedLocallyNote": "The webhook URL is stored only in this app's settings and is never read from a project.",
+      "events": {
+        "reviewReady": "Review ready",
+        "reviewReadyDescription": "A task finished and is ready for your review",
+        "failed": "Task failed",
+        "failedDescription": "A task stopped because of an error",
+        "blocked": "Task blocked",
+        "blockedDescription": "QA rejected the task or found errors that need your attention"
+      },
+      "sendTest": "Send test message",
+      "sending": "Sending...",
+      "testSuccess": "Test message sent",
+      "testFailed": "Could not send the test message"
+    }
   },
   "actions": {
     "save": "Save Settings",
@@ -396,6 +426,12 @@
         "label": "Clean up worktrees after merge",
         "description": "Remove a task's worktree and local branch once its pull request has merged. A worktree with uncommitted changes, or commits made after the merge, is kept."
       },
+      "tokenBudget": {
+        "label": "Token budget",
+        "description": "Pauses a task when it reaches this many tokens. Leave blank for no budget. Counts input and output tokens (cache reads are already included in input). Checked before every model request. Applies to planning, coding and QA sessions on both the Vercel AI SDK and Claude Code engines. Does not apply to spec creation, insights or other runners.",
+        "placeholder": "No budget",
+        "invalid": "Enter a whole number greater than 0, or leave blank for no budget."
+      },
       "credentialIsolation": {
         "title": "Credential isolation",
         "envPassthrough": {
@@ -403,15 +439,6 @@
           "description": "Comma or space separated variable names. Variables matching *_TOKEN, *_API_KEY, *_SECRET, *_PASSWORD and AWS_* are hidden from agent shell commands by default; list a name here to let it through.",
           "placeholder": "NPM_TOKEN, MY_SERVICE_URL",
           "invalid": "Invalid variable names ignored: {{names}}"
-        },
-        "bashSandbox": {
-          "label": "Shell command sandbox",
-          "description": "Needs bubblewrap (Linux) or sandbox-exec (macOS). If the sandbox is unavailable, agent shell commands are refused rather than run unsandboxed.",
-          "options": {
-            "off": "Off",
-            "homeHidden": "Home directory hidden",
-            "homeHiddenNoNetwork": "Home directory hidden and no network"
-          }
         }
       }
     },
@@ -421,6 +448,38 @@
       "integrationTitle": "GitLab Integration",
       "integrationDescription": "Connect to GitLab for issue tracking",
       "syncDescription": "Sync with GitLab Issues"
+    },
+    "security": {
+      "title": "Security",
+      "description": "Isolate agent shell commands",
+      "status": {
+        "active": "Sandbox active",
+        "available-off": "Available, off",
+        "tool-missing": "Sandbox tool missing",
+        "unsupported": "Not supported on this platform",
+        "checking": "Checking..."
+      },
+      "statusDetail": {
+        "active": "Agent shell commands run inside the sandbox.",
+        "available-off": "{{tool}} is installed, but agent shell commands currently run unsandboxed. Turn it on below.",
+        "tool-missing": "{{tool}} was not found, so the sandbox cannot run.",
+        "unsupported": "The shell sandbox is not available on this operating system."
+      },
+      "installHint": {
+        "linux": "Install bubblewrap with your package manager, for example: sudo apt install bubblewrap, sudo dnf install bubblewrap or sudo pacman -S bubblewrap.",
+        "macos": "sandbox-exec ships with macOS and should be at /usr/bin/sandbox-exec. Check that your system is not missing it."
+      },
+      "mode": {
+        "label": "Shell command sandbox",
+        "description": "Choose how much of your machine agent shell commands can see.",
+        "off": "Off",
+        "homeHidden": "Home directory hidden",
+        "homeHiddenNoNetwork": "Home directory hidden and no network",
+        "offExplanation": "Off: commands run with your full permissions. Nothing is isolated.",
+        "homeHiddenExplanation": "Home directory hidden: commands cannot read your home directory (keys, tokens, other projects), only the project.",
+        "homeHiddenNoNetworkExplanation": "Home directory hidden and no network: as above, and commands cannot reach the network."
+      },
+      "refusedWarning": "The sandbox cannot run on this machine. With this mode on, every agent shell command will be refused instead of run unsandboxed."
     },
     "memory": {
       "title": "Memory",

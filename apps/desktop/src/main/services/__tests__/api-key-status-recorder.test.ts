@@ -14,7 +14,7 @@ vi.mock('../../settings-utils', () => ({
 }));
 
 let file: ProfilesFile;
-vi.mock('../profile/profile-manager', () => ({
+vi.mock('../profile/api-profile-store', () => ({
   atomicModifyProfiles: vi.fn(async (modifier: (f: ProfilesFile) => ProfilesFile) => {
     file = modifier(file);
     return file;

@@ -23,7 +23,7 @@ import type {
   WorkerMessage,
   AgentExecutorConfig,
 } from './types';
-import type { SessionResult } from '../session/types';
+import { TOKEN_BUDGET_ERROR_CODE, type SessionResult } from '../session/types';
 import { ProgressTracker } from '../session/progress-tracker';
 import type { SessionOutcome as MemorySessionOutcome, SessionType as MemorySessionType } from '../memory/types';
 import { MainMemoryHandler } from '../memory/ipc/main-memory-handler';
@@ -260,13 +260,18 @@ export class WorkerBridge extends EventEmitter {
    */
   private handleResult(taskId: string, result: SessionResult, projectId?: string): void {
     // Map outcome to exit code
-    const exitCode = result.outcome === 'completed' || result.outcome === 'max_steps' || result.outcome === 'context_window' ? 0 : 1;
+    // zeenha fork: a token budget pause is a clean stop, not a failure. The
+    // worker already posted TOKEN_BUDGET_REACHED, so no exit error or toast.
+    const budgetPause = result.error?.code === TOKEN_BUDGET_ERROR_CODE;
+    const exitCode = budgetPause || result.outcome === 'completed' || result.outcome === 'max_steps' || result.outcome === 'context_window' ? 0 : 1;
 
     // Log the result summary
     const summary = `Session complete: outcome=${result.outcome}, steps=${result.stepsExecuted}, tools=${result.toolCallCount}, duration=${result.durationMs}ms`;
     this.emitTyped('log', taskId, summary, projectId);
 
-    if (result.error) {
+    if (budgetPause && result.error) {
+      this.emitTyped('log', taskId, result.error.message, projectId);
+    } else if (result.error) {
       this.emitTyped('error', taskId, result.error.message, projectId);
     }
 

@@ -23,6 +23,7 @@ import { resolveModelId } from '../ai/config/phase-config';
 import { detectProviderFromModel } from '../ai/providers/factory';
 import { resolveModelEquivalent } from '../../shared/constants/models';
 import type { BuiltinProvider } from '../../shared/types/provider-account';
+import { resolveTokenBudget } from '../../shared/utils/token-budget';
 import type { AgentExecutorConfig, SerializableSessionConfig, SerializedSecurityProfile } from '../ai/agent/types';
 import { getSecurityProfile } from '../ai/security/security-profile';
 import { parseEnvPassthrough } from '../ai/security/child-env';
@@ -565,6 +566,7 @@ export class AgentManager extends EventEmitter {
       // When running in a worktree, sourceSpecDir points to the main project spec dir
       // so the subtask iterator can sync phase updates in real time (not just on exit).
       sourceSpecDir: worktreePath ? specDir : undefined,
+      tokenBudget: this.resolveTaskTokenBudget(specDir, project?.settings),
       provider: resolved.provider,
       modelId: resolved.modelId,
       apiKey: resolved.auth?.apiKey,
@@ -671,6 +673,7 @@ export class AgentManager extends EventEmitter {
       maxSteps: 1000,
       specDir: effectiveSpecDir,
       projectDir: effectiveProjectDir,
+      tokenBudget: this.resolveTaskTokenBudget(specDir, project?.settings),
       provider: resolved.provider,
       modelId: resolved.modelId,
       apiKey: resolved.auth?.apiKey,
@@ -996,6 +999,24 @@ export class AgentManager extends EventEmitter {
    * @param specDir - The spec directory path
    * @param phase - The execution phase ('planning', 'coding', 'qa', 'spec')
    */
+  /**
+   * zeenha fork: the effective token budget for a task: its task_metadata.json
+   * override (0 = unlimited) else the project default. Serialized into the
+   * worker config because workers cannot read main-process stores.
+   */
+  resolveTaskTokenBudget(specDir: string, projectSettings?: { tokenBudget?: number }): number | undefined {
+    let metadata: { tokenBudget?: number } | undefined;
+    try {
+      const metadataPath = path.join(specDir, 'task_metadata.json');
+      if (existsSync(metadataPath)) {
+        metadata = JSON.parse(readFileSync(metadataPath, 'utf-8')) as { tokenBudget?: number };
+      }
+    } catch {
+      metadata = undefined;
+    }
+    return resolveTokenBudget(metadata, projectSettings);
+  }
+
   private async resolveTaskModelId(specDir: string, phase: 'planning' | 'coding' | 'qa' | 'spec'): Promise<string> {
     try {
       const metadataPath = path.join(specDir, 'task_metadata.json');
