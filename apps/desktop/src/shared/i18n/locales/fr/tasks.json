@@ -450,6 +450,27 @@
     "budgetUsed": "{{used}} sur {{limit}} tokens ({{percent}}%)",
     "note": "Les entrées ne contiennent que des jetons et des durées ; aucun coût monétaire n'est affiché. Les lectures de cache sont incluses dans les tokens d'entrée et ne sont pas ajoutées une seconde fois au budget."
   },
+  "prFeedback": {
+    "title": "Retours de la PR",
+    "refresh": "Actualiser",
+    "failedChecks": "Vérifications en échec",
+    "unresolvedComments": "Commentaires de revue non résolus",
+    "changeRequests": "Demandes de modifications",
+    "empty": "Aucune vérification en échec ni retour de revue ouvert.",
+    "open": "Ouvrir sur GitHub",
+    "send": "Envoyer la sélection à l'agent",
+    "started": "Suivi démarré. L'agent ne poussera vers la pull request qu'après l'approbation de la QA.",
+    "sendFailed": "Impossible de démarrer le suivi",
+    "loadFailed": "Impossible de charger les retours de la PR : {{error}}",
+    "blocked": {
+      "worktree_missing": "Le worktree de cette tâche n'existe plus (par exemple supprimé après la fusion de la PR, ou par un nettoyage) : aucun suivi ne peut s'exécuter ici. Créez plutôt une nouvelle tâche à partir de la PR.",
+      "pr_not_open": "La pull request n'est plus ouverte : les retours ne peuvent pas être envoyés à l'agent.",
+      "agent_running": "L'agent est déjà en cours d'exécution pour cette tâche. Attendez qu'il termine.",
+      "auth_required": "Une authentification GitHub est requise pour envoyer les retours. Connectez-vous à GitHub puis actualisez.",
+      "no_github_config": "GitHub n'est pas configuré pour ce projet.",
+      "branch_mismatch": "Le worktree de la tâche n'est pas sur la branche de la pull request : aucun suivi ne peut s'exécuter ici."
+    }
+  },
   "tokenBudgetBanner": {
     "title": "En pause : budget de tokens atteint",
     "usage": "En pause : {{used}} sur {{limit}} tokens utilisés",
