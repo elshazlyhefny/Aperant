@@ -379,4 +379,52 @@ describe('runInsightsQuery', () => {
     const callArgs = mockStreamText.mock.calls[0][0];
     expect(callArgs.prompt).toBe('What is the entry point?');
   });
+
+  // ---------------------------------------------------------------------------
+  // Image attachments
+  // ---------------------------------------------------------------------------
+
+  it('sends messages with image parts when images are provided', async () => {
+    mockStreamText.mockReturnValue(makeStream([]));
+
+    await runInsightsQuery(
+      baseConfig({
+        message: 'What is in this screenshot?',
+        images: [{ data: 'QUJDREVG', mimeType: 'image/png' }],
+      }),
+    );
+
+    const callArgs = mockStreamText.mock.calls[0][0];
+    expect(callArgs.prompt).toBeUndefined();
+    expect(callArgs.messages).toHaveLength(1);
+    expect(callArgs.messages[0].role).toBe('user');
+    const content = callArgs.messages[0].content;
+    expect(content[0]).toEqual({ type: 'text', text: 'What is in this screenshot?' });
+    expect(content[1]).toEqual({ type: 'image', image: 'QUJDREVG', mediaType: 'image/png' });
+  });
+
+  it('keeps prompt (no messages) when there are no images', async () => {
+    mockStreamText.mockReturnValue(makeStream([]));
+
+    await runInsightsQuery(baseConfig({ images: [] }));
+
+    const callArgs = mockStreamText.mock.calls[0][0];
+    expect(callArgs.prompt).toBe('How does authentication work?');
+    expect(callArgs.messages).toBeUndefined();
+  });
+
+  it('never puts base64 data into the history text', async () => {
+    mockStreamText.mockReturnValue(makeStream([]));
+
+    await runInsightsQuery(
+      baseConfig({
+        message: 'And now?',
+        history: [{ role: 'user', content: 'Look\n[User previously attached 1 image(s) - not visible in this context]' }],
+        images: [{ data: 'QUJDREVG', mimeType: 'image/png' }],
+      }),
+    );
+
+    const callArgs = mockStreamText.mock.calls[0][0];
+    expect(callArgs.messages[0].content[0].text).not.toContain('QUJDREVG');
+  });
 });

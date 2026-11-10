@@ -158,6 +158,18 @@
     "skipped": "ignorées",
     "alreadyExisted": "existait déjà",
     "noWorktree": "Aucun worktree trouvé pour cette tâche",
+    "errors": {
+      "taskNotFound": "Tâche introuvable",
+      "specDirNotFound": "Dossier de spécification de la tâche introuvable",
+      "invalidTargetBranch": "Nom de branche cible invalide",
+      "invalidTitleLength": "Le titre de la PR est trop long",
+      "invalidTitleChars": "Le titre de la PR contient des caractères invalides",
+      "branchRefused": "Le push de cette branche a été refusé pour des raisons de sécurité",
+      "commitFailed": "Impossible de valider les modifications de la tâche",
+      "pushFailed": "Échec du push de la branche",
+      "ghTimeout": "La création de la PR a expiré",
+      "retriesExhausted": "La création de la PR a échoué après plusieurs tentatives"
+    },
     "resultsDescriptionWithSkipped": "{{success}} réussies, {{skipped}} ignorées, {{failed}} échouées"
   }
 }

@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   PROJECT_ADD: 'project:add',
   PROJECT_REMOVE: 'project:remove',
   PROJECT_LIST: 'project:list',
+  SANDBOX_GET_AVAILABILITY: 'sandbox:getAvailability',
   PROJECT_UPDATE_SETTINGS: 'project:updateSettings',
   PROJECT_INITIALIZE: 'project:initialize',
   PROJECT_CHECK_VERSION: 'project:checkVersion',
@@ -53,6 +54,7 @@ export const IPC_CHANNELS = {
   TASK_CLEANUP_MERGED_WORKTREES: 'task:cleanupMergedWorktrees',  // zeenha fork
   TASK_ARCHIVE: 'task:archive',
   TASK_UNARCHIVE: 'task:unarchive',
+  TASK_QUEUE_GET_STATE: 'task:queueGetState',
   TASK_CLEAR_STAGED_STATE: 'task:clearStagedState',
 
   // Task events (main -> renderer)
@@ -60,6 +62,7 @@ export const IPC_CHANNELS = {
   TASK_ERROR: 'task:error',
   TASK_LOG: 'task:log',
   TASK_STATUS_CHANGE: 'task:statusChange',
+  TASK_QUEUE_STATE_CHANGE: 'task:queueStateChange',
   TASK_EXECUTION_PROGRESS: 'task:executionProgress',
 
   // Task phase logs (persistent, collapsible logs by phase)
@@ -151,6 +154,7 @@ export const IPC_CHANNELS = {
   // Settings
   SETTINGS_GET: 'settings:get',
   SETTINGS_SAVE: 'settings:save',
+  WEBHOOK_SEND_TEST: 'webhook:sendTest',
   SETTINGS_GET_CLI_TOOLS_INFO: 'settings:getCliToolsInfo',
   SETTINGS_CLAUDE_CODE_GET_ONBOARDING_STATUS: 'settings:claudeCode:getOnboardingStatus',  // Check hasCompletedOnboarding from ~/.claude.json
 
@@ -531,6 +535,9 @@ export const IPC_CHANNELS = {
   APP_UPDATE_INSTALL: 'app-update:install',
   APP_UPDATE_GET_VERSION: 'app-update:get-version',
   APP_UPDATE_GET_DOWNLOADED: 'app-update:get-downloaded',  // Get downloaded update info (for showing Install button on Settings open)
+
+  // Desktop notification click -> open project and task (main -> renderer)
+  NOTIFICATION_OPEN_TASK: 'notification:openTask',
 
   // App auto-update events (main -> renderer)
   APP_UPDATE_AVAILABLE: 'app-update:available',

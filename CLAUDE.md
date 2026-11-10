@@ -301,6 +301,14 @@ Multi-profile credential management for switching between Claude accounts:
 - **`usage-monitor.ts`** — API usage tracking and rate limiting per profile
 - **`profile-scorer.ts`** — Scores profiles by usage and availability
 
+#### Profile modules
+
+| Module | Use it for |
+|--------|-----------|
+| `src/main/claude-profile-manager.ts` | Claude OAuth accounts: switching, rate limits, usage, auto-swap |
+| `src/main/services/profile/api-profile-store.ts` | Reading/writing `profiles.json` for API (custom endpoint) profiles; the only file that touches it |
+| `src/main/services/profile/profile-service.ts` | Validating, creating/updating/deleting API profiles, connection test, model discovery |
+
 ### Terminal System (`src/main/terminal/`)
 
 Full PTY-based terminal integration:

@@ -35,6 +35,7 @@ import { TaskFormFields } from './task-form/TaskFormFields';
 import { type FileReferenceData } from './task-form/useImageUpload';
 import { persistUpdateTask } from '../stores/task-store';
 import { useProjectStore } from '../stores/project-store';
+import { parseTokenBudgetText } from '../../shared/utils/token-budget';
 import type { Task, ImageAttachment, TaskCategory, TaskPriority, TaskComplexity, TaskImpact, ModelType, ThinkingLevel } from '../../shared/types';
 import {
   DEFAULT_AGENT_PROFILES,
@@ -135,6 +136,11 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
   // Fast mode
   const [fastMode, setFastMode] = useState(task.metadata?.fastMode ?? false);
 
+  // Token budget override ('' = inherit project default, '0' = no limit)
+  const initialTokenBudgetText = task.metadata?.tokenBudget !== undefined ? String(task.metadata.tokenBudget) : '';
+  const [tokenBudgetText, setTokenBudgetText] = useState(initialTokenBudgetText);
+  const inheritedTokenBudget = projects.find((p) => p.id === task.projectId)?.settings?.tokenBudget;
+
   // Show Fast Mode toggle when any phase uses an Opus model
   const showFastModeToggle = useMemo(() => {
     if (!isAnthropic) return false;
@@ -186,6 +192,7 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
       setImages(task.metadata?.attachedImages || []);
       setRequireReviewBeforeCoding(task.metadata?.requireReviewBeforeCoding ?? false);
       setFastMode(task.metadata?.fastMode ?? false);
+      setTokenBudgetText(task.metadata?.tokenBudget !== undefined ? String(task.metadata.tokenBudget) : '');
       setError(null);
 
       // Auto-expand classification if it has content
@@ -231,6 +238,7 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
       thinkingLevel !== (task.metadata?.thinkingLevel || '') ||
       requireReviewBeforeCoding !== (task.metadata?.requireReviewBeforeCoding ?? false) ||
       fastMode !== (task.metadata?.fastMode ?? false) ||
+      parseTokenBudgetText(tokenBudgetText) !== task.metadata?.tokenBudget ||
       JSON.stringify(images) !== JSON.stringify(task.metadata?.attachedImages || []) ||
       JSON.stringify(phaseModels) !== JSON.stringify(task.metadata?.phaseModels || DEFAULT_PHASE_MODELS) ||
       JSON.stringify(phaseThinking) !== JSON.stringify(task.metadata?.phaseThinking || DEFAULT_PHASE_THINKING);
@@ -261,6 +269,8 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     metadataUpdates.attachedImages = images.length > 0 ? images : [];
     metadataUpdates.requireReviewBeforeCoding = requireReviewBeforeCoding;
     metadataUpdates.fastMode = fastMode;
+    // undefined clears the override so the task inherits the project default
+    metadataUpdates.tokenBudget = parseTokenBudgetText(tokenBudgetText);
 
     const success = await persistUpdateTask(task.id, {
       title: trimmedTitle,
@@ -343,6 +353,9 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
         fastMode={fastMode}
         onFastModeChange={setFastMode}
         showFastModeToggle={showFastModeToggle && isFastModeEditable}
+        tokenBudgetText={tokenBudgetText}
+        onTokenBudgetTextChange={setTokenBudgetText}
+        inheritedTokenBudget={inheritedTokenBudget}
         disabled={isSaving}
         error={error}
         onError={setError}

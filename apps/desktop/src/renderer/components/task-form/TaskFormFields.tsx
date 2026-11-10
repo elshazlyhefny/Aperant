@@ -92,6 +92,11 @@ interface TaskFormFieldsProps {
   onFastModeChange?: (value: boolean) => void;
   showFastModeToggle?: boolean;
 
+  // Token budget override (text: '' = inherit, '0' = no limit, else a positive number)
+  tokenBudgetText?: string;
+  onTokenBudgetTextChange?: (value: string) => void;
+  inheritedTokenBudget?: number;
+
   // Form state
   disabled?: boolean;
   error?: string | null;
@@ -144,6 +149,9 @@ export function TaskFormFields({
   fastMode = false,
   onFastModeChange,
   showFastModeToggle = false,
+  tokenBudgetText = '',
+  onTokenBudgetTextChange,
+  inheritedTokenBudget,
   disabled = false,
   error,
   onError,
@@ -617,6 +625,45 @@ export function TaskFormFields({
               <p className="text-[10px] text-amber-600 dark:text-amber-400">
                 {t('tasks:form.fastModeNotice')}
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Token budget override */}
+        {onTokenBudgetTextChange && (
+          <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+            <Label htmlFor={`${idPrefix}token-budget`} className="text-sm font-medium text-foreground">
+              {t('tasks:form.tokenBudgetLabel')}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t('tasks:form.tokenBudgetDescription')}
+            </p>
+            <Input
+              id={`${idPrefix}token-budget`}
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              value={tokenBudgetText === '0' ? '' : tokenBudgetText}
+              placeholder={t('tasks:form.tokenBudgetPlaceholder')}
+              onChange={(e) => onTokenBudgetTextChange(e.target.value)}
+              disabled={disabled || tokenBudgetText === '0'}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              {inheritedTokenBudget
+                ? t('tasks:form.tokenBudgetInherited', { value: inheritedTokenBudget.toLocaleString() })
+                : t('tasks:form.tokenBudgetInheritedNone')}
+            </p>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`${idPrefix}token-budget-no-limit`}
+                checked={tokenBudgetText === '0'}
+                onCheckedChange={(checked) => onTokenBudgetTextChange(checked === true ? '0' : '')}
+                disabled={disabled}
+              />
+              <Label htmlFor={`${idPrefix}token-budget-no-limit`} className="text-xs text-muted-foreground cursor-pointer">
+                {t('tasks:form.tokenBudgetNoLimit')}
+              </Label>
             </div>
           </div>
         )}

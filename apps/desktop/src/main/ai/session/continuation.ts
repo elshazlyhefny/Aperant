@@ -122,7 +122,8 @@ export async function runContinuableSession(
     totalDurationMs += result.durationMs;
     addUsage(cumulativeUsage, result.usage);
 
-    // If not a context window outcome, we're done
+    // If not a context window outcome, we're done. A token_budget cancellation
+    // also lands here and is returned as-is, never continued.
     if (result.outcome !== 'context_window') {
       return {
         ...result,
