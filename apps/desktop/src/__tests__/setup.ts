@@ -4,6 +4,7 @@
 import { vi, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, existsSync } from 'fs';
 import path from 'path';
+import { inspect } from 'util';
 
 // zeenha fork: app-logger loads electron-log and electron, and electron's entry
 // point throws when its binary was not downloaded, as on CI. Tests that exercise
@@ -152,8 +153,10 @@ console.error = (...args: unknown[]) => {
   const message = args[0]?.toString() || '';
   if (message.includes('[TEST]')) {
     // Sanitize args to prevent log injection from control characters
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: Intentionally matching control chars for sanitization
-    const sanitized = args.map(a => typeof a === 'string' ? a.replace(/[\r\n\x00-\x1f]/g, '') : a);
+    const sanitized = args.map(a =>
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: Intentionally matching control chars for sanitization
+      (typeof a === 'string' ? a : inspect(a)).replace(/[\x00-\x1f]/g, '').replace(/\n|\r/g, '')
+    );
     originalConsoleError(...sanitized);
   }
 };

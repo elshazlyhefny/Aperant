@@ -563,7 +563,7 @@ async function fetchLatestStableRelease(): Promise<AppUpdateInfo | null> {
           const version = latestStable.tag_name.replace(/^v/, '');
           // Sanitize version string for logging (remove control characters and limit length)
           // biome-ignore lint/suspicious/noControlCharactersInRegex: Intentionally matching control chars for sanitization
-          const safeVersion = String(version).replace(/[\x00-\x1f\x7f]/g, '').slice(0, 50);
+          const safeVersion = String(version).replace(/[\x00-\x1f\x7f]/g, '').slice(0, 50).replace(/\n|\r/g, '');
           console.warn('[app-updater] Found latest stable release:', safeVersion);
 
           resolve({

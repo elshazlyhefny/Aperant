@@ -35,6 +35,11 @@ function sanitizeIdForLog(id: string): string {
   return escaped.slice(1, -1);
 }
 
+/** Strip CR/LF from a value before logging it, to prevent log injection. */
+function sanitizeForLog(value: unknown): string {
+  return String(value).replace(/\n|\r/g, '');
+}
+
 interface ManagedPty {
   id: string;
   process: pty.IPty;
@@ -170,7 +175,7 @@ class PtyDaemon {
     });
 
     socket.on('error', (err) => {
-      console.error('[PTY Daemon] Socket error:', err);
+      console.error('[PTY Daemon] Socket error:', sanitizeForLog(err));
     });
   }
 
@@ -240,7 +245,7 @@ class PtyDaemon {
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error('[PTY Daemon] Error handling message:', errorMsg);
+      console.error('[PTY Daemon] Error handling message:', sanitizeForLog(errorMsg));
       this.sendError(socket, errorMsg, msg.requestId);
     }
   }

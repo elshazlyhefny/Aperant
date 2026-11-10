@@ -19,7 +19,9 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe('dockerVolumesForWorktree', () => {
   it('matches the key the bash scripts compute', () => {
-    const key = execFileSync('bash', ['-c', `cd "$1" && printf '%s' "$(pwd -P)" | sha1sum | cut -c1-10`, 'bash', dir]).toString().trim();
+    // Same steps as the scripts' `printf '%s' "$(pwd -P)" | sha1sum | cut -c1-10`, run without a shell.
+    const physical = execFileSync('pwd', ['-P'], { cwd: dir }).toString().replace(/\n+$/, '');
+    const key = execFileSync('sha1sum', { input: physical }).toString().slice(0, 10);
     expect(dockerVolumesForWorktree(dir)).toEqual([`zeenha_wt_${key}_vendor`, `zeenha_wt_${key}_frontend_dev_modules`]);
   });
 
