@@ -162,25 +162,83 @@ describe('Read Tool', () => {
     expect(result).toContain('File exists but is empty');
   });
 
-  it('should return image file as base64 data URI', async () => {
-    const fakeFd = 42;
-    const imageBuffer = Buffer.from('fake-png-data');
-    vi.mocked(fs.openSync).mockReturnValue(fakeFd as unknown as number);
+  function mockImage(size: number, data = Buffer.from('fake-png-data')) {
+    vi.mocked(fs.openSync).mockReturnValue(42 as unknown as number);
     vi.mocked(fs.fstatSync).mockReturnValue({
       isDirectory: () => false,
-      size: imageBuffer.length,
+      size,
     } as unknown as fs.Stats);
-    // readFileSync returns Buffer for image files
-    vi.mocked(fs.readFileSync).mockReturnValue(imageBuffer);
+    vi.mocked(fs.readFileSync).mockReturnValue(data);
     vi.mocked(fs.closeSync).mockImplementation(() => undefined);
+  }
+
+  it('should return a structured image result for a png', async () => {
+    const imageBuffer = Buffer.from('fake-png-data');
+    mockImage(imageBuffer.length, imageBuffer);
 
     const result = await readTool.config.execute(
       { file_path: '/test/project/image.png' },
       baseContext,
-    ) as string;
+    );
 
-    expect(result).toContain('[Image file:');
-    expect(result).toContain('data:image/png;base64,');
+    expect(result).toEqual({
+      type: 'image',
+      filename: 'image.png',
+      mediaType: 'image/png',
+      data: imageBuffer.toString('base64'),
+      bytes: imageBuffer.length,
+    });
+  });
+
+  it('should return text for images over 5 MB', async () => {
+    mockImage(6 * 1024 * 1024);
+
+    const result = await readTool.config.execute(
+      { file_path: '/test/project/big.png' },
+      baseContext,
+    );
+
+    expect(typeof result).toBe('string');
+    expect(result).toContain('too large');
+  });
+
+  it('should return a text note when the model cannot view images', async () => {
+    mockImage(10);
+
+    const result = await readTool.config.execute(
+      { file_path: '/test/project/image.png' },
+      { ...baseContext, modelSupportsVision: false },
+    );
+
+    expect(typeof result).toBe('string');
+    expect(result).toContain('cannot view images');
+  });
+
+  it('should return a text note for svg', async () => {
+    mockImage(10);
+
+    const result = await readTool.config.execute(
+      { file_path: '/test/project/logo.svg' },
+      baseContext,
+    );
+
+    expect(typeof result).toBe('string');
+    expect(result).toContain('SVG');
+  });
+
+  it('toModelOutput sends image content to the model', () => {
+    const out = readTool.config.toModelOutput?.({
+      toolCallId: 't',
+      input: {},
+      output: { type: 'image', filename: 'a.png', mediaType: 'image/png', data: 'AAA', bytes: 3 },
+    });
+    expect(out).toEqual({
+      type: 'content',
+      value: [
+        { type: 'text', text: '[Image file: a.png]' },
+        { type: 'image-data', data: 'AAA', mediaType: 'image/png' },
+      ],
+    });
   });
 
   it('should return PDF info without pages parameter', async () => {

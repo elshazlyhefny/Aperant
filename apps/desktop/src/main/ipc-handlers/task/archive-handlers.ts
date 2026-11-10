@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/constants';
 import type { IPCResult } from '../../../shared/types';
 import { projectStore } from '../../project-store';
+import { taskQueueManager } from '../../task-queue-manager';
 
 /**
  * Register task archive handlers
@@ -24,6 +25,8 @@ export function registerTaskArchiveHandlers(): void {
 
       if (result) {
         console.warn('[IPC] TASK_ARCHIVE success');
+        // zeenha fork: an archived in_progress task frees a slot for queued tasks
+        void taskQueueManager.requestProcess(projectId);
         return { success: true, data: true };
       } else {
         console.error('[IPC] TASK_ARCHIVE failed');

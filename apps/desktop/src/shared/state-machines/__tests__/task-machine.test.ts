@@ -23,6 +23,26 @@ function runEvents(events: TaskEvent[], initialState?: string) {
 }
 
 describe('taskMachine', () => {
+
+  describe('TOKEN_BUDGET_REACHED', () => {
+    it.each(['planning', 'coding', 'qa_review', 'qa_fixing'])(
+      'should pause %s into human_review with token_budget',
+      (state) => {
+        const snapshot = runEvents([{ type: 'TOKEN_BUDGET_REACHED', used: 10, limit: 5 }], state);
+        expect(snapshot.value).toBe('human_review');
+        expect(snapshot.context.reviewReason).toBe('token_budget');
+      }
+    );
+
+    it('should resume to coding with reviewReason cleared', () => {
+      const snapshot = runEvents(
+        [{ type: 'TOKEN_BUDGET_REACHED' }, { type: 'USER_RESUMED' }],
+        'coding'
+      );
+      expect(snapshot.value).toBe('coding');
+      expect(snapshot.context.reviewReason).toBeUndefined();
+    });
+  });
   describe('initial state', () => {
     it('should start in backlog state', () => {
       const actor = createActor(taskMachine);
@@ -353,6 +373,31 @@ describe('taskMachine', () => {
 
       const snapshot = runEvents(events);
       expect(snapshot.value).toBe('pr_created');
+    });
+
+    it('should re-enter coding on PR_FOLLOWUP_STARTED and finish through QA', () => {
+      const toPr: TaskEvent[] = [
+        { type: 'PLANNING_STARTED' },
+        { type: 'PLANNING_COMPLETE', hasSubtasks: true, subtaskCount: 1, requireReviewBeforeCoding: false },
+        { type: 'QA_STARTED', iteration: 1, maxIterations: 3 },
+        { type: 'QA_PASSED', iteration: 1, testsRun: {} },
+        { type: 'CREATE_PR' },
+        { type: 'PR_CREATED', prUrl: 'https://github.com/test/pr/1' }
+      ];
+      expect(runEvents([...toPr, { type: 'PR_FOLLOWUP_STARTED' }]).value).toBe('coding');
+      expect(runEvents([...toPr, { type: 'PR_FOLLOWUP_STARTED' }, { type: 'QA_STARTED', iteration: 1, maxIterations: 3 }]).value).toBe('qa_review');
+      const done = runEvents([
+        ...toPr,
+        { type: 'PR_FOLLOWUP_STARTED' },
+        { type: 'QA_STARTED', iteration: 1, maxIterations: 3 },
+        { type: 'QA_PASSED', iteration: 1, testsRun: {} }
+      ]);
+      expect(done.value).toBe('human_review');
+      expect(done.context.reviewReason).toBe('completed');
+    });
+
+    it('should keep done final on PR_FOLLOWUP_STARTED', () => {
+      expect(runEvents([{ type: 'PR_FOLLOWUP_STARTED' }], 'done').value).toBe('done');
     });
 
     it('should transition from pr_created to done on MARK_DONE', () => {

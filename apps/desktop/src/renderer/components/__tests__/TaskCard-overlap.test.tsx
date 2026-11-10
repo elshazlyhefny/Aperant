@@ -24,6 +24,7 @@ vi.mock('../../stores/task-store', () => ({
   archiveTasks: vi.fn(),
   hasRecentActivity: vi.fn(() => false),
   isIncompleteHumanReview: () => false,
+  useTaskStore: (selector: (s: { tasks: unknown[] }) => unknown) => selector({ tasks: [] }),
 }));
 vi.mock('../PhaseProgressIndicator', () => ({ PhaseProgressIndicator: () => null }));
 vi.mock('../../hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));

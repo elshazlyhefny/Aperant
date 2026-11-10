@@ -49,6 +49,7 @@ import { createThumbnail, generateImageId } from './ImageUpload';
 import { loadTasks } from '../stores/task-store';
 import { ChatHistorySidebar } from './ChatHistorySidebar';
 import { InsightsModelSelector } from './InsightsModelSelector';
+import { modelSupportsVision } from '../../shared/constants/models';
 import type { InsightsChatMessage, InsightsModelConfig, TaskMetadata, ImageAttachment } from '../../shared/types';
 import {
   TASK_CATEGORY_LABELS,
@@ -129,6 +130,9 @@ export function Insights({ projectId }: InsightsProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const isLoading = status.phase === 'thinking' || status.phase === 'streaming';
+
+  // Undefined model (no explicit config) is treated as vision-capable, matching the main-process executor
+  const supportsImages = modelSupportsVision(session?.modelConfig?.model);
 
   // Image upload hook
   const {
@@ -498,6 +502,7 @@ export function Insights({ projectId }: InsightsProps) {
                 onCreateTask={handleCreateTask}
                 creatingTask={creatingTask}
                 taskCreated={taskCreated}
+                supportsImages={supportsImages}
               />
             ))}
 
@@ -609,7 +614,7 @@ export function Insights({ projectId }: InsightsProps) {
         </div>
 
         {/* Image analysis warning */}
-        {pendingImages.length > 0 && (
+        {pendingImages.length > 0 && !supportsImages && (
           <div className="mt-1 flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 text-xs text-amber-500">
             <AlertCircle className="h-3 w-3 shrink-0" />
             <span>{t('insights.images.analysisUnsupported')}</span>
@@ -672,6 +677,7 @@ interface MessageBubbleProps {
   onCreateTask: (messageId: string, taskIndex: number, taskData: { title: string; description: string; metadata?: TaskMetadata }) => void;
   creatingTask: Set<string>;
   taskCreated: Set<string>;
+  supportsImages: boolean;
 }
 
 function MessageBubble({
@@ -679,7 +685,8 @@ function MessageBubble({
   markdownComponents,
   onCreateTask,
   creatingTask,
-  taskCreated
+  taskCreated,
+  supportsImages
 }: MessageBubbleProps) {
   const { t } = useTranslation('common');
   const isUser = message.role === 'user';
@@ -725,7 +732,9 @@ function MessageBubble({
                   />
                 ))}
             </div>
-            <p className="text-xs text-muted-foreground italic">{t('insights.images.notAnalyzed')}</p>
+            {!supportsImages && (
+              <p className="text-xs text-muted-foreground italic">{t('insights.images.notAnalyzed')}</p>
+            )}
           </div>
         )}
 

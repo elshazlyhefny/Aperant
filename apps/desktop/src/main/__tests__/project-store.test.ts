@@ -261,6 +261,22 @@ describe('ProjectStore', () => {
       const content = JSON.parse(readFileSync(storePath, 'utf-8'));
       expect(content.projects[0].settings.model).toBe('sonnet');
     });
+
+    it('should normalise tokenBudget: keep valid, drop junk', async () => {
+      const { ProjectStore } = await import('../project-store');
+      const store = new ProjectStore();
+      const project = store.addProject(TEST_PROJECT_PATH);
+
+      expect(store.updateProjectSettings(project.id, { tokenBudget: 1500.9 })?.settings.tokenBudget).toBe(1500);
+      expect(store.updateProjectSettings(project.id, { tokenBudget: -5 })?.settings.tokenBudget).toBeUndefined();
+      store.updateProjectSettings(project.id, { tokenBudget: 100 });
+      expect(
+        store.updateProjectSettings(project.id, { tokenBudget: 'lots' as unknown as number })?.settings.tokenBudget
+      ).toBeUndefined();
+      // Unrelated updates leave the budget alone
+      store.updateProjectSettings(project.id, { tokenBudget: 200 });
+      expect(store.updateProjectSettings(project.id, { model: 'haiku' })?.settings.tokenBudget).toBe(200);
+    });
   });
 
   describe('declared base branch', () => {

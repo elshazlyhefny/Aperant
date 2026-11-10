@@ -27,7 +27,9 @@ import type {
   McpHealthCheckResult,
   McpTestConnectionResult
 } from './project';
-import type { TaskRunMetrics } from './run-metrics';
+import type { PRFeedbackResult, StartPRFollowUpResult } from './pr-feedback';
+import type { TaskRunMetrics, ProjectRunMetrics } from './run-metrics';
+import type { TaskQueueState } from './task-queue';
 import type { ScreenshotSource } from './screenshot';
 import type {
   Task,
@@ -204,6 +206,8 @@ export interface ElectronAPI {
   stopTask: (taskId: string) => void;
   submitReview: (taskId: string, approved: boolean, feedback?: string, images?: ImageAttachment[]) => Promise<IPCResult>;
   updateTaskStatus: (taskId: string, status: TaskStatus, options?: { forceCleanup?: boolean }) => Promise<IPCResult & { worktreeExists?: boolean; worktreePath?: string }>;
+  getPRFeedback: (taskId: string) => Promise<IPCResult<PRFeedbackResult>>;
+  startPRFollowUp: (taskId: string, itemIds: string[]) => Promise<IPCResult<StartPRFollowUpResult>>;
   recoverStuckTask: (taskId: string, options?: TaskRecoveryOptions) => Promise<IPCResult<TaskRecoveryResult>>;
   checkTaskRunning: (taskId: string) => Promise<IPCResult<boolean>>;
   resumePausedTask: (taskId: string) => Promise<IPCResult>;
@@ -243,6 +247,8 @@ export interface ElectronAPI {
   onTaskLog: (callback: (taskId: string, log: string, projectId?: string) => void) => () => void;
   onTaskStatusChange: (callback: (taskId: string, status: TaskStatus, projectId?: string, reviewReason?: ReviewReason, failureReason?: string) => void) => () => void;
   onTaskExecutionProgress: (callback: (taskId: string, progress: ExecutionProgress, projectId?: string) => void) => () => void;
+  getTaskQueueState: (projectId: string) => Promise<IPCResult<TaskQueueState>>;
+  onTaskQueueStateChange: (callback: (state: TaskQueueState) => void) => () => void;
 
   // Terminal operations
   createTerminal: (options: TerminalCreateOptions) => Promise<IPCResult>;
@@ -707,10 +713,16 @@ export interface ElectronAPI {
 
   // Electron app update operations
   checkAppUpdate: () => Promise<IPCResult<AppUpdateInfo | null>>;
+  sendTestWebhook: (url: string) => Promise<IPCResult<{ success: boolean }>>;
   downloadAppUpdate: () => Promise<IPCResult>;
   downloadStableUpdate: () => Promise<IPCResult>;
   installAppUpdate: () => void;
   getDownloadedAppUpdate: () => Promise<IPCResult<AppUpdateInfo | null>>;
+
+  // Desktop notification click: open project and task
+  onNotificationOpenTask: (
+    callback: (target: { projectId: string; taskId: string }) => void
+  ) => () => void;
 
   // Electron app update event listeners
   onAppUpdateAvailable: (
@@ -818,6 +830,8 @@ export interface ElectronAPI {
   // Task logs operations
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
   getTaskRunMetrics: (projectId: string, specId: string) => Promise<IPCResult<TaskRunMetrics | null>>;
+  // zeenha fork: project-wide delivery and token metrics
+  getProjectRunMetrics: (projectId: string, periodDays: number | null) => Promise<IPCResult<ProjectRunMetrics | null>>;
   watchTaskLogs: (projectId: string, specId: string) => Promise<IPCResult>;
   unwatchTaskLogs: (specId: string) => Promise<IPCResult>;
 
@@ -842,6 +856,7 @@ export interface ElectronAPI {
   detectMainBranch: (projectPath: string, options?: { declaredOnly?: boolean }) => Promise<IPCResult<string | null>>;
   checkGitStatus: (projectPath: string) => Promise<IPCResult<GitStatus>>;
   initializeGit: (projectPath: string) => Promise<IPCResult<InitializationResult>>;
+  getSandboxAvailability: () => Promise<IPCResult<import('./project').SandboxAvailability>>;
 
   // Ollama model detection operations
   checkOllamaStatus: (baseUrl?: string) => Promise<IPCResult<{

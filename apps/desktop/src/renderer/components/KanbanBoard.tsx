@@ -1,5 +1,5 @@
 import { debugLog } from '@shared/utils/debug-logger';
-import { isHoldActive, findFileOverlaps, FINISHED_TASK_STATUSES, type TaskFileOverlap } from '@shared/utils/file-overlap';
+import { isHoldActive, findFileOverlaps, type TaskFileOverlap } from '@shared/utils/file-overlap';
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useViewState } from '../contexts/ViewStateContext';
@@ -36,6 +36,7 @@ import { cn } from '../lib/utils';
 import { persistTaskStatus, forceCompleteTask, archiveTasks, deleteTasks, useTaskStore, isQueueAtCapacity, DEFAULT_MAX_PARALLEL_TASKS } from '../stores/task-store';
 import { updateProjectSettings, useProjectStore } from '../stores/project-store';
 import { useKanbanSettingsStore, DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH, COLLAPSED_COLUMN_WIDTH_REM, MIN_COLUMN_WIDTH_REM, MAX_COLUMN_WIDTH_REM, BASE_FONT_SIZE, pxToRem } from '../stores/kanban-settings-store';
+import { useTaskQueueStore } from '../stores/task-queue-store';
 import { useToast } from '../hooks/use-toast';
 import { WorktreeCleanupDialog } from './WorktreeCleanupDialog';
 import { BulkPRDialog } from './BulkPRDialog';
@@ -691,15 +692,18 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
   // Get projectId from first task
   const projectId = tasks[0]?.projectId;
   const project = projectId ? projects.find((p) => p.id === projectId) : undefined;
-  const maxParallelTasks = project?.settings?.maxParallelTasks ?? DEFAULT_MAX_PARALLEL_TASKS;
+  const queueState = useTaskQueueStore((st) => (projectId ? st.statesByProject[projectId] : undefined));
+  const maxParallelTasks = queueState?.maxParallelTasks ?? project?.settings?.maxParallelTasks ?? DEFAULT_MAX_PARALLEL_TASKS;
+
+  // Load main-process queue state once the project is known
+  useEffect(() => {
+    if (projectId) void useTaskQueueStore.getState().loadState(projectId);
+  }, [projectId]);
 
   // Queue settings modal state
   const [showQueueSettings, setShowQueueSettings] = useState(false);
   // Store projectId when modal opens to prevent modal from disappearing if tasks change
   const queueSettingsProjectIdRef = useRef<string | null>(null);
-
-  // Queue processing lock to prevent race conditions
-  const isProcessingQueueRef = useRef(false);
 
   // Selection state for bulk actions (Human Review column)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
@@ -1012,8 +1016,8 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     // QUEUE SYSTEM: Enforce parallel task limit
     // Called from both the dropdown menu and the drag-and-drop handler.
     // Excludes the task itself from the count to handle re-entry (e.g., redundant
-    // status change or race with auto-promotion). processQueue auto-promotion
-    // calls persistTaskStatus directly, never this function.
+    // status change or race with auto-promotion). Queue promotion
+    // is done by the main process, never by this function.
     // ============================================
     if (newStatus === 'in_progress' && isQueueAtCapacity(taskId)) {
       debugLog('[Queue] In Progress full, redirecting task to Queue');
@@ -1048,9 +1052,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
         });
       }
     }
-    // Note: queue auto-promotion when a task leaves in_progress is handled by the
-    // useEffect task status change listener (registerTaskStatusChangeListener), so
-    // no explicit processQueue() call is needed here.
+    // Queue promotion when a task leaves in_progress is done by the main process.
   };
 
   /**
@@ -1099,9 +1101,6 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
       }
     }
 
-    // Auto-promote queued tasks to fill available capacity
-    await processQueue();
-
     toast({
       title: t('queue.queueAllSuccess', { count: movedCount }),
       variant: 'default'
@@ -1132,111 +1131,6 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
       });
     }
   };
-
-  /**
-   * Automatically move tasks from Queue to In Progress to fill available capacity
-   * Promotes multiple tasks if needed (e.g., after bulk queue)
-   */
-  const processQueue = useCallback(async () => {
-    // Prevent concurrent executions to avoid race conditions
-    if (isProcessingQueueRef.current) {
-      debugLog('[Queue] Already processing queue, skipping duplicate call');
-      return;
-    }
-
-    isProcessingQueueRef.current = true;
-
-    try {
-      // Track tasks we've already attempted to promote (to avoid infinite retries)
-      const attemptedTaskIds = new Set<string>();
-      let consecutiveFailures = 0;
-      const MAX_CONSECUTIVE_FAILURES = 10; // Safety limit to prevent infinite loop
-
-      // Loop until capacity is full or queue is empty
-      while (true) {
-        // Get CURRENT state from store to ensure accuracy
-        const currentTasks = useTaskStore.getState().tasks;
-        const inProgressCount = currentTasks.filter((t) =>
-          t.status === 'in_progress' && !t.metadata?.archivedAt
-        ).length;
-        const queuedTasks = currentTasks.filter((t) =>
-          t.status === 'queue' && !t.metadata?.archivedAt && !attemptedTaskIds.has(t.id)
-          && !isHoldActive(t, currentTasks)
-        );
-
-        // Stop if no capacity, no queued tasks, or too many consecutive failures
-        if (inProgressCount >= maxParallelTasks || queuedTasks.length === 0) {
-          break;
-        }
-
-        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          console.warn(`[Queue] Stopping queue processing after ${MAX_CONSECUTIVE_FAILURES} consecutive failures`);
-          break;
-        }
-
-        // Get the oldest task in queue (FIFO ordering)
-        const nextTask = queuedTasks.sort((a, b) => {
-          const dateA = new Date(a.createdAt).getTime();
-          const dateB = new Date(b.createdAt).getTime();
-          return dateA - dateB; // Ascending order (oldest first)
-        })[0];
-
-        debugLog(`[Queue] Auto-promoting task ${nextTask.id} from Queue to In Progress (${inProgressCount + 1}/${maxParallelTasks})`);
-        const result = await persistTaskStatus(nextTask.id, 'in_progress');
-
-        if (result.success) {
-          // Reset consecutive failures on success
-          consecutiveFailures = 0;
-        } else {
-          // If promotion failed, log error, mark as attempted, and skip to next task
-          console.error(`[Queue] Failed to promote task ${nextTask.id} to In Progress:`, result.error);
-          attemptedTaskIds.add(nextTask.id);
-          consecutiveFailures++;
-        }
-      }
-
-      // Log if we had failed tasks
-      if (attemptedTaskIds.size > 0) {
-        console.warn(`[Queue] Skipped ${attemptedTaskIds.size} task(s) that failed to promote`);
-      }
-    } finally {
-      isProcessingQueueRef.current = false;
-    }
-  }, [maxParallelTasks]);
-
-  // Register task status change listener for queue auto-promotion
-  // This ensures processQueue() is called whenever a task leaves in_progress
-  useEffect(() => {
-    const unregister = useTaskStore.getState().registerTaskStatusChangeListener(
-      (taskId, oldStatus, newStatus) => {
-        // When a task leaves in_progress (e.g., goes to human_review), process the queue
-        // zeenha fork: a task reaching a finished status also releases tasks held on it
-        if (
-          (oldStatus === 'in_progress' && newStatus !== 'in_progress') ||
-          FINISHED_TASK_STATUSES.includes(newStatus)
-        ) {
-          debugLog(`[Queue] Task ${taskId} left in_progress or finished, processing queue`);
-          processQueue();
-        }
-      }
-    );
-
-    // Cleanup: unregister listener when component unmounts
-    return unregister;
-  }, [processQueue]);
-
-  // zeenha fork: when a hold is cleared (or its blocker disappears), release the queued task.
-  const heldQueueKey = tasks
-    .filter((t) => t.status === 'queue' && isHoldActive(t, tasks))
-    .map((t) => t.id)
-    .join(',');
-  const prevHeldQueueKey = useRef(heldQueueKey);
-  useEffect(() => {
-    if (prevHeldQueueKey.current !== heldQueueKey) {
-      prevHeldQueueKey.current = heldQueueKey;
-      processQueue();
-    }
-  }, [heldQueueKey, processQueue]);
 
   // Get task order actions from store
   const reorderTasksInColumn = useTaskStore((state) => state.reorderTasksInColumn);
@@ -1511,8 +1405,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     if (!canDropTask(oldStatus, newStatus)) return;
 
     // Persist status change via handleStatusChange which enforces queue capacity,
-    // handles worktree cleanup dialogs, and calls processQueue() when a task
-    // leaves in_progress.
+    // handles worktree cleanup dialogs.
     await handleStatusChange(activeTaskId, newStatus, task);
   };
 

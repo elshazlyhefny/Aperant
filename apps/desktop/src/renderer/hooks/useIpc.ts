@@ -1,4 +1,5 @@
 import { debugLog } from '@shared/utils/debug-logger';
+import { useTaskQueueStore } from '../stores/task-queue-store';
 import { useEffect } from 'react';
 import { unstable_batchedUpdates } from 'react-dom';
 import { useTaskStore } from '../stores/task-store';
@@ -381,6 +382,17 @@ export function useIpcListeners(): void {
       }
     );
 
+    // Clear a pending auth failure once the failed profile re-authenticates
+    const cleanupOAuthToken = window.electronAPI.onTerminalOAuthToken((info) => {
+      const { authFailureInfo, clearAuthFailure } = useAuthFailureStore.getState();
+      if (info.success && info.profileId && info.profileId === authFailureInfo?.profileId) {
+        clearAuthFailure();
+      }
+    });
+    const cleanupTaskQueueState = window.electronAPI.onTaskQueueStateChange(
+      (state) => useTaskQueueStore.getState().setState(state)
+    );
+
     // Cleanup on unmount
     return () => {
       // Flush any pending batched updates before cleanup
@@ -401,6 +413,8 @@ export function useIpcListeners(): void {
       cleanupRateLimit();
       cleanupSDKRateLimit();
       cleanupAuthFailure();
+      cleanupOAuthToken();
+      cleanupTaskQueueState();
     };
   }, [appendLog, setError]);
 }

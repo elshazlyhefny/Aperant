@@ -192,8 +192,10 @@ export class InsightsService extends EventEmitter {
       const isLastMessage = index === session.messages.length - 1;
       let imageNotation = '';
       if (imageCount > 0 && m.role === 'user') {
+        // The last message's images are delivered to the model as real image parts
+        // (or noted by the executor if the model is text-only), so no text notation here.
         imageNotation = isLastMessage
-          ? `\n[User attached ${imageCount} image(s)]`
+          ? ''
           : `\n[User previously attached ${imageCount} image(s) - not visible in this context]`;
       }
       return {
