@@ -31,13 +31,13 @@ describe('getSandboxAvailability', () => {
 
   it('reports PowerShell available on windows', () => {
     expect(getSandboxAvailability({ platformName: 'win32', find: found })).toEqual({
-      state: 'available', tool: 'powershell', installHint: null,
+      state: 'available', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden-no-network'],
     });
   });
 
   it('reports PowerShell missing on windows', () => {
     expect(getSandboxAvailability({ platformName: 'win32', find: missing })).toEqual({
-      state: 'tool-missing', tool: 'powershell', installHint: null,
+      state: 'tool-missing', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden-no-network'],
     });
   });
 });
@@ -64,5 +64,12 @@ describe('deriveSandboxStatus', () => {
   it('is unsupported regardless of mode', () => {
     expect(deriveSandboxStatus(unsupported, 'home-hidden')).toBe('unsupported');
     expect(deriveSandboxStatus(unsupported, 'off')).toBe('unsupported');
+  });
+
+  it('is mode-unsupported only for a mode the platform refuses', () => {
+    const windows = getSandboxAvailability({ platformName: 'win32', find: found });
+    expect(deriveSandboxStatus(windows, 'home-hidden-no-network')).toBe('mode-unsupported');
+    expect(deriveSandboxStatus(windows, 'home-hidden')).toBe('active');
+    expect(deriveSandboxStatus(windows, 'off')).toBe('available-off');
   });
 });

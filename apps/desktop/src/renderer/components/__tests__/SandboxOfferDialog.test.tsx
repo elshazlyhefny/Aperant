@@ -18,11 +18,11 @@ vi.mock('react-i18next', () => ({
 const project = { id: 'p1', name: 'Demo', path: '/tmp/demo' } as Project;
 const availability: SandboxAvailability = { state: 'available', tool: 'bwrap', installHint: null };
 
-function renderIt() {
+function renderIt(avail: SandboxAvailability = availability) {
   const onEnable = vi.fn();
   const onSkip = vi.fn();
   render(
-    <SandboxOfferDialog open project={project} availability={availability} onEnable={onEnable} onSkip={onSkip} />
+    <SandboxOfferDialog open project={project} availability={avail} onEnable={onEnable} onSkip={onSkip} />
   );
   return { onEnable, onSkip };
 }
@@ -46,6 +46,12 @@ describe('SandboxOfferDialog', () => {
     const { onEnable } = renderIt();
     fireEvent.click(screen.getByRole('button', { name: 'sandboxOffer.homeHiddenNoNetwork.label' }));
     expect(onEnable).toHaveBeenCalledWith('home-hidden-no-network');
+  });
+
+  it('does not offer the no-network mode where the platform refuses it', () => {
+    renderIt({ state: 'available', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden-no-network'] });
+    expect(screen.queryByRole('button', { name: 'sandboxOffer.homeHiddenNoNetwork.label' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'sandboxOffer.homeHidden.label' })).toBeInTheDocument();
   });
 
   it('skips with Not now', () => {

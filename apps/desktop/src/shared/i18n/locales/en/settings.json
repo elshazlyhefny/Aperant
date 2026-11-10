@@ -471,13 +471,15 @@
         "available-off": "Available, off",
         "tool-missing": "Sandbox tool missing",
         "unsupported": "Not supported on this platform",
-        "checking": "Checking..."
+        "checking": "Checking...",
+        "mode-unsupported": "Mode not supported here"
       },
       "statusDetail": {
         "active": "Agent shell commands run inside the sandbox.",
         "available-off": "{{tool}} is installed, but agent shell commands currently run unsandboxed. Turn it on below.",
         "tool-missing": "{{tool}} was not found, so the sandbox cannot run.",
-        "unsupported": "The shell sandbox is not available on this operating system."
+        "unsupported": "The shell sandbox is not available on this operating system.",
+        "mode-unsupported": "This mode cannot be enforced on this operating system, so every agent shell command will be refused. Choose another mode."
       },
       "installHint": {
         "linux": "Install bubblewrap with your package manager, for example: sudo apt install bubblewrap, sudo dnf install bubblewrap or sudo pacman -S bubblewrap.",
@@ -491,9 +493,11 @@
         "homeHiddenNoNetwork": "Home directory hidden and no network",
         "offExplanation": "Off: commands run with your full permissions. Nothing is isolated.",
         "homeHiddenExplanation": "Home directory hidden: commands cannot read your home directory (keys, tokens, other projects), only the project.",
-        "homeHiddenNoNetworkExplanation": "Home directory hidden and no network: as above, and commands cannot reach the network."
+        "homeHiddenNoNetworkExplanation": "Home directory hidden and no network: as above, and commands cannot reach the network.",
+        "notSupported": "{{mode}} (not supported on this system)"
       },
-      "refusedWarning": "The sandbox cannot run on this machine. With this mode on, every agent shell command will be refused instead of run unsandboxed."
+      "refusedWarning": "The sandbox cannot run on this machine. With this mode on, every agent shell command will be refused instead of run unsandboxed.",
+      "windowsNote": "On Windows, commands run with a restricted token in a Job object: files only your account can open (your user profile) cannot be read or written, administrator groups and privileges are removed, and leftover processes are killed when the command ends. Folders every user may write to, such as C:\\ProgramData, stay writable. Windows cannot block the network for one command, so the no-network mode is refused."
     },
     "memory": {
       "title": "Memory",

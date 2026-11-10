@@ -2,8 +2,10 @@
  * Optional OS-level sandbox for the Bash tool.
  *
  * zeenha fork: wraps the shell invocation with bubblewrap (Linux) or
- * sandbox-exec (macOS), or a Windows AppContainer (via a PowerShell launcher,
- * see sandbox-windows.ts), so the home directory (and its credentials) is hidden.
+ * sandbox-exec (macOS), or a restricted token plus a Job object on Windows (via
+ * a PowerShell launcher, see sandbox-windows.ts), so the home directory (and its
+ * credentials) is hidden. Windows cannot block the network for one process, so
+ * 'home-hidden-no-network' is refused there.
  * Fails closed: if a sandbox is requested but cannot be built, the caller must
  * refuse to run the command instead of running it unsandboxed.
  */
@@ -12,7 +14,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { findExecutable, isLinux, isMacOS } from '../../platform/index';
-import { buildWindows, resolvePowerShell } from './sandbox-windows';
+import { buildWindows, resolvePowerShell, WINDOWS_NO_NETWORK_REFUSAL } from './sandbox-windows';
 
 export type SandboxMode = 'off' | 'home-hidden' | 'home-hidden-no-network';
 
@@ -24,6 +26,8 @@ export interface SandboxOptions {
   homeDir?: string;
   find?: (name: string) => string | null;
   platformName?: 'linux' | 'darwin' | 'win32';
+  /** Windows only: where the launcher script is written. Defaults to os.tmpdir(). */
+  launcherDir?: string;
 }
 
 export type SandboxResult =
@@ -136,7 +140,10 @@ export function wrapForSandbox(
     }
     return buildMac(shell, shellArgs, options, home, exec);
   }
-  // zeenha fork: Windows uses an AppContainer launched through PowerShell.
+  // zeenha fork: Windows uses a restricted token and a Job object, launched through PowerShell.
+  if (options.mode === 'home-hidden-no-network') {
+    return { ok: false, reason: WINDOWS_NO_NETWORK_REFUSAL };
+  }
   const powershell = resolvePowerShell(options.find);
   if (!powershell) {
     return { ok: false, reason: 'Bash sandbox requested but powershell.exe was not found on Windows. Disable the sandbox to run commands.' };

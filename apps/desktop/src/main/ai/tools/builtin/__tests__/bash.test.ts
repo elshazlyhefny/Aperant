@@ -340,10 +340,10 @@ describe('Bash Tool', () => {
     it('fails closed on Windows when the sandbox is unavailable', async () => {
       mockIsWindows.mockReturnValue(true);
       mockFindExecutable.mockReturnValue('C:\\Program Files\\Git\\bin\\bash.exe' as never);
-      mockWrapForSandbox.mockReturnValue({ ok: false, reason: 'AppContainer launcher missing' });
+      mockWrapForSandbox.mockReturnValue({ ok: false, reason: 'PowerShell launcher missing' });
       const result = await bashTool.config.execute({ command: 'dir' }, sandboxCtx);
       expect(result).toContain('Error: Sandbox unavailable');
-      expect(result).toContain('AppContainer launcher missing');
+      expect(result).toContain('PowerShell launcher missing');
       expect(mockWrapForSandbox).toHaveBeenCalledWith(
         'C:\\Program Files\\Git\\bin\\bash.exe',
         ['-c', 'dir'],

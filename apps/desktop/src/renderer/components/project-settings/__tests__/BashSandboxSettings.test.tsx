@@ -26,6 +26,9 @@ const available: SandboxAvailability = { state: 'available', tool: 'bwrap', inst
 const missingLinux: SandboxAvailability = { state: 'tool-missing', tool: 'bwrap', installHint: 'bubblewrap' };
 const missingMac: SandboxAvailability = { state: 'tool-missing', tool: 'sandbox-exec', installHint: null };
 const unsupported: SandboxAvailability = { state: 'unsupported', tool: null, installHint: null };
+const windows: SandboxAvailability = {
+  state: 'available', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden-no-network'],
+};
 
 afterEach(async () => {
   await i18n.changeLanguage('en');
@@ -65,6 +68,21 @@ describe('BashSandboxSettings', () => {
     renderIt('home-hidden-no-network');
     expect(await screen.findByText('Not supported on this platform')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
+
+  it('marks a mode Windows cannot enforce as refused and explains the Windows model', async () => {
+    mockAvailability(windows);
+    renderIt('home-hidden-no-network');
+    expect(await screen.findByText('Mode not supported here')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/refused/);
+    expect(screen.getByText(/restricted token/)).toBeInTheDocument();
+  });
+
+  it('keeps home-hidden active on Windows', async () => {
+    mockAvailability(windows);
+    renderIt('home-hidden');
+    expect(await screen.findByText('Sandbox active')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('explains both modes', async () => {

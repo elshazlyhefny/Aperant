@@ -24,6 +24,8 @@ interface SandboxOfferDialogProps {
  */
 export function SandboxOfferDialog({ open, project, availability, onEnable, onSkip }: SandboxOfferDialogProps) {
   const { t } = useTranslation('dialogs');
+  // zeenha fork: do not offer a mode this platform refuses (Windows cannot block the network).
+  const offerNoNetwork = !availability.unsupportedModes?.includes('home-hidden-no-network');
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onSkip(); }}>
@@ -39,19 +41,23 @@ export function SandboxOfferDialog({ open, project, availability, onEnable, onSk
             <p className="font-medium">{t('sandboxOffer.homeHidden.label')}</p>
             <p className="text-muted-foreground">{t('sandboxOffer.homeHidden.description')}</p>
           </div>
-          <div>
-            <p className="font-medium">{t('sandboxOffer.homeHiddenNoNetwork.label')}</p>
-            <p className="text-muted-foreground">{t('sandboxOffer.homeHiddenNoNetwork.description')}</p>
-          </div>
+          {offerNoNetwork && (
+            <div>
+              <p className="font-medium">{t('sandboxOffer.homeHiddenNoNetwork.label')}</p>
+              <p className="text-muted-foreground">{t('sandboxOffer.homeHiddenNoNetwork.description')}</p>
+            </div>
+          )}
           <p className="text-muted-foreground">{t('sandboxOffer.failClosed')}</p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onSkip}>
             {t('sandboxOffer.skip')}
           </Button>
-          <Button variant="secondary" onClick={() => onEnable('home-hidden-no-network')}>
-            {t('sandboxOffer.homeHiddenNoNetwork.label')}
-          </Button>
+          {offerNoNetwork && (
+            <Button variant="secondary" onClick={() => onEnable('home-hidden-no-network')}>
+              {t('sandboxOffer.homeHiddenNoNetwork.label')}
+            </Button>
+          )}
           <Button onClick={() => onEnable('home-hidden')}>
             {t('sandboxOffer.homeHidden.label')}
           </Button>

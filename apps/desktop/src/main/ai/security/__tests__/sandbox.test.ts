@@ -1,11 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
 import { parseSandboxMode, wrapForSandbox } from '../sandbox';
+
+// The Windows launcher writes its script file here instead of the shared temp dir.
+const launcherDir = mkdtempSync(path.join(os.tmpdir(), 'aperant-sbx-test-'));
+afterAll(() => rmSync(launcherDir, { recursive: true, force: true }));
 
 const base = {
   cwd: '/work/wt',
   projectDir: '/work/main',
   writablePaths: ['/work/extra'],
   homeDir: '/home/u',
+  launcherDir,
 };
 const found = (n: string) => `/usr/bin/${n}`;
 
@@ -90,7 +98,16 @@ describe('wrapForSandbox', () => {
     expect(r.file.endsWith('powershell.exe')).toBe(true);
     expect(r.args).toContain('-NoProfile');
     expect(r.args).toContain('-NonInteractive');
-    expect(r.args).toContain('-EncodedCommand');
+    expect(r.args).toContain('-Command');
+  });
+
+  it('refuses home-hidden-no-network on win32 even when powershell is found', () => {
+    const r = wrapForSandbox('C:\\Git\\bash.exe', [], {
+      ...base, cwd: 'C:\\work\\wt', projectDir: 'C:\\work\\main', writablePaths: [], homeDir: 'C:\\Users\\u',
+      mode: 'home-hidden-no-network', platformName: 'win32', find: (n: string) => `C:\\bin\\${n}`,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/network/);
   });
 });
 

@@ -106,7 +106,7 @@ jobs:
   # Windows Bash sandbox - single file only
   # --------------------------------------------------------------------------
   # zeenha fork: the full Windows suite has known unported failures, so only the
-  # sandbox integration test runs here. It exercises the real AppContainer launcher.
+  # sandbox integration test runs here. It exercises the real restricted-token launcher.
   test-windows-sandbox:
     name: test-windows-sandbox
     runs-on: windows-latest

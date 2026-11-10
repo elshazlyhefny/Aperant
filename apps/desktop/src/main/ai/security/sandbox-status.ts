@@ -13,9 +13,10 @@ export interface SandboxAvailability {
   state: 'available' | 'tool-missing' | 'unsupported';
   tool: 'bwrap' | 'sandbox-exec' | 'powershell' | null;
   installHint: 'bubblewrap' | null;
+  unsupportedModes?: SandboxMode[];
 }
 
-export type SandboxStatus = 'active' | 'available-off' | 'tool-missing' | 'unsupported';
+export type SandboxStatus = 'active' | 'available-off' | 'tool-missing' | 'unsupported' | 'mode-unsupported';
 
 export interface SandboxAvailabilityOptions {
   find?: (name: string) => string | null;
@@ -43,10 +44,11 @@ export function getSandboxAvailability(opts: SandboxAvailabilityOptions = {}): S
       ? { state: 'available', tool: 'sandbox-exec', installHint: null }
       : { state: 'tool-missing', tool: 'sandbox-exec', installHint: null };
   }
-  // zeenha fork: Windows runs the sandbox through a PowerShell AppContainer launcher.
+  // zeenha fork: Windows runs the sandbox (restricted token + Job object) through
+  // a PowerShell launcher. It cannot block the network, so that mode is refused.
   return resolvePowerShell(opts.find)
-    ? { state: 'available', tool: 'powershell', installHint: null }
-    : { state: 'tool-missing', tool: 'powershell', installHint: null };
+    ? { state: 'available', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden-no-network'] }
+    : { state: 'tool-missing', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden-no-network'] };
 }
 
 export { deriveSandboxStatus } from '../../../shared/utils/sandbox-status';

@@ -30,6 +30,7 @@ const STATUS_BADGE: Record<StatusKey, string> = {
   'available-off': 'bg-warning/10 text-warning',
   'tool-missing': 'bg-destructive/10 text-destructive',
   unsupported: 'bg-muted text-muted-foreground',
+  'mode-unsupported': 'bg-destructive/10 text-destructive',
   checking: 'bg-muted text-muted-foreground'
 };
 
@@ -54,8 +55,13 @@ export function BashSandboxSettings({ settings, setSettings }: BashSandboxSettin
 
   const mode: BashSandboxMode = settings?.bashSandbox ?? 'off';
   const status: StatusKey = availability ? deriveSandboxStatus(availability, mode) : 'checking';
-  const cannotRun = availability?.state === 'tool-missing' || availability?.state === 'unsupported';
+  const cannotRun =
+    availability?.state === 'tool-missing' ||
+    availability?.state === 'unsupported' ||
+    status === 'mode-unsupported';
   const toolName = availability?.tool ?? '';
+  const noNetworkUnsupported = availability?.unsupportedModes?.includes('home-hidden-no-network') ?? false;
+  const noNetworkLabel = t('projectSections.security.mode.homeHiddenNoNetwork');
 
   const installHintKey =
     status === 'tool-missing'
@@ -103,8 +109,13 @@ export function BashSandboxSettings({ settings, setSettings }: BashSandboxSettin
             <SelectContent>
               <SelectItem value="off">{t('projectSections.security.mode.off')}</SelectItem>
               <SelectItem value="home-hidden">{t('projectSections.security.mode.homeHidden')}</SelectItem>
-              <SelectItem value="home-hidden-no-network">
-                {t('projectSections.security.mode.homeHiddenNoNetwork')}
+              <SelectItem
+                value="home-hidden-no-network"
+                disabled={noNetworkUnsupported && mode !== 'home-hidden-no-network'}
+              >
+                {noNetworkUnsupported
+                  ? t('projectSections.security.mode.notSupported', { mode: noNetworkLabel })
+                  : noNetworkLabel}
               </SelectItem>
             </SelectContent>
           </Select>
@@ -122,6 +133,10 @@ export function BashSandboxSettings({ settings, setSettings }: BashSandboxSettin
           <li>{t('projectSections.security.mode.homeHiddenExplanation')}</li>
           <li>{t('projectSections.security.mode.homeHiddenNoNetworkExplanation')}</li>
         </ul>
+
+        {availability?.tool === 'powershell' && (
+          <p className="text-xs text-muted-foreground">{t('projectSections.security.windowsNote')}</p>
+        )}
       </div>
     </section>
   );
