@@ -999,7 +999,12 @@
       "description": "Veuillez vous ré-authentifier pour continuer à utiliser Aperant.",
       "taskAffected": "Tâche affectée",
       "technicalDetails": "Détails techniques",
-      "goToSettings": "Aller aux paramètres"
+      "goToSettings": "Aller aux paramètres",
+      "indicator": {
+        "title": "Un compte requiert votre attention",
+        "ariaLabel": "Échec d'authentification pour {{profile}}. Ouvrir les détails",
+        "clickToFix": "Cliquez pour corriger →"
+      }
     }
   },
   "git": {

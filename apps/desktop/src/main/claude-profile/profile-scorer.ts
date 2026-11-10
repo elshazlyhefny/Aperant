@@ -13,7 +13,9 @@
  *
  * v3 Enhancement: Unified Account Support
  * - Supports both OAuth profiles (ClaudeProfile) and API profiles (APIProfile)
- * - API profiles are always considered available (hasUnlimitedUsage = true)
+ * - API profiles have no usage limits (hasUnlimitedUsage = true) but are NOT always
+ *   available: a key with keyStatus 'rejected' is never selected, and during
+ *   failover an unverified key ranks behind a valid one (and behind OAuth accounts)
  * - Unified selection algorithm considers both types in priority order
  */
 
@@ -25,6 +27,7 @@ import {
   apiProfileToUnified,
   OAUTH_ID_PREFIX
 } from '../../shared/utils/unified-account';
+import { getKeyStatus, failoverTier } from '../../shared/utils/api-key-status';
 import { isProfileRateLimited } from './rate-limit-manager';
 import { isProfileAuthenticated } from './profile-utils';
 
@@ -157,6 +160,11 @@ export interface UnifiedAccountSelectionOptions {
   activeOAuthId?: string;
   /** Currently active API profile ID (if any) */
   activeAPIId?: string;
+  /**
+   * Failover mode. Derived: true whenever excludeAccountId is set.
+   * In failover, API accounts that are not verified 'valid' rank after everything else.
+   */
+  failover?: boolean;
 }
 
 /**
@@ -177,14 +185,20 @@ function scoreUnifiedAccount(
 
   // For API profiles: simple availability check
   if (account.type === 'api') {
-    if (!account.isAuthenticated) {
+    if (account.keyStatus === 'rejected') {
+      score = -1000;
+      unavailableReason = 'API key rejected';
+    } else if (!account.isAuthenticated) {
       score = -1000;
       unavailableReason = 'API key not validated';
     } else if (!account.isAvailable) {
       score = -500;
       unavailableReason = 'not available';
     }
-    // API profiles with valid auth get high scores (no usage limits)
+    // Valid keys score 100, unverified 95 so ties favour valid keys
+    if (score > 0 && account.keyStatus !== 'valid') {
+      score = 95;
+    }
 
     return {
       account,
@@ -256,6 +270,7 @@ export function getBestAvailableUnifiedAccount(
   options: UnifiedAccountSelectionOptions = {}
 ): UnifiedAccount | null {
   const { excludeAccountId, priorityOrder = [], activeOAuthId, activeAPIId } = options;
+  const failover = options.failover ?? !!excludeAccountId;
   // Convert all profiles to unified format
   const unifiedAccounts: UnifiedAccount[] = [];
 
@@ -276,10 +291,9 @@ export function getBestAvailableUnifiedAccount(
   // Convert API profiles
   for (const profile of apiProfiles) {
     const isActive = profile.id === activeAPIId;
-    // TODO: API profiles are considered authenticated if they have an API key.
-    // Add validation tracking to distinguish "has key" from "key is confirmed valid".
+    // isAuthenticated means "has a key"; validity is carried by keyStatus.
     const isAuthenticated = !!profile.apiKey;
-    unifiedAccounts.push(apiProfileToUnified(profile, isActive, isAuthenticated));
+    unifiedAccounts.push(apiProfileToUnified(profile, isActive, isAuthenticated, getKeyStatus(profile)));
   }
 
   // Filter out excluded account
@@ -322,6 +336,15 @@ export function getBestAvailableUnifiedAccount(
     // Available accounts always come first
     if (a.isAvailable !== b.isAvailable) {
       return a.isAvailable ? -1 : 1;
+    }
+
+    // During failover, unverified API keys rank after valid keys and OAuth accounts
+    if (failover && a.isAvailable && b.isAvailable) {
+      const tierA = a.account.type === 'api' ? failoverTier(a.account.keyStatus ?? 'unverified') : 0;
+      const tierB = b.account.type === 'api' ? failoverTier(b.account.keyStatus ?? 'unverified') : 0;
+      if (tierA !== tierB) {
+        return tierA - tierB;
+      }
     }
 
     // For available accounts, sort by priority order
@@ -517,16 +540,21 @@ export function shouldProactivelySwitch(
 /**
  * Score a ProviderAccount for availability in the global priority queue.
  *
- * - Pay-per-use accounts (API keys) are always available unless error-flagged
+ * - Pay-per-use accounts (API keys) are available unless their key is rejected
  * - Subscription accounts (OAuth) check rate limits and usage thresholds
  */
 export function scoreProviderAccount(
   account: ProviderAccount,
   settings: ClaudeAutoSwitchSettings
 ): { available: boolean; score: number; reason?: string } {
-  // Pay-per-use: always available
+  // A rejected API key is never available
+  if (account.authType === 'api-key' && getKeyStatus(account) === 'rejected') {
+    return { available: false, score: -1000, reason: 'API key rejected' };
+  }
+
+  // Pay-per-use: available unless rejected; valid keys outrank unverified ones
   if (account.billingModel === 'pay-per-use') {
-    return { available: true, score: 100 };
+    return { available: true, score: getKeyStatus(account) === 'valid' ? 100 : 95 };
   }
 
   // Subscription: check rate limits

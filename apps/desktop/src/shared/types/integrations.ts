@@ -62,6 +62,61 @@ export interface LinearSyncStatus {
 }
 
 // ============================================
+// Jira Integration Types
+// ============================================
+
+export interface JiraProject {
+  id: string;
+  key: string;
+  name: string;
+}
+
+export interface JiraIssue {
+  id: string;
+  key: string;
+  summary: string;
+  description: string; // Markdown
+  statusName: string;
+  statusCategory: string;
+  priorityName?: string;
+  issueType: string;
+  labels: string[];
+  assigneeName?: string;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+  alreadyImported: boolean;
+  existingSpecId?: string;
+}
+
+export interface JiraIssuePage {
+  issues: JiraIssue[];
+  nextPageToken?: string;
+  isLast: boolean;
+}
+
+export interface JiraSyncStatus {
+  connected: boolean;
+  siteName?: string;
+  userName?: string;
+  projectName?: string;
+  error?: string;
+}
+
+export interface JiraSkippedIssue {
+  key: string;
+  specId: string;
+}
+
+export interface JiraImportResult {
+  success: boolean;
+  imported: number;
+  failed: number;
+  skipped: JiraSkippedIssue[];
+  errors?: string[];
+}
+
+// ============================================
 // GitHub Integration Types
 // ============================================
 
@@ -248,6 +303,39 @@ export interface GitLabSyncStatus {
   issueCount?: number;
   lastSyncedAt?: string;
   error?: string;
+}
+
+export interface BitbucketPullRequest {
+  id: number;
+  title: string;
+  description?: string;
+  state: 'OPEN' | 'MERGED' | 'DECLINED' | 'SUPERSEDED';
+  sourceBranch: string;
+  targetBranch: string;
+  author: {
+    displayName: string;
+    avatarUrl?: string;
+  };
+  reviewers: Array<{
+    displayName: string;
+    avatarUrl?: string;
+  }>;
+  commentCount: number;
+  webUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BitbucketSyncStatus {
+  connected: boolean;
+  repoFullName?: string; // workspace/repo_slug
+  error?: string;
+}
+
+export interface BitbucketDetectedRepository {
+  workspace: string;
+  repoSlug: string;
+  fullName: string; // workspace/repo_slug
 }
 
 export interface GitLabImportResult {

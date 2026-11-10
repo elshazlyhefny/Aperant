@@ -9,12 +9,14 @@ import type { InsightsAPI } from './modules/insights-api';
 import { AppUpdateAPI, createAppUpdateAPI } from './app-update-api';
 import { GitHubAPI, createGitHubAPI } from './modules/github-api';
 import type { GitLabAPI } from './modules/gitlab-api';
+import type { BitbucketAPI } from './modules/bitbucket-api';
 import { DebugAPI, createDebugAPI } from './modules/debug-api';
 import { ClaudeCodeAPI, createClaudeCodeAPI } from './modules/claude-code-api';
 import { McpAPI, createMcpAPI } from './modules/mcp-api';
 import { ProfileAPI, createProfileAPI } from './profile-api';
 import { ScreenshotAPI, createScreenshotAPI } from './screenshot-api';
 import { QueueAPI, createQueueAPI } from './queue-api';
+import { ScheduleAPI, createScheduleAPI } from './schedule-api';
 import { NotificationAPI, createNotificationAPI } from './notification-api';
 
 export interface ElectronAPI extends
@@ -33,6 +35,7 @@ export interface ElectronAPI extends
   McpAPI,
   ProfileAPI,
   ScreenshotAPI,
+  ScheduleAPI,
   NotificationAPI {
   github: GitHubAPI;
   /** Queue routing API for rate limit recovery */
@@ -52,6 +55,7 @@ export const createElectronAPI = (): ElectronAPI => ({
   ...createMcpAPI(),
   ...createProfileAPI(),
   ...createScreenshotAPI(),
+  ...createScheduleAPI(),
   ...createNotificationAPI(),
   github: createGitHubAPI(),
   queue: createQueueAPI()  // Queue routing for rate limit recovery
@@ -74,6 +78,7 @@ export {
   createMcpAPI,
   createScreenshotAPI,
   createQueueAPI,
+  createScheduleAPI,
   createNotificationAPI
 };
 
@@ -90,10 +95,12 @@ export type {
   ProfileAPI,
   GitHubAPI,
   GitLabAPI,
+  BitbucketAPI,
   DebugAPI,
   ClaudeCodeAPI,
   McpAPI,
   ScreenshotAPI,
   QueueAPI,
+  ScheduleAPI,
   NotificationAPI
 };

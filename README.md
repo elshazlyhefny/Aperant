@@ -106,6 +106,8 @@ Want to build from source or contribute? See [CONTRIBUTING.md](CONTRIBUTING.md) 
 
 For Linux-specific builds (Flatpak, AppImage), see [guides/linux.md](guides/linux.md).
 
+To run a task from a command line or CI without the app, see [guides/CLI-USAGE.md](guides/CLI-USAGE.md#running-a-task-headlessly).
+
 ---
 
 ## Security

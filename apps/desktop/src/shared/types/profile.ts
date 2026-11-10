@@ -15,6 +15,9 @@ import type { ClaudeUsageData, ClaudeRateLimitEvent } from './agent';
  * API Profile - represents a custom API endpoint configuration
  * IMPORTANT: Named APIProfile (not Profile) to avoid conflicts with user profiles
  */
+/** Verification state of an API key. Absent on a profile means 'unverified'. */
+export type ApiKeyStatus = 'unverified' | 'valid' | 'rejected';
+
 export interface APIProfile {
   id: string; // UUID v4
   name: string; // User-friendly name
@@ -33,6 +36,10 @@ export interface APIProfile {
   usage?: ClaudeUsageData;
   /** Recent rate limit events for this profile */
   rateLimitEvents?: ClaudeRateLimitEvent[];
+  /** API key verification state (absent means unverified) */
+  keyStatus?: ApiKeyStatus;
+  /** Ms timestamp of the last keyStatus change */
+  keyStatusAt?: number;
 }
 
 /**

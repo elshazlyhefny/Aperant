@@ -170,13 +170,19 @@ export interface TaskMetadata {
   /** zeenha fork: token budget in tokens (input+output). 0 on a task = unlimited override of the project limit. */
   tokenBudget?: number;
   // Origin tracking
-  sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab';
+  sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab' | 'jira' | 'schedule';
+  scheduleId?: string;  // Recurring schedule that created this task
+  scheduledFor?: number;  // Epoch ms of the schedule occurrence
   ideationType?: string;  // e.g., 'code_improvements', 'security_hardening'
   ideaId?: string;  // Reference to original idea if converted
   featureId?: string;  // Reference to roadmap feature if from roadmap
   linearIssueId?: string;  // Reference to Linear issue if from Linear
   linearIdentifier?: string;  // Linear issue identifier (e.g., 'ABC-123')
   linearUrl?: string;  // Linear issue URL
+  jiraIssueKey?: string;  // Jira issue key (e.g., 'PROJ-123')
+  jiraIssueId?: string;  // Jira issue id
+  jiraUrl?: string;  // Jira issue URL
+  jiraSiteUrl?: string;  // Jira site base URL the issue came from
   githubIssueNumber?: number;  // Reference to GitHub issue number if from GitHub (single issue)
   githubIssueNumbers?: number[];  // Reference to multiple GitHub issues if from a batch
   githubUrl?: string;  // GitHub issue URL
@@ -198,6 +204,8 @@ export interface TaskMetadata {
   // Technical details
   affectedFiles?: string[];  // Files likely to be modified
   dependencies?: string[];  // Other features/tasks this depends on
+  /** zeenha fork: ids of tasks that must finish (status 'done') first; distinct from the free-text `dependencies`. */
+  taskDependencies?: string[];
   acceptanceCriteria?: string[];  // What defines "done"
 
   // Effort estimation
@@ -239,6 +247,9 @@ export interface TaskMetadata {
   // Archive status
   archivedAt?: string;  // ISO date when task was archived
   archivedInVersion?: string;  // Version in which task was archived (from changelog)
+
+  // zeenha fork: the task this one waits for because their planned files overlap
+  holdUntilTaskId?: string;
 }
 
 export interface Task {
@@ -307,6 +318,10 @@ export interface PlanSubtask {
   /** Detailed implementation notes for the coder agent */
   description: string;
   status: SubtaskStatus;
+  /** zeenha fork: files the planner expects this subtask to change (used for overlap warnings) */
+  files_to_modify?: string[];
+  /** zeenha fork: files the planner expects this subtask to create */
+  files_to_create?: string[];
   verification?: {
     type: string;
     run?: string;

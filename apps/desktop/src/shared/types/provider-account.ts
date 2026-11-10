@@ -1,4 +1,5 @@
 import type { ClaudeUsageData, ClaudeRateLimitEvent } from './agent';
+import type { ApiKeyStatus } from './profile';
 
 /** How a credential was resolved — shown in UI for transparency */
 export type CredentialSource = 'oauth' | 'api-key' | 'env' | 'keychain';
@@ -36,6 +37,10 @@ export interface ProviderAccount {
   rateLimitEvents?: ClaudeRateLimitEvent[];
   /** User-configured models for openai-compatible endpoints */
   customModels?: CustomModel[];
+  /** API key verification state (absent means unverified). Only meaningful for authType 'api-key'. */
+  keyStatus?: ApiKeyStatus;
+  /** Ms timestamp of the last keyStatus change */
+  keyStatusAt?: number;
 }
 
 export type ProviderCategory = 'popular' | 'infrastructure' | 'local';

@@ -20,6 +20,7 @@ vi.mock('../../../stores/task-store', () => ({
 }));
 vi.mock('../../../stores/project-store', () => ({ useProjectStore: () => null }));
 vi.mock('../../TaskEditDialog', () => ({ TaskEditDialog: () => null }));
+vi.mock('../TaskFileOverlap', () => ({ TaskFileOverlap: () => null }));
 vi.mock('../TaskMetadata', () => ({ TaskMetadata: () => null }));
 vi.mock('../TaskSubtasks', () => ({ TaskSubtasks: () => null }));
 vi.mock('../TaskLogs', () => ({ TaskLogs: () => null }));

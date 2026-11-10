@@ -12,8 +12,10 @@ import type {
   AutoBuildVersionInfo,
   ProjectEnvConfig,
   LinearSyncStatus,
+  JiraSyncStatus,
   GitHubSyncStatus,
-  GitLabSyncStatus
+  GitLabSyncStatus,
+  BitbucketSyncStatus
 } from '../../../../shared/types';
 
 export interface UseProjectSettingsReturn {
@@ -61,11 +63,25 @@ export interface UseProjectSettingsReturn {
   gitLabConnectionStatus: GitLabSyncStatus | null;
   isCheckingGitLab: boolean;
 
+  // Bitbucket state
+  showBitbucketToken: boolean;
+  setShowBitbucketToken: React.Dispatch<React.SetStateAction<boolean>>;
+  bitbucketConnectionStatus: BitbucketSyncStatus | null;
+  isCheckingBitbucket: boolean;
+
   // Linear state
   showLinearImportModal: boolean;
   setShowLinearImportModal: React.Dispatch<React.SetStateAction<boolean>>;
   linearConnectionStatus: LinearSyncStatus | null;
   isCheckingLinear: boolean;
+
+  // Jira state
+  showJiraToken: boolean;
+  setShowJiraToken: React.Dispatch<React.SetStateAction<boolean>>;
+  showJiraImportModal: boolean;
+  setShowJiraImportModal: React.Dispatch<React.SetStateAction<boolean>>;
+  jiraConnectionStatus: JiraSyncStatus | null;
+  isCheckingJira: boolean;
 
   // Actions
   handleInitialize: () => Promise<void>;
@@ -119,10 +135,21 @@ export function useProjectSettings(
   const [gitLabConnectionStatus, setGitLabConnectionStatus] = useState<GitLabSyncStatus | null>(null);
   const [isCheckingGitLab, setIsCheckingGitLab] = useState(false);
 
+  // Bitbucket state
+  const [showBitbucketToken, setShowBitbucketToken] = useState(false);
+  const [bitbucketConnectionStatus, setBitbucketConnectionStatus] = useState<BitbucketSyncStatus | null>(null);
+  const [isCheckingBitbucket, setIsCheckingBitbucket] = useState(false);
+
   // Linear import state
   const [showLinearImportModal, setShowLinearImportModal] = useState(false);
   const [linearConnectionStatus, setLinearConnectionStatus] = useState<LinearSyncStatus | null>(null);
   const [isCheckingLinear, setIsCheckingLinear] = useState(false);
+
+  // Jira state
+  const [showJiraToken, setShowJiraToken] = useState(false);
+  const [showJiraImportModal, setShowJiraImportModal] = useState(false);
+  const [jiraConnectionStatus, setJiraConnectionStatus] = useState<JiraSyncStatus | null>(null);
+  const [isCheckingJira, setIsCheckingJira] = useState(false);
 
   // Reset settings when project changes
   useEffect(() => {
@@ -194,6 +221,31 @@ export function useProjectSettings(
     }
   }, [envConfig?.linearEnabled, envConfig?.linearApiKey, project.id]);
 
+  // Check Jira connection when credentials change
+  useEffect(() => {
+    const checkJiraConnection = async () => {
+      setIsCheckingJira(true);
+      try {
+        const result = await window.electronAPI.checkJiraConnection(project.id);
+        if (result.success && result.data) {
+          setJiraConnectionStatus(result.data);
+        } else {
+          setJiraConnectionStatus({ connected: false, error: result.error || 'Failed to check connection' });
+        }
+      } catch {
+        setJiraConnectionStatus({ connected: false, error: 'Failed to check connection' });
+      } finally {
+        setIsCheckingJira(false);
+      }
+    };
+
+    if (envConfig?.jiraEnabled && envConfig.jiraSiteUrl && envConfig.jiraEmail && envConfig.jiraApiToken) {
+      checkJiraConnection();
+    } else {
+      setJiraConnectionStatus(null);
+    }
+  }, [envConfig?.jiraEnabled, envConfig?.jiraSiteUrl, envConfig?.jiraEmail, envConfig?.jiraApiToken, project.id]);
+
   // Check GitHub connection when token/repo changes
   // Also updates the global GitHub store so other components (like GitHub Issues) see the change
   useEffect(() => {
@@ -248,6 +300,41 @@ export function useProjectSettings(
       checkGitLabConnection();
     }
   }, [envConfig?.gitlabEnabled, envConfig?.gitlabToken, envConfig?.gitlabProject, project.id]);
+
+  // Check Bitbucket connection when credentials/repository change (debounced)
+  useEffect(() => {
+    if (
+      !envConfig?.bitbucketEnabled ||
+      !envConfig.bitbucketUsername ||
+      !envConfig.bitbucketToken ||
+      !envConfig.bitbucketRepository
+    ) {
+      setBitbucketConnectionStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setIsCheckingBitbucket(true);
+      try {
+        const status = await window.electronAPI.checkBitbucketConnection(project.id);
+        if (!cancelled && status.success && status.data) {
+          setBitbucketConnectionStatus(status.data);
+        }
+      } catch {
+        if (!cancelled) {
+          setBitbucketConnectionStatus({ connected: false, error: 'Failed to check connection' });
+        }
+      } finally {
+        if (!cancelled) setIsCheckingBitbucket(false);
+      }
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [envConfig?.bitbucketEnabled, envConfig?.bitbucketUsername, envConfig?.bitbucketToken, envConfig?.bitbucketRepository, project.id]);
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -375,10 +462,20 @@ export function useProjectSettings(
     setShowGitLabToken,
     gitLabConnectionStatus,
     isCheckingGitLab,
+    showBitbucketToken,
+    setShowBitbucketToken,
+    bitbucketConnectionStatus,
+    isCheckingBitbucket,
     showLinearImportModal,
     setShowLinearImportModal,
     linearConnectionStatus,
     isCheckingLinear,
+    showJiraToken,
+    setShowJiraToken,
+    showJiraImportModal,
+    setShowJiraImportModal,
+    jiraConnectionStatus,
+    isCheckingJira,
     handleInitialize,
     handleSave
   };

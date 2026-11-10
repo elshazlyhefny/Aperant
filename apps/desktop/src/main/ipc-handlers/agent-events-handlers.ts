@@ -20,6 +20,7 @@ import { findTaskAndProject } from "./task/shared";
 import { safeSendToRenderer } from "./utils";
 import { getClaudeProfileManager } from "../claude-profile-manager";
 import { taskStateManager } from "../task-state-manager";
+import { createDefaultFinalizerDeps, finalizePRFollowUp } from "./task/pr-followup-finalizer";
 
 // Timeout for fallback safety net to check if task is still stuck after process exit
 const STUCK_TASK_FALLBACK_TIMEOUT_MS = 500;
@@ -238,6 +239,21 @@ export function registerAgenteventsHandlers(
 
     const { task, project } = findTaskAndProject(taskId, projectId);
     if (!task || !project) return;
+
+    // zeenha fork: a PR follow-up pushes only after QA approves. The finalizer
+    // does nothing unless the worktree holds a PR_FOLLOWUP.json marker.
+    if (processType === "qa-process") {
+      const finalizerDeps = createDefaultFinalizerDeps((id, outcome) => {
+        const text =
+          outcome.status === "pushed"
+            ? `[PR follow-up] Pushed to the pull request branch${outcome.headSha ? ` (${outcome.headSha.slice(0, 7)})` : ""}.`
+            : `[PR follow-up] Not pushed (${outcome.status}): ${outcome.reason ?? "unknown reason"}`;
+        safeSendToRenderer(getMainWindow, IPC_CHANNELS.TASK_LOG, id, text, project.id);
+      });
+      finalizePRFollowUp({ taskId, exitCode: code, project, task, deps: finalizerDeps }).catch((err) => {
+        console.error(`[agent-events-handlers] PR follow-up finalizer failed for ${taskId}:`, err);
+      });
+    }
 
     const taskTitle = task.title || task.specId;
     if (code === 0) {

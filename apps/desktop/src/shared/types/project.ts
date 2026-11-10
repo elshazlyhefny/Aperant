@@ -367,6 +367,13 @@ export interface ProjectEnvConfig {
   linearProjectId?: string;
   linearRealtimeSync?: boolean; // Enable real-time sync of new Linear tasks
 
+  // Jira Integration
+  jiraEnabled: boolean;
+  jiraSiteUrl?: string;
+  jiraEmail?: string;
+  jiraApiToken?: string;
+  jiraProjectKey?: string;
+
   // GitHub Integration
   githubEnabled: boolean;
   githubToken?: string;
@@ -380,6 +387,12 @@ export interface ProjectEnvConfig {
   gitlabToken?: string;
   gitlabProject?: string; // Format: group/project or numeric ID
   gitlabAutoSync?: boolean; // Auto-sync issues on project load
+
+  // Bitbucket Integration
+  bitbucketEnabled: boolean;
+  bitbucketUsername?: string;
+  bitbucketToken?: string;
+  bitbucketRepository?: string; // Format: workspace/repo_slug
 
   // Git/Worktree Settings
   defaultBranch?: string; // Base branch for worktree creation (e.g., 'main', 'develop')

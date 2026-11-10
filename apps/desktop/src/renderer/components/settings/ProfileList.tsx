@@ -6,7 +6,7 @@
  * Allows setting active profile, editing, and deleting profiles.
  */
 import { useState } from 'react';
-import { Plus, Trash2, Check, Server, Globe, Pencil } from 'lucide-react';
+import { Plus, Trash2, Check, Server, Globe, Pencil, AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
@@ -220,6 +220,19 @@ export function ProfileList({ onProfileSaved }: ProfileListProps) {
                   <div className="truncate">
                     {maskApiKey(profile.apiKey)}
                   </div>
+                  {profile.keyStatus === 'rejected' && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center gap-1.5 mt-1 cursor-help text-destructive">
+                          <AlertCircle className="h-3 w-3" />
+                          <span className="text-xs">{t('settings:apiProfiles.keyRejected')}</span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{t('settings:apiProfiles.keyRejectedHint')}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
                 {profile.models && Object.keys(profile.models).length > 0 && (
                   <div className="mt-2 text-xs text-muted-foreground">

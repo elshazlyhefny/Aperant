@@ -37,6 +37,8 @@ import {
   IDEATION_TYPE_LABELS,
   JSON_ERROR_PREFIX
 } from '../../../shared/constants';
+import { useTaskStore, persistUpdateTask } from '../../stores/task-store';
+import { evaluateTaskDependencies } from '../../../shared/utils/task-dependencies';
 import type { Task, TaskCategory } from '../../../shared/types';
 
 // Category icon mapping
@@ -65,6 +67,15 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
   const [hasOverflow, setHasOverflow] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const contentId = useId();
+  // zeenha fork: task-to-task dependencies (separate from the free-text list)
+  const allTasks = useTaskStore((s) => s.tasks);
+  const taskDeps = task.metadata?.taskDependencies ?? [];
+  const depEvaluation = taskDeps.length > 0 ? evaluateTaskDependencies(task, allTasks) : null;
+  const removeTaskDependency = (ref: string) => {
+    void persistUpdateTask(task.id, {
+      metadata: { ...task.metadata, taskDependencies: taskDeps.filter((d) => d !== ref) }
+    });
+  };
 
   // Handle JSON error description with i18n
   const displayDescription = (() => {
@@ -95,7 +106,8 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
     task.metadata.complexity ||
     task.metadata.impact ||
     task.metadata.securitySeverity ||
-    task.metadata.sourceType
+    task.metadata.sourceType ||
+    task.metadata.jiraIssueKey
   );
 
   return (
@@ -165,6 +177,25 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
                   : task.metadata.sourceType}
               </Badge>
             )}
+            {/* Jira issue link (https only) */}
+            {task.metadata?.jiraIssueKey &&
+              task.metadata.jiraUrl?.startsWith('https://') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = task.metadata?.jiraUrl;
+                    if (url?.startsWith('https://')) {
+                      window.electronAPI.openExternal(url);
+                    }
+                  }}
+                  title={t('tasks:metadata.openInJira', { key: task.metadata.jiraIssueKey })}
+                  aria-label={t('tasks:metadata.openInJira', { key: task.metadata.jiraIssueKey })}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-info hover:underline bg-transparent cursor-pointer"
+                >
+                  {task.metadata.jiraIssueKey}
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </button>
+              )}
           </div>
         )}
 
@@ -265,6 +296,44 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
                 Target Audience
               </h3>
               <p className="text-sm text-foreground/80">{task.metadata.targetAudience}</p>
+            </div>
+          )}
+
+          {/* zeenha fork: Task dependencies */}
+          {taskDeps.length > 0 && (
+            <div data-testid="task-detail-task-dependencies">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+                <GitBranch className="h-3 w-3 text-purple-400" />
+                {t('tasks:dependencies.title')}
+              </h3>
+              <ul className="text-sm text-foreground/80 space-y-1">
+                {taskDeps.map((ref) => {
+                  const dep = allTasks.find((x) => x.id === ref || x.specId === ref);
+                  const blocker = depEvaluation?.blockers.find((b) => b.taskId === (dep?.id ?? ref));
+                  const title = dep?.title ?? ref;
+                  return (
+                    <li key={ref} className="flex items-center justify-between gap-2">
+                      <span>
+                        {title}
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {blocker ? t(`tasks:dependencies.reason.${blocker.reason}`) : dep?.status}
+                        </span>
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={t('tasks:dependencies.remove', { title })}
+                        onClick={() => removeTaskDependency(ref)}
+                      >
+                        ×
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {task.status === 'queue' && depEvaluation && depEvaluation.state !== 'ready' && (
+                <p className="mt-1 text-xs text-muted-foreground">{t('tasks:dependencies.heldHint')}</p>
+              )}
             </div>
           )}
 

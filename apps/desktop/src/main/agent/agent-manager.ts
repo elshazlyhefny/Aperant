@@ -23,9 +23,15 @@ import { resolveModelId } from '../ai/config/phase-config';
 import { detectProviderFromModel } from '../ai/providers/factory';
 import { resolveModelEquivalent } from '../../shared/constants/models';
 import type { BuiltinProvider } from '../../shared/types/provider-account';
-import { resolveTokenBudget } from '../../shared/utils/token-budget';
 import type { AgentExecutorConfig, SerializableSessionConfig, SerializedSecurityProfile } from '../ai/agent/types';
-import { getSecurityProfile } from '../ai/security/security-profile';
+import {
+  serializeSecurityProfile,
+  buildTaskExecutionMessages,
+  resolveTaskModelId,
+  resolveTaskPhaseProvider,
+  buildDefaultPlannerPrompt,
+  resolveTaskTokenBudget,
+} from '../ai/agent/task-session';
 import { parseEnvPassthrough } from '../ai/security/child-env';
 import { parseSandboxMode } from '../ai/security/sandbox';
 import { createOrGetWorktree } from '../ai/worktree';
@@ -143,7 +149,7 @@ export class AgentManager extends EventEmitter {
     requestedModel: string,
     preferredProvider?: string | null,
   ): Promise<{
-    auth: { apiKey?: string; baseURL?: string; oauthTokenFilePath?: string } | null;
+    auth: { apiKey?: string; baseURL?: string; oauthTokenFilePath?: string; accountId?: string } | null;
     provider: string;
     modelId: string;
     configDir?: string;
@@ -457,6 +463,7 @@ export class AgentManager extends EventEmitter {
       projectId,
       processType: 'spec-creation',
       session: sessionConfig,
+      accountId: resolved.auth?.accountId,
     };
 
     // Store context for potential restart
@@ -587,6 +594,7 @@ export class AgentManager extends EventEmitter {
       projectId,
       processType: 'task-execution',
       session: sessionConfig,
+      accountId: resolved.auth?.accountId,
     };
 
     // Store context for potential restart
@@ -693,6 +701,7 @@ export class AgentManager extends EventEmitter {
       projectId,
       processType: 'qa-process',
       session: sessionConfig,
+      accountId: resolved.auth?.accountId,
     };
 
     await this.processManager.spawnWorkerProcess(taskId, executorConfig, {}, 'qa-process', projectId);
@@ -968,141 +977,28 @@ export class AgentManager extends EventEmitter {
   // Private helpers for TypeScript agent path
   // ============================================
 
-  /**
-   * Serialize a project's SecurityProfile (Sets) into a SerializedSecurityProfile (arrays)
-   * for transfer across worker thread boundaries.
-   */
   private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean, envPassthrough: string[], bashSandbox: string): SerializedSecurityProfile {
-    const profile = getSecurityProfile(projectDir);
-    return {
-      // zeenha fork: the worker cannot read the project store, so the setting travels here.
-      prOnlyLanding,
-      envPassthrough,
-      bashSandbox,
-      baseCommands: [...profile.baseCommands],
-      stackCommands: [...profile.stackCommands],
-      scriptCommands: [...profile.scriptCommands],
-      customCommands: [...profile.customCommands],
-      customScripts: {
-        shellScripts: profile.customScripts.shellScripts,
-      },
-    };
+    return serializeSecurityProfile(projectDir, { prOnlyLanding, envPassthrough, bashSandbox });
   }
 
-  /**
-   * Resolve the model ID for a task by reading task_metadata.json.
-   * Falls back to the default sonnet model if metadata is not available.
-   *
-   * @param specDir - The spec directory path
-   * @param phase - The execution phase ('planning', 'coding', 'qa', 'spec')
-   */
   /**
    * zeenha fork: the effective token budget for a task: its task_metadata.json
    * override (0 = unlimited) else the project default. Serialized into the
    * worker config because workers cannot read main-process stores.
    */
   resolveTaskTokenBudget(specDir: string, projectSettings?: { tokenBudget?: number }): number | undefined {
-    let metadata: { tokenBudget?: number } | undefined;
-    try {
-      const metadataPath = path.join(specDir, 'task_metadata.json');
-      if (existsSync(metadataPath)) {
-        metadata = JSON.parse(readFileSync(metadataPath, 'utf-8')) as { tokenBudget?: number };
-      }
-    } catch {
-      metadata = undefined;
-    }
-    return resolveTokenBudget(metadata, projectSettings);
+    return resolveTaskTokenBudget(specDir, projectSettings);
   }
 
-  private async resolveTaskModelId(specDir: string, phase: 'planning' | 'coding' | 'qa' | 'spec'): Promise<string> {
-    try {
-      const metadataPath = path.join(specDir, 'task_metadata.json');
-      if (existsSync(metadataPath)) {
-        const raw = readFileSync(metadataPath, 'utf-8');
-        const metadata = JSON.parse(raw) as {
-          isAutoProfile?: boolean;
-          phaseModels?: Record<string, string>;
-          phaseProviders?: Record<string, string>;
-          provider?: string;
-          model?: string;
-        };
-
-        // Determine the target provider for this phase
-        const targetProvider = (metadata.phaseProviders?.[phase] ?? metadata.provider ?? null) as BuiltinProvider | null;
-
-        let shorthand: string | undefined;
-        if (metadata.phaseModels?.[phase]) {
-          shorthand = metadata.phaseModels[phase];
-        } else if (metadata.model) {
-          shorthand = metadata.model;
-        }
-
-        // If shorthand is empty (e.g., Ollama presets use '' because models are dynamic),
-        // try reading the user's per-provider phase config from settings
-        if (!shorthand && targetProvider) {
-          const settings = readSettingsFile();
-          const providerPhaseModels = (settings?.providerAgentConfig as Record<string, Record<string, unknown>> | undefined)?.[targetProvider]?.customPhaseModels as Record<string, string> | undefined;
-          if (providerPhaseModels?.[phase]) {
-            shorthand = providerPhaseModels[phase];
-          }
-        }
-
-        if (shorthand) {
-          // First resolve to a full model ID (handles Anthropic shorthands like 'opus' → 'claude-opus-4-6')
-          const baseModelId = resolveModelId(shorthand);
-
-          // If the target provider is non-Anthropic, translate the model ID to the
-          // target provider's equivalent. This ensures the queue resolution succeeds
-          // when the user has swapped away from Anthropic.
-          if (targetProvider && targetProvider !== 'anthropic') {
-            const equiv = resolveModelEquivalent(shorthand, targetProvider)
-              ?? resolveModelEquivalent(baseModelId, targetProvider);
-            if (equiv) {
-              return equiv.modelId;
-            }
-            // If no equivalence found and the model is already a raw model name
-            // (e.g., user-configured Ollama model), pass it through unchanged
-            return shorthand;
-          }
-
-          return baseModelId;
-        }
-
-        // Still no model but have a target provider — resolve 'sonnet' equivalent
-        if (targetProvider && targetProvider !== 'anthropic') {
-          const equiv = resolveModelEquivalent('sonnet', targetProvider);
-          if (equiv) return equiv.modelId;
-        }
-      }
-    } catch {
-      // Fall through to default
-    }
-
-    // Default: resolve 'sonnet' (Anthropic fallback)
-    return resolveModelId('sonnet');
+  private resolveTaskModelId(specDir: string, phase: 'planning' | 'coding' | 'qa' | 'spec'): Promise<string> {
+    return resolveTaskModelId(specDir, phase, (provider) => {
+      const settings = readSettingsFile();
+      return (settings?.providerAgentConfig as Record<string, Record<string, unknown>> | undefined)?.[provider]?.customPhaseModels as Record<string, string> | undefined;
+    });
   }
 
-  /**
-   * Resolve the provider override for a phase from task_metadata.json.
-   * Returns null if no per-phase provider is specified (use default queue).
-   */
   private resolveTaskPhaseProvider(specDir: string, phase: 'planning' | 'coding' | 'qa' | 'spec'): string | null {
-    try {
-      const metadataPath = path.join(specDir, 'task_metadata.json');
-      if (existsSync(metadataPath)) {
-        const raw = readFileSync(metadataPath, 'utf-8');
-        const metadata = JSON.parse(raw) as {
-          phaseProviders?: Record<string, string>;
-          provider?: string;
-        };
-        // Per-phase provider (cross-provider mode) takes precedence,
-        // then fall back to the single task-level provider (e.g. 'ollama')
-        return metadata.phaseProviders?.[phase] ?? metadata.provider ?? null;
-      }
-    } catch {
-      // Fall through
-    }
-    return null;
+    return resolveTaskPhaseProvider(specDir, phase);
   }
 
   /**
@@ -1128,7 +1024,7 @@ export class AgentManager extends EventEmitter {
    * when the prompt file is not found.
    */
   private buildDefaultPlannerPrompt(specId: string, projectPath: string): string {
-    return `You are a planning agent. Your job is to review the spec and create an implementation plan for spec ${specId} in project ${projectPath}. Read the spec.md and create implementation_plan.json with phases and subtasks.`;
+    return buildDefaultPlannerPrompt(specId, projectPath);
   }
 
   /**
@@ -1139,55 +1035,12 @@ export class AgentManager extends EventEmitter {
     return `You are a QA reviewer agent. Your job is to review the implementation of spec ${specId} in project ${projectPath}. Check that all requirements in spec.md are implemented correctly and write a qa_report.md with Status: PASSED or Status: FAILED.`;
   }
 
-  /**
-   * Build initial messages for task execution (build_orchestrator).
-   * Includes the spec.md and implementation_plan.json content for agent context.
-   */
   private buildTaskExecutionMessages(
     specDir: string,
     specId: string,
     projectPath: string,
   ): Array<{ role: 'user' | 'assistant'; content: string }> {
-    const parts: string[] = [];
-
-    parts.push(`You are implementing spec ${specId} in project: ${projectPath}`);
-    parts.push(`Spec directory: ${specDir}`);
-    parts.push('');
-
-    // Read spec.md
-    const specPath = path.join(specDir, 'spec.md');
-    try {
-      if (existsSync(specPath)) {
-        const specContent = readFileSync(specPath, 'utf-8');
-        parts.push('## Specification (spec.md)');
-        parts.push('');
-        parts.push(specContent);
-        parts.push('');
-      }
-    } catch {
-      // Not critical — agent can read spec itself
-    }
-
-    // Read implementation_plan.json if it exists (resume scenario)
-    const planPath = path.join(specDir, 'implementation_plan.json');
-    try {
-      if (existsSync(planPath)) {
-        const planContent = readFileSync(planPath, 'utf-8');
-        parts.push('## Implementation Plan (implementation_plan.json)');
-        parts.push('');
-        parts.push('```json');
-        parts.push(planContent);
-        parts.push('```');
-        parts.push('');
-        parts.push('Resume implementing the pending/in-progress subtasks. Do NOT redo completed subtasks. Update each subtask status to "completed" in implementation_plan.json after finishing it.');
-      } else {
-        parts.push('No implementation plan exists yet. Start by creating implementation_plan.json with phases and subtasks, then implement each subtask.');
-      }
-    } catch {
-      // Fall through
-    }
-
-    return [{ role: 'user', content: parts.join('\n') }];
+    return buildTaskExecutionMessages(specDir, specId, projectPath);
   }
 
   /**

@@ -20,8 +20,10 @@ import { registerRoadmapHandlers } from './roadmap-handlers';
 import { registerContextHandlers } from './context-handlers';
 import { registerEnvHandlers } from './env-handlers';
 import { registerLinearHandlers } from './linear-handlers';
+import { registerJiraHandlers } from './jira/jira-handlers';
 import { registerGithubHandlers } from './github-handlers';
 import { registerGitlabHandlers } from './gitlab-handlers';
+import { registerBitbucketHandlers } from './bitbucket-handlers';
 import { registerIdeationHandlers } from './ideation-handlers';
 import { registerChangelogHandlers } from './changelog-handlers';
 import { registerInsightsHandlers } from './insights-handlers';
@@ -35,6 +37,8 @@ import { registerProfileHandlers } from './profile-handlers';
 import { registerScreenshotHandlers } from './screenshot-handlers';
 import { registerTerminalWorktreeIpcHandlers } from './terminal';
 import { registerCodexAuthHandlers } from './codex-auth-handlers';
+import { registerScheduleHandlers } from './schedule-handlers';
+import type { ScheduleService } from '../schedule-service';
 import { notificationService } from '../notification-service';
 import { setAgentManagerRef, safeSendToRenderer } from './utils';
 import { IPC_CHANNELS } from '../../shared/constants';
@@ -55,7 +59,7 @@ export function setupIpcHandlers(
   agentManager: AgentManager,
   terminalManager: TerminalManager,
   getMainWindow: () => BrowserWindow | null
-): void {
+): ScheduleService {
   // Initialize notification service
   notificationService.initialize(getMainWindow);
 
@@ -118,11 +122,17 @@ export function setupIpcHandlers(
   // Linear integration handlers
   registerLinearHandlers(agentManager, getMainWindow);
 
+  // Jira integration handlers
+  registerJiraHandlers(agentManager, getMainWindow);
+
   // GitHub integration handlers
   registerGithubHandlers(agentManager, getMainWindow);
 
   // GitLab integration handlers
   registerGitlabHandlers(agentManager, getMainWindow);
+
+  // Bitbucket integration handlers
+  registerBitbucketHandlers();
 
   // Ideation handlers
   registerIdeationHandlers(agentManager, getMainWindow);
@@ -160,7 +170,11 @@ export function setupIpcHandlers(
   // Codex OAuth authentication handlers
   registerCodexAuthHandlers();
 
+  // zeenha fork: recurring task schedules; the caller starts the returned service
+  const scheduleService = registerScheduleHandlers(agentManager, getMainWindow);
+
   console.warn('[IPC] All handler modules registered successfully');
+  return scheduleService;
 }
 
 // Re-export all individual registration functions for potential custom usage
@@ -176,8 +190,10 @@ export {
   registerContextHandlers,
   registerEnvHandlers,
   registerLinearHandlers,
+  registerJiraHandlers,
   registerGithubHandlers,
   registerGitlabHandlers,
+  registerBitbucketHandlers,
   registerIdeationHandlers,
   registerChangelogHandlers,
   registerInsightsHandlers,
@@ -189,5 +205,6 @@ export {
   registerMcpHandlers,
   registerProfileHandlers,
   registerScreenshotHandlers,
-  registerCodexAuthHandlers
+  registerCodexAuthHandlers,
+  registerScheduleHandlers
 };

@@ -513,7 +513,8 @@ describe('ProfileEditDialog - Test Connection Feature', () => {
       expect(mockTestConnection).toHaveBeenCalledWith(
         'https://api.example.com',
         'sk-ant-test12345678',
-        expect.any(AbortSignal)
+        expect.any(AbortSignal),
+        'test-id'
       );
     });
   });
@@ -693,7 +694,8 @@ describe('ProfileEditDialog - Test Connection Feature', () => {
       expect(testConnectionFn).toHaveBeenCalledWith(
         'https://api.example.com',
         'sk-ant-test12345678',
-        expect.any(AbortSignal)
+        expect.any(AbortSignal),
+        'test-id'
       );
     });
   });

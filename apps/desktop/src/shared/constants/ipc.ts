@@ -36,6 +36,9 @@ export const IPC_CHANNELS = {
   TASK_LOAD_IMAGE_THUMBNAIL: 'task:loadImageThumbnail',
   TASK_CHECK_WORKTREE_CHANGES: 'task:checkWorktreeChanges',
   TASK_RESET_PLAN: 'task:resetPlan',  // zeenha fork: discard a failed task's plan (Re-plan)
+  // zeenha fork: send a PR's failing CI / review feedback back to the task's agent
+  TASK_PR_FEEDBACK_GET: 'task:prFeedback:get',
+  TASK_PR_FOLLOWUP_START: 'task:prFollowUp:start',  // (taskId, itemIds) - IDs only, never text
 
   // Workspace management (for human review)
   // Per-spec architecture: Each spec has its own worktree at .worktrees/{spec-name}/
@@ -68,6 +71,8 @@ export const IPC_CHANNELS = {
   // Task phase logs (persistent, collapsible logs by phase)
   TASK_LOGS_GET: 'task:logsGet',           // Load logs from spec dir
   TASK_RUN_METRICS_GET: 'task:runMetricsGet', // Load per-session run metrics from spec dir
+  // zeenha fork: project-wide delivery and token metrics
+  PROJECT_RUN_METRICS_GET: 'project:runMetricsGet',
   TASK_LOGS_WATCH: 'task:logsWatch',       // Start watching for log changes
   TASK_LOGS_UNWATCH: 'task:logsUnwatch',   // Stop watching for log changes
   TASK_LOGS_CHANGED: 'task:logsChanged',   // Event: logs changed (main -> renderer)
@@ -259,6 +264,12 @@ export const IPC_CHANNELS = {
   LINEAR_IMPORT_ISSUES: 'linear:importIssues',
   LINEAR_CHECK_CONNECTION: 'linear:checkConnection',
 
+  // Jira integration
+  JIRA_CHECK_CONNECTION: 'jira:checkConnection',
+  JIRA_GET_PROJECTS: 'jira:getProjects',
+  JIRA_GET_ISSUES: 'jira:getIssues',
+  JIRA_IMPORT_ISSUES: 'jira:importIssues',
+
   // GitHub integration
   GITHUB_GET_REPOSITORIES: 'github:getRepositories',
   GITHUB_GET_ISSUES: 'github:getIssues',
@@ -362,6 +373,14 @@ export const IPC_CHANNELS = {
   GITLAB_AUTOFIX_BATCH_PROGRESS: 'gitlab:autofix:batchProgress',
   GITLAB_AUTOFIX_BATCH_COMPLETE: 'gitlab:autofix:batchComplete',
   GITLAB_AUTOFIX_BATCH_ERROR: 'gitlab:autofix:batchError',
+
+  // Bitbucket integration
+  BITBUCKET_CHECK_CONNECTION: 'bitbucket:checkConnection',
+  BITBUCKET_DETECT_REPOSITORY: 'bitbucket:detectRepository',
+  BITBUCKET_GET_PULL_REQUESTS: 'bitbucket:getPullRequests',
+  BITBUCKET_GET_PULL_REQUEST: 'bitbucket:getPullRequest',
+  BITBUCKET_GET_PULL_REQUEST_DIFF: 'bitbucket:getPullRequestDiff',
+  BITBUCKET_POST_PULL_REQUEST_COMMENT: 'bitbucket:postPullRequestComment',
 
   // GitLab Issue Analysis Preview (proactive batch workflow)
   GITLAB_AUTOFIX_ANALYZE_PREVIEW: 'gitlab:autofix:analyzePreview',
@@ -601,5 +620,14 @@ export const IPC_CHANNELS = {
   // Queue routing events (main -> renderer)
   QUEUE_PROFILE_SWAPPED: 'queue:profileSwapped',      // Task switched to different profile
   QUEUE_SESSION_CAPTURED: 'queue:sessionCaptured',    // Session ID captured from running task
-  QUEUE_BLOCKED_NO_PROFILES: 'queue:blockedNoProfiles' // All profiles unavailable
+  QUEUE_BLOCKED_NO_PROFILES: 'queue:blockedNoProfiles', // All profiles unavailable
+
+  // Recurring schedules (zeenha fork)
+  SCHEDULE_LIST: 'schedule:list',
+  SCHEDULE_CREATE: 'schedule:create',
+  SCHEDULE_UPDATE: 'schedule:update',
+  SCHEDULE_DELETE: 'schedule:delete',
+  SCHEDULE_SET_ENABLED: 'schedule:setEnabled',
+  SCHEDULE_ACK_REPORTS: 'schedule:ackReports',
+  SCHEDULE_CHANGED: 'schedule:changed' // main -> renderer push
 } as const;

@@ -38,6 +38,8 @@ import { TASK_STATUS_LABELS } from '../../../shared/constants';
 import { TaskEditDialog } from '../TaskEditDialog';
 import { useTaskDetail } from './hooks/useTaskDetail';
 import { TaskMetadata } from './TaskMetadata';
+import { TaskFileOverlap } from './TaskFileOverlap';
+import { PRFeedbackPanel } from './PRFeedbackPanel';
 import { TaskWarnings } from './TaskWarnings';
 import { TaskSubtasks } from './TaskSubtasks';
 import { TaskLogs } from './TaskLogs';
@@ -115,6 +117,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
           description: result.error,
           variant: 'destructive',
         });
+      } else if (result.action === 'held') {
+        toast({ title: t('tasks:overlap.heldToast', { title: task.title }) });
       } else if (result.action === 'queued') {
         toast({ title: t('tasks:queue.movedToQueue') });
       }
@@ -528,8 +532,16 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                 <TabsContent value="overview" className="flex-1 min-h-0 overflow-hidden mt-0">
                   <ScrollArea className="h-full">
                     <div className="p-5 space-y-5 overflow-x-hidden max-w-full">
+                      {/* zeenha fork: planned-file overlap with other active tasks */}
+                      <TaskFileOverlap task={task} />
+
                       {/* Metadata */}
                       <TaskMetadata task={task} />
+
+                      {/* zeenha fork: failing CI / review feedback of the task's PR */}
+                      {task.metadata?.prUrl && (task.status === 'pr_created' || task.status === 'done') && (
+                        <PRFeedbackPanel task={task} />
+                      )}
 
                       {/* zeenha fork: a task that failed before any work: reason + Retry / Re-plan, no Create PR */}
                       {task.status === 'error' && (

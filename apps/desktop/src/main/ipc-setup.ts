@@ -9,6 +9,7 @@ import type { BrowserWindow } from 'electron';
 import { AgentManager } from './agent';
 import { TerminalManager } from './terminal-manager';
 import { setupIpcHandlers as setupModularHandlers } from './ipc-handlers';
+import type { ScheduleService } from './schedule-service';
 
 /**
  * Setup all IPC handlers
@@ -26,6 +27,7 @@ import { setupIpcHandlers as setupModularHandlers } from './ipc-handlers';
  * - context-handlers.ts: Project context and memory
  * - env-handlers.ts: Environment configuration
  * - linear-handlers.ts: Linear integration
+ * - jira/jira-handlers.ts: Jira integration
  * - github-handlers.ts: GitHub integration
  * - autobuild-source-handlers.ts: Source updates
  * - ideation-handlers.ts: Ideation generation
@@ -40,7 +42,7 @@ export function setupIpcHandlers(
   agentManager: AgentManager,
   terminalManager: TerminalManager,
   getMainWindow: () => BrowserWindow | null
-): void {
+): ScheduleService {
   // Delegate to modular handler setup
-  setupModularHandlers(agentManager, terminalManager, getMainWindow);
+  return setupModularHandlers(agentManager, terminalManager, getMainWindow);
 }

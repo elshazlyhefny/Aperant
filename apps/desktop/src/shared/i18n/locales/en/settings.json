@@ -126,6 +126,8 @@
       "loading": "Switching..."
     },
     "activeBadge": "Active",
+    "keyRejected": "Key rejected",
+    "keyRejectedHint": "The provider rejected this API key. Update the key to use this profile again.",
     "customModels": "Custom models: {{models}}",
     "setActive": {
       "label": "Set Active",
@@ -446,6 +448,20 @@
       "integrationTitle": "GitLab Integration",
       "integrationDescription": "Connect to GitLab for issue tracking",
       "syncDescription": "Sync with GitLab Issues"
+    },
+    "bitbucket": {
+      "title": "Bitbucket",
+      "description": "Bitbucket pull requests",
+      "integrationTitle": "Bitbucket Integration",
+      "integrationDescription": "Connect to Bitbucket for pull request review",
+      "syncDescription": "Sync with Bitbucket Pull Requests"
+    },
+    "jira": {
+      "title": "Jira",
+      "description": "Jira issues sync",
+      "integrationTitle": "Jira Integration",
+      "integrationDescription": "Connect to Jira to import issues as tasks",
+      "syncDescription": "Import from Jira Issues"
     },
     "security": {
       "title": "Security",
@@ -836,6 +852,8 @@
       "duplicateUsageHint": "These OAuth profiles share matching usage values. Verify that each profile is associated with a different account if this was unexpected.",
       "needsReauth": "Needs re-auth",
       "needsReauthHint": "This profile's refresh token is invalid. Click to re-authenticate.",
+      "keyRejected": "Key rejected",
+      "keyRejectedHint": "The provider rejected this API key, so automatic switching skips it. Update the key to reset its status.",
       "sessionUsage": "Session usage (5-hour window)",
       "weeklyUsage": "Weekly usage (7-day window)",
       "oauthSection": "Claude Accounts (cycle through first)",
