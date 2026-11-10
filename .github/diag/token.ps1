@@ -43,5 +43,6 @@ $custom = 'S-1-15-3-1024-2555033942-4112864343-2356659152-415028145-3406334563-1
 $all = [D]::AllNonIntegrity()
 foreach ($s in $all) { [D]::Try("deny $s", 1, @($s), @()); [D]::Try("restrict $s", 1, @(), @($s)) }
 [D]::Try('restrict custom 0 flags', 0, @(), @($custom))
+[D]::Try('restrict new sid', 1, @(), @('S-1-5-21-2555033942-4112864343-2356659152-415028145'))
 whoami /groups /fo csv
 whoami /priv /fo csv

@@ -47,10 +47,11 @@ import type { SandboxOptions, SandboxResult } from './sandbox';
 /**
  * zeenha fork: fixed SID granted on the project paths and placed on the
  * restricting list. Only processes started by this launcher carry it.
- * Derived like a capability SID from the name "APERANT.BASH-SANDBOX".
+ * It has the shape of a domain account SID with sub-authorities taken from a
+ * SHA-256 of "APERANT.BASH-SANDBOX". A capability SID (S-1-15-3-...) cannot be
+ * used: CreateRestrictedToken rejects it as a restricting SID (error 87).
  */
-export const SANDBOX_SID =
-  'S-1-15-3-1024-2555033942-4112864343-2356659152-415028145-3406334563-1181000105-3758264521-3584341490';
+export const SANDBOX_SID = 'S-1-5-21-2555033942-4112864343-2356659152-415028145';
 
 export const WINDOWS_NO_NETWORK_REFUSAL =
   'The "home hidden and no network" Bash sandbox mode is not supported on Windows: a restricted token and a Job object cannot block network access. Choose "home hidden" or turn the sandbox off.';
