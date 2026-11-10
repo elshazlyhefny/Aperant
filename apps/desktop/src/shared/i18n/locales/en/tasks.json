@@ -523,5 +523,19 @@
     "unlimited": "Unlimited",
     "resume": "Raise limit and resume",
     "saveFailed": "Could not save the new limit"
+  },
+  "overlap": {
+    "badge": "Overlaps with {{title}}",
+    "badgeMore": "Overlaps with {{title}} +{{count}}",
+    "waitingFor": "Waiting for {{title}}",
+    "tooltip": "{{title}}: {{count}} shared file(s)",
+    "heldToast": "Task \"{{title}}\" is held in the queue until the overlapping task finishes.",
+    "title": "Planned files overlap with another task",
+    "sharedWith": "{{title}}: {{count}} shared file(s)",
+    "wait": "Wait for {{title}}",
+    "stopWaiting": "Stop waiting",
+    "none": "No planned file overlap with other active tasks was found.",
+    "unknown": "Planned files are unknown because the plan lists no files.",
+    "holdFailed": "Could not save the wait setting"
   }
 }

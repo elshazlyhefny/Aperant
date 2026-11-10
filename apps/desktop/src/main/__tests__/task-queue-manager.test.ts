@@ -184,6 +184,18 @@ describe('TaskQueueManager', () => {
     expect(promotedOrder(promote)).toEqual(['later', 'child']);
   });
 
+  it('holds a task waiting for an overlapping task until that task finishes', async () => {
+    const blocker = makeTask('blocker', 'in_progress', { createdAt: 1 });
+    const held = makeTask('held', 'queue', { createdAt: 2 });
+    held.metadata = { holdUntilTaskId: 'blocker' } as Task['metadata'];
+    const { mgr, promote } = setup([makeProject('p1', 3)], { p1: [blocker, held] });
+    await mgr.requestProcess('p1');
+    expect(promotedOrder(promote)).toEqual([]);
+    blocker.status = 'human_review' as Task['status'];
+    await mgr.onTaskStatusChanged('blocker', 'human_review', 'p1');
+    expect(promotedOrder(promote)).toEqual(['held']);
+  });
+
   it('leaves scheduled tasks to the scheduler', async () => {
     const scheduled = makeTask('scheduled', 'queue', { createdAt: 1 });
     scheduled.metadata = { scheduleId: 's1' } as Task['metadata'];

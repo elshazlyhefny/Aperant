@@ -1,6 +1,7 @@
 import type { Project, Task, TaskStatus, TaskQueueState } from '../shared/types';
 import { DEFAULT_MAX_PARALLEL_TASKS } from '../shared/constants/queue';
 import { evaluateTaskDependencies } from '../shared/utils/task-dependencies';
+import { isHoldActive } from '../shared/utils/file-overlap';
 import { appLog } from './app-logger';
 
 /** Safety limit that stops a pass when promotions keep failing */
@@ -149,7 +150,11 @@ export class TaskQueueManager {
         // zeenha fork: scheduled tasks are started by schedule-service, which applies
         // its own limit; promoting them here too could start the same task twice.
         const queued = this.candidates(tasks, promoted, attempted).filter(
-          (t) => !t.metadata?.scheduleId && evaluateTaskDependencies(t, tasks).state === 'ready'
+          (t) =>
+            !t.metadata?.scheduleId &&
+            evaluateTaskDependencies(t, tasks).state === 'ready' &&
+            // zeenha fork: a task held until an overlapping task finishes waits too
+            !isHoldActive(t, tasks)
         );
         if (inProgressCount >= limit || queued.length === 0) break;
 

@@ -77,6 +77,8 @@ export function NoWorkspaceMessage({ task, onClose }: NoWorkspaceMessageProps) {
       const result = await startTaskOrQueue(task.id);
       if (!result.success) {
         setError(result.error || t('tasks:wizard.errors.startFailed'));
+      } else if (result.action === 'held') {
+        setNotice(t('tasks:overlap.heldToast', { title: task.title }));
       } else if (result.action === 'queued') {
         setNotice(t('tasks:queue.movedToQueue'));
       }

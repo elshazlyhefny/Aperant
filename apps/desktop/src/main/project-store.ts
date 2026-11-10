@@ -13,6 +13,7 @@ import { updateRoadmapFeatureOutcome, revertRoadmapFeatureOutcome } from './util
 import { safeParseJson } from './utils/json-repair';
 import { FileParseCache } from './utils/file-parse-cache';
 import { readProjectRepoConfig } from './ai/worktree/project-repo-config';
+import { extractPlannedFiles } from '../shared/utils/file-overlap';
 import { parseTokenBudget } from '../shared/utils/token-budget';
 import { failedRunStatus, isFailedRun } from '../shared/utils/task-failure';
 import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
@@ -681,7 +682,7 @@ export class ProjectStore {
               title,
               description,
               status: subtask.status,
-              files: []
+              files: extractPlannedFiles(subtask)
             };
           });
         }) || [];
