@@ -26,7 +26,7 @@ import { configureTools, getToolPath, getToolInfo, isPathFromWrongPlatform, preW
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import type { APIProfile } from '../../shared/types/profile';
 import type { ClaudeProfile } from '../../shared/types/agent';
-import { loadProfilesFile } from '../utils/profile-manager';
+import { loadProfilesFile } from '../services/profile';
 import { loadProfileStore } from '../claude-profile/profile-storage';
 import { isMacOS, isWindows } from '../platform';
 
