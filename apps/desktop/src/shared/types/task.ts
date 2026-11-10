@@ -472,10 +472,34 @@ export interface WorktreeCreatePROptions {
 }
 
 /**
+ * zeenha fork: machine-readable reason a PR creation failed, so callers do not
+ * have to match on error message text.
+ */
+export const WORKTREE_CREATE_PR_ERROR_CODES = [
+  'TASK_NOT_FOUND',
+  'SPEC_DIR_NOT_FOUND',
+  'NO_WORKTREE',
+  'INVALID_TARGET_BRANCH',
+  'INVALID_TITLE_LENGTH',
+  'INVALID_TITLE_CHARS',
+  'NO_CHANGES',
+  'BRANCH_REFUSED',
+  'COMMIT_FAILED',
+  'PUSH_FAILED',
+  'GH_TIMEOUT',
+  'GH_FAILED',
+  'RETRIES_EXHAUSTED',
+  'UNKNOWN'
+] as const;
+
+export type WorktreeCreatePRErrorCode = typeof WORKTREE_CREATE_PR_ERROR_CODES[number];
+
+/**
  * Result of creating a PR from a worktree
  */
 export interface WorktreeCreatePRResult {
   success: boolean;
+  errorCode?: WorktreeCreatePRErrorCode;
   prUrl?: string;
   error?: string;
   message?: string;  // Human-readable message for both success and error cases

@@ -23,22 +23,9 @@ import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
 import { Progress } from './ui/progress';
 import { ScrollArea } from './ui/scroll-area';
-import type { Task, WorktreeCreatePRResult } from '../../shared/types';
+import type { Task, WorktreeCreatePRResult, WorktreeCreatePRErrorCode } from '../../shared/types';
 import { useTaskStore } from '../stores/task-store';
-
-/**
- * Check if an error message indicates a worktree-related issue (missing worktree, no branch, etc.)
- * This is used to show 'skipped' status instead of 'error' for tasks without worktrees.
- *
- * TODO: This string-based error detection is brittle. The API should ideally return typed error codes
- * instead of relying on message parsing which may break with i18n or message changes.
- */
-function isWorktreeRelatedError(errorMsg: string): boolean {
-  const lowerMsg = errorMsg.toLowerCase();
-  return lowerMsg.includes('worktree') ||
-         lowerMsg.includes('no branch') ||
-         lowerMsg.includes('not found');
-}
+import { getBulkPRErrorMessageKey, isSkippedErrorCode } from './bulk-pr-errors';
 
 /**
  * Result for a single task in the bulk PR creation
@@ -49,6 +36,7 @@ interface TaskPRResult {
   status: 'pending' | 'creating' | 'success' | 'skipped' | 'error';
   result?: WorktreeCreatePRResult;
   error?: string;
+  errorCode?: WorktreeCreatePRErrorCode;
   alreadyExists?: boolean;
 }
 
@@ -111,6 +99,15 @@ export function BulkPRDialog({
     return null;
   }, [t]);
 
+  const resolveErrorMessage = useCallback((
+    code: WorktreeCreatePRErrorCode | undefined,
+    serverMessage?: string
+  ): string => {
+    const key = getBulkPRErrorMessageKey(code);
+    if (key) return t(key);
+    return serverMessage || t('taskReview:pr.errors.unknown');
+  }, [t]);
+
   const handleCreatePRs = useCallback(async () => {
     const branchError = validateBranchName(targetBranch);
     if (branchError) {
@@ -149,10 +146,13 @@ export function BulkPRDialog({
           setTaskResults(prev => prev.map((r, idx) =>
             idx === i ? {
               ...r,
-              status: data.success ? 'success' as const : 'error' as const,
+              status: data.success
+                ? 'success' as const
+                : (isSkippedErrorCode(data.errorCode) ? 'skipped' as const : 'error' as const),
               result: data,
               alreadyExists: data.alreadyExists,
-              error: data.success ? undefined : (data.error || t('taskReview:pr.errors.unknown'))
+              errorCode: data.success ? undefined : data.errorCode,
+              error: data.success ? undefined : resolveErrorMessage(data.errorCode, data.error)
             } : r
           ));
 
@@ -165,28 +165,26 @@ export function BulkPRDialog({
             });
           }
         } else {
-          const errorMsg = prResult?.error || '';
+          const errorCode = prResult?.data?.errorCode;
           setTaskResults(prev => prev.map((r, idx) =>
             idx === i ? {
               ...r,
-              status: isWorktreeRelatedError(errorMsg) ? 'skipped' as const : 'error' as const,
-              error: isWorktreeRelatedError(errorMsg)
-                ? t('taskReview:bulkPR.noWorktree')
-                : (prResult?.error || t('taskReview:pr.errors.unknown'))
+              status: isSkippedErrorCode(errorCode) ? 'skipped' as const : 'error' as const,
+              errorCode,
+              error: resolveErrorMessage(errorCode, prResult?.error || prResult?.data?.error)
             } : r
           ));
         }
       } catch (err) {
         if (isCancelledRef.current) break;
 
-        const errorMsg = err instanceof Error ? err.message : '';
         setTaskResults(prev => prev.map((r, idx) =>
           idx === i ? {
             ...r,
-            status: isWorktreeRelatedError(errorMsg) ? 'skipped' as const : 'error' as const,
-            error: isWorktreeRelatedError(errorMsg)
-              ? t('taskReview:bulkPR.noWorktree')
-              : (err instanceof Error ? err.message : t('taskReview:pr.errors.unknown'))
+            status: 'error' as const,
+            error: err instanceof Error && err.message
+              ? err.message
+              : t('taskReview:pr.errors.unknown')
           } : r
         ));
       }
@@ -195,7 +193,7 @@ export function BulkPRDialog({
     if (!isCancelledRef.current) {
       setStep('results');
     }
-  }, [tasks, targetBranch, isDraft, t, validateBranchName]);
+  }, [tasks, targetBranch, isDraft, t, validateBranchName, resolveErrorMessage]);
 
   const handleClose = () => {
     isCancelledRef.current = true;
