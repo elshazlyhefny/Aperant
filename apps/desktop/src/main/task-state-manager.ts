@@ -40,6 +40,29 @@ export class TaskStateManager {
   private terminalEventSeen = new Set<string>();
   private getMainWindow: (() => BrowserWindow | null) | null = null;
 
+  private statusListeners = new Set<(taskId: string, status: TaskStatus, projectId?: string) => void>();
+
+  /**
+   * zeenha fork: lets the main-process task queue react to every emitted status,
+   * including when no window exists. Returns an unsubscribe function.
+   */
+  onStatusEmitted(listener: (taskId: string, status: TaskStatus, projectId?: string) => void): () => void {
+    this.statusListeners.add(listener);
+    return () => {
+      this.statusListeners.delete(listener);
+    };
+  }
+
+  private notifyStatusListeners(taskId: string, status: TaskStatus, projectId?: string): void {
+    for (const listener of this.statusListeners) {
+      try {
+        listener(taskId, status, projectId);
+      } catch (error) {
+        appLog.error('[TaskStateManager] Status listener failed:', error);
+      }
+    }
+  }
+
   configure(getMainWindow: () => BrowserWindow | null): void {
     this.getMainWindow = getMainWindow;
   }
@@ -374,6 +397,7 @@ export class TaskStateManager {
   ): void {
     if (!this.getMainWindow) {
       console.warn(`[TaskStateManager] emitStatus: No main window, cannot emit status ${status} for ${taskId}`);
+      this.notifyStatusListeners(taskId, status, projectId);
       return;
     }
     console.debug(`[TaskStateManager] emitStatus: Sending TASK_STATUS_CHANGE for ${taskId}:`, { status, reviewReason, projectId });
@@ -387,6 +411,7 @@ export class TaskStateManager {
       // zeenha fork: only a Failed task carries a reason (keeps the 4-argument event otherwise)
       ...(failureReason !== undefined ? [failureReason] : [])
     );
+    this.notifyStatusListeners(taskId, status, projectId);
   }
 
   private isNewSequence(taskId: string, sequence: number): boolean {

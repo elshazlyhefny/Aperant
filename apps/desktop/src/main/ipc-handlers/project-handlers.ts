@@ -12,6 +12,7 @@ import type {
   GitBranchDetail
 } from '../../shared/types';
 import { projectStore } from '../project-store';
+import { taskQueueManager } from '../task-queue-manager';
 import {
   initializeProject,
   isInitialized,
@@ -303,6 +304,10 @@ export function registerProjectHandlers(
     ): Promise<IPCResult> => {
       const project = projectStore.updateProjectSettings(projectId, settings);
       if (project) {
+        // zeenha fork: raising the parallel limit should start queued tasks right away
+        if (settings.maxParallelTasks !== undefined) {
+          void taskQueueManager.requestProcess(projectId);
+        }
         return { success: true };
       }
       return { success: false, error: 'Project not found' };

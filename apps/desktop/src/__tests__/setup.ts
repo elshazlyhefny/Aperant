@@ -122,6 +122,8 @@ if (typeof window !== 'undefined') {
     onTaskError: vi.fn(() => vi.fn()),
     onTaskLog: vi.fn(() => vi.fn()),
     onTaskStatusChange: vi.fn(() => vi.fn()),
+    getTaskQueueState: vi.fn(),
+    onTaskQueueStateChange: vi.fn(() => vi.fn()),
     getSettings: vi.fn(),
     saveSettings: vi.fn(),
     selectDirectory: vi.fn(),

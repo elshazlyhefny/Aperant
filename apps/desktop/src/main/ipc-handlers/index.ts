@@ -5,7 +5,7 @@
  * organized by domain into separate handler modules.
  */
 
-import type { BrowserWindow } from 'electron';
+import { ipcMain, type BrowserWindow } from 'electron';
 import { AgentManager } from '../agent';
 import { TerminalManager } from '../terminal-manager';
 
@@ -35,7 +35,13 @@ import { registerScreenshotHandlers } from './screenshot-handlers';
 import { registerTerminalWorktreeIpcHandlers } from './terminal';
 import { registerCodexAuthHandlers } from './codex-auth-handlers';
 import { notificationService } from '../notification-service';
-import { setAgentManagerRef } from './utils';
+import { setAgentManagerRef, safeSendToRenderer } from './utils';
+import { IPC_CHANNELS } from '../../shared/constants';
+import type { IPCResult, TaskQueueState } from '../../shared/types';
+import { projectStore } from '../project-store';
+import { taskStateManager } from '../task-state-manager';
+import { taskQueueManager } from '../task-queue-manager';
+import { applyTaskStatusUpdate } from './task/execution-handlers';
 
 /**
  * Setup all IPC handlers across all domains
@@ -54,6 +60,29 @@ export function setupIpcHandlers(
 
   // Wire up agent manager for circuit breaker cleanup
   setAgentManagerRef(agentManager);
+
+  // zeenha fork: the task queue runs in main so queued tasks start whichever view
+  // (or no window) is open, instead of depending on a renderer component.
+  taskQueueManager.configure({
+    getProjects: () => projectStore.getProjects(),
+    getTasks: (projectId) => projectStore.getTasks(projectId),
+    promote: (taskId) => applyTaskStatusUpdate(agentManager, getMainWindow, taskId, 'in_progress'),
+    emitState: (_projectId, state) =>
+      safeSendToRenderer(getMainWindow, IPC_CHANNELS.TASK_QUEUE_STATE_CHANGE, state)
+  });
+  taskStateManager.onStatusEmitted((taskId, status, projectId) => {
+    void taskQueueManager.onTaskStatusChanged(taskId, status, projectId);
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.TASK_QUEUE_GET_STATE,
+    async (_, projectId: string): Promise<IPCResult<TaskQueueState>> => {
+      try {
+        return { success: true, data: taskQueueManager.getState(projectId) };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
 
   // Project handlers
   registerProjectHandlers(getMainWindow);
