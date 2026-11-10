@@ -450,6 +450,49 @@
     "budgetUsed": "{{used}} of {{limit}} tokens ({{percent}}%)",
     "note": "Entries carry tokens and durations only; no monetary cost is shown. Cache reads are included in input tokens and are not added again to the budget."
   },
+  "delivery": {
+    "title": "Delivery and token usage",
+    "refresh": "Refresh",
+    "loading": "Loading delivery metrics…",
+    "error": "Failed to load delivery metrics",
+    "retry": "Retry",
+    "empty": "No completed or recorded tasks in this period",
+    "emptyHint": "Run tasks to see delivery and token metrics here.",
+    "period": {
+      "label": "Period",
+      "days7": "7 days",
+      "days30": "30 days",
+      "days90": "90 days",
+      "all": "All time"
+    },
+    "cards": {
+      "tasksScanned": "Tasks scanned",
+      "completedTasks": "Completed tasks",
+      "totalTokens": "Total tokens",
+      "totalDuration": "Total duration",
+      "avgTokens": "Avg tokens per completed task",
+      "avgDuration": "Avg duration per completed task",
+      "failedBeforeWork": "Failed before any work",
+      "avgQa": "Avg QA iterations"
+    },
+    "excluded": "{{missing}} tasks without metrics and {{corrupt}} with unreadable metrics were excluded.",
+    "trend": "Trend by day",
+    "byPhase": "Usage by phase",
+    "byModel": "Usage by model",
+    "columns": {
+      "date": "Date",
+      "completed": "Completed tasks",
+      "tokensPerTask": "Tokens per completed task",
+      "phase": "Phase",
+      "model": "Model",
+      "sessions": "Sessions",
+      "duration": "Duration",
+      "input": "Input",
+      "output": "Output",
+      "total": "Total"
+    },
+    "note": "Rate-limit recovery is not recorded, so time lost to rate limits is not shown separately."
+  },
   "prFeedback": {
     "title": "PR feedback",
     "refresh": "Refresh",

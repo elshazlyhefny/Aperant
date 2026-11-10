@@ -76,6 +76,7 @@ const GitLabMergeRequests = lazy(() =>
 const Changelog = lazy(() => import('./components/Changelog').then((m) => ({ default: m.Changelog })));
 const Schedules = lazy(() => import('./components/Schedules').then((m) => ({ default: m.Schedules })));
 const Worktrees = lazy(() => import('./components/Worktrees').then((m) => ({ default: m.Worktrees })));
+const DeliveryMetrics = lazy(() => import('./components/DeliveryMetrics').then((m) => ({ default: m.DeliveryMetrics })));
 const AgentTools = lazy(() => import('./components/AgentTools').then((m) => ({ default: m.AgentTools })));
 const AppSettingsDialog = lazy(() =>
   import('./components/settings/AppSettings').then((m) => ({ default: m.AppSettingsDialog }))
@@ -1049,6 +1050,9 @@ export function App() {
                 )}
                 {activeView === 'schedules' && (activeProjectId || selectedProjectId) && (
                   <Schedules projectId={activeProjectId || selectedProjectId!} />
+                )}
+                {activeView === 'delivery' && (activeProjectId || selectedProjectId) && (
+                  <DeliveryMetrics projectId={activeProjectId || selectedProjectId!} />
                 )}
                 {activeView === 'agent-tools' && <AgentTools />}
                 </Suspense>

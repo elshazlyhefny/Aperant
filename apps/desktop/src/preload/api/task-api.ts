@@ -17,7 +17,7 @@ import type {
   WorktreeCreatePRResult,
   ImageAttachment
 } from '../../shared/types';
-import type { TaskRunMetrics } from '../../shared/types/run-metrics';
+import type { TaskRunMetrics, ProjectRunMetrics } from '../../shared/types/run-metrics';
 import type { TaskQueueState } from '../../shared/types/task-queue';
 
 export interface TaskAPI {
@@ -99,6 +99,8 @@ export interface TaskAPI {
   // Task Phase Logs
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
   getTaskRunMetrics: (projectId: string, specId: string) => Promise<IPCResult<TaskRunMetrics | null>>;
+  // zeenha fork: project-wide delivery and token metrics
+  getProjectRunMetrics: (projectId: string, periodDays: number | null) => Promise<IPCResult<ProjectRunMetrics | null>>;
   watchTaskLogs: (projectId: string, specId: string) => Promise<IPCResult>;
   unwatchTaskLogs: (specId: string) => Promise<IPCResult>;
   onTaskLogsChanged: (callback: (specId: string, logs: TaskLogs) => void) => () => void;
@@ -340,6 +342,10 @@ export const createTaskAPI = (): TaskAPI => ({
 
   getTaskRunMetrics: (projectId: string, specId: string): Promise<IPCResult<TaskRunMetrics | null>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_RUN_METRICS_GET, projectId, specId),
+
+  // zeenha fork: project-wide delivery and token metrics
+  getProjectRunMetrics: (projectId: string, periodDays: number | null): Promise<IPCResult<ProjectRunMetrics | null>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROJECT_RUN_METRICS_GET, projectId, { periodDays }),
 
   watchTaskLogs: (projectId: string, specId: string): Promise<IPCResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_LOGS_WATCH, projectId, specId),
