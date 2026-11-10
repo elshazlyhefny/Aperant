@@ -388,6 +388,12 @@ export interface ProjectEnvConfig {
   gitlabProject?: string; // Format: group/project or numeric ID
   gitlabAutoSync?: boolean; // Auto-sync issues on project load
 
+  // Bitbucket Integration
+  bitbucketEnabled: boolean;
+  bitbucketUsername?: string;
+  bitbucketToken?: string;
+  bitbucketRepository?: string; // Format: workspace/repo_slug
+
   // Git/Worktree Settings
   defaultBranch?: string; // Base branch for worktree creation (e.g., 'main', 'develop')
 

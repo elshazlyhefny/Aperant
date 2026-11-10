@@ -64,7 +64,7 @@ import { UpdateBanner } from './UpdateBanner';
 import { useScheduleStore, countUnacknowledgedReports } from '../stores/schedule-store';
 import type { Project, GitStatus } from '../../shared/types';
 
-export type SidebarView = 'kanban' | 'terminals' | 'roadmap' | 'context' | 'ideation' | 'github-issues' | 'gitlab-issues' | 'github-prs' | 'gitlab-merge-requests' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools' | 'delivery' | 'schedules';
+export type SidebarView = 'kanban' | 'terminals' | 'roadmap' | 'context' | 'ideation' | 'github-issues' | 'gitlab-issues' | 'github-prs' | 'gitlab-merge-requests' | 'bitbucket-pull-requests' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools' | 'delivery' | 'schedules';
 
 interface SidebarProps {
   onSettingsClick: () => void;
@@ -107,6 +107,11 @@ const gitlabNavItems: NavItem[] = [
   { id: 'gitlab-merge-requests', labelKey: 'navigation:items.gitlabMRs', icon: GitMerge, shortcut: 'R' }
 ];
 
+// Bitbucket nav items shown when Bitbucket is enabled
+const bitbucketNavItems: NavItem[] = [
+  { id: 'bitbucket-pull-requests', labelKey: 'navigation:items.bitbucketPRs', icon: GitPullRequest, shortcut: 'U' }
+];
+
 export function Sidebar({
   onSettingsClick,
   onNewTaskClick,
@@ -139,6 +144,8 @@ export function Sidebar({
   const githubEnabled = useProjectEnvStore((state) => state.envConfig?.githubEnabled ?? false);
   const gitlabEnabled = useProjectEnvStore((state) => state.envConfig?.gitlabEnabled ?? false);
 
+  const bitbucketEnabled = useProjectEnvStore((state) => state.envConfig?.bitbucketEnabled ?? false);
+
   // Track the last loaded project ID to avoid redundant loads
   const lastLoadedProjectIdRef = useRef<string | null>(null);
 
@@ -154,8 +161,12 @@ export function Sidebar({
       items.push(...gitlabNavItems);
     }
 
+    if (bitbucketEnabled) {
+      items.push(...bitbucketNavItems);
+    }
+
     return items;
-  }, [githubEnabled, gitlabEnabled]);
+  }, [githubEnabled, gitlabEnabled, bitbucketEnabled]);
 
   // Load envConfig when project changes to ensure store is populated
   useEffect(() => {

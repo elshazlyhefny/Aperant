@@ -11,6 +11,14 @@ import { describeProjectMcpTrust, parseSecureOrigins } from '../ai/mcp/project-s
 import { approveChromeExecutable, approveServer, getApprovals } from '../mcp-approval-store';
 import { isAutoBuildEnvTrackedByGit } from '../project-initializer';
 
+// Bitbucket environment variable keys
+const BITBUCKET_ENV_KEYS = {
+  ENABLED: 'BITBUCKET_ENABLED',
+  USERNAME: 'BITBUCKET_USERNAME',
+  TOKEN: 'BITBUCKET_TOKEN',
+  REPOSITORY: 'BITBUCKET_REPOSITORY'
+} as const;
+
 // GitLab environment variable keys
 const GITLAB_ENV_KEYS = {
   ENABLED: 'GITLAB_ENABLED',
@@ -85,6 +93,20 @@ export function registerEnvHandlers(
     if (config.githubAutoSync !== undefined) {
       existingVars['GITHUB_AUTO_SYNC'] = config.githubAutoSync ? 'true' : 'false';
     }
+    // Bitbucket Integration
+    if (config.bitbucketEnabled !== undefined) {
+      existingVars[BITBUCKET_ENV_KEYS.ENABLED] = config.bitbucketEnabled ? 'true' : 'false';
+    }
+    if (config.bitbucketUsername !== undefined) {
+      existingVars[BITBUCKET_ENV_KEYS.USERNAME] = config.bitbucketUsername;
+    }
+    if (config.bitbucketToken !== undefined) {
+      existingVars[BITBUCKET_ENV_KEYS.TOKEN] = config.bitbucketToken;
+    }
+    if (config.bitbucketRepository !== undefined) {
+      existingVars[BITBUCKET_ENV_KEYS.REPOSITORY] = config.bitbucketRepository;
+    }
+
     // GitLab Integration
     if (config.gitlabEnabled !== undefined) {
       existingVars[GITLAB_ENV_KEYS.ENABLED] = config.gitlabEnabled ? 'true' : 'false';
@@ -257,6 +279,14 @@ ${envLine(existingVars, GITLAB_ENV_KEYS.PROJECT, 'group/project')}
 ${envLine(existingVars, GITLAB_ENV_KEYS.AUTO_SYNC, 'false')}
 
 # =============================================================================
+# BITBUCKET INTEGRATION (OPTIONAL)
+# ======================================================================
+# =============================================================================
+${existingVars[BITBUCKET_ENV_KEYS.ENABLED] !== undefined ? `${BITBUCKET_ENV_KEYS.ENABLED}=${existingVars[BITBUCKET_ENV_KEYS.ENABLED]}` : `# ${BITBUCKET_ENV_KEYS.ENABLED}=true`}
+${envLine(existingVars, BITBUCKET_ENV_KEYS.USERNAME)}
+${envLine(existingVars, BITBUCKET_ENV_KEYS.TOKEN)}
+${envLine(existingVars, BITBUCKET_ENV_KEYS.REPOSITORY, 'workspace/repo_slug')}
+=======
 # JIRA INTEGRATION (OPTIONAL)
 # =============================================================================
 ${existingVars[JIRA_ENV_KEYS.ENABLED] !== undefined ? `${JIRA_ENV_KEYS.ENABLED}=${existingVars[JIRA_ENV_KEYS.ENABLED]}` : `# ${JIRA_ENV_KEYS.ENABLED}=true`}
@@ -381,6 +411,7 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         jiraEnabled: false,
         githubEnabled: false,
         gitlabEnabled: false,
+        bitbucketEnabled: false,
         memoryEnabled: false,
         enableFancyUi: true,
         openaiKeyIsGlobal: false
@@ -441,6 +472,19 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
       }
       if (vars[GITLAB_ENV_KEYS.AUTO_SYNC]?.toLowerCase() === 'true') {
         config.gitlabAutoSync = true;
+      }
+
+      // Bitbucket config
+      if (vars[BITBUCKET_ENV_KEYS.TOKEN]) {
+        config.bitbucketToken = vars[BITBUCKET_ENV_KEYS.TOKEN];
+        // Enable by default if token exists and BITBUCKET_ENABLED is not explicitly false
+        config.bitbucketEnabled = vars[BITBUCKET_ENV_KEYS.ENABLED]?.toLowerCase() !== 'false';
+      }
+      if (vars[BITBUCKET_ENV_KEYS.USERNAME]) {
+        config.bitbucketUsername = vars[BITBUCKET_ENV_KEYS.USERNAME];
+      }
+      if (vars[BITBUCKET_ENV_KEYS.REPOSITORY]) {
+        config.bitbucketRepository = vars[BITBUCKET_ENV_KEYS.REPOSITORY];
       }
 
       // Jira config

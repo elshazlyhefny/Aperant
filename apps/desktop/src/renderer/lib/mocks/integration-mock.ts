@@ -11,6 +11,7 @@ export const integrationMock = {
       jiraEnabled: false,
       githubEnabled: false,
       gitlabEnabled: false,
+      bitbucketEnabled: false,
       memoryEnabled: false,
       enableFancyUi: true
     }
@@ -192,6 +193,40 @@ export const integrationMock = {
         { login: 'another-org', avatarUrl: 'https://avatars.githubusercontent.com/u/2?v=4' }
       ]
     }
+  }),
+
+  // Bitbucket Integration Operations
+  checkBitbucketConnection: async () => ({
+    success: true,
+    data: {
+      connected: false,
+      error: 'Not available in browser mock'
+    }
+  }),
+
+  detectBitbucketRepository: async () => ({
+    success: true,
+    data: null
+  }),
+
+  getBitbucketPullRequests: async () => ({
+    success: true,
+    data: []
+  }),
+
+  getBitbucketPullRequest: async () => ({
+    success: false,
+    error: 'Not available in browser mock'
+  }),
+
+  getBitbucketPullRequestDiff: async () => ({
+    success: true,
+    data: ''
+  }),
+
+  postBitbucketPullRequestComment: async () => ({
+    success: false,
+    error: 'Not available in browser mock'
   }),
 
   // GitLab Integration Operations
