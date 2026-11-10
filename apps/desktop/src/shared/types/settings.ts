@@ -259,6 +259,12 @@ export type MixedPhaseConfig = Record<PipelinePhase, MixedPhaseEntry>;
 // Cross-provider feature config
 export type MixedFeatureConfig = Record<keyof FeatureModelConfig, MixedPhaseEntry>;
 
+export interface WebhookSettings {
+  enabled: boolean;
+  url: string;
+  events: { reviewReady: boolean; failed: boolean; blocked: boolean };
+}
+
 export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   colorTheme?: ColorTheme;
@@ -273,6 +279,8 @@ export interface AppSettings {
   autoUpdateAutoBuild: boolean;
   autoNameTerminals: boolean;
   notifications: NotificationSettings;
+  // Outgoing task-outcome webhook (app-wide)
+  webhook?: WebhookSettings;
   // Global API keys (used as defaults for all projects)
   globalOpenAIApiKey?: string;
   globalAnthropicApiKey?: string;

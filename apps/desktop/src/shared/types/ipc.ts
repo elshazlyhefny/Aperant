@@ -710,10 +710,16 @@ export interface ElectronAPI {
 
   // Electron app update operations
   checkAppUpdate: () => Promise<IPCResult<AppUpdateInfo | null>>;
+  sendTestWebhook: (url: string) => Promise<IPCResult<{ success: boolean }>>;
   downloadAppUpdate: () => Promise<IPCResult>;
   downloadStableUpdate: () => Promise<IPCResult>;
   installAppUpdate: () => void;
   getDownloadedAppUpdate: () => Promise<IPCResult<AppUpdateInfo | null>>;
+
+  // Desktop notification click: open project and task
+  onNotificationOpenTask: (
+    callback: (target: { projectId: string; taskId: string }) => void
+  ) => () => void;
 
   // Electron app update event listeners
   onAppUpdateAvailable: (

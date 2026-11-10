@@ -343,7 +343,31 @@
     "onReviewNeeded": "On Review Needed",
     "onReviewNeededDescription": "Notify when QA requires your review",
     "sound": "Sound",
-    "soundDescription": "Play sound with notifications"
+    "soundDescription": "Play sound with notifications",
+    "webhook": {
+      "title": "Task outcome webhook",
+      "description": "Send a message to Slack (or any compatible webhook) when a task needs attention.",
+      "enable": "Enable webhook",
+      "enableDescription": "Post task outcomes to the webhook URL below",
+      "urlLabel": "Webhook URL",
+      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlInvalid": "Enter a valid https:// URL (http is only allowed for localhost) without credentials.",
+      "show": "Show URL",
+      "hide": "Hide URL",
+      "storedLocallyNote": "The webhook URL is stored only in this app's settings and is never read from a project.",
+      "events": {
+        "reviewReady": "Review ready",
+        "reviewReadyDescription": "A task finished and is ready for your review",
+        "failed": "Task failed",
+        "failedDescription": "A task stopped because of an error",
+        "blocked": "Task blocked",
+        "blockedDescription": "QA rejected the task or found errors that need your attention"
+      },
+      "sendTest": "Send test message",
+      "sending": "Sending...",
+      "testSuccess": "Test message sent",
+      "testFailed": "Could not send the test message"
+    }
   },
   "actions": {
     "save": "Save Settings",

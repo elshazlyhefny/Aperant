@@ -343,7 +343,31 @@
     "onReviewNeeded": "Révision requise",
     "onReviewNeededDescription": "Notifier quand le QA nécessite votre révision",
     "sound": "Son",
-    "soundDescription": "Jouer un son avec les notifications"
+    "soundDescription": "Jouer un son avec les notifications",
+    "webhook": {
+      "title": "Webhook des résultats de tâches",
+      "description": "Envoyer un message à Slack (ou à tout webhook compatible) lorsqu'une tâche nécessite votre attention.",
+      "enable": "Activer le webhook",
+      "enableDescription": "Publier les résultats des tâches vers l'URL du webhook ci-dessous",
+      "urlLabel": "URL du webhook",
+      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlInvalid": "Saisissez une URL https:// valide (http n'est autorisé que pour localhost), sans identifiants.",
+      "show": "Afficher l'URL",
+      "hide": "Masquer l'URL",
+      "storedLocallyNote": "L'URL du webhook est stockée uniquement dans les paramètres de cette application et n'est jamais lue depuis un projet.",
+      "events": {
+        "reviewReady": "Revue prête",
+        "reviewReadyDescription": "Une tâche est terminée et prête pour votre revue",
+        "failed": "Tâche en échec",
+        "failedDescription": "Une tâche s'est arrêtée à cause d'une erreur",
+        "blocked": "Tâche bloquée",
+        "blockedDescription": "La QA a rejeté la tâche ou trouvé des erreurs qui nécessitent votre attention"
+      },
+      "sendTest": "Envoyer un message de test",
+      "sending": "Envoi...",
+      "testSuccess": "Message de test envoyé",
+      "testFailed": "Impossible d'envoyer le message de test"
+    }
   },
   "actions": {
     "save": "Enregistrer les paramètres",

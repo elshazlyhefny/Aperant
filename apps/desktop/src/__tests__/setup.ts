@@ -126,6 +126,7 @@ if (typeof window !== 'undefined') {
     onTaskQueueStateChange: vi.fn(() => vi.fn()),
     getSettings: vi.fn(),
     saveSettings: vi.fn(),
+    sendTestWebhook: vi.fn(),
     selectDirectory: vi.fn(),
     getAppVersion: vi.fn(),
     // Tab state persistence (IPC-based)
