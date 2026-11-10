@@ -161,7 +161,7 @@ function verifyAppImage(appImagePath) {
     // Ignore chmod errors
   }
 
-  const extractResult = spawnSync(appImagePath, ['--appimage-extract', '--stdout'], {
+  spawnSync(appImagePath, ['--appimage-extract', '--stdout'], {
     stdio: 'pipe',
     encoding: 'utf-8',
     maxBuffer: 50 * 1024 * 1024,

@@ -1,9 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import {
   MODEL_ID_MAP,
   THINKING_BUDGET_MAP,
-  ADAPTIVE_THINKING_MODELS,
   DEFAULT_PHASE_MODELS,
   DEFAULT_PHASE_THINKING,
 } from '../types';

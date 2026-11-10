@@ -10,7 +10,7 @@ import {
   BASE_WRITE_TOOLS,
   WEB_TOOLS,
   CONTEXT7_TOOLS,
-  MEMORY_MCP_TOOLS, GRAPHITI_MCP_TOOLS,
+  MEMORY_MCP_TOOLS,
   ELECTRON_TOOLS,
   type AgentType,
 } from '../registry';

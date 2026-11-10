@@ -40,14 +40,6 @@ const possibleEnvPaths = [
   resolve(process.cwd(), 'apps/desktop/.env'), // Fallback: from workspace root
 ];
 
-for (const envPath of possibleEnvPaths) {
-  if (existsSync(envPath)) {
-    config({ path: envPath, quiet: true });
-    appLog.info(`[dotenv] Loaded environment from: ${envPath}`);
-    break;
-  }
-}
-
 // Must stay above every import that reads app.getPath('userData') while loading.
 import './dev-instance-isolation';
 import { app, BrowserWindow, nativeImage, session, screen, Menu, MenuItem } from 'electron';
@@ -75,6 +67,17 @@ import { isProfileAuthenticated } from './claude-profile/profile-utils';
 import { isMacOS, isWindows } from './platform';
 import { ptyDaemonClient } from './terminal/pty-daemon-client';
 import type { AppSettings, AuthFailureInfo } from '../shared/types';
+
+// Load .env. ES imports are hoisted and evaluated before any statement in this
+// module, so placing this loop after the import block does not change when it
+// runs; it only keeps appLog from being used before its import declaration.
+for (const envPath of possibleEnvPaths) {
+  if (existsSync(envPath)) {
+    config({ path: envPath, quiet: true });
+    appLog.info(`[dotenv] Loaded environment from: ${envPath}`);
+    break;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Migrate userData from old app name (auto-claude-ui → aperant)

@@ -11,7 +11,6 @@ import * as crypto from 'crypto';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { getClaudeProfileManager, initializeClaudeProfileManager } from '../claude-profile-manager';
 import { getFullCredentialsFromKeychain, clearKeychainCache, updateProfileSubscriptionMetadata } from '../claude-profile/credential-utils';
-import { getUsageMonitor } from '../claude-profile/usage-monitor';
 import { getEmailFromConfigDir } from '../claude-profile/profile-utils';
 import * as OutputParser from './output-parser';
 import * as SessionHandler from './session-handler';

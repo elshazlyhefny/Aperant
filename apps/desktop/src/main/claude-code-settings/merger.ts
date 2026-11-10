@@ -63,11 +63,9 @@ function mergeArrays(
  * arrays are concatenated; env is shallow-merged. Env must already be sanitized.
  */
 function mergeTwoLevels(
-  lower: ClaudeCodeSettings | undefined,
+  lower: ClaudeCodeSettings,
   higher: ClaudeCodeSettings | undefined
 ): ClaudeCodeSettings {
-  if (!lower && !higher) return {};
-  if (!lower) return { ...higher } as ClaudeCodeSettings;
   if (!higher) return { ...lower };
 
   const result: ClaudeCodeSettings = { ...lower };

@@ -66,22 +66,6 @@ const ERROR_RETRY_DELAY_MS = 5_000;
 /** Build phase mapped to agent type */
 type BuildPhase = 'planning' | 'coding' | 'qa_review' | 'qa_fixing';
 
-/** Maps build phases to their agent types */
-const PHASE_AGENT_MAP: Record<BuildPhase, AgentType> = {
-  planning: 'planner',
-  coding: 'coder',
-  qa_review: 'qa_reviewer',
-  qa_fixing: 'qa_fixer',
-} as const;
-
-/** Maps build phases to config phase keys */
-const PHASE_CONFIG_MAP: Record<BuildPhase, Phase> = {
-  planning: 'planning',
-  coding: 'coding',
-  qa_review: 'qa',
-  qa_fixing: 'qa',
-} as const;
-
 /** Configuration for the build orchestrator */
 export interface BuildOrchestratorConfig {
   /** Spec directory path (e.g., .auto-claude/specs/001-feature/) */

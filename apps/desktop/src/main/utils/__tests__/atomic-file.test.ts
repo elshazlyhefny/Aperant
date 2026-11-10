@@ -2,7 +2,7 @@
  * Tests for atomic-file module - atomic file operations with retry logic.
  */
 
-import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync } from 'fs';
 import path from 'path';
 import {

@@ -7,7 +7,7 @@ import {
   getRequiredMcpServers,
   mapMcpServerName,
   CONTEXT7_TOOLS,
-  MEMORY_MCP_TOOLS, GRAPHITI_MCP_TOOLS,
+  MEMORY_MCP_TOOLS,
   ELECTRON_TOOLS,
   type AgentType,
 } from '../agent-configs';
@@ -59,7 +59,7 @@ describe('AGENT_CONFIGS', () => {
 
   it('should have valid thinking defaults for all agents', () => {
     const validLevels = new Set(['low', 'medium', 'high']);
-    for (const [type, config] of Object.entries(AGENT_CONFIGS)) {
+    for (const config of Object.values(AGENT_CONFIGS)) {
       expect(validLevels.has(config.thinkingDefault)).toBe(true);
     }
   });

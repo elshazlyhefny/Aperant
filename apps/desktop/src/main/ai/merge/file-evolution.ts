@@ -14,7 +14,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { execSync, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 
 import { SemanticAnalyzer } from './semantic-analyzer';
 import {

@@ -166,21 +166,6 @@ function formatPreviousFindings(context: FollowupReviewContext): string {
     .join('\n');
 }
 
-function formatCommits(context: FollowupReviewContext): string {
-  if (context.commitsSinceReview.length === 0) return 'No new commits.';
-  return context.commitsSinceReview
-    .slice(0, 20)
-    .map((c) => {
-      const sha = String(c.sha ?? '').slice(0, 7);
-      const commit = c.commit as Record<string, unknown> | undefined;
-      const message = String((commit?.message as string) ?? '').split('\n')[0];
-      const author =
-        ((commit?.author as Record<string, unknown>)?.name as string) ?? 'unknown';
-      return `- \`${sha}\` by ${author}: ${message}`;
-    })
-    .join('\n');
-}
-
 function formatComments(context: FollowupReviewContext): string {
   if (context.contributorCommentsSinceReview.length === 0) {
     return 'No contributor comments since last review.';
@@ -193,32 +178,6 @@ function formatComments(context: FollowupReviewContext): string {
       return `**@${user}**: ${body}`;
     })
     .join('\n\n');
-}
-
-function formatCIStatus(context: FollowupReviewContext): string {
-  const ci = context.ciStatus;
-  if (!ci) return 'CI status not available.';
-
-  const passing = (ci.passing as number) ?? 0;
-  const failing = (ci.failing as number) ?? 0;
-  const pending = (ci.pending as number) ?? 0;
-  const failedChecks = (ci.failed_checks as string[]) ?? [];
-
-  const lines: string[] = [];
-  if (failing > 0) {
-    lines.push(`⚠️ **${failing} CI check(s) FAILING**`);
-    if (failedChecks.length > 0) {
-      lines.push('Failed checks:');
-      for (const check of failedChecks) lines.push(`  - ❌ ${check}`);
-    }
-  } else if (pending > 0) {
-    lines.push(`⏳ **${pending} CI check(s) pending**`);
-  } else if (passing > 0) {
-    lines.push(`✅ **All ${passing} CI check(s) passing**`);
-  } else {
-    lines.push('No CI checks configured');
-  }
-  return lines.join('\n');
 }
 
 // =============================================================================

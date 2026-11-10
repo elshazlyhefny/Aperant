@@ -233,17 +233,6 @@ export function GraphitiStep({ onNext, onBack, onSkip }: GraphitiStepProps) {
     setValidationStatus({ database: null, provider: null });
 
     try {
-      // Get the API key for the current LLM provider
-      const apiKey = config.llmProvider === 'openai' ? config.openaiApiKey :
-                     config.llmProvider === 'anthropic' ? config.anthropicApiKey :
-                     config.llmProvider === 'google' ? config.googleApiKey :
-                     config.llmProvider === 'groq' ? config.groqApiKey :
-                     config.llmProvider === 'openrouter' ? config.openrouterApiKey :
-                     config.llmProvider === 'azure_openai' ? config.azureOpenaiApiKey :
-                     config.llmProvider === 'ollama' ? '' :  // Ollama doesn't need API key
-                     config.embeddingProvider === 'openai' ? config.openaiApiKey :
-                     config.embeddingProvider === 'openrouter' ? config.openrouterApiKey : '';
-
       const result = await window.electronAPI.testMemoryConnection(
         config.dbPath || undefined,
         config.database || 'auto_claude_memory'

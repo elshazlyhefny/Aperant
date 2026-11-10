@@ -152,7 +152,6 @@ export async function buildContext(config: BuildContextConfig): Promise<SubtaskC
     projectDir,
     services: providedServices,
     keywords: providedKeywords,
-    includeGraphHints = true,
   } = config;
 
   const projectIndex = loadProjectIndex(projectDir);
@@ -189,11 +188,6 @@ export async function buildContext(config: BuildContextConfig): Promise<SubtaskC
   // Step 5: Discover patterns
   const rawPatterns = discoverPatterns(projectDir, toReference, keywords);
   const patterns = toCodePatterns(rawPatterns);
-
-  // Step 6: Graph hints (optional)
-  const graphHints = includeGraphHints && isMemoryEnabled()
-    ? await fetchGraphHints(taskDescription, projectDir)
-    : [];
 
   // Compose final context
   const files: ContextFile[] = [

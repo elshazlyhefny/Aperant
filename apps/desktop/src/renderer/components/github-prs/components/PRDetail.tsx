@@ -35,7 +35,6 @@ import { PRLogs } from './PRLogs';
 
 import type { PRData, PRReviewResult, PRReviewProgress } from '../hooks/useGitHubPRs';
 import type { NewCommitsCheck, MergeReadiness, PRLogs as PRLogsType, WorkflowsAwaitingApprovalResult } from '../../../../preload/api/modules/github-api';
-import { usePRReviewStore } from '../../../stores/github';
 
 interface PRDetailProps {
   pr: PRData;

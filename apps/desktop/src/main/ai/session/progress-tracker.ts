@@ -17,8 +17,6 @@
 
 import {
   type ExecutionPhase,
-  PHASE_ORDER_INDEX,
-  TERMINAL_PHASES,
   wouldPhaseRegress,
   isTerminalPhase,
 } from '../../../shared/constants/phase-protocol';

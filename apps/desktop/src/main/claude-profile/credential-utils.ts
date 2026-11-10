@@ -612,7 +612,6 @@ function getFullCredentialsFromFile(
 function getCredentialsFromMacOSKeychain(configDir?: string, forceRefresh = false): PlatformCredentials {
   const serviceName = getKeychainServiceName(configDir);
   const cacheKey = `macos:${serviceName}`;
-  const isDebug = process.env.DEBUG === 'true';
   const now = Date.now();
 
   // Return cached credentials if available and fresh
@@ -1211,7 +1210,6 @@ export const clearCredentialCache = clearKeychainCache;
  */
 function getFullCredentialsFromMacOSKeychain(configDir?: string): FullOAuthCredentials {
   const serviceName = getKeychainServiceName(configDir);
-  const isDebug = process.env.DEBUG === 'true';
 
   // Locate the security executable
   let securityPath: string | null = null;

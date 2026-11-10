@@ -15,7 +15,6 @@ import { parentPort, workerData } from 'worker_threads';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 
-import { runAgentSession } from '../session/runner';
 import { runContinuableSession } from '../session/continuation';
 import { createProvider } from '../providers/factory';
 import type { SupportedProvider } from '../providers/types';

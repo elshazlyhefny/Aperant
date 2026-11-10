@@ -18,7 +18,6 @@ import {
   GitMerge,
   Wrench,
   BarChart2,
-  Layers,
   Link,
   CheckCircle2,
   BookOpen,

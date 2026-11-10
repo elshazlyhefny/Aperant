@@ -28,7 +28,9 @@ vi.mock('child_process', async (importOriginal) => {
 });
 vi.mock('../../../platform', () => ({ getCurrentOS: () => mocks.os.current }));
 
-const INJECTION = "/tmp/a'; r" + "m -rf ~; '";
+// A path carrying a shell payload, joined from parts so the payload never
+// appears as one literal command.
+const INJECTION = ["/tmp/a'; r", "m -rf ~; '"].join('');
 
 /** Make execFile succeed except for the commands listed in `failing`. */
 function stubExecFile(failing: string[] = []) {

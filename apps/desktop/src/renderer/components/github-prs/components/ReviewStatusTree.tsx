@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertCircle, CheckCircle, Circle, CircleDot, Play, RefreshCw } from 'lucide-react';
+import { CheckCircle, Circle, CircleDot, Play, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../ui/button';
 import { cn } from '../../../lib/utils';
