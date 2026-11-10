@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 const SRC_ROOT = path.resolve(__dirname, '../../../..');
 const WORKER_ENTRY = path.join(SRC_ROOT, 'main/ai/agent/worker.ts');
+const BRIDGE_CORE_ENTRY = path.join(SRC_ROOT, 'main/ai/agent/worker-bridge-core.ts');
 const FORBIDDEN = /^electron($|-log($|\/))/;
 const STATIC_IMPORT = /(?:^|\n)\s*(?:import|export)\s+(?!type\b)(?:[^;'"]*?\sfrom\s+)?['"]([^'"]+)['"]/g;
 
@@ -53,5 +54,9 @@ function findElectronImportChains(entry: string): string[] {
 describe('agent worker imports', () => {
   it('never statically imports Electron', () => {
     expect(findElectronImportChains(WORKER_ENTRY)).toEqual([]);
+  });
+
+  it('keeps worker-bridge-core free of Electron (the headless CLI runs it)', () => {
+    expect(findElectronImportChains(BRIDGE_CORE_ENTRY)).toEqual([]);
   });
 });
