@@ -7,6 +7,7 @@
  * - Insights operations
  * - Changelog operations
  * - Linear integration
+ * - Jira integration
  * - GitHub integration
  * - Shell operations
  */
@@ -16,6 +17,7 @@ import { createIdeationAPI, IdeationAPI } from './modules/ideation-api';
 import { createInsightsAPI, InsightsAPI } from './modules/insights-api';
 import { createChangelogAPI, ChangelogAPI } from './modules/changelog-api';
 import { createLinearAPI, LinearAPI } from './modules/linear-api';
+import { createJiraAPI, JiraAPI } from './modules/jira-api';
 import { createGitHubAPI, GitHubAPI } from './modules/github-api';
 import { createGitLabAPI, GitLabAPI } from './modules/gitlab-api';
 import { createBitbucketAPI, BitbucketAPI } from './modules/bitbucket-api';
@@ -31,6 +33,7 @@ export interface AgentAPI extends
   InsightsAPI,
   ChangelogAPI,
   LinearAPI,
+  JiraAPI,
   GitHubAPI,
   GitLabAPI,
   BitbucketAPI,
@@ -47,6 +50,7 @@ export const createAgentAPI = (): AgentAPI => {
   const insightsAPI = createInsightsAPI();
   const changelogAPI = createChangelogAPI();
   const linearAPI = createLinearAPI();
+  const jiraAPI = createJiraAPI();
   const githubAPI = createGitHubAPI();
   const gitlabAPI = createGitLabAPI();
   const bitbucketAPI = createBitbucketAPI();
@@ -67,6 +71,9 @@ export const createAgentAPI = (): AgentAPI => {
 
     // Linear Integration API
     ...linearAPI,
+
+    // Jira Integration API
+    ...jiraAPI,
 
     // GitHub Integration API
     ...githubAPI,
@@ -89,6 +96,7 @@ export type {
   InsightsAPI,
   ChangelogAPI,
   LinearAPI,
+  JiraAPI,
   GitHubAPI,
   GitLabAPI,
   BitbucketAPI,

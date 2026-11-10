@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LinearTaskImportModal } from '../LinearTaskImportModal';
+import { JiraTaskImportModal } from '../jira-import';
 import { SettingsSection } from './SettingsSection';
 import { useProjectSettings, UseProjectSettingsReturn } from '../project-settings/hooks/useProjectSettings';
 import { loadTasks } from '../../stores/task-store';
@@ -10,7 +11,7 @@ import { SectionRouter } from './sections/SectionRouter';
 import { createHookProxy } from './utils/hookProxyFactory';
 import type { Project } from '../../../shared/types';
 
-export type ProjectSettingsSection = 'general' | 'linear' | 'github' | 'gitlab' | 'bitbucket' | 'memory' | 'security';
+export type ProjectSettingsSection = 'general' | 'linear' | 'github' | 'gitlab' | 'bitbucket' | 'memory' | 'security' | 'jira';
 
 interface ProjectSettingsContentProps {
   project: Project | undefined;
@@ -115,6 +116,12 @@ function ProjectSettingsContentInner({
     setShowLinearImportModal,
     linearConnectionStatus,
     isCheckingLinear,
+    showJiraToken,
+    setShowJiraToken,
+    showJiraImportModal,
+    setShowJiraImportModal,
+    jiraConnectionStatus,
+    isCheckingJira,
     handleInitialize,
     error
   } = hook;
@@ -161,8 +168,13 @@ function ProjectSettingsContentInner({
         isCheckingBitbucket={isCheckingBitbucket}
         linearConnectionStatus={linearConnectionStatus}
         isCheckingLinear={isCheckingLinear}
+        showJiraToken={showJiraToken}
+        setShowJiraToken={setShowJiraToken}
+        jiraConnectionStatus={jiraConnectionStatus}
+        isCheckingJira={isCheckingJira}
         handleInitialize={handleInitialize}
         onOpenLinearImport={() => setShowLinearImportModal(true)}
+        onOpenJiraImport={() => setShowJiraImportModal(true)}
         appMemoryEnabled={appMemoryEnabled}
         onAppMemoryEnabledChange={onAppMemoryEnabledChange}
       />
@@ -176,6 +188,19 @@ function ProjectSettingsContentInner({
         onOpenChange={setShowLinearImportModal}
         onImportComplete={async (result) => {
           // Refresh task list to show imported tasks (even on partial success)
+          if (result.imported > 0) {
+            await loadTasks(project.id);
+          }
+        }}
+      />
+
+      {/* Jira Task Import Modal */}
+      <JiraTaskImportModal
+        projectId={project.id}
+        open={showJiraImportModal}
+        onOpenChange={setShowJiraImportModal}
+        defaultProjectKey={envConfig?.jiraProjectKey}
+        onImportComplete={async (result) => {
           if (result.imported > 0) {
             await loadTasks(project.id);
           }

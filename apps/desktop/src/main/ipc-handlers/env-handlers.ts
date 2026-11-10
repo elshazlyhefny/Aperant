@@ -28,6 +28,15 @@ const GITLAB_ENV_KEYS = {
   AUTO_SYNC: 'GITLAB_AUTO_SYNC'
 } as const;
 
+// Jira environment variable keys
+const JIRA_ENV_KEYS = {
+  ENABLED: 'JIRA_ENABLED',
+  SITE_URL: 'JIRA_SITE_URL',
+  EMAIL: 'JIRA_EMAIL',
+  API_TOKEN: 'JIRA_API_TOKEN',
+  PROJECT_KEY: 'JIRA_PROJECT_KEY'
+} as const;
+
 /**
  * Helper to generate .env line (DRY)
  */
@@ -113,6 +122,22 @@ export function registerEnvHandlers(
     }
     if (config.gitlabAutoSync !== undefined) {
       existingVars[GITLAB_ENV_KEYS.AUTO_SYNC] = config.gitlabAutoSync ? 'true' : 'false';
+    }
+    // Jira Integration
+    if (config.jiraEnabled !== undefined) {
+      existingVars[JIRA_ENV_KEYS.ENABLED] = config.jiraEnabled ? 'true' : 'false';
+    }
+    if (config.jiraSiteUrl !== undefined) {
+      existingVars[JIRA_ENV_KEYS.SITE_URL] = config.jiraSiteUrl;
+    }
+    if (config.jiraEmail !== undefined) {
+      existingVars[JIRA_ENV_KEYS.EMAIL] = config.jiraEmail;
+    }
+    if (config.jiraApiToken !== undefined) {
+      existingVars[JIRA_ENV_KEYS.API_TOKEN] = config.jiraApiToken;
+    }
+    if (config.jiraProjectKey !== undefined) {
+      existingVars[JIRA_ENV_KEYS.PROJECT_KEY] = config.jiraProjectKey;
     }
     // Git/Worktree Settings
     if (config.defaultBranch !== undefined) {
@@ -255,11 +280,20 @@ ${envLine(existingVars, GITLAB_ENV_KEYS.AUTO_SYNC, 'false')}
 
 # =============================================================================
 # BITBUCKET INTEGRATION (OPTIONAL)
+# ======================================================================
 # =============================================================================
 ${existingVars[BITBUCKET_ENV_KEYS.ENABLED] !== undefined ? `${BITBUCKET_ENV_KEYS.ENABLED}=${existingVars[BITBUCKET_ENV_KEYS.ENABLED]}` : `# ${BITBUCKET_ENV_KEYS.ENABLED}=true`}
 ${envLine(existingVars, BITBUCKET_ENV_KEYS.USERNAME)}
 ${envLine(existingVars, BITBUCKET_ENV_KEYS.TOKEN)}
 ${envLine(existingVars, BITBUCKET_ENV_KEYS.REPOSITORY, 'workspace/repo_slug')}
+=======
+# JIRA INTEGRATION (OPTIONAL)
+# =============================================================================
+${existingVars[JIRA_ENV_KEYS.ENABLED] !== undefined ? `${JIRA_ENV_KEYS.ENABLED}=${existingVars[JIRA_ENV_KEYS.ENABLED]}` : `# ${JIRA_ENV_KEYS.ENABLED}=true`}
+${envLine(existingVars, JIRA_ENV_KEYS.SITE_URL, 'https://your-site.atlassian.net')}
+${envLine(existingVars, JIRA_ENV_KEYS.EMAIL)}
+${envLine(existingVars, JIRA_ENV_KEYS.API_TOKEN)}
+${envLine(existingVars, JIRA_ENV_KEYS.PROJECT_KEY, 'PROJ')}
 
 # =============================================================================
 # GIT/WORKTREE SETTINGS (OPTIONAL)
@@ -374,6 +408,7 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
       // Default config
       const config: ProjectEnvConfig = {
         linearEnabled: false,
+        jiraEnabled: false,
         githubEnabled: false,
         gitlabEnabled: false,
         bitbucketEnabled: false,
@@ -450,6 +485,22 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
       }
       if (vars[BITBUCKET_ENV_KEYS.REPOSITORY]) {
         config.bitbucketRepository = vars[BITBUCKET_ENV_KEYS.REPOSITORY];
+      }
+
+      // Jira config
+      if (vars[JIRA_ENV_KEYS.API_TOKEN]) {
+        config.jiraApiToken = vars[JIRA_ENV_KEYS.API_TOKEN];
+        // Enable by default if token exists and JIRA_ENABLED is not explicitly false
+        config.jiraEnabled = vars[JIRA_ENV_KEYS.ENABLED]?.toLowerCase() !== 'false';
+      }
+      if (vars[JIRA_ENV_KEYS.SITE_URL]) {
+        config.jiraSiteUrl = vars[JIRA_ENV_KEYS.SITE_URL];
+      }
+      if (vars[JIRA_ENV_KEYS.EMAIL]) {
+        config.jiraEmail = vars[JIRA_ENV_KEYS.EMAIL];
+      }
+      if (vars[JIRA_ENV_KEYS.PROJECT_KEY]) {
+        config.jiraProjectKey = vars[JIRA_ENV_KEYS.PROJECT_KEY];
       }
 
       // Git/Worktree config

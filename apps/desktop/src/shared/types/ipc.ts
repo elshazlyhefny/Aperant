@@ -122,6 +122,10 @@ import type {
   LinearIssue,
   LinearImportResult,
   LinearSyncStatus,
+  JiraProject,
+  JiraIssuePage,
+  JiraImportResult,
+  JiraSyncStatus,
   GitHubRepository,
   GitHubIssue,
   GitHubSyncStatus,
@@ -504,6 +508,19 @@ export interface ElectronAPI extends ScheduleAPI {
   getLinearIssues: (projectId: string, teamId?: string, projectId_?: string) => Promise<IPCResult<LinearIssue[]>>;
   importLinearIssues: (projectId: string, issueIds: string[]) => Promise<IPCResult<LinearImportResult>>;
   checkLinearConnection: (projectId: string) => Promise<IPCResult<LinearSyncStatus>>;
+
+  // Jira integration operations
+  checkJiraConnection: (projectId: string) => Promise<IPCResult<JiraSyncStatus>>;
+  getJiraProjects: (projectId: string) => Promise<IPCResult<JiraProject[]>>;
+  getJiraIssues: (
+    projectId: string,
+    options?: { projectKey?: string; searchText?: string; nextPageToken?: string }
+  ) => Promise<IPCResult<JiraIssuePage>>;
+  importJiraIssues: (
+    projectId: string,
+    issueKeys: string[],
+    allowDuplicates?: boolean
+  ) => Promise<IPCResult<JiraImportResult>>;
 
   // GitHub integration operations
   getGitHubRepositories: (projectId: string) => Promise<IPCResult<GitHubRepository[]>>;

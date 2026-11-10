@@ -8,6 +8,7 @@ export const integrationMock = {
     success: true,
     data: {
       linearEnabled: false,
+      jiraEnabled: false,
       githubEnabled: false,
       gitlabEnabled: false,
       bitbucketEnabled: false,
@@ -47,6 +48,30 @@ export const integrationMock = {
       connected: false,
       error: 'Not available in browser mock'
     }
+  }),
+
+  // Jira Integration Operations
+  checkJiraConnection: async () => ({
+    success: true,
+    data: {
+      connected: false,
+      error: 'Not available in browser mock'
+    }
+  }),
+
+  getJiraProjects: async () => ({
+    success: true,
+    data: []
+  }),
+
+  getJiraIssues: async () => ({
+    success: true,
+    data: { issues: [], isLast: true }
+  }),
+
+  importJiraIssues: async () => ({
+    success: false,
+    error: 'Not available in browser mock'
   }),
 
   // GitHub Integration Operations

@@ -12,6 +12,7 @@ import type {
   AutoBuildVersionInfo,
   ProjectEnvConfig,
   LinearSyncStatus,
+  JiraSyncStatus,
   GitHubSyncStatus,
   GitLabSyncStatus,
   BitbucketSyncStatus
@@ -74,6 +75,14 @@ export interface UseProjectSettingsReturn {
   linearConnectionStatus: LinearSyncStatus | null;
   isCheckingLinear: boolean;
 
+  // Jira state
+  showJiraToken: boolean;
+  setShowJiraToken: React.Dispatch<React.SetStateAction<boolean>>;
+  showJiraImportModal: boolean;
+  setShowJiraImportModal: React.Dispatch<React.SetStateAction<boolean>>;
+  jiraConnectionStatus: JiraSyncStatus | null;
+  isCheckingJira: boolean;
+
   // Actions
   handleInitialize: () => Promise<void>;
   handleSave: (onClose: () => void) => Promise<void>;
@@ -135,6 +144,12 @@ export function useProjectSettings(
   const [showLinearImportModal, setShowLinearImportModal] = useState(false);
   const [linearConnectionStatus, setLinearConnectionStatus] = useState<LinearSyncStatus | null>(null);
   const [isCheckingLinear, setIsCheckingLinear] = useState(false);
+
+  // Jira state
+  const [showJiraToken, setShowJiraToken] = useState(false);
+  const [showJiraImportModal, setShowJiraImportModal] = useState(false);
+  const [jiraConnectionStatus, setJiraConnectionStatus] = useState<JiraSyncStatus | null>(null);
+  const [isCheckingJira, setIsCheckingJira] = useState(false);
 
   // Reset settings when project changes
   useEffect(() => {
@@ -205,6 +220,31 @@ export function useProjectSettings(
       checkLinearConnection();
     }
   }, [envConfig?.linearEnabled, envConfig?.linearApiKey, project.id]);
+
+  // Check Jira connection when credentials change
+  useEffect(() => {
+    const checkJiraConnection = async () => {
+      setIsCheckingJira(true);
+      try {
+        const result = await window.electronAPI.checkJiraConnection(project.id);
+        if (result.success && result.data) {
+          setJiraConnectionStatus(result.data);
+        } else {
+          setJiraConnectionStatus({ connected: false, error: result.error || 'Failed to check connection' });
+        }
+      } catch {
+        setJiraConnectionStatus({ connected: false, error: 'Failed to check connection' });
+      } finally {
+        setIsCheckingJira(false);
+      }
+    };
+
+    if (envConfig?.jiraEnabled && envConfig.jiraSiteUrl && envConfig.jiraEmail && envConfig.jiraApiToken) {
+      checkJiraConnection();
+    } else {
+      setJiraConnectionStatus(null);
+    }
+  }, [envConfig?.jiraEnabled, envConfig?.jiraSiteUrl, envConfig?.jiraEmail, envConfig?.jiraApiToken, project.id]);
 
   // Check GitHub connection when token/repo changes
   // Also updates the global GitHub store so other components (like GitHub Issues) see the change
@@ -430,6 +470,12 @@ export function useProjectSettings(
     setShowLinearImportModal,
     linearConnectionStatus,
     isCheckingLinear,
+    showJiraToken,
+    setShowJiraToken,
+    showJiraImportModal,
+    setShowJiraImportModal,
+    jiraConnectionStatus,
+    isCheckingJira,
     handleInitialize,
     handleSave
   };

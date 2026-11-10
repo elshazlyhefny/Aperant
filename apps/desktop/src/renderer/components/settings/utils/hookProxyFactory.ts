@@ -50,6 +50,12 @@ export function createHookProxy(
     get setShowLinearImportModal() { return hookRef.current.setShowLinearImportModal; },
     get linearConnectionStatus() { return hookRef.current.linearConnectionStatus; },
     get isCheckingLinear() { return hookRef.current.isCheckingLinear; },
+    get showJiraToken() { return hookRef.current.showJiraToken; },
+    get setShowJiraToken() { return hookRef.current.setShowJiraToken; },
+    get showJiraImportModal() { return hookRef.current.showJiraImportModal; },
+    get setShowJiraImportModal() { return hookRef.current.setShowJiraImportModal; },
+    get jiraConnectionStatus() { return hookRef.current.jiraConnectionStatus; },
+    get isCheckingJira() { return hookRef.current.isCheckingJira; },
     get handleInitialize() { return hookRef.current.handleInitialize; },
     get handleSave() { return hookRef.current.handleSave; },
   };
