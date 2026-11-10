@@ -264,6 +264,12 @@ export const IPC_CHANNELS = {
   LINEAR_IMPORT_ISSUES: 'linear:importIssues',
   LINEAR_CHECK_CONNECTION: 'linear:checkConnection',
 
+  // Jira integration
+  JIRA_CHECK_CONNECTION: 'jira:checkConnection',
+  JIRA_GET_PROJECTS: 'jira:getProjects',
+  JIRA_GET_ISSUES: 'jira:getIssues',
+  JIRA_IMPORT_ISSUES: 'jira:importIssues',
+
   // GitHub integration
   GITHUB_GET_REPOSITORIES: 'github:getRepositories',
   GITHUB_GET_ISSUES: 'github:getIssues',
