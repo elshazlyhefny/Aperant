@@ -7,13 +7,16 @@ This directory contains the refactored Claude profile management system, broken 
 The profile management system is organized using separation of concerns, with each module handling a specific responsibility:
 
 ```
+(parent) claude-profile-manager.ts  # ClaudeProfileManager coordinator
+(parent) services/profile/api-profile-store.ts, profile-service.ts  # API profiles
+
 claude-profile/
 ├── index.ts                 # Central export point
 ├── types.ts                 # Type definitions
 ├── token-encryption.ts      # OAuth token encryption/decryption
 ├── usage-parser.ts          # Usage data parsing and reset time calculations
 ├── rate-limit-manager.ts    # Rate limit event tracking
-├── profile-storage.ts       # Disk persistence
+├── profile-storage.ts       # Disk persistence (Claude OAuth profiles)
 ├── profile-scorer.ts        # Profile availability scoring and auto-switch logic
 └── profile-utils.ts         # Helper utilities
 ```
@@ -91,11 +94,19 @@ Central export point providing a clean public API for all profile functionality.
 
 ## Main Manager
 
-The `claude-profile-manager.ts` (parent directory) serves as the high-level coordinator that:
+The `claude-profile-manager.ts` (parent directory, `ClaudeProfileManager`) serves as the high-level coordinator for Claude OAuth accounts that:
 - Delegates to specialized modules
 - Manages the overall profile lifecycle
 - Coordinates between different subsystems
 - Provides the singleton instance
+
+### Three-way split of profile modules
+
+| Module | Responsibility |
+|--------|----------------|
+| `claude-profile-manager.ts` | Claude OAuth accounts: switching, rate limits, usage, auto-swap (persisted via `claude-profile/profile-storage.ts`) |
+| `services/profile/api-profile-store.ts` | Only reader/writer of `userData/auto-claude/profiles.json` for API profiles, with locking and atomic modify |
+| `services/profile/profile-service.ts` | Validation, CRUD, connection test and model discovery for API profiles, built on `api-profile-store` |
 
 **Original size:** 903 lines
 **Refactored size:** 509 lines (44% reduction)
@@ -128,6 +139,31 @@ const status = isProfileRateLimited(profile);
 4. **Reusability** - Modules can be imported individually when needed
 5. **Readability** - Smaller files are easier to navigate and understand
 6. **Type Safety** - Clear module boundaries with explicit TypeScript types
+
+## Usage monitoring layout
+
+`usage-monitor.ts` keeps the `UsageMonitor` class (scheduling, caching, failover, account swapping) and its public exports (`UsageMonitor`, `getUsageMonitor`, `getUsageEndpoint`, `detectProvider`, `ApiProvider`). Provider-specific logic lives in `usage/`:
+
+```
+usage/
+├── providers/               # One adapter per provider + registry.ts
+├── endpoints.ts             # getUsageEndpoint / detectProvider
+├── usage-api-client.ts      # HTTP fetch of usage data
+├── credential-resolver.ts   # Credential lookup for active/inactive profiles
+├── active-profile-resolver.ts
+├── availability-score.ts    # Swap-target scoring
+├── provider-accounts.ts     # Codex / z.ai provider-account usage
+├── usage-log.ts             # Logging helpers
+└── types.ts
+```
+
+### How to add a usage source
+
+1. Create an adapter file in `usage/providers/` (endpoint, auth headers, response normalization).
+2. Register it in `usage/providers/registry.ts`.
+3. Add the provider to `shared/utils/provider-detection.ts`.
+
+No change to `usage-monitor.ts` scheduling or failover is needed.
 
 ## Backward Compatibility
 

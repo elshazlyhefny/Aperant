@@ -9,6 +9,7 @@ import type { BrowserWindow } from 'electron';
 import { AgentManager } from './agent';
 import { TerminalManager } from './terminal-manager';
 import { setupIpcHandlers as setupModularHandlers } from './ipc-handlers';
+import type { ScheduleService } from './schedule-service';
 
 /**
  * Setup all IPC handlers
@@ -41,7 +42,7 @@ export function setupIpcHandlers(
   agentManager: AgentManager,
   terminalManager: TerminalManager,
   getMainWindow: () => BrowserWindow | null
-): void {
+): ScheduleService {
   // Delegate to modular handler setup
-  setupModularHandlers(agentManager, terminalManager, getMainWindow);
+  return setupModularHandlers(agentManager, terminalManager, getMainWindow);
 }

@@ -6,6 +6,7 @@
  * Defines tool context, permissions, and execution options.
  */
 
+import type { ToolResultOutput } from '@ai-sdk/provider-utils';
 import type { z } from 'zod/v3';
 
 import type { SecurityProfile } from '../security/bash-validator';
@@ -31,6 +32,27 @@ export interface ToolContext {
   abortSignal?: AbortSignal;
   /** If set, Write/Edit tools can only write within these directories */
   allowedWritePaths?: string[];
+  /**
+   * Whether the model can receive image input (default true). When false the
+   * Read tool returns a text note instead of image data.
+   */
+  modelSupportsVision?: boolean;
+}
+
+/** Structured result of reading a raster image (Read tool). */
+export interface ImageToolResult {
+  type: 'image';
+  filename: string;
+  mediaType: string;
+  /** Base64-encoded image bytes */
+  data: string;
+  bytes: number;
+}
+
+export function isImageToolResult(value: unknown): value is ImageToolResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return v.type === 'image' && typeof v.data === 'string' && typeof v.mediaType === 'string';
 }
 
 // ---------------------------------------------------------------------------
@@ -109,4 +131,9 @@ export interface ToolDefinitionConfig<
     input: z.infer<TInput>,
     context: ToolContext,
   ) => Promise<TOutput> | TOutput;
+  /**
+   * Optional: convert the tool output into the content the model receives
+   * (e.g. image parts). Passed through to the AI SDK `tool()`.
+   */
+  toModelOutput?: (options: { toolCallId: string; input: unknown; output: TOutput }) => ToolResultOutput | PromiseLike<ToolResultOutput>;
 }

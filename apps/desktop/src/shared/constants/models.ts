@@ -587,6 +587,20 @@ export function resolveModelEquivalent(
 }
 
 /**
+ * Whether a model can receive image input.
+ * Only models explicitly marked `vision: false` in the catalog are text-only;
+ * unknown/custom ids and undefined are assumed to support vision.
+ */
+export function modelSupportsVision(
+  modelId?: string,
+  models: ModelOption[] = ALL_AVAILABLE_MODELS,
+): boolean {
+  if (!modelId) return true;
+  const entry = models.find((m) => m.value === modelId);
+  return entry?.capabilities?.vision ?? true;
+}
+
+/**
  * Look up the context window size for a model shorthand or full model ID.
  * Searches ALL_AVAILABLE_MODELS by value first, then searches
  * DEFAULT_MODEL_EQUIVALENCES for full model IDs (e.g., 'claude-opus-5-5').

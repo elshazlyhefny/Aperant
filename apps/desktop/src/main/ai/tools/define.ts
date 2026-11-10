@@ -185,6 +185,7 @@ function define<TInput extends z.ZodType, TOutput>(
         description: metadata.description,
         inputSchema: inputSchema as any,
         execute: executeWithHooks as any,
+        ...(config.toModelOutput ? { toModelOutput: config.toModelOutput as any } : {}),
       }) as AITool<Input, TOutput>;
     },
   };

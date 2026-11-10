@@ -55,6 +55,7 @@ import { join } from 'path';
 import { accessSync, readFileSync, writeFileSync, rmSync, cpSync } from 'fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { setupIpcHandlers } from './ipc-setup';
+import type { ScheduleService } from './schedule-service';
 import { applyNavigationPolicy, getAppRendererUrl } from './navigation-guard';
 import { AgentManager } from './agent';
 import { TerminalManager } from './terminal-manager';
@@ -186,6 +187,7 @@ function getIconPath(): string {
 // Keep a global reference of the window object to prevent garbage collection
 let mainWindow: BrowserWindow | null = null;
 let agentManager: AgentManager | null = null;
+let scheduleService: ScheduleService | null = null;
 let terminalManager: TerminalManager | null = null;
 
 // Capture child process exits (renderer/GPU/utility) for crash diagnostics.
@@ -526,7 +528,11 @@ app.whenReady().then(() => {
   terminalManager = new TerminalManager(() => mainWindow);
 
   // Setup IPC handlers
-  setupIpcHandlers(agentManager, terminalManager, () => mainWindow);
+  // zeenha fork: recurring task scheduler runs while the app is open
+  scheduleService = setupIpcHandlers(agentManager, terminalManager, () => mainWindow);
+  const activeScheduleService = scheduleService;
+  agentManager.on('exit', (taskId: string) => activeScheduleService.onAgentExit(taskId));
+  scheduleService.start();
 
   // Create window
   createWindow();
@@ -672,6 +678,7 @@ app.on('before-quit', (event) => {
 
   // Stop synchronous services immediately
   stopPeriodicUpdates();
+  scheduleService?.stop();
 
   const usageMonitor = getUsageMonitor();
   usageMonitor.stop();

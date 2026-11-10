@@ -509,9 +509,9 @@
       "invalidType": "Invalid file type. Please use PNG, JPEG, GIF, or WebP.",
       "processFailed": "Failed to process image",
       "dragOver": "Drop image to attach",
-      "analysisUnsupported": "Note: Image analysis is not yet supported. Images are stored for reference but cannot be analyzed by the model.",
+      "analysisUnsupported": "The selected model cannot view images. Attached images will be stored for reference but not sent to it. Choose a vision-capable model to have them analyzed.",
       "screenshotTooLarge": "Screenshot is too large ({{size}}MB). Maximum size is {{max}}MB. Consider capturing a smaller area.",
-      "notAnalyzed": "Images were stored for reference but not analyzed by the model."
+      "notAnalyzed": "This model could not view the attached images."
     }
   },
   "ideation": {
@@ -999,7 +999,12 @@
       "description": "Please re-authenticate your Claude profile to continue using Aperant.",
       "taskAffected": "Task affected",
       "technicalDetails": "Technical details",
-      "goToSettings": "Go to Settings"
+      "goToSettings": "Go to Settings",
+      "indicator": {
+        "title": "Account needs attention",
+        "ariaLabel": "Authentication failed for {{profile}}. Open details",
+        "clickToFix": "Click to fix →"
+      }
     }
   },
   "git": {

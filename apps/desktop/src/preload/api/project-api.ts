@@ -85,6 +85,7 @@ export interface ProjectAPI {
   detectMainBranch: (projectPath: string, options?: { declaredOnly?: boolean }) => Promise<IPCResult<string | null>>;
   checkGitStatus: (projectPath: string) => Promise<IPCResult<GitStatus>>;
   initializeGit: (projectPath: string) => Promise<IPCResult<InitializationResult>>;
+  getSandboxAvailability: () => Promise<IPCResult<import('../../shared/types/project').SandboxAvailability>>;
 
   // Ollama Model Detection
   checkOllamaStatus: (baseUrl?: string) => Promise<IPCResult<{
@@ -265,6 +266,9 @@ export const createProjectAPI = (): ProjectAPI => ({
 
   listOllamaModels: (baseUrl?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.OLLAMA_LIST_MODELS, baseUrl),
+
+  getSandboxAvailability: (): Promise<IPCResult<import('../../shared/types/project').SandboxAvailability>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SANDBOX_GET_AVAILABILITY),
 
   listOllamaEmbeddingModels: (baseUrl?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.OLLAMA_LIST_EMBEDDING_MODELS, baseUrl),

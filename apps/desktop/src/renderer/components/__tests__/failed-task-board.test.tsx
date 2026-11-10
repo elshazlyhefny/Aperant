@@ -14,6 +14,7 @@ vi.mock('react-i18next', () => ({
 const retryFailedTask = vi.fn();
 const replanFailedTask = vi.fn();
 vi.mock('../../stores/task-store', () => ({
+  useTaskStore: (selector: (s: { tasks: unknown[] }) => unknown) => selector({ tasks: [] }),
   retryFailedTask: (...a: unknown[]) => retryFailedTask(...a),
   replanFailedTask: (...a: unknown[]) => replanFailedTask(...a),
   startTaskOrQueue: vi.fn(),

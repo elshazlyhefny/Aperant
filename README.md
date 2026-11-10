@@ -1,5 +1,7 @@
 # Aperant (formerly Auto Claude)
 
+Aperant is the current name of the product formerly called Auto Claude. Some file, directory and image names (`.auto-claude/`, `.auto-claude-allowlist`, `Auto-Claude-*.png`) keep the old name.
+
 **Autonomous multi-agent coding framework that plans, builds, and validates software for you.**
 
 ![Aperant Kanban Board](.github/assets/Auto-Claude-Kanban.png)
@@ -7,50 +9,25 @@
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green?style=flat-square)](./LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/KCXaPBr4Dj)
 [![YouTube](https://img.shields.io/badge/YouTube-Subscribe-FF0000?style=flat-square&logo=youtube&logoColor=white)](https://www.youtube.com/@AndreMikalsen)
-[![CI](https://img.shields.io/github/actions/workflow/status/AndyMik90/Auto-Claude/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/AndyMik90/Auto-Claude/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/elshazlyhefny/Aperant/ci.yml?branch=zeenha&style=flat-square&label=CI)](https://github.com/elshazlyhefny/Aperant/actions)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge-flat.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 
 ---
 
-## Download
+## Install
 
-### Stable Release
+This fork publishes no public binary releases, so there is nothing to download. Get it from source:
 
-<!-- STABLE_VERSION_BADGE -->
-[![Stable](https://img.shields.io/badge/stable-2.7.6-blue?style=flat-square)](https://github.com/AndyMik90/Auto-Claude/releases/tag/v2.7.6)
-<!-- STABLE_VERSION_BADGE_END -->
+```bash
+git clone https://github.com/elshazlyhefny/Aperant.git
+cd Aperant
+git checkout zeenha
+```
 
-<!-- STABLE_DOWNLOADS -->
-| Platform | Download |
-|----------|----------|
-| **Windows** | [Auto-Claude-2.7.6-win32-x64.exe](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.7.6/Auto-Claude-2.7.6-win32-x64.exe) |
-| **macOS (Apple Silicon)** | [Auto-Claude-2.7.6-darwin-arm64.dmg](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.7.6/Auto-Claude-2.7.6-darwin-arm64.dmg) |
-| **macOS (Intel)** | [Auto-Claude-2.7.6-darwin-x64.dmg](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.7.6/Auto-Claude-2.7.6-darwin-x64.dmg) |
-| **Linux** | [Auto-Claude-2.7.6-linux-x86_64.AppImage](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.7.6/Auto-Claude-2.7.6-linux-x86_64.AppImage) |
-| **Linux (Debian)** | [Auto-Claude-2.7.6-linux-amd64.deb](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.7.6/Auto-Claude-2.7.6-linux-amd64.deb) |
-| **Linux (Flatpak)** | [Auto-Claude-2.7.6-linux-x86_64.flatpak](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.7.6/Auto-Claude-2.7.6-linux-x86_64.flatpak) |
-<!-- STABLE_DOWNLOADS_END -->
+Then either:
 
-### Beta Release
-
-> ⚠️ Beta releases may contain bugs and breaking changes. [View all releases](https://github.com/AndyMik90/Auto-Claude/releases)
-
-<!-- BETA_VERSION_BADGE -->
-[![Beta](https://img.shields.io/badge/beta-2.8.0--beta.6-orange?style=flat-square)](https://github.com/AndyMik90/Auto-Claude/releases/tag/v2.8.0-beta.6)
-<!-- BETA_VERSION_BADGE_END -->
-
-<!-- BETA_DOWNLOADS -->
-| Platform | Download |
-|----------|----------|
-| **Windows** | [Aperant-2.8.0-beta.5-win32-x64.exe](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.8.0-beta.5/Aperant-2.8.0-beta.5-win32-x64.exe) |
-| **macOS (Apple Silicon)** | [Aperant-2.8.0-beta.5-darwin-arm64.dmg](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.8.0-beta.5/Aperant-2.8.0-beta.5-darwin-arm64.dmg) |
-| **macOS (Intel)** | [Aperant-2.8.0-beta.5-darwin-x64.dmg](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.8.0-beta.5/Aperant-2.8.0-beta.5-darwin-x64.dmg) |
-| **Linux** | [Aperant-2.8.0-beta.5-linux-x86_64.AppImage](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.8.0-beta.5/Aperant-2.8.0-beta.5-linux-x86_64.AppImage) |
-| **Linux (Debian)** | [Aperant-2.8.0-beta.5-linux-amd64.deb](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.8.0-beta.5/Aperant-2.8.0-beta.5-linux-amd64.deb) |
-| **Linux (Flatpak)** | [Aperant-2.8.0-beta.5-linux-x86_64.flatpak](https://github.com/AndyMik90/Auto-Claude/releases/download/v2.8.0-beta.5/Aperant-2.8.0-beta.5-linux-x86_64.flatpak) |
-<!-- BETA_DOWNLOADS_END -->
-
-> All releases include SHA256 checksums and VirusTotal scan results for security verification.
+- **Run from source** - `npm run install:all`, then `npm start`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup.
+- **Build and install** - run `scripts/zeenha-release.sh`. It tests, builds and installs the Linux AppImage as the running app. Use `scripts/zeenha-release.sh --rollback` to go back to the previous install.
 
 ---
 
@@ -64,7 +41,7 @@
 
 ## Quick Start
 
-1. **Download and install** the app for your platform
+1. **Install** the app - see [Install](#install)
 2. **Open your project** - Select a git repository folder
 3. **Connect Claude** - The app will guide you through OAuth setup
 4. **Create a task** - Describe what you want to build
@@ -85,7 +62,7 @@
 | **GitHub/GitLab Integration** | Import issues, investigate with AI, create merge requests |
 | **Linear Integration** | Sync tasks with Linear for team progress tracking |
 | **Cross-Platform** | Native desktop apps for Windows, macOS, and Linux |
-| **Auto-Updates** | App updates automatically when new versions are released |
+| **Controlled Updates** | In-app updates are disabled. An update is a deliberate pull of the `zeenha` branch plus a rebuild with `scripts/zeenha-release.sh`; `--rollback` restores the previous install |
 
 ---
 
@@ -151,11 +128,6 @@ Only run agents on repositories and machines where that is acceptable.
 
 The `.auto-claude-allowlist` file is still read, but it no longer affects allow or deny decisions.
 
-All releases are:
-- Scanned with VirusTotal before publishing
-- Include SHA256 checksums for verification
-- Code-signed where applicable (macOS)
-
 ---
 
 ## Available Scripts
@@ -199,11 +171,3 @@ We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for:
 Aperant is free to use. If you modify and distribute it, or run it as a service, your code must also be open source under AGPL-3.0.
 
 Commercial licensing available for closed-source use cases.
-
----
-
-## Star History
-
-[![GitHub Repo stars](https://img.shields.io/github/stars/AndyMik90/Auto-Claude?style=social)](https://github.com/AndyMik90/Auto-Claude/stargazers)
-
-[![Star History Chart](https://api.star-history.com/svg?repos=AndyMik90/Auto-Claude&type=Date)](https://star-history.com/#AndyMik90/Auto-Claude&Date)

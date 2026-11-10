@@ -1,4 +1,27 @@
 {
+  "dependencies": {
+    "title": "Depends on",
+    "add": "Add dependency: {{title}}",
+    "addButton": "Add",
+    "remove": "Remove dependency: {{title}}",
+    "none": "No dependencies",
+    "cycleError": "This would create a dependency cycle: {{path}}",
+    "selfError": "A task cannot depend on itself.",
+    "unknownError": "One of the selected dependencies no longer exists.",
+    "searchPlaceholder": "Search tasks...",
+    "waitingFor": "Waiting for {{title}}",
+    "waitingForMore": " +{{count}} more",
+    "heldFailed": "Held: {{title}} failed",
+    "heldMissing": "Held: dependency missing",
+    "reason": {
+      "not_finished": "Not finished yet",
+      "pr_not_merged": "PR not merged yet",
+      "failed": "Failed",
+      "missing": "Task no longer exists",
+      "archived": "Archived"
+    },
+    "heldHint": "This task stays held until you remove the dependency, retry the failed task, or move this task."
+  },
   "refreshTasks": "Refresh Tasks",
   "status": {
     "backlog": "Backlog",
@@ -40,7 +63,8 @@
     "hasErrors": "Has Errors",
     "qaIssues": "QA Issues",
     "approvePlan": "Approve Plan",
-    "stopped": "Stopped"
+    "stopped": "Stopped",
+    "tokenBudget": "Token Budget Reached"
   },
   "tooltips": {
     "archiveTask": "Archive task",
@@ -268,6 +292,12 @@
     "fastModeLabel": "Fast Mode",
     "fastModeDescription": "Same Opus 4.6 model with faster output. Higher cost per token.",
     "fastModeNotice": "Requires \"extra usage\" enabled on your Claude subscription.",
+    "tokenBudgetLabel": "Token budget",
+    "tokenBudgetDescription": "Pause this task when it has used this many input + output tokens. Leave blank to use the project default.",
+    "tokenBudgetInherited": "Project default: {{value}} tokens",
+    "tokenBudgetInheritedNone": "Project default: none",
+    "tokenBudgetPlaceholder": "e.g. 500000",
+    "tokenBudgetNoLimit": "No limit for this task",
     "errors": {
       "descriptionRequired": "Please provide a description",
       "maxImagesReached": "Maximum of 5 images allowed",
@@ -412,11 +442,86 @@
       "detail": "Detail"
     },
     "tokens": {
+      "budget": "Budget tokens (input + output)",
       "input": "Input tokens",
       "output": "Output tokens",
       "cacheRead": "Cache read tokens",
       "cacheCreation": "Cache creation tokens"
     },
-    "note": "Entries carry tokens and durations only; no monetary cost is shown."
+    "budgetUsed": "{{used}} of {{limit}} tokens ({{percent}}%)",
+    "note": "Entries carry tokens and durations only; no monetary cost is shown. Cache reads are included in input tokens and are not added again to the budget."
+  },
+  "delivery": {
+    "title": "Delivery and token usage",
+    "refresh": "Refresh",
+    "loading": "Loading delivery metrics…",
+    "error": "Failed to load delivery metrics",
+    "retry": "Retry",
+    "empty": "No completed or recorded tasks in this period",
+    "emptyHint": "Run tasks to see delivery and token metrics here.",
+    "period": {
+      "label": "Period",
+      "days7": "7 days",
+      "days30": "30 days",
+      "days90": "90 days",
+      "all": "All time"
+    },
+    "cards": {
+      "tasksScanned": "Tasks scanned",
+      "completedTasks": "Completed tasks",
+      "totalTokens": "Total tokens",
+      "totalDuration": "Total duration",
+      "avgTokens": "Avg tokens per completed task",
+      "avgDuration": "Avg duration per completed task",
+      "failedBeforeWork": "Failed before any work",
+      "avgQa": "Avg QA iterations"
+    },
+    "excluded": "{{missing}} tasks without metrics and {{corrupt}} with unreadable metrics were excluded.",
+    "trend": "Trend by day",
+    "byPhase": "Usage by phase",
+    "byModel": "Usage by model",
+    "columns": {
+      "date": "Date",
+      "completed": "Completed tasks",
+      "tokensPerTask": "Tokens per completed task",
+      "phase": "Phase",
+      "model": "Model",
+      "sessions": "Sessions",
+      "duration": "Duration",
+      "input": "Input",
+      "output": "Output",
+      "total": "Total"
+    },
+    "note": "Rate-limit recovery is not recorded, so time lost to rate limits is not shown separately."
+  },
+  "prFeedback": {
+    "title": "PR feedback",
+    "refresh": "Refresh",
+    "failedChecks": "Failed checks",
+    "unresolvedComments": "Unresolved review comments",
+    "changeRequests": "Change requests",
+    "empty": "No failing checks or open review feedback.",
+    "open": "Open on GitHub",
+    "send": "Send selected to agent",
+    "started": "Follow-up started. The agent will push to the pull request only after QA approves.",
+    "sendFailed": "Could not start the follow-up",
+    "loadFailed": "Could not load PR feedback: {{error}}",
+    "blocked": {
+      "worktree_missing": "This task's worktree no longer exists (for example it was removed after the PR merged, or by cleanup), so no follow-up can run here. Create a new task from the PR instead.",
+      "pr_not_open": "The pull request is no longer open, so feedback cannot be sent to the agent.",
+      "agent_running": "The agent is already running for this task. Wait for it to finish.",
+      "auth_required": "GitHub authentication is required to send feedback. Sign in to GitHub and refresh.",
+      "no_github_config": "GitHub is not configured for this project.",
+      "branch_mismatch": "The task's worktree is not on the pull request's branch, so no follow-up can run here."
+    }
+  },
+  "tokenBudgetBanner": {
+    "title": "Paused: token budget reached",
+    "usage": "Paused: {{used}} of {{limit}} tokens used",
+    "body": "The worktree and completed subtasks are kept. Raise the limit to continue, or resume without a limit. Resuming without raising it pauses the task again right away.",
+    "fieldLabel": "New token limit",
+    "unlimited": "Unlimited",
+    "resume": "Raise limit and resume",
+    "saveFailed": "Could not save the new limit"
   }
 }

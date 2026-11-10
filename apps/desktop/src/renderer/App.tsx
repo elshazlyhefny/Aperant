@@ -43,8 +43,10 @@ import { VersionWarningModal } from './components/VersionWarningModal';
 import { AppUpdateNotification } from './components/AppUpdateNotification';
 import { ProactiveSwapListener } from './components/ProactiveSwapListener';
 import { GitHubSetupModal } from './components/GitHubSetupModal';
+import { SandboxOfferDialog } from './components/SandboxOfferDialog';
 import { useProjectStore, loadProjects, addProject, initializeProject, removeProject } from './stores/project-store';
 import { useTaskStore, loadTasks } from './stores/task-store';
+import { useScheduleStore, subscribeToScheduleChanges } from './stores/schedule-store';
 import { useSettingsStore, loadSettings, loadProfiles, saveSettings } from './stores/settings-store';
 import { useClaudeProfileStore, loadClaudeProfiles } from './stores/claude-profile-store';
 import { useTerminalStore, restoreTerminalSessions } from './stores/terminal-store';
@@ -55,7 +57,7 @@ import { useIpcListeners } from './hooks/useIpc';
 import { useGlobalTerminalListeners } from './hooks/useGlobalTerminalListeners';
 import { useTerminalProfileChange } from './hooks/useTerminalProfileChange';
 import { COLOR_THEMES, UI_SCALE_MIN, UI_SCALE_MAX, UI_SCALE_DEFAULT } from '../shared/constants';
-import type { Task, Project, ColorTheme } from '../shared/types';
+import type { Task, Project, ColorTheme, BashSandboxMode, SandboxAvailability } from '../shared/types';
 import { ProjectTabBar } from './components/ProjectTabBar';
 import { AddProjectModal } from './components/AddProjectModal';
 import { ViewStateProvider } from './contexts/ViewStateContext';
@@ -72,7 +74,9 @@ const GitLabMergeRequests = lazy(() =>
   import('./components/gitlab-merge-requests').then((m) => ({ default: m.GitLabMergeRequests }))
 );
 const Changelog = lazy(() => import('./components/Changelog').then((m) => ({ default: m.Changelog })));
+const Schedules = lazy(() => import('./components/Schedules').then((m) => ({ default: m.Schedules })));
 const Worktrees = lazy(() => import('./components/Worktrees').then((m) => ({ default: m.Worktrees })));
+const DeliveryMetrics = lazy(() => import('./components/DeliveryMetrics').then((m) => ({ default: m.DeliveryMetrics })));
 const AgentTools = lazy(() => import('./components/AgentTools').then((m) => ({ default: m.AgentTools })));
 const AppSettingsDialog = lazy(() =>
   import('./components/settings/AppSettings').then((m) => ({ default: m.AppSettingsDialog }))
@@ -182,6 +186,10 @@ export function App() {
   const [showGitHubSetup, setShowGitHubSetup] = useState(false);
   const [gitHubSetupProject, setGitHubSetupProject] = useState<Project | null>(null);
 
+  // Bash sandbox offer (queued behind the init and GitHub setup dialogs)
+  const [sandboxOfferProject, setSandboxOfferProject] = useState<Project | null>(null);
+  const [sandboxAvailability, setSandboxAvailability] = useState<SandboxAvailability | null>(null);
+
   // Remove project confirmation state
   const [showRemoveProjectDialog, setShowRemoveProjectDialog] = useState(false);
   const [removeProjectError, setRemoveProjectError] = useState<string | null>(null);
@@ -202,6 +210,16 @@ export function App() {
   // Get tabs and selected project
   const projectTabs = getProjectTabs();
   const selectedProject = projects.find((p) => p.id === (activeProjectId || selectedProjectId));
+
+  // zeenha fork: keep schedules loaded for the active project so the sidebar badge works
+  useEffect(() => {
+    const unsubscribe = subscribeToScheduleChanges();
+    return unsubscribe;
+  }, []);
+  useEffect(() => {
+    const projectId = activeProjectId || selectedProjectId;
+    if (projectId) void useScheduleStore.getState().loadSchedules(projectId);
+  }, [activeProjectId, selectedProjectId]);
 
   // Initial load
   useEffect(() => {
@@ -472,6 +490,36 @@ export function App() {
     }
   }, [activeProjectId, selectedProjectId, selectedProject?.path]);
 
+  // Desktop notification click: open the project and remember the task to select
+  const [pendingTaskTarget, setPendingTaskTarget] = useState<{ projectId: string; taskId: string } | null>(null);
+  useEffect(() => {
+    const cleanup = window.electronAPI.onNotificationOpenTask?.(({ projectId, taskId }) => {
+      if (!useProjectStore.getState().projects.some((p) => p.id === projectId)) {
+        return; // Project was removed
+      }
+      openProjectTab(projectId);
+      setActiveProject(projectId);
+      setActiveView('kanban');
+      setPendingTaskTarget({ projectId, taskId });
+    });
+    return () => cleanup?.();
+  }, [openProjectTab, setActiveProject]);
+
+  // Select the pending task once it is loaded for the target project.
+  // Declared after the 'load tasks on project change' effect so it runs after the selection reset.
+  useEffect(() => {
+    if (!pendingTaskTarget) return;
+    const currentProjectId = activeProjectId || selectedProjectId;
+    if (currentProjectId !== pendingTaskTarget.projectId) return;
+    const task = tasks.find(
+      (t) => t.id === pendingTaskTarget.taskId || t.specId === pendingTaskTarget.taskId
+    );
+    if (task) {
+      setSelectedTask(task);
+      setPendingTaskTarget(null);
+    }
+  }, [pendingTaskTarget, tasks, activeProjectId, selectedProjectId]);
+
   // Apply theme on load
   useEffect(() => {
     const root = document.documentElement;
@@ -664,6 +712,32 @@ export function App() {
       setInitError(null);
       setInitSuccess(false);
       setShowInitDialog(true);
+    }
+    // zeenha fork: offer the Bash sandbox, but only when it can actually run
+    const currentMode = project.settings?.bashSandbox;
+    if (!currentMode || currentMode === 'off') {
+      window.electronAPI.getSandboxAvailability()
+        .then((result) => {
+          if (result.success && result.data?.state === 'available') {
+            setSandboxAvailability(result.data);
+            setSandboxOfferProject(project);
+          }
+        })
+        .catch(() => {
+          // Availability unknown: do not offer
+        });
+    }
+  };
+
+  const handleSandboxOfferEnable = async (mode: Exclude<BashSandboxMode, 'off'>) => {
+    const target = sandboxOfferProject;
+    setSandboxOfferProject(null);
+    if (!target) return;
+    try {
+      await window.electronAPI.updateProjectSettings(target.id, { bashSandbox: mode });
+      await loadProjects();
+    } catch (error) {
+      console.error('Failed to enable Bash sandbox:', error);
     }
   };
 
@@ -974,6 +1048,12 @@ export function App() {
                 {activeView === 'worktrees' && (activeProjectId || selectedProjectId) && (
                   <Worktrees projectId={activeProjectId || selectedProjectId!} />
                 )}
+                {activeView === 'schedules' && (activeProjectId || selectedProjectId) && (
+                  <Schedules projectId={activeProjectId || selectedProjectId!} />
+                )}
+                {activeView === 'delivery' && (activeProjectId || selectedProjectId) && (
+                  <DeliveryMetrics projectId={activeProjectId || selectedProjectId!} />
+                )}
                 {activeView === 'agent-tools' && <AgentTools />}
                 </Suspense>
                 </ErrorBoundary>
@@ -1131,6 +1211,17 @@ export function App() {
             project={gitHubSetupProject}
             onComplete={handleGitHubSetupComplete}
             onSkip={handleGitHubSetupSkip}
+          />
+        )}
+
+        {/* Bash sandbox offer - waits for the init and GitHub setup dialogs */}
+        {sandboxOfferProject && sandboxAvailability && !showInitDialog && !showGitHubSetup && (
+          <SandboxOfferDialog
+            open
+            project={sandboxOfferProject}
+            availability={sandboxAvailability}
+            onEnable={handleSandboxOfferEnable}
+            onSkip={() => setSandboxOfferProject(null)}
           />
         )}
 

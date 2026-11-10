@@ -11,7 +11,7 @@
  */
 
 import { readFileSync, existsSync, readFile as readFileAsync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 
 import type { ProjectCapabilities, PromptContext, PromptValidationResult } from './types';
@@ -252,6 +252,12 @@ export function injectContext(promptTemplate: string, context: PromptContext): s
     sections.push(specContext);
   }
 
+  // 1b. Reference images attached to the task
+  if (context.specDir) {
+    const imagesSection = buildReferenceImagesSection(context.specDir);
+    if (imagesSection) sections.push(imagesSection);
+  }
+
   // 2. Recovery context (before human input)
   if (context.recoveryContext) {
     sections.push(context.recoveryContext);
@@ -298,6 +304,63 @@ function buildSpecLocationHeader(context: PromptContext): string {
     `- QA report output: \`${context.specDir}/qa_report.md\`\n` +
     `- Fix request output: \`${context.specDir}/QA_FIX_REQUEST.md\`\n\n` +
     `The project root is: \`${context.projectDir}\`\n\n` +
+    `---\n\n`
+  );
+}
+
+// =============================================================================
+// Reference Images Section
+// =============================================================================
+
+function readJsonObject(filePath: string): Record<string, unknown> | null {
+  try {
+    if (!existsSync(filePath)) return null;
+    const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf-8'));
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the REFERENCE IMAGES section listing images the user attached to the task.
+ * Reads task_metadata.json `attachedImages` first, falling back to
+ * requirements.json `attached_images`. Returns '' when there are no usable images.
+ *
+ * @param specDir - Spec directory containing the `attachments/` folder
+ * @param relativeTo - Optional base directory; when given, paths are listed relative to it
+ */
+export function buildReferenceImagesSection(specDir: string, relativeTo?: string): string {
+  if (!specDir) return '';
+
+  const metadata = readJsonObject(join(specDir, 'task_metadata.json'));
+  let entries: unknown = metadata?.attachedImages;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    entries = readJsonObject(join(specDir, 'requirements.json'))?.attached_images;
+  }
+  if (!Array.isArray(entries)) return '';
+
+  const root = resolve(specDir);
+  const paths: string[] = [];
+  for (const entry of entries) {
+    const rel = entry && typeof entry === 'object' ? (entry as { path?: unknown }).path : undefined;
+    if (typeof rel !== 'string' || !rel) continue;
+    const abs = resolve(root, rel);
+    const fromRoot = relative(root, abs);
+    if (!fromRoot || fromRoot.startsWith('..') || isAbsolute(fromRoot)) continue;
+    if (!existsSync(abs)) continue;
+    const shown = relativeTo ? relative(resolve(relativeTo), abs) : abs;
+    if (!paths.includes(shown)) paths.push(shown);
+  }
+  if (paths.length === 0) return '';
+
+  const count = paths.length;
+  return (
+    `## REFERENCE IMAGES\n\n` +
+    `The user attached ${count} reference image${count === 1 ? '' : 's'}. ` +
+    `View each with the Read tool before planning/implementing; they show the UI or bug described in the task.\n\n` +
+    `${paths.map((p) => `- \`${p}\``).join('\n')}\n\n` +
+    `If you cannot view images (text-only model), rely on the task description instead.\n\n` +
     `---\n\n`
   );
 }
