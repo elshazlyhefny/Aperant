@@ -352,7 +352,7 @@ async function runMRReview(
       sendProgress({ phase: 'analyzing', mrIid, progress: update.progress, message: update.message });
     });
 
-    const reviewResult = await engine.runReview(context, abortController.signal, { checkout, mcp: mcp ?? undefined });
+    const reviewResult = await engine.runReview(context, abortController.signal, { checkout, mcp });
 
     // Map verdict to overallStatus
     const verdictToStatus: Record<string, MRReviewResult['overallStatus']> = {
@@ -962,7 +962,7 @@ export function registerMRReviewHandlers(
               sendProgress({ phase: 'analyzing', mrIid, progress: update.progress, message: update.message });
             });
 
-            const reviewResult = await engine.runReview(context, abortController.signal, { checkout, mcp: mcp ?? undefined });
+            const reviewResult = await engine.runReview(context, abortController.signal, { checkout, mcp });
 
             const verdictToStatus: Record<string, MRReviewResult['overallStatus']> = {
               ready_to_merge: 'approve',

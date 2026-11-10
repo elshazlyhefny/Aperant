@@ -195,7 +195,8 @@ describe('PRDetail Clean Review Functionality', () => {
         findings: [createTestFinding('low')]
       });
 
-      const selectedCount: number = 1; // Finding selected
+      // Finding selected
+      const selectedCount = new Set(reviewResult.findings.map(f => f.id)).size;
       const hasPostedFindings = false;
       const cleanReviewPosted = false;
 
@@ -331,7 +332,7 @@ describe('PRDetail Clean Review Functionality', () => {
         findings: [createTestFinding('low')]
       });
 
-      const selectedCount: number = 1;
+      const selectedCount = new Set(reviewResult.findings.map(f => f.id)).size;
 
       // Post Findings button: selectedCount > 0
       const showPostFindings = selectedCount > 0;

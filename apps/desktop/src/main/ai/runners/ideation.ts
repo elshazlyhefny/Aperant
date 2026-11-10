@@ -168,7 +168,7 @@ export type IdeasFileCheck =
   | { status: 'invalid'; file: string; fileName: string; errors: string[] };
 
 function holdsIdeasOfType(data: unknown, ideationType: string): boolean {
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) return false;
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) return false;
   return Object.values(data).some(
     (value) =>
       Array.isArray(value) &&
