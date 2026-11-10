@@ -6,17 +6,17 @@ interface AuthFailureState {
   isModalOpen: boolean;
   authFailureInfo: AuthFailureInfo | null;
 
-  // TODO: Use hasPendingAuthFailure to show a badge/indicator in the sidebar
-  // when there's an unresolved auth failure (e.g., red dot on Settings icon)
+  /** True while an auth failure is unresolved; the sidebar AuthFailureIndicator uses it. */
   hasPendingAuthFailure: boolean;
 
   // Actions
   showAuthFailureModal: (info: AuthFailureInfo) => void;
   hideAuthFailureModal: () => void;
+  reopenAuthFailureModal: () => void;
   clearAuthFailure: () => void;
 }
 
-export const useAuthFailureStore = create<AuthFailureState>((set) => ({
+export const useAuthFailureStore = create<AuthFailureState>((set, get) => ({
   isModalOpen: false,
   authFailureInfo: null,
   hasPendingAuthFailure: false,
@@ -32,6 +32,12 @@ export const useAuthFailureStore = create<AuthFailureState>((set) => ({
   hideAuthFailureModal: () => {
     // Keep the failure info when closing so user can see it again
     set({ isModalOpen: false });
+  },
+
+  reopenAuthFailureModal: () => {
+    if (get().authFailureInfo) {
+      set({ isModalOpen: true });
+    }
   },
 
   clearAuthFailure: () => {

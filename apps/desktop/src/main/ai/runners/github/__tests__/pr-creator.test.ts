@@ -91,6 +91,7 @@ describe('createPR push', () => {
   it('pushes only the task branch, with --force-with-lease and an explicit refspec', async () => {
     const result = await createPR(config());
     expect(result).toEqual({ success: true, prUrl: PR_URL, alreadyExists: false });
+    expect(result).not.toHaveProperty('errorCode');
     expect(pushCalls()).toHaveLength(1);
     expect(pushCalls()[0].args).toEqual([
       'push',
@@ -112,6 +113,7 @@ describe('createPR push', () => {
     const result = await createPR(config({ branchName }));
     expect(result.success).toBe(false);
     expect(result.error).toContain('Refusing to push');
+    expect(result.errorCode).toBe('BRANCH_REFUSED');
     expect(state.calls).toHaveLength(0);
   });
 
@@ -121,7 +123,11 @@ describe('createPR push', () => {
         ? { error: { message: 'Command failed' }, stderr: ' ! [rejected] (stale info)' }
         : { stdout: '' };
     const result = await createPR(config());
-    expect(result).toEqual({ success: false, error: 'Failed to push branch:  ! [rejected] (stale info)' });
+    expect(result).toEqual({
+      success: false,
+      errorCode: 'PUSH_FAILED',
+      error: 'Failed to push branch:  ! [rejected] (stale info)',
+    });
     expect(createCalls()).toHaveLength(0);
   });
 
@@ -133,6 +139,7 @@ describe('createPR push', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('git push timed out after 120s');
     expect(result.error).toContain('credentials');
+    expect(result.errorCode).toBe('PUSH_FAILED');
     expect(createCalls()).toHaveLength(0);
   });
 });
@@ -160,6 +167,42 @@ describe('createPR gh pr create', () => {
     };
     const result = await createPR(config());
     expect(result).toEqual({ success: true, prUrl: PR_URL, alreadyExists: true });
+    expect(result).not.toHaveProperty('errorCode');
+  });
+
+  it('reports GH_FAILED for a non-retryable gh error', async () => {
+    state.respond = (call) =>
+      call.args[1] === 'create' ? { error: {}, stderr: 'GraphQL: Resource not accessible' } : { stdout: '' };
+    const result = await createPR(config());
+    expect(result).toEqual({ success: false, errorCode: 'GH_FAILED', error: 'GraphQL: Resource not accessible' });
+    expect(createCalls()).toHaveLength(1);
+  });
+
+  // The loop's last attempt returns GH_FAILED itself, so RETRIES_EXHAUSTED is
+  // unreachable; a network error on every attempt ends as GH_FAILED.
+  it('ends a persistent network error as GH_FAILED after 3 attempts', async () => {
+    let attempts = 0;
+    state.respond = (call) => {
+      if (call.args[1] === 'create') {
+        attempts++;
+        return { error: {}, stderr: 'connection reset' };
+      }
+      return { stdout: '' };
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const pending = createPR(config());
+      await vi.waitFor(() => expect(attempts).toBe(1));
+      await vi.advanceTimersByTimeAsync(2000);
+      await vi.waitFor(() => expect(attempts).toBe(2));
+      await vi.advanceTimersByTimeAsync(4000);
+      const result = await pending;
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GH_FAILED');
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(createCalls()).toHaveLength(3);
   });
 
   it('retries a network error and then succeeds', async () => {
@@ -190,6 +233,7 @@ describe('createPR gh pr create', () => {
     const result = await createPR(config());
     expect(result.success).toBe(false);
     expect(result.error).toContain('gh pr create timed out after 60s');
+    expect(result.errorCode).toBe('GH_TIMEOUT');
     expect(createCalls()).toHaveLength(1);
   });
 });
@@ -203,7 +247,7 @@ describe('createPR for a task that changed no code (zeenha fork)', () => {
   it('stops before pushing and says there is nothing to propose', async () => {
     revList({ stdout: '0\n' });
     const result = await createPR(config());
-    expect(result).toEqual({ success: false, noChanges: true, error: NO_CHANGES_MESSAGE });
+    expect(result).toEqual({ success: false, noChanges: true, errorCode: 'NO_CHANGES', error: NO_CHANGES_MESSAGE });
     expect(pushCalls()).toHaveLength(0);
     expect(createCalls()).toHaveLength(0);
     const check = state.calls.find((c) => c.args[0] === 'rev-list');
@@ -214,7 +258,12 @@ describe('createPR for a task that changed no code (zeenha fork)', () => {
   it('says to resume, not to mark done, when the plan has unfinished subtasks', async () => {
     revList({ stdout: '0\n' });
     const result = await createPR(config({ subtaskProgress: { completed: 1, total: 29 } }));
-    expect(result).toEqual({ success: false, noChanges: true, error: unfinishedTaskMessage(1, 29) });
+    expect(result).toEqual({
+      success: false,
+      noChanges: true,
+      errorCode: 'NO_CHANGES',
+      error: unfinishedTaskMessage(1, 29),
+    });
     expect(result.error).toContain('stopped after 1 of 29 subtasks');
     expect(result.error).toContain('Resume the task');
     expect(result.error).not.toBe(NO_CHANGES_MESSAGE);
@@ -225,6 +274,7 @@ describe('createPR for a task that changed no code (zeenha fork)', () => {
     revList({ stdout: '0\n' });
     const result = await createPR(config({ subtaskProgress: { completed: 4, total: 4 } }));
     expect(result.error).toBe(NO_CHANGES_MESSAGE);
+    expect(result.errorCode).toBe('NO_CHANGES');
   });
 
   it('pushes and opens the PR when the branch has commits', async () => {
@@ -292,6 +342,7 @@ describe('createPR commits work the coder left uncommitted (zeenha fork)', () =>
     const result = await createPR(config());
     expect(result.success).toBe(false);
     expect(result.error).toContain('Could not commit');
+    expect(result.errorCode).toBe('COMMIT_FAILED');
     expect(pushCalls()).toHaveLength(0);
   });
 });

@@ -1,12 +1,16 @@
 import { create } from 'zustand';
 import { arrayMove } from '@dnd-kit/sortable';
 import type { Task, TaskStatus, SubtaskStatus, ImplementationPlan, Subtask, TaskMetadata, ExecutionProgress, ExecutionPhase, ReviewReason, TaskDraft, ImageAttachment, TaskOrderState } from '../../shared/types';
+import { extractPlannedFiles, isHoldActive } from '../../shared/utils/file-overlap';
 import { debugLog, debugWarn } from '../../shared/utils/debug-logger';
 import { useProjectStore } from './project-store';
+import { useTaskQueueStore } from './task-queue-store';
 import { useTaskLogsStore, MAX_LOG_ENTRIES } from './task-logs-store';
 
-/** Default max parallel tasks when no project setting is configured */
-export const DEFAULT_MAX_PARALLEL_TASKS = 3;
+import { DEFAULT_MAX_PARALLEL_TASKS } from '../../shared/constants/queue';
+
+// Re-exported so existing imports keep working (value lives in shared/constants/queue)
+export { DEFAULT_MAX_PARALLEL_TASKS };
 
 
 // Re-exported so existing imports keep working (logs live in task-logs-store)
@@ -385,7 +389,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
                 title,
                 description,
                 status,
-                files: [],
+                files: extractPlannedFiles(subtask),
                 verification: subtask.verification as Subtask['verification']
               };
             })
@@ -822,7 +826,9 @@ export async function forceCompleteTask(taskId: string): Promise<PersistStatusRe
  * @param excludeTaskId - Task ID to exclude from the count (e.g., when restarting a stuck task already in in_progress)
  */
 export function isQueueAtCapacity(excludeTaskId?: string): boolean {
-  const maxParallelTasks = useProjectStore.getState().getActiveProject()?.settings?.maxParallelTasks ?? DEFAULT_MAX_PARALLEL_TASKS;
+  const activeProject = useProjectStore.getState().getActiveProject();
+  const queued = activeProject ? useTaskQueueStore.getState().statesByProject[activeProject.id] : undefined;
+  const maxParallelTasks = queued?.maxParallelTasks ?? activeProject?.settings?.maxParallelTasks ?? DEFAULT_MAX_PARALLEL_TASKS;
   const currentTasks = useTaskStore.getState().tasks;
   const inProgressCount = currentTasks.filter((t) =>
     t.status === 'in_progress' && !t.metadata?.archivedAt && (!excludeTaskId || t.id !== excludeTaskId)
@@ -831,8 +837,8 @@ export function isQueueAtCapacity(excludeTaskId?: string): boolean {
 }
 
 export interface StartTaskOrQueueResult {
-  /** Whether the task was started ('started') or redirected to queue ('queued') */
-  action: 'started' | 'queued';
+  /** Whether the task was started ('started'), redirected to queue ('queued'), or kept in queue by an overlap hold ('held') */
+  action: 'started' | 'queued' | 'held';
   success: boolean;
   error?: string;
 }
@@ -851,6 +857,17 @@ export async function startTaskOrQueue(taskId: string): Promise<StartTaskOrQueue
   const task = useTaskStore.getState().tasks.find(t => t.id === taskId);
   // Exclude this task from the capacity check when it's already in_progress (stuck restart)
   const excludeId = task?.status === 'in_progress' ? taskId : undefined;
+
+  // zeenha fork: a task held until an overlapping task finishes waits in the queue
+  // even when capacity is free. processQueue releases it once the hold ends.
+  if (task && isHoldActive(task, useTaskStore.getState().tasks)) {
+    const result = await persistTaskStatus(taskId, 'queue');
+    if (!result.success) {
+      console.error('[Queue] Failed to hold task in queue:', taskId, result.error);
+      return { action: 'held', success: false, error: result.error };
+    }
+    return { action: 'held', success: true };
+  }
 
   if (isQueueAtCapacity(excludeId)) {
     const result = await persistTaskStatus(taskId, 'queue');
@@ -913,6 +930,7 @@ export async function persistUpdateTask(
     }
 
     console.error('Failed to persist task update:', result.error);
+    store.setError(result.error || null);
     return false;
   } catch (error) {
     console.error('Error persisting task update:', error);
@@ -1228,4 +1246,13 @@ export function getTaskProgress(task: Task): { completed: number; total: number;
   const completed = task.subtasks?.filter(s => s.status === 'completed').length || 0;
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
   return { completed, total, percentage };
+}
+
+/**
+ * zeenha fork: Hold a task until another task finishes (blockerId), or clear the
+ * hold (null). An undefined metadata value drops the key when task_metadata.json
+ * is written, so clearing removes it from disk.
+ */
+export function setTaskHold(taskId: string, blockerId: string | null): Promise<boolean> {
+  return persistUpdateTask(taskId, { metadata: { holdUntilTaskId: blockerId ?? undefined } });
 }

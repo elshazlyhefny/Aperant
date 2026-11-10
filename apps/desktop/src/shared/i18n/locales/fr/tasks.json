@@ -1,4 +1,27 @@
 {
+  "dependencies": {
+    "title": "Dépend de",
+    "add": "Ajouter la dépendance : {{title}}",
+    "addButton": "Ajouter",
+    "remove": "Retirer la dépendance : {{title}}",
+    "none": "Aucune dépendance",
+    "cycleError": "Cela créerait un cycle de dépendances : {{path}}",
+    "selfError": "Une tâche ne peut pas dépendre d'elle-même.",
+    "unknownError": "Une des dépendances sélectionnées n'existe plus.",
+    "searchPlaceholder": "Rechercher des tâches...",
+    "waitingFor": "En attente de {{title}}",
+    "waitingForMore": " +{{count}} autre(s)",
+    "heldFailed": "Bloquée : {{title}} a échoué",
+    "heldMissing": "Bloquée : dépendance introuvable",
+    "reason": {
+      "not_finished": "Pas encore terminée",
+      "pr_not_merged": "PR pas encore fusionnée",
+      "failed": "Échec",
+      "missing": "La tâche n'existe plus",
+      "archived": "Archivée"
+    },
+    "heldHint": "Cette tâche reste en attente tant que vous ne retirez pas la dépendance, ne relancez pas la tâche en échec ou ne déplacez pas cette tâche."
+  },
   "untitled": "Sans titre",
   "refreshTasks": "Actualiser les tâches",
   "status": {
@@ -41,7 +64,8 @@
     "hasErrors": "Contient des erreurs",
     "qaIssues": "Problèmes QA",
     "approvePlan": "Approuver le plan",
-    "stopped": "Arrêté"
+    "stopped": "Arrêté",
+    "tokenBudget": "Budget de jetons atteint"
   },
   "tooltips": {
     "archiveTask": "Archiver la tâche",
@@ -268,6 +292,12 @@
     "fastModeLabel": "Mode Rapide",
     "fastModeDescription": "Même modèle Opus 4.6 avec une sortie plus rapide. Coût plus élevé par token.",
     "fastModeNotice": "Nécessite « utilisation supplémentaire » activée sur votre abonnement Claude.",
+    "tokenBudgetLabel": "Budget de tokens",
+    "tokenBudgetDescription": "Met cette tâche en pause quand elle a utilisé ce nombre de tokens (entrée + sortie). Laissez vide pour utiliser la valeur par défaut du projet.",
+    "tokenBudgetInherited": "Valeur par défaut du projet : {{value}} tokens",
+    "tokenBudgetInheritedNone": "Valeur par défaut du projet : aucune",
+    "tokenBudgetPlaceholder": "ex. 500000",
+    "tokenBudgetNoLimit": "Aucune limite pour cette tâche",
     "errors": {
       "descriptionRequired": "Veuillez fournir une description",
       "maxImagesReached": "Maximum de 5 images autorisé",
@@ -348,14 +378,14 @@
     }
   },
   "deleteDialog": {
-    "title": "Supprimer la t\u00e2che",
-    "confirmMessage": "\u00cates-vous s\u00fbr de vouloir supprimer",
-    "destructiveWarning": "Cette action est irr\u00e9versible. Tous les fichiers de t\u00e2che, y compris la sp\u00e9cification, le plan d'impl\u00e9mentation et tout code g\u00e9n\u00e9r\u00e9 seront d\u00e9finitivement supprim\u00e9s du projet.",
-    "checkingChanges": "V\u00e9rification des changements non valid\u00e9s...",
-    "uncommittedChanges": "Le worktree de cette t\u00e2che contient {{count}} fichier(s) non valid\u00e9(s)",
-    "uncommittedChangesHint": "Ces changements n'ont pas \u00e9t\u00e9 valid\u00e9s ni fusionn\u00e9s. La suppression de cette t\u00e2che supprimera d\u00e9finitivement tout le travail non valid\u00e9 dans le worktree.",
+    "title": "Supprimer la tâche",
+    "confirmMessage": "Êtes-vous sûr de vouloir supprimer",
+    "destructiveWarning": "Cette action est irréversible. Tous les fichiers de tâche, y compris la spécification, le plan d'implémentation et tout code généré seront définitivement supprimés du projet.",
+    "checkingChanges": "Vérification des changements non validés...",
+    "uncommittedChanges": "Le worktree de cette tâche contient {{count}} fichier(s) non validé(s)",
+    "uncommittedChangesHint": "Ces changements n'ont pas été validés ni fusionnés. La suppression de cette tâche supprimera définitivement tout le travail non validé dans le worktree.",
     "cancel": "Annuler",
-    "deletePermanently": "Supprimer d\u00e9finitivement",
+    "deletePermanently": "Supprimer définitivement",
     "deleting": "Suppression..."
   },
   "failedTask": {
@@ -411,11 +441,100 @@
       "detail": "Détail"
     },
     "tokens": {
+      "budget": "Tokens du budget (entrée + sortie)",
       "input": "Jetons d'entrée",
       "output": "Jetons de sortie",
       "cacheRead": "Jetons lus du cache",
       "cacheCreation": "Jetons de création du cache"
     },
-    "note": "Les entrées ne contiennent que des jetons et des durées ; aucun coût monétaire n'est affiché."
+    "budgetUsed": "{{used}} sur {{limit}} tokens ({{percent}}%)",
+    "note": "Les entrées ne contiennent que des jetons et des durées ; aucun coût monétaire n'est affiché. Les lectures de cache sont incluses dans les tokens d'entrée et ne sont pas ajoutées une seconde fois au budget."
+  },
+  "delivery": {
+    "title": "Livraison et utilisation des jetons",
+    "refresh": "Actualiser",
+    "loading": "Chargement des métriques de livraison…",
+    "error": "Échec du chargement des métriques de livraison",
+    "retry": "Réessayer",
+    "empty": "Aucune tâche terminée ou enregistrée sur cette période",
+    "emptyHint": "Lancez des tâches pour voir ici les métriques de livraison et de jetons.",
+    "period": {
+      "label": "Période",
+      "days7": "7 jours",
+      "days30": "30 jours",
+      "days90": "90 jours",
+      "all": "Tout"
+    },
+    "cards": {
+      "tasksScanned": "Tâches analysées",
+      "completedTasks": "Tâches terminées",
+      "totalTokens": "Total de jetons",
+      "totalDuration": "Durée totale",
+      "avgTokens": "Jetons moyens par tâche terminée",
+      "avgDuration": "Durée moyenne par tâche terminée",
+      "failedBeforeWork": "Échec avant tout travail",
+      "avgQa": "Itérations QA moyennes"
+    },
+    "excluded": "{{missing}} tâches sans métriques et {{corrupt}} avec des métriques illisibles ont été exclues.",
+    "trend": "Tendance par jour",
+    "byPhase": "Utilisation par phase",
+    "byModel": "Utilisation par modèle",
+    "columns": {
+      "date": "Date",
+      "completed": "Tâches terminées",
+      "tokensPerTask": "Jetons par tâche terminée",
+      "phase": "Phase",
+      "model": "Modèle",
+      "sessions": "Sessions",
+      "duration": "Durée",
+      "input": "Entrée",
+      "output": "Sortie",
+      "total": "Total"
+    },
+    "note": "La reprise après limite de débit n'est pas enregistrée ; le temps perdu à cause des limites n'est donc pas affiché séparément."
+  },
+  "prFeedback": {
+    "title": "Retours de la PR",
+    "refresh": "Actualiser",
+    "failedChecks": "Vérifications en échec",
+    "unresolvedComments": "Commentaires de revue non résolus",
+    "changeRequests": "Demandes de modifications",
+    "empty": "Aucune vérification en échec ni retour de revue ouvert.",
+    "open": "Ouvrir sur GitHub",
+    "send": "Envoyer la sélection à l'agent",
+    "started": "Suivi démarré. L'agent ne poussera vers la pull request qu'après l'approbation de la QA.",
+    "sendFailed": "Impossible de démarrer le suivi",
+    "loadFailed": "Impossible de charger les retours de la PR : {{error}}",
+    "blocked": {
+      "worktree_missing": "Le worktree de cette tâche n'existe plus (par exemple supprimé après la fusion de la PR, ou par un nettoyage) : aucun suivi ne peut s'exécuter ici. Créez plutôt une nouvelle tâche à partir de la PR.",
+      "pr_not_open": "La pull request n'est plus ouverte : les retours ne peuvent pas être envoyés à l'agent.",
+      "agent_running": "L'agent est déjà en cours d'exécution pour cette tâche. Attendez qu'il termine.",
+      "auth_required": "Une authentification GitHub est requise pour envoyer les retours. Connectez-vous à GitHub puis actualisez.",
+      "no_github_config": "GitHub n'est pas configuré pour ce projet.",
+      "branch_mismatch": "Le worktree de la tâche n'est pas sur la branche de la pull request : aucun suivi ne peut s'exécuter ici."
+    }
+  },
+  "tokenBudgetBanner": {
+    "title": "En pause : budget de tokens atteint",
+    "usage": "En pause : {{used}} sur {{limit}} tokens utilisés",
+    "body": "Le worktree et les sous-tâches terminées sont conservés. Augmentez la limite pour continuer, ou reprenez sans limite. Reprendre sans l'augmenter remet la tâche en pause aussitôt.",
+    "fieldLabel": "Nouvelle limite de tokens",
+    "unlimited": "Illimité",
+    "resume": "Augmenter la limite et reprendre",
+    "saveFailed": "Impossible d'enregistrer la nouvelle limite"
+  },
+  "overlap": {
+    "badge": "Chevauche « {{title}} »",
+    "badgeMore": "Chevauche « {{title}} » +{{count}}",
+    "waitingFor": "En attente de « {{title}} »",
+    "tooltip": "{{title}} : {{count}} fichier(s) en commun",
+    "heldToast": "La tâche « {{title}} » reste en file d'attente jusqu'à la fin de la tâche qui chevauche.",
+    "title": "Les fichiers prévus se chevauchent avec une autre tâche",
+    "sharedWith": "{{title}} : {{count}} fichier(s) en commun",
+    "wait": "Attendre {{title}}",
+    "stopWaiting": "Arrêter d'attendre",
+    "none": "Aucun chevauchement de fichiers prévus avec les autres tâches actives.",
+    "unknown": "Les fichiers prévus sont inconnus car le plan ne liste aucun fichier.",
+    "holdFailed": "Impossible d'enregistrer l'attente"
   }
 }

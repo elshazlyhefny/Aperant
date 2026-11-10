@@ -39,6 +39,7 @@ import type {
   TokenUsage,
   SessionMessage,
 } from './types';
+import { TOKEN_BUDGET_ERROR_CODE } from './types';
 import type { QueueResolvedAuth } from '../auth/types';
 
 // =============================================================================
@@ -276,6 +277,13 @@ async function executeStream(
     ? buildMemoryAwareStopCondition(baseMaxSteps, memoryContext.calibrationFactor)
     : stepCountIs(baseMaxSteps);
 
+  // zeenha fork: token budget stop condition; absent or limitless guard adds nothing.
+  const budget = config.tokenBudget?.enabled ? config.tokenBudget : undefined;
+  let budgetReached = false;
+  const stopWhen = budget
+    ? [stopCondition, budget.buildStopCondition(() => { budgetReached = true; })]
+    : stopCondition;
+
   const maxSteps = baseMaxSteps; // Keep for outcome detection
   const progressTracker = new ProgressTracker();
   const messages: SessionMessage[] = [...config.initialMessages];
@@ -371,7 +379,7 @@ async function executeStream(
     messages: aiMessages,
     tools: tools ?? {},
     ...(useOutputSchema ? { output: Output.object({ schema: config.outputSchema! }) } : {}),
-    stopWhen: stopCondition,
+    stopWhen,
     abortSignal: mergedAbortSignal,
     ...((thinkingOptions || isCodex || (useOutputSchema && isAnthropicModel) || isClaudeCode) ? {
       providerOptions: {
@@ -497,6 +505,7 @@ async function executeStream(
   } catch (error: unknown) {
     // Stream-level errors (network, abort, etc.)
     const summary = streamHandler.getSummary();
+    config.tokenBudget?.commitSegment(summary.usage);
 
     // Check if this was a stream inactivity timeout
     if (
@@ -633,6 +642,26 @@ async function executeStream(
     ...(totalUsage?.cacheReadTokens ? { cacheReadTokens: totalUsage.cacheReadTokens } : {}),
     ...(totalUsage?.cacheCreationTokens ? { cacheCreationTokens: totalUsage.cacheCreationTokens } : {}),
   };
+
+  // zeenha fork: a run cut off by the token budget is never reported as completed.
+  const segmentTokens = usage.promptTokens + usage.completionTokens;
+  const overBudget = budgetReached || (budget?.isExceeded(segmentTokens) ?? false);
+  config.tokenBudget?.commitSegment(usage);
+  if (overBudget && budget) {
+    const { limit, used } = budget.snapshot();
+    return {
+      outcome: 'cancelled',
+      stepsExecuted: summary.stepsExecuted,
+      usage,
+      error: {
+        code: TOKEN_BUDGET_ERROR_CODE,
+        message: `Token budget reached (${used.toLocaleString()} of ${limit.toLocaleString()} tokens used)`,
+        retryable: false,
+      },
+      messages,
+      toolCallCount: summary.toolCallCount,
+    };
+  }
 
   return {
     outcome,

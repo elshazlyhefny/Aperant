@@ -14,6 +14,7 @@ import enBitbucket from './locales/en/bitbucket.json';
 import enTaskReview from './locales/en/taskReview.json';
 import enTerminal from './locales/en/terminal.json';
 import enErrors from './locales/en/errors.json';
+import enSchedules from './locales/en/schedules.json';
 
 // Import French translation resources
 import frCommon from './locales/fr/common.json';
@@ -28,6 +29,7 @@ import frBitbucket from './locales/fr/bitbucket.json';
 import frTaskReview from './locales/fr/taskReview.json';
 import frTerminal from './locales/fr/terminal.json';
 import frErrors from './locales/fr/errors.json';
+import frSchedules from './locales/fr/schedules.json';
 
 export const defaultNS = 'common';
 
@@ -44,7 +46,8 @@ export const resources = {
     bitbucket: enBitbucket,
     taskReview: enTaskReview,
     terminal: enTerminal,
-    errors: enErrors
+    errors: enErrors,
+    schedules: enSchedules
   },
   fr: {
     common: frCommon,
@@ -58,7 +61,8 @@ export const resources = {
     bitbucket: frBitbucket,
     taskReview: frTaskReview,
     terminal: frTerminal,
-    errors: frErrors
+    errors: frErrors,
+    schedules: frSchedules
   }
 } as const;
 
@@ -69,7 +73,7 @@ i18n
     lng: 'en', // Default language (will be overridden by settings)
     fallbackLng: 'en',
     defaultNS,
-    ns: ['common', 'navigation', 'settings', 'tasks', 'welcome', 'onboarding', 'dialogs', 'gitlab', 'bitbucket', 'taskReview', 'terminal', 'errors'],
+    ns: ['common', 'navigation', 'settings', 'tasks', 'welcome', 'onboarding', 'dialogs', 'gitlab', 'bitbucket', 'taskReview', 'terminal', 'errors', 'schedules'],
     interpolation: {
       escapeValue: false // React already escapes values
     },

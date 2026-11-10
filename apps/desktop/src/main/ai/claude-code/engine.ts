@@ -15,7 +15,14 @@ import { createInterface } from 'node:readline';
 
 import type { Tool as AITool } from 'ai';
 
-import { buildClaudeArgs, buildClaudeEnv, type ClaudeEffort, resolveClaudeBinary } from './cli-args';
+import {
+  buildClaudeArgs,
+  buildClaudeEnv,
+  buildStreamJsonUserMessage,
+  type ClaudeEffort,
+  type PromptImage,
+  resolveClaudeBinary,
+} from './cli-args';
 import {
   type ClaudeCodePart,
   type CliStep,
@@ -40,6 +47,8 @@ export interface ClaudeCodeRunOptions {
   modelId: string;
   system?: string;
   prompt: string;
+  /** Images sent with the prompt (stream-json input). */
+  images?: PromptImage[];
   tools?: Record<string, AITool>;
   effort?: ClaudeEffort;
   jsonSchema?: Record<string, unknown>;
@@ -157,6 +166,7 @@ export async function runClaudeCode(options: ClaudeCodeRunOptions): Promise<Clau
       await writeFile(mcpConfig, bridge.mcpConfig(), { mode: 0o600 });
     }
 
+    const hasImages = (options.images?.length ?? 0) > 0;
     const args = buildClaudeArgs({
       modelId: options.modelId,
       systemPromptFile,
@@ -164,6 +174,7 @@ export async function runClaudeCode(options: ClaudeCodeRunOptions): Promise<Clau
       hasTools,
       effort: options.effort,
       jsonSchema: options.jsonSchema,
+      inputStreamJson: hasImages,
     });
 
     // The signal itself is the authority: an abort before the listener existed set no flag.
@@ -236,7 +247,9 @@ export async function runClaudeCode(options: ClaudeCodeRunOptions): Promise<Clau
     proc.stdin?.on('error', () => {
       /* the CLI may exit before reading all of stdin; the exit code tells the story */
     });
-    proc.stdin?.end(options.prompt);
+    proc.stdin?.end(
+      hasImages ? buildStreamJsonUserMessage(options.prompt, options.images ?? []) : options.prompt,
+    );
 
     if (proc.stdout) {
       const lines = createInterface({ input: proc.stdout, crlfDelay: Number.POSITIVE_INFINITY });

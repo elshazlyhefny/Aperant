@@ -12,3 +12,4 @@ export { TaskModalLayout } from './TaskModalLayout';
 export { TaskFormFields } from './TaskFormFields';
 export { ClassificationFields } from './ClassificationFields';
 export { useImageUpload } from './useImageUpload';
+export { TaskDependencyPicker, mapDependencyError } from './TaskDependencyPicker';

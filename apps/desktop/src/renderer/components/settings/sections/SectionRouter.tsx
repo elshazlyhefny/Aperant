@@ -3,6 +3,7 @@ import type { Project, ProjectSettings as ProjectSettingsType, AutoBuildVersionI
 import { SettingsSection } from '../SettingsSection';
 import { GeneralSettings } from '../../project-settings/GeneralSettings';
 import { AgentMemorySettings } from '../../project-settings/AgentMemorySettings';
+import { BashSandboxSettings } from '../../project-settings/BashSandboxSettings';
 import { LinearIntegration } from '../integrations/LinearIntegration';
 import { GitHubIntegration } from '../integrations/GitHubIntegration';
 import { GitLabIntegration } from '../integrations/GitLabIntegration';
@@ -220,6 +221,16 @@ export function SectionRouter({
               onMemoryEnabledChange={onAppMemoryEnabledChange}
             />
           </InitializationGuard>
+        </SettingsSection>
+      );
+
+    case 'security':
+      return (
+        <SettingsSection
+          title={t('projectSections.security.title')}
+          description={t('projectSections.security.description')}
+        >
+          <BashSandboxSettings settings={settings} setSettings={setSettings} />
         </SettingsSection>
       );
 

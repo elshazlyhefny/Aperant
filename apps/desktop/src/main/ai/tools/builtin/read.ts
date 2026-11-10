@@ -18,7 +18,8 @@ import { z } from 'zod/v3';
 
 import { assertPathContained } from '../../security/path-containment';
 import { Tool } from '../define';
-import { DEFAULT_EXECUTION_OPTIONS, ToolPermission } from '../types';
+import { DEFAULT_EXECUTION_OPTIONS, isImageToolResult, ToolPermission } from '../types';
+import type { ImageToolResult } from '../types';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -37,6 +38,9 @@ const IMAGE_EXTENSIONS = new Set([
   '.svg',
   '.ico',
 ]);
+
+/** Images above this size are not sent to the model. */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 const PDF_EXTENSION = '.pdf';
 
@@ -96,7 +100,7 @@ function isPdfFile(filePath: string): boolean {
 // Tool Definition
 // ---------------------------------------------------------------------------
 
-export const readTool = Tool.define({
+export const readTool = Tool.define<typeof inputSchema, string | ImageToolResult>({
   metadata: {
     name: 'Read',
     description:
@@ -105,6 +109,18 @@ export const readTool = Tool.define({
     executionOptions: DEFAULT_EXECUTION_OPTIONS,
   },
   inputSchema,
+  toModelOutput: ({ output }) => {
+    if (isImageToolResult(output)) {
+      return {
+        type: 'content',
+        value: [
+          { type: 'text', text: `[Image file: ${output.filename}]` },
+          { type: 'image-data', data: output.data, mediaType: output.mediaType },
+        ],
+      };
+    }
+    return { type: 'text', value: typeof output === 'string' ? output : JSON.stringify(output) };
+  },
   execute: async (input, context) => {
     const { file_path, offset, limit, pages } = input;
 
@@ -133,12 +149,27 @@ export const readTool = Tool.define({
 
       // Image files — read from same fd
       if (isImageFile(resolvedPath)) {
-        const buffer = fs.readFileSync(fd);
-        const base64 = buffer.toString('base64');
+        const filename = path.basename(resolvedPath);
         const ext = path.extname(resolvedPath).toLowerCase().slice(1);
-        const mimeType =
-          ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
-        return `[Image file: ${path.basename(resolvedPath)}]\ndata:${mimeType};base64,${base64}`;
+        if (ext === 'svg') {
+          return `[Image file: ${filename}] SVG is not a raster image the model can view. Read it as text with Bash (cat) if you need its markup.`;
+        }
+        if (context.modelSupportsVision === false) {
+          return `[Image file: ${filename}] This model cannot view images, so the image was not loaded.`;
+        }
+        if (stat.size > MAX_IMAGE_BYTES) {
+          return `[Image file: ${filename}] The image is too large to view (${Math.round(stat.size / 1024 / 1024)}MB, limit ${MAX_IMAGE_BYTES / 1024 / 1024}MB).`;
+        }
+        const buffer = fs.readFileSync(fd);
+        const mediaType = `image/${ext === 'jpg' ? 'jpeg' : ext === 'ico' ? 'x-icon' : ext}`;
+        const result: ImageToolResult = {
+          type: 'image',
+          filename,
+          mediaType,
+          data: buffer.toString('base64'),
+          bytes: buffer.length,
+        };
+        return result;
       }
 
       // PDF files — size from same fstat

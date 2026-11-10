@@ -23,10 +23,10 @@ vi.mock('electron', () => ({
   app: { getPath: () => os.tmpdir(), isPackaged: false, on: vi.fn() },
 }));
 
-const ref = vi.hoisted(() => ({ path: '', worktree: '', settings: {} as Record<string, unknown> }));
+const ref = vi.hoisted(() => ({ path: '', worktree: '', settings: {} as Record<string, unknown>, noTask: false }));
 vi.mock('../shared', () => ({
   findTaskAndProject: () => ({
-    task: { id: 't1', specId: '001-x', status: 'human_review', reviewReason: 'completed' },
+    task: ref.noTask ? undefined : { id: 't1', specId: '001-x', status: 'human_review', reviewReason: 'completed' },
     project: { id: 'p1', path: ref.path, autoBuildPath: '.auto-claude', settings: ref.settings },
   }),
 }));
@@ -53,7 +53,8 @@ async function createPrHandler() {
   if (!fn) throw new Error('TASK_WORKTREE_CREATE_PR handler was not registered');
   return fn as (e: unknown, taskId: string, options?: Record<string, unknown>) => Promise<{
     success: boolean;
-    data?: { success: boolean; prUrl?: string; alreadyExists?: boolean };
+    error?: string;
+    data?: { success: boolean; prUrl?: string; alreadyExists?: boolean; errorCode?: string };
   }>;
 }
 
@@ -69,6 +70,7 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
     ref.path = fs.mkdtempSync(path.join(os.tmpdir(), 'create-pr-'));
     ref.worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'create-pr-wt-'));
     ref.settings = {};
+    ref.noTask = false;
     fs.mkdirSync(path.dirname(specFile('x')), { recursive: true });
     fs.writeFileSync(specFile('implementation_plan.json'), JSON.stringify({ status: 'human_review', phases: [] }));
     fs.writeFileSync(specFile('task_metadata.json'), JSON.stringify({}));
@@ -192,6 +194,79 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
       await handler({}, 't1');
 
       expect(createPR.mock.calls.at(-1)?.[0].subtaskProgress).toBeUndefined();
+    });
+  });
+
+  describe('error codes', () => {
+    it('TASK_NOT_FOUND', async () => {
+      ref.noTask = true;
+      const result = await (await createPrHandler())({}, 't1');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Task not found');
+      expect(result.data?.errorCode).toBe('TASK_NOT_FOUND');
+    });
+
+    it('SPEC_DIR_NOT_FOUND', async () => {
+      fs.rmSync(path.join(ref.path, '.auto-claude', 'specs', '001-x'), { recursive: true, force: true });
+      const result = await (await createPrHandler())({}, 't1');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Spec directory not found');
+      expect(result.data?.errorCode).toBe('SPEC_DIR_NOT_FOUND');
+    });
+
+    it('NO_WORKTREE', async () => {
+      ref.worktree = '';
+      const result = await (await createPrHandler())({}, 't1');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('No worktree found for this task');
+      expect(result.data?.errorCode).toBe('NO_WORKTREE');
+    });
+
+    it('INVALID_TARGET_BRANCH', async () => {
+      const result = await (await createPrHandler())({}, 't1', { targetBranch: 'bad branch name' });
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Invalid target branch name');
+      expect(result.data?.errorCode).toBe('INVALID_TARGET_BRANCH');
+    });
+
+    it('INVALID_TITLE_LENGTH', async () => {
+      const result = await (await createPrHandler())({}, 't1', { title: 'a'.repeat(5000) });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/exceeds maximum length/);
+      expect(result.data?.errorCode).toBe('INVALID_TITLE_LENGTH');
+    });
+
+    it('INVALID_TITLE_CHARS', async () => {
+      const result = await (await createPrHandler())({}, 't1', { title: 'bad\u0000title' });
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('PR title contains invalid characters');
+      expect(result.data?.errorCode).toBe('INVALID_TITLE_CHARS');
+    });
+
+    it.each(['NO_CHANGES', 'BRANCH_REFUSED', 'COMMIT_FAILED', 'PUSH_FAILED', 'GH_TIMEOUT', 'GH_FAILED', 'RETRIES_EXHAUSTED'])(
+      'passes through %s from createPR',
+      async (code) => {
+        createPR.mockResolvedValue({ success: false, errorCode: code, error: `msg ${code}` });
+        const result = await (await createPrHandler())({}, 't1');
+        expect(result.success).toBe(false);
+        expect(result.error).toBe(`msg ${code}`);
+        expect(result.data?.errorCode).toBe(code);
+      }
+    );
+
+    it('maps a createPR failure without a code to UNKNOWN', async () => {
+      createPR.mockResolvedValue({ success: false, error: 'boom' });
+      const result = await (await createPrHandler())({}, 't1');
+      expect(result.error).toBe('boom');
+      expect(result.data?.errorCode).toBe('UNKNOWN');
+    });
+
+    it('maps a thrown exception to UNKNOWN', async () => {
+      createPR.mockRejectedValue(new Error('exploded'));
+      const result = await (await createPrHandler())({}, 't1');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('exploded');
+      expect(result.data?.errorCode).toBe('UNKNOWN');
     });
   });
 });

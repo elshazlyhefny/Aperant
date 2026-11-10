@@ -71,6 +71,29 @@ describe('tool bridge', () => {
     await client.close();
   });
 
+  it('returns an image tool result as an MCP image block and does not log the base64', async () => {
+    const results: unknown[] = [];
+    const imageTool = tool({
+      description: 'img',
+      inputSchema: z.object({}),
+      execute: async () => ({ type: 'image', filename: 'a.png', mediaType: 'image/png', data: 'QUJD', bytes: 3 }),
+    });
+    const bridge = await startToolBridge({ Read: imageTool }, {
+      onCall: () => undefined,
+      onResult: (_id, _name, _input, output) => results.push(output),
+      onError: () => undefined,
+    });
+    bridges.push(bridge);
+    const client = await connect(bridge);
+    const result = await client.callTool({ name: 'Read', arguments: {} });
+    expect(result.content).toEqual([
+      { type: 'text', text: '[Image file: a.png]' },
+      { type: 'image', data: 'QUJD', mimeType: 'image/png' },
+    ]);
+    expect(JSON.stringify(results)).not.toContain('QUJD');
+    await client.close();
+  });
+
   it('refuses a request without the right token', async () => {
     const bridge = await startToolBridge(makeTools([]), { onCall: () => undefined, onResult: () => undefined, onError: () => undefined });
     bridges.push(bridge);
