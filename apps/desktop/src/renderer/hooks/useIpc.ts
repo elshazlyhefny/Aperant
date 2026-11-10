@@ -382,6 +382,13 @@ export function useIpcListeners(): void {
       }
     );
 
+    // Clear a pending auth failure once the failed profile re-authenticates
+    const cleanupOAuthToken = window.electronAPI.onTerminalOAuthToken((info) => {
+      const { authFailureInfo, clearAuthFailure } = useAuthFailureStore.getState();
+      if (info.success && info.profileId && info.profileId === authFailureInfo?.profileId) {
+        clearAuthFailure();
+      }
+    });
     const cleanupTaskQueueState = window.electronAPI.onTaskQueueStateChange(
       (state) => useTaskQueueStore.getState().setState(state)
     );
@@ -406,6 +413,7 @@ export function useIpcListeners(): void {
       cleanupRateLimit();
       cleanupSDKRateLimit();
       cleanupAuthFailure();
+      cleanupOAuthToken();
       cleanupTaskQueueState();
     };
   }, [appendLog, setError]);

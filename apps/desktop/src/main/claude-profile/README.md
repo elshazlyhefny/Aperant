@@ -140,6 +140,31 @@ const status = isProfileRateLimited(profile);
 5. **Readability** - Smaller files are easier to navigate and understand
 6. **Type Safety** - Clear module boundaries with explicit TypeScript types
 
+## Usage monitoring layout
+
+`usage-monitor.ts` keeps the `UsageMonitor` class (scheduling, caching, failover, account swapping) and its public exports (`UsageMonitor`, `getUsageMonitor`, `getUsageEndpoint`, `detectProvider`, `ApiProvider`). Provider-specific logic lives in `usage/`:
+
+```
+usage/
+├── providers/               # One adapter per provider + registry.ts
+├── endpoints.ts             # getUsageEndpoint / detectProvider
+├── usage-api-client.ts      # HTTP fetch of usage data
+├── credential-resolver.ts   # Credential lookup for active/inactive profiles
+├── active-profile-resolver.ts
+├── availability-score.ts    # Swap-target scoring
+├── provider-accounts.ts     # Codex / z.ai provider-account usage
+├── usage-log.ts             # Logging helpers
+└── types.ts
+```
+
+### How to add a usage source
+
+1. Create an adapter file in `usage/providers/` (endpoint, auth headers, response normalization).
+2. Register it in `usage/providers/registry.ts`.
+3. Add the provider to `shared/utils/provider-detection.ts`.
+
+No change to `usage-monitor.ts` scheduling or failover is needed.
+
 ## Backward Compatibility
 
 All existing imports continue to work without modification:

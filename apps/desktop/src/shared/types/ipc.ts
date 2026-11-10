@@ -27,7 +27,8 @@ import type {
   McpHealthCheckResult,
   McpTestConnectionResult
 } from './project';
-import type { TaskRunMetrics } from './run-metrics';
+import type { PRFeedbackResult, StartPRFollowUpResult } from './pr-feedback';
+import type { TaskRunMetrics, ProjectRunMetrics } from './run-metrics';
 import type { TaskQueueState } from './task-queue';
 import type { ScreenshotSource } from './screenshot';
 import type {
@@ -121,6 +122,10 @@ import type {
   LinearIssue,
   LinearImportResult,
   LinearSyncStatus,
+  JiraProject,
+  JiraIssuePage,
+  JiraImportResult,
+  JiraSyncStatus,
   GitHubRepository,
   GitHubIssue,
   GitHubSyncStatus,
@@ -138,7 +143,10 @@ import type {
   GitLabInvestigationStatus,
   GitLabMRReviewResult,
   GitLabMRReviewProgress,
-  GitLabNewCommitsCheck
+  GitLabNewCommitsCheck,
+  BitbucketPullRequest,
+  BitbucketSyncStatus,
+  BitbucketDetectedRepository
 } from './integrations';
 import type { APIProfile, ProfilesFile, TestConnectionResult, DiscoverModelsResult } from './profile';
 import type { ProviderAccount } from './provider-account';
@@ -179,7 +187,9 @@ export interface TabState {
   tabOrder: string[];
 }
 
-export interface ElectronAPI {
+import type { ScheduleAPI } from '../../preload/api/schedule-api';
+
+export interface ElectronAPI extends ScheduleAPI {
   // Project operations
   addProject: (projectPath: string) => Promise<IPCResult<Project>>;
   removeProject: (projectId: string) => Promise<IPCResult>;
@@ -205,6 +215,8 @@ export interface ElectronAPI {
   stopTask: (taskId: string) => void;
   submitReview: (taskId: string, approved: boolean, feedback?: string, images?: ImageAttachment[]) => Promise<IPCResult>;
   updateTaskStatus: (taskId: string, status: TaskStatus, options?: { forceCleanup?: boolean }) => Promise<IPCResult & { worktreeExists?: boolean; worktreePath?: string }>;
+  getPRFeedback: (taskId: string) => Promise<IPCResult<PRFeedbackResult>>;
+  startPRFollowUp: (taskId: string, itemIds: string[]) => Promise<IPCResult<StartPRFollowUpResult>>;
   recoverStuckTask: (taskId: string, options?: TaskRecoveryOptions) => Promise<IPCResult<TaskRecoveryResult>>;
   checkTaskRunning: (taskId: string) => Promise<IPCResult<boolean>>;
   resumePausedTask: (taskId: string) => Promise<IPCResult>;
@@ -497,6 +509,19 @@ export interface ElectronAPI {
   importLinearIssues: (projectId: string, issueIds: string[]) => Promise<IPCResult<LinearImportResult>>;
   checkLinearConnection: (projectId: string) => Promise<IPCResult<LinearSyncStatus>>;
 
+  // Jira integration operations
+  checkJiraConnection: (projectId: string) => Promise<IPCResult<JiraSyncStatus>>;
+  getJiraProjects: (projectId: string) => Promise<IPCResult<JiraProject[]>>;
+  getJiraIssues: (
+    projectId: string,
+    options?: { projectKey?: string; searchText?: string; nextPageToken?: string }
+  ) => Promise<IPCResult<JiraIssuePage>>;
+  importJiraIssues: (
+    projectId: string,
+    issueKeys: string[],
+    allowDuplicates?: boolean
+  ) => Promise<IPCResult<JiraImportResult>>;
+
   // GitHub integration operations
   getGitHubRepositories: (projectId: string) => Promise<IPCResult<GitHubRepository[]>>;
   getGitHubIssues: (
@@ -558,6 +583,14 @@ export interface ElectronAPI {
   onGitHubInvestigationError: (
     callback: (projectId: string, error: string) => void
   ) => () => void;
+
+  // Bitbucket integration operations
+  checkBitbucketConnection: (projectId: string) => Promise<IPCResult<BitbucketSyncStatus>>;
+  detectBitbucketRepository: (projectId: string) => Promise<IPCResult<BitbucketDetectedRepository | null>>;
+  getBitbucketPullRequests: (projectId: string, state?: string) => Promise<IPCResult<BitbucketPullRequest[]>>;
+  getBitbucketPullRequest: (projectId: string, prId: number) => Promise<IPCResult<BitbucketPullRequest>>;
+  getBitbucketPullRequestDiff: (projectId: string, prId: number) => Promise<IPCResult<string>>;
+  postBitbucketPullRequestComment: (projectId: string, prId: number, body: string) => Promise<IPCResult<{ id: number }>>;
 
   // GitLab integration operations
   getGitLabProjects: (projectId: string) => Promise<IPCResult<GitLabProject[]>>;
@@ -827,6 +860,8 @@ export interface ElectronAPI {
   // Task logs operations
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
   getTaskRunMetrics: (projectId: string, specId: string) => Promise<IPCResult<TaskRunMetrics | null>>;
+  // zeenha fork: project-wide delivery and token metrics
+  getProjectRunMetrics: (projectId: string, periodDays: number | null) => Promise<IPCResult<ProjectRunMetrics | null>>;
   watchTaskLogs: (projectId: string, specId: string) => Promise<IPCResult>;
   unwatchTaskLogs: (specId: string) => Promise<IPCResult>;
 

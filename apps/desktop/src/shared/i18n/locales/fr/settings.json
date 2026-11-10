@@ -449,6 +449,20 @@
       "integrationDescription": "Se connecter à GitLab pour le suivi des issues",
       "syncDescription": "Synchroniser avec GitLab Issues"
     },
+    "bitbucket": {
+      "title": "Bitbucket",
+      "description": "Pull requests Bitbucket",
+      "integrationTitle": "Intégration Bitbucket",
+      "integrationDescription": "Se connecter à Bitbucket pour la revue des pull requests",
+      "syncDescription": "Synchroniser avec les pull requests Bitbucket"
+    },
+    "jira": {
+      "title": "Jira",
+      "description": "Importation des tickets Jira",
+      "integrationTitle": "Intégration Jira",
+      "integrationDescription": "Se connecter à Jira pour importer des tickets comme tâches",
+      "syncDescription": "Importer depuis Jira"
+    },
     "security": {
       "title": "Sécurité",
       "description": "Isoler les commandes shell des agents",

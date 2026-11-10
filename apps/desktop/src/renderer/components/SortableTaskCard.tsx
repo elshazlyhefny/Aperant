@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { TaskCard } from './TaskCard';
 import { cn } from '../lib/utils';
 import type { Task, TaskStatus } from '../../shared/types';
+import type { TaskFileOverlap } from '../../shared/utils/file-overlap';
 
 interface SortableTaskCardProps {
   task: Task;
@@ -15,6 +16,9 @@ interface SortableTaskCardProps {
   onToggleSelect?: () => void;
   // Disable dragging (e.g. while a search filter is active)
   isDragDisabled?: boolean;
+  // zeenha fork: overlap warning data for the card
+  fileOverlaps?: TaskFileOverlap[];
+  holdBlockerTitle?: string;
 }
 
 // Custom comparator - only re-render when task or onClick actually changed
@@ -31,11 +35,13 @@ function sortableTaskCardPropsAreEqual(
     prevProps.isSelectable === nextProps.isSelectable &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.onToggleSelect === nextProps.onToggleSelect &&
-    prevProps.isDragDisabled === nextProps.isDragDisabled
+    prevProps.isDragDisabled === nextProps.isDragDisabled &&
+    prevProps.fileOverlaps === nextProps.fileOverlaps &&
+    prevProps.holdBlockerTitle === nextProps.holdBlockerTitle
   );
 }
 
-export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, onStatusChange, isSelectable, isSelected, onToggleSelect, isDragDisabled }: SortableTaskCardProps) {
+export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, onStatusChange, isSelectable, isSelected, onToggleSelect, isDragDisabled, fileOverlaps, holdBlockerTitle }: SortableTaskCardProps) {
   const {
     attributes,
     listeners,
@@ -94,6 +100,8 @@ export const SortableTaskCard = memo(function SortableTaskCard({ task, onClick, 
           isSelectable={isSelectable}
           isSelected={isSelected}
           onToggleSelect={onToggleSelect}
+          fileOverlaps={fileOverlaps}
+          holdBlockerTitle={holdBlockerTitle}
         />
       </div>
     </div>

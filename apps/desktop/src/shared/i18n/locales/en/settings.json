@@ -449,6 +449,20 @@
       "integrationDescription": "Connect to GitLab for issue tracking",
       "syncDescription": "Sync with GitLab Issues"
     },
+    "bitbucket": {
+      "title": "Bitbucket",
+      "description": "Bitbucket pull requests",
+      "integrationTitle": "Bitbucket Integration",
+      "integrationDescription": "Connect to Bitbucket for pull request review",
+      "syncDescription": "Sync with Bitbucket Pull Requests"
+    },
+    "jira": {
+      "title": "Jira",
+      "description": "Jira issues sync",
+      "integrationTitle": "Jira Integration",
+      "integrationDescription": "Connect to Jira to import issues as tasks",
+      "syncDescription": "Import from Jira Issues"
+    },
     "security": {
       "title": "Security",
       "description": "Isolate agent shell commands",

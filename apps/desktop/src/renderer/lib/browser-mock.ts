@@ -330,6 +330,15 @@ const browserMockAPI: ElectronAPI = {
   },
 
   // Queue Routing API (rate limit recovery)
+  // Schedules (zeenha fork)
+  listSchedules: async () => ({ success: true, data: [] }),
+  createSchedule: async () => ({ success: false, error: 'Not available in browser mode' }),
+  updateSchedule: async () => ({ success: false, error: 'Not available in browser mode' }),
+  deleteSchedule: async () => ({ success: true }),
+  setScheduleEnabled: async () => ({ success: false, error: 'Not available in browser mode' }),
+  acknowledgeScheduleReports: async () => ({ success: false, error: 'Not available in browser mode' }),
+  onSchedulesChanged: () => () => {},
+
   queue: {
     getRunningTasksByProfile: async () => ({ success: true, data: { byProfile: {}, totalRunning: 0 } }),
     getBestProfileForTask: async () => ({ success: true, data: null }),

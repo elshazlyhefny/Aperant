@@ -674,7 +674,7 @@ export async function suggestPRTitleForWorktree(options: {
  * remote work this clone has not seen. Only the task's own `auto-claude/*`
  * branch is ever force-pushed: anything else is refused before git runs.
  */
-async function pushBranch(
+export async function pushBranch(
   worktreePath: string,
   gitPath: string,
   branchName: string,
