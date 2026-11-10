@@ -40,7 +40,8 @@
     "hasErrors": "Has Errors",
     "qaIssues": "QA Issues",
     "approvePlan": "Approve Plan",
-    "stopped": "Stopped"
+    "stopped": "Stopped",
+    "tokenBudget": "Token Budget Reached"
   },
   "tooltips": {
     "archiveTask": "Archive task",
@@ -267,6 +268,12 @@
     "fastModeLabel": "Fast Mode",
     "fastModeDescription": "Same Opus 4.6 model with faster output. Higher cost per token.",
     "fastModeNotice": "Requires \"extra usage\" enabled on your Claude subscription.",
+    "tokenBudgetLabel": "Token budget",
+    "tokenBudgetDescription": "Pause this task when it has used this many input + output tokens. Leave blank to use the project default.",
+    "tokenBudgetInherited": "Project default: {{value}} tokens",
+    "tokenBudgetInheritedNone": "Project default: none",
+    "tokenBudgetPlaceholder": "e.g. 500000",
+    "tokenBudgetNoLimit": "No limit for this task",
     "errors": {
       "descriptionRequired": "Please provide a description",
       "maxImagesReached": "Maximum of 5 images allowed",
@@ -411,12 +418,14 @@
       "detail": "Detail"
     },
     "tokens": {
+      "budget": "Budget tokens (input + output)",
       "input": "Input tokens",
       "output": "Output tokens",
       "cacheRead": "Cache read tokens",
       "cacheCreation": "Cache creation tokens"
     },
-    "note": "Entries carry tokens and durations only; no monetary cost is shown."
+    "budgetUsed": "{{used}} of {{limit}} tokens ({{percent}}%)",
+    "note": "Entries carry tokens and durations only; no monetary cost is shown. Cache reads are included in input tokens and are not added again to the budget."
   },
   "prFeedback": {
     "title": "PR feedback",
@@ -438,5 +447,14 @@
       "no_github_config": "GitHub is not configured for this project.",
       "branch_mismatch": "The task's worktree is not on the pull request's branch, so no follow-up can run here."
     }
+  },
+  "tokenBudgetBanner": {
+    "title": "Paused: token budget reached",
+    "usage": "Paused: {{used}} of {{limit}} tokens used",
+    "body": "The worktree and completed subtasks are kept. Raise the limit to continue, or resume without a limit. Resuming without raising it pauses the task again right away.",
+    "fieldLabel": "New token limit",
+    "unlimited": "Unlimited",
+    "resume": "Raise limit and resume",
+    "saveFailed": "Could not save the new limit"
   }
 }

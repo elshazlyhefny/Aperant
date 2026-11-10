@@ -15,6 +15,7 @@ import { failedBeforeAnyWork } from '../shared/utils/task-failure';
 import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
 
 import { appLog } from './app-logger';
+import { dispatchTaskOutcomeWebhook, mapOutcomeToWebhookEvent } from './task-webhook';
 type TaskActor = ActorRefFrom<typeof taskMachine>;
 
 interface TaskContextEntry {
@@ -39,6 +40,29 @@ export class TaskStateManager {
   private taskContextById = new Map<string, TaskContextEntry>();
   private terminalEventSeen = new Set<string>();
   private getMainWindow: (() => BrowserWindow | null) | null = null;
+
+  private statusListeners = new Set<(taskId: string, status: TaskStatus, projectId?: string) => void>();
+
+  /**
+   * zeenha fork: lets the main-process task queue react to every emitted status,
+   * including when no window exists. Returns an unsubscribe function.
+   */
+  onStatusEmitted(listener: (taskId: string, status: TaskStatus, projectId?: string) => void): () => void {
+    this.statusListeners.add(listener);
+    return () => {
+      this.statusListeners.delete(listener);
+    };
+  }
+
+  private notifyStatusListeners(taskId: string, status: TaskStatus, projectId?: string): void {
+    for (const listener of this.statusListeners) {
+      try {
+        listener(taskId, status, projectId);
+      } catch (error) {
+        appLog.error('[TaskStateManager] Status listener failed:', error);
+      }
+    }
+  }
 
   configure(getMainWindow: () => BrowserWindow | null): void {
     this.getMainWindow = getMainWindow;
@@ -314,6 +338,24 @@ export class TaskStateManager {
 
       this.persistStatus(task, project, status, reviewReason, stateValue, executionPhase, failure.failureReason);
       this.emitStatus(taskId, status, reviewReason, project.id, status === 'error' ? failure.failureReason : undefined);
+
+      // zeenha fork: this subscriber is the single funnel for every task state
+      // transition, so terminal outcomes (failed / ready for review / blocked)
+      // are reported to the user's webhook from here. Config comes from user
+      // settings only, never from project files. A webhook problem must not
+      // affect persistence or the renderer event, hence the try/catch.
+      try {
+        if (mapOutcomeToWebhookEvent(status, reviewReason)) {
+          dispatchTaskOutcomeWebhook({
+            status,
+            reviewReason,
+            projectName: project.name,
+            taskTitle: task.title || task.specId
+          });
+        }
+      } catch (error) {
+        console.warn(`[TaskStateManager] Webhook dispatch failed for ${taskId}:`, error);
+      }
     });
 
     actor.start();
@@ -386,6 +428,7 @@ export class TaskStateManager {
   ): void {
     if (!this.getMainWindow) {
       console.warn(`[TaskStateManager] emitStatus: No main window, cannot emit status ${status} for ${taskId}`);
+      this.notifyStatusListeners(taskId, status, projectId);
       return;
     }
     console.debug(`[TaskStateManager] emitStatus: Sending TASK_STATUS_CHANGE for ${taskId}:`, { status, reviewReason, projectId });
@@ -399,6 +442,7 @@ export class TaskStateManager {
       // zeenha fork: only a Failed task carries a reason (keeps the 4-argument event otherwise)
       ...(failureReason !== undefined ? [failureReason] : [])
     );
+    this.notifyStatusListeners(taskId, status, projectId);
   }
 
   private isNewSequence(taskId: string, sequence: number): boolean {

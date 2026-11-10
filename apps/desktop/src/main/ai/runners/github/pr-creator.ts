@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { getAugmentedEnv } from '../../../env-utils';
 import { createSimpleClient } from '../../client/factory';
 import type { ModelShorthand, ThinkingLevel } from '../../config/types';
+import type { WorktreeCreatePRErrorCode } from '../../../../shared/types';
 import { capPRTitle } from '../../../../shared/utils/pr-title';
 
 // =============================================================================
@@ -169,6 +170,8 @@ export interface CreatePRResult {
   /** zeenha fork: the task branch has no commits beyond its base (nothing to propose). */
   noChanges?: boolean;
   error?: string;
+  /** Machine-readable failure reason; only set on failures. */
+  errorCode?: WorktreeCreatePRErrorCode;
 }
 
 // =============================================================================
@@ -762,6 +765,7 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
   if (branchName !== `auto-claude/${specId}` || !TASK_BRANCH_RE.test(branchName) || branchName.includes('..')) {
     return {
       success: false,
+      errorCode: 'BRANCH_REFUSED',
       error: `Refusing to push "${branchName}": Create PR only pushes the task's own branch (auto-claude/${specId}).`,
     };
   }
@@ -778,7 +782,7 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
   const fallback = typed ?? (capPRTitle(fallbackTitle) || `auto-claude: ${specId}`);
   const commitError = await commitPendingWork(worktreePath, gitPath, fallback);
   if (commitError) {
-    return { success: false, error: `Could not commit the task's changes: ${commitError}` };
+    return { success: false, errorCode: 'COMMIT_FAILED', error: `Could not commit the task's changes: ${commitError}` };
   }
 
   const ahead = await commitsAheadOfBase(worktreePath, gitPath, baseBranch);
@@ -788,6 +792,7 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
     return {
       success: false,
       noChanges: true,
+      errorCode: 'NO_CHANGES',
       error: unfinished ? unfinishedTaskMessage(progress.completed, progress.total) : NO_CHANGES_MESSAGE,
     };
   }
@@ -808,7 +813,7 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
     const isUpToDate = pushError.includes('Everything up-to-date') ||
                        pushError.includes('up to date');
     if (!isUpToDate) {
-      return { success: false, error: `Failed to push branch: ${pushError}` };
+      return { success: false, errorCode: 'PUSH_FAILED', error: `Failed to push branch: ${pushError}` };
     }
   }
 
@@ -873,7 +878,7 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
       // zeenha fork: a timed-out create is ambiguous (the PR may exist) and
       // retrying it could hang the same way, so report it plainly.
       if (spawnErr.timedOut) {
-        return { success: false, error: spawnErr.message ?? 'gh pr create timed out' };
+        return { success: false, errorCode: 'GH_TIMEOUT', error: spawnErr.message ?? 'gh pr create timed out' };
       }
 
       // Check "already exists" — not a failure
@@ -894,9 +899,9 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
 
       // Non-retryable error — return failure
       const errorMessage = stderr || stdout || String(spawnErr.message) || 'Failed to create PR';
-      return { success: false, error: errorMessage };
+      return { success: false, errorCode: 'GH_FAILED', error: errorMessage };
     }
   }
 
-  return { success: false, error: 'PR creation failed after 3 attempts' };
+  return { success: false, errorCode: 'RETRIES_EXHAUSTED', error: 'PR creation failed after 3 attempts' };
 }

@@ -5,7 +5,6 @@ import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { Switch } from '../../ui/switch';
 import { Separator } from '../../ui/separator';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { Button } from '../../ui/button';
 import { Combobox } from '../../ui/combobox';
 import { GitHubOAuthFlow } from '../../project-settings/GitHubOAuthFlow';
@@ -13,12 +12,11 @@ import { PasswordInput } from '../../project-settings/PasswordInput';
 import { buildBranchOptions } from '../../../lib/branch-utils';
 import type { ProjectEnvConfig, GitHubSyncStatus, ProjectSettings, GitBranchDetail } from '../../../../shared/types';
 import { cleansUpMergedWorktrees } from '../../../../shared/utils/worktree-cleanup-policy';
+import { parseTokenBudget } from '../../../../shared/utils/token-budget';
 import { createDebugLog } from '../../../../shared/utils/debug-logger';
 
 // Debug logging
 const debugLog = createDebugLog('GitHubIntegration');
-
-type BashSandboxMode = NonNullable<ProjectSettings['bashSandbox']>;
 
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -82,6 +80,8 @@ export function GitHubIntegration({
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [envPassthroughText, setEnvPassthroughText] = useState(() => (settings?.envPassthrough ?? []).join(', '));
+  // zeenha fork: default token budget (blank = no budget)
+  const [tokenBudgetText, setTokenBudgetText] = useState(() => (settings?.tokenBudget ? String(settings.tokenBudget) : ''));
 
   debugLog('Render - authMode:', authMode);
   debugLog('Render - projectPath:', projectPath);
@@ -241,9 +241,9 @@ export function GitHubIntegration({
   const prOnlyLanding = settings?.prOnlyLanding !== false;
   // zeenha fork: remove worktrees once their PR merged (default on) — main/worktree-auto-cleanup.ts
   const autoCleanupMerged = cleansUpMergedWorktrees(settings);
-  // zeenha fork: credential isolation (envPassthrough / bashSandbox)
-  const bashSandbox: BashSandboxMode = settings?.bashSandbox ?? 'off';
+  // zeenha fork: credential isolation (envPassthrough)
   const invalidEnvNames = parseEnvNames(envPassthroughText).invalid;
+  const tokenBudgetInvalid = tokenBudgetText.trim() !== '' && parseTokenBudget(Number(tokenBudgetText)) === undefined;
 
   return (
     <div className="space-y-4">
@@ -478,6 +478,37 @@ export function GitHubIntegration({
                 />
               </div>
 
+              {/* zeenha fork: default token budget per task */}
+              <Separator />
+              <div className="space-y-2">
+                <Label className="font-normal text-foreground">
+                  {t('settings:projectSections.github.tokenBudget.label')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:projectSections.github.tokenBudget.description')}
+                </p>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={tokenBudgetText}
+                  placeholder={t('settings:projectSections.github.tokenBudget.placeholder')}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    setTokenBudgetText(text);
+                    setSettings(prev => ({
+                      ...prev,
+                      tokenBudget: text.trim() === '' ? undefined : parseTokenBudget(Number(text))
+                    }));
+                  }}
+                />
+                {tokenBudgetInvalid && (
+                  <p className="text-xs text-destructive">
+                    {t('settings:projectSections.github.tokenBudget.invalid')}
+                  </p>
+                )}
+              </div>
+
               {/* zeenha fork: credential isolation for agent shell commands */}
               <Separator />
               <div className="space-y-4">
@@ -509,34 +540,6 @@ export function GitHubIntegration({
                       })}
                     </p>
                   )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="font-normal text-foreground">
-                    {t('settings:projectSections.github.credentialIsolation.bashSandbox.label')}
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t('settings:projectSections.github.credentialIsolation.bashSandbox.description')}
-                  </p>
-                  <Select
-                    value={bashSandbox}
-                    onValueChange={(value) => setSettings(prev => ({ ...prev, bashSandbox: value as BashSandboxMode }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="off">
-                        {t('settings:projectSections.github.credentialIsolation.bashSandbox.options.off')}
-                      </SelectItem>
-                      <SelectItem value="home-hidden">
-                        {t('settings:projectSections.github.credentialIsolation.bashSandbox.options.homeHidden')}
-                      </SelectItem>
-                      <SelectItem value="home-hidden-no-network">
-                        {t('settings:projectSections.github.credentialIsolation.bashSandbox.options.homeHiddenNoNetwork')}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               </div>
             </>

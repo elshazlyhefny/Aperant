@@ -23,6 +23,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { asSchema } from 'ai';
 import type { Tool as AITool } from 'ai';
 
+import { isImageToolResult } from '../tools/types';
 import { BRIDGE_SERVER_NAME, BRIDGE_TOOL_PREFIX, isRecord } from './cli-args';
 
 /** Longest tool name the API accepts, including the `mcp__aperant__` prefix. */
@@ -128,6 +129,16 @@ async function runTool(entry: BridgedTool, toolCallId: string, rawInput: unknown
       let last: unknown;
       for await (const value of output) last = value;
       output = last;
+    }
+    if (isImageToolResult(output)) {
+      // Log a placeholder, never the base64 payload.
+      hooks.onResult(toolCallId, name, input, `[Image file: ${output.filename}, ${output.mediaType}, ${output.bytes} bytes]`);
+      return {
+        content: [
+          { type: 'text' as const, text: `[Image file: ${output.filename}]` },
+          { type: 'image' as const, data: output.data, mimeType: output.mediaType },
+        ],
+      };
     }
     hooks.onResult(toolCallId, name, input, output);
     return { content: [{ type: 'text' as const, text: toolOutputToText(output) }] };

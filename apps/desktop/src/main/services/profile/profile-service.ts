@@ -1,8 +1,10 @@
 /**
- * Profile Service - Validation and profile creation
+ * Profile Service - Validation and CRUD for API profiles
  *
- * Provides validation functions for URL, API key, and profile name uniqueness.
- * Handles creating new profiles with validation.
+ * Provides validation (URL, API key, name uniqueness), create/update/delete,
+ * connection testing and model discovery for API (custom endpoint) profiles.
+ * Built on api-profile-store.ts, which owns profiles.json; Claude OAuth
+ * accounts are managed separately by claude-profile-manager.ts.
  * Uses atomic operations with file locking to prevent TOCTOU race conditions.
  */
 
@@ -13,7 +15,7 @@ import Anthropic, {
   APIConnectionTimeoutError
 } from '@anthropic-ai/sdk';
 
-import { loadProfilesFile, generateProfileId, atomicModifyProfiles } from './profile-manager';
+import { loadProfilesFile, generateProfileId, atomicModifyProfiles } from './api-profile-store';
 import type { APIProfile, TestConnectionResult, ModelInfo, DiscoverModelsResult } from '@shared/types/profile';
 
 /**

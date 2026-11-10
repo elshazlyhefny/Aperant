@@ -44,6 +44,7 @@ import { TaskSubtasks } from './TaskSubtasks';
 import { TaskLogs } from './TaskLogs';
 import { TaskFiles } from './TaskFiles';
 import { TaskUsage } from './TaskUsage';
+import { TokenBudgetBanner } from './TokenBudgetBanner';
 import { TaskReview } from './TaskReview';
 import { FailedTaskPanel } from './FailedTaskPanel';
 import type { Task, WorktreeCreatePROptions } from '../../../shared/types';
@@ -462,6 +463,12 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                 <div className="mt-3 flex items-center gap-3">
                   <Progress value={progressPercent} className="h-1.5 flex-1" />
                   <span className="text-xs text-muted-foreground tabular-nums w-10 text-right">{progressPercent}%</span>
+                </div>
+              )}
+
+              {task.status === 'human_review' && task.reviewReason === 'token_budget' && (
+                <div className="mt-3">
+                  <TokenBudgetBanner task={task} />
                 </div>
               )}
 

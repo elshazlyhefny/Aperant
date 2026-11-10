@@ -25,6 +25,7 @@ export * from './pr-review';
 export * from './provider-account';
 export * from './run-metrics';
 export * from './pr-feedback';
+export * from './task-queue';
 
 // IPC types (must be last to use types from other modules)
 export * from './ipc';

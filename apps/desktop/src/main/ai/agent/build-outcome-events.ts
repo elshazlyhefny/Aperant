@@ -33,3 +33,17 @@ export function buildOutcomeTaskEvents(
   }
   return [{ type: 'CODING_FAILED', extra: { error: outcome.error } }];
 }
+
+/**
+ * zeenha fork: the events posted when a build or QA run stopped because the
+ * token budget was reached. It replaces buildOutcomeTaskEvents, so the task
+ * pauses in human_review instead of being reported as a failure.
+ */
+export function budgetPauseTaskEvents(budget: { used: number; limit: number }): BuildOutcomeTaskEvent[] {
+  return [{ type: 'TOKEN_BUDGET_REACHED', extra: { used: budget.used, limit: budget.limit } }];
+}
+
+/** Message shown for a task paused by its token budget. */
+export function budgetPauseMessage(budget: { used: number; limit: number }): string {
+  return `Token budget reached: ${budget.used.toLocaleString('en-US')} of ${budget.limit.toLocaleString('en-US')} tokens used`;
+}

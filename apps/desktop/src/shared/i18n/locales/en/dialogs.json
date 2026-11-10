@@ -235,5 +235,19 @@
     "step3": "Click \"Re-authenticate\" on your profile",
     "gotIt": "Got It",
     "goToSettings": "Go to Settings"
+  },
+  "sandboxOffer": {
+    "title": "Run agent commands in a sandbox?",
+    "description": "{{projectName}} can run agent shell commands inside a sandbox. {{tool}} is installed on this machine.",
+    "homeHidden": {
+      "label": "Hide home directory",
+      "description": "Commands cannot read your home directory (keys, tokens, other projects), only the project."
+    },
+    "homeHiddenNoNetwork": {
+      "label": "Hide home directory, no network",
+      "description": "As above, and commands cannot reach the network."
+    },
+    "failClosed": "If the sandbox cannot run later, agent shell commands are refused instead of run unsandboxed.",
+    "skip": "Not now"
   }
 }
