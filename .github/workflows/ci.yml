@@ -121,6 +121,10 @@ jobs:
         with:
           ignore-scripts: 'true'
 
+      - name: Temporary restricted token diagnostic
+        continue-on-error: true
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .github/diag/token.ps1
+
       - name: Run Windows sandbox integration test
         working-directory: apps/desktop
         run: npx vitest run src/main/ai/security/__tests__/sandbox-windows.integration.test.ts
