@@ -149,7 +149,7 @@ export class AgentManager extends EventEmitter {
     requestedModel: string,
     preferredProvider?: string | null,
   ): Promise<{
-    auth: { apiKey?: string; baseURL?: string; oauthTokenFilePath?: string } | null;
+    auth: { apiKey?: string; baseURL?: string; oauthTokenFilePath?: string; accountId?: string } | null;
     provider: string;
     modelId: string;
     configDir?: string;
@@ -463,6 +463,7 @@ export class AgentManager extends EventEmitter {
       projectId,
       processType: 'spec-creation',
       session: sessionConfig,
+      accountId: resolved.auth?.accountId,
     };
 
     // Store context for potential restart
@@ -593,6 +594,7 @@ export class AgentManager extends EventEmitter {
       projectId,
       processType: 'task-execution',
       session: sessionConfig,
+      accountId: resolved.auth?.accountId,
     };
 
     // Store context for potential restart
@@ -699,6 +701,7 @@ export class AgentManager extends EventEmitter {
       projectId,
       processType: 'qa-process',
       session: sessionConfig,
+      accountId: resolved.auth?.accountId,
     };
 
     await this.processManager.spawnWorkerProcess(taskId, executorConfig, {}, 'qa-process', projectId);

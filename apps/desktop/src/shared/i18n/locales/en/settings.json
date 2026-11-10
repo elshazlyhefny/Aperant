@@ -126,6 +126,8 @@
       "loading": "Switching..."
     },
     "activeBadge": "Active",
+    "keyRejected": "Key rejected",
+    "keyRejectedHint": "The provider rejected this API key. Update the key to use this profile again.",
     "customModels": "Custom models: {{models}}",
     "setActive": {
       "label": "Set Active",
@@ -850,6 +852,8 @@
       "duplicateUsageHint": "These OAuth profiles share matching usage values. Verify that each profile is associated with a different account if this was unexpected.",
       "needsReauth": "Needs re-auth",
       "needsReauthHint": "This profile's refresh token is invalid. Click to re-authenticate.",
+      "keyRejected": "Key rejected",
+      "keyRejectedHint": "The provider rejected this API key, so automatic switching skips it. Update the key to reset its status.",
       "sessionUsage": "Session usage (5-hour window)",
       "weeklyUsage": "Weekly usage (7-day window)",
       "oauthSection": "Claude Accounts (cycle through first)",

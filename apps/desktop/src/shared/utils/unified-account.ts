@@ -6,7 +6,7 @@
  */
 
 import type { ClaudeProfile } from '../types/agent';
-import type { APIProfile } from '../types/profile';
+import type { APIProfile, ApiKeyStatus } from '../types/profile';
 import type { UnifiedAccount, RateLimitType } from '../types/unified-account';
 
 // ============================================
@@ -85,11 +85,12 @@ export function claudeProfileToUnified(
 export function apiProfileToUnified(
   profile: APIProfile,
   isActive: boolean,
-  isAuthenticated: boolean = false
+  isAuthenticated: boolean = false,
+  keyStatus: ApiKeyStatus = 'unverified'
 ): UnifiedAccount {
   // API profiles are available if they have a valid API key
   // They have unlimited usage (pay-per-use)
-  const isAvailable = isAuthenticated && !!profile.apiKey;
+  const isAvailable = isAuthenticated && !!profile.apiKey && keyStatus !== 'rejected';
 
   return {
     id: `${API_ID_PREFIX}${profile.id}`,
@@ -106,7 +107,8 @@ export function apiProfileToUnified(
     isRateLimited: false, // API profiles don't have rate limits
     rateLimitType: undefined,
     isAuthenticated,
-    needsReauthentication: false
+    needsReauthentication: false,
+    keyStatus
   };
 }
 

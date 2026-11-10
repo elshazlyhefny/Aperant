@@ -414,7 +414,7 @@ export interface ElectronAPI extends ScheduleAPI {
   deleteAPIProfile: (profileId: string) => Promise<IPCResult>;
   setActiveAPIProfile: (profileId: string | null) => Promise<IPCResult>;
   // Note: AbortSignal is handled in preload via separate cancel IPC channels, not passed through IPC
-  testConnection: (baseUrl: string, apiKey: string, signal?: AbortSignal) => Promise<IPCResult<TestConnectionResult>>;
+  testConnection: (baseUrl: string, apiKey: string, signal?: AbortSignal, profileId?: string) => Promise<IPCResult<TestConnectionResult>>;
   discoverModels: (baseUrl: string, apiKey: string, signal?: AbortSignal) => Promise<IPCResult<DiscoverModelsResult>>;
 
   // Provider Account management (unified multi-provider credentials)

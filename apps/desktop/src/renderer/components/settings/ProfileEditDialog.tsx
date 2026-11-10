@@ -216,7 +216,18 @@ export function ProfileEditDialog({ open, onOpenChange, onSaved, profile }: Prof
     // Create AbortController for this test
     abortControllerRef.current = new AbortController();
 
-    await testConnection(baseUrl.trim(), apiKeyForTest.trim(), abortControllerRef.current.signal);
+    // Only a saved, unchanged key+endpoint may update the stored key status
+    const savedProfileId =
+      isEditMode && !isChangingApiKey && profile && baseUrl.trim() === profile.baseUrl
+        ? profile.id
+        : undefined;
+
+    await testConnection(
+      baseUrl.trim(),
+      apiKeyForTest.trim(),
+      abortControllerRef.current.signal,
+      savedProfileId
+    );
   };
 
   // Check if form has minimum required fields for test connection

@@ -1,4 +1,5 @@
 import { ipcMain, dialog, app, shell, session } from 'electron';
+import { withKeyStatusReset } from '../../shared/utils/api-key-status';
 import { existsSync, writeFileSync, mkdirSync, statSync, readFileSync } from 'fs';
 import { execFileSync } from 'node:child_process';
 import path from 'path';
@@ -982,8 +983,10 @@ export function registerSettingsHandlers(
         }
 
         const now = Date.now();
+        // New accounts always start unverified: ignore client-supplied key status
+        const { keyStatus: _ks, keyStatusAt: _ksAt, ...accountFields } = account as typeof account & Partial<ProviderAccount>;
         const newAccount: ProviderAccount = {
-          ...account,
+          ...accountFields,
           id: genAccountId(),
           createdAt: now,
           updatedAt: now,
@@ -1017,9 +1020,15 @@ export function registerSettingsHandlers(
         if (index === -1) {
           return { success: false, error: `Account not found: ${id}` };
         }
+        const existing = accounts[index];
+        // zeenha fork: a changed key or endpoint starts unverified; status is never client-set
+        const { keyStatus: _ks, keyStatusAt: _ksAt, ...safeUpdates } = updates;
+        const credentialsChanged =
+          (safeUpdates.apiKey !== undefined && safeUpdates.apiKey !== existing.apiKey) ||
+          (safeUpdates.baseUrl !== undefined && safeUpdates.baseUrl !== existing.baseUrl);
         const updated: ProviderAccount = {
-          ...accounts[index],
-          ...updates,
+          ...(credentialsChanged ? withKeyStatusReset(existing) : existing),
+          ...safeUpdates,
           id, // prevent id override
           updatedAt: Date.now(),
         };

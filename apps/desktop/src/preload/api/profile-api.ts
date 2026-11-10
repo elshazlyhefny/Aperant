@@ -33,7 +33,8 @@ export interface ProfileAPI {
   testConnection: (
     baseUrl: string,
     apiKey: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    profileId?: string
   ) => Promise<IPCResult<TestConnectionResult>>;
 
   // Discover available models from API
@@ -76,7 +77,8 @@ export const createProfileAPI = (): ProfileAPI => ({
   testConnection: (
     baseUrl: string,
     apiKey: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    profileId?: string
   ): Promise<IPCResult<TestConnectionResult>> => {
     const requestId = ++testConnectionRequestId;
 
@@ -98,7 +100,7 @@ export const createProfileAPI = (): ProfileAPI => ({
       console.warn('[preload/profile-api] signal provided but addEventListener not available - signal may have been serialized');
     }
 
-    return ipcRenderer.invoke(IPC_CHANNELS.PROFILES_TEST_CONNECTION, baseUrl, apiKey, requestId);
+    return ipcRenderer.invoke(IPC_CHANNELS.PROFILES_TEST_CONNECTION, baseUrl, apiKey, requestId, profileId);
   },
 
   // Discover available models from API

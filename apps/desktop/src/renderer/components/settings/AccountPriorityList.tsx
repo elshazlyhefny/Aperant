@@ -43,6 +43,7 @@ import {
 import { cn } from '../../lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { PROVIDER_REGISTRY } from '@shared/constants/providers';
+import type { ApiKeyStatus } from '@shared/types/profile';
 
 /**
  * Usage threshold constants for color coding (matching UsageIndicator)
@@ -128,6 +129,8 @@ export interface UnifiedAccount {
   needsReauthentication?: boolean;
   /** Best-effort account-level identity used to reduce duplicate false positives */
   profileEmail?: string;
+  /** API-key accounts only: result of the last key verification */
+  keyStatus?: ApiKeyStatus;
 }
 
 interface SortableAccountItemProps {
@@ -297,6 +300,23 @@ function SortableAccountItem({ account, index, onSetActive }: SortableAccountIte
               {t('accounts.priority.needsAuth')}
             </span>
           </div>
+        )}
+
+        {/* API key rejected by the provider */}
+        {account.type === 'api' && account.keyStatus === 'rejected' && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1.5 mt-1.5 cursor-help">
+                <AlertCircle className="h-3 w-3 text-destructive" />
+                <span className="text-[10px] text-destructive">
+                  {t('accounts.priority.keyRejected')}
+                </span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs max-w-[250px]">
+              {t('accounts.priority.keyRejectedHint')}
+            </TooltipContent>
+          </Tooltip>
         )}
 
         {/* Duplicate usage warning - may indicate same underlying OAuth account */}

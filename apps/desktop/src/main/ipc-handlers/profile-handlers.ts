@@ -27,6 +27,7 @@ import {
 } from '../services/profile';
 
 import { appLog } from '../app-logger';
+import { recordApiKeyOutcome, outcomeFromConnectionError } from '../services/api-key-status-recorder';
 // Track active test connection requests for cancellation
 const activeTestConnections = new Map<number, AbortController>();
 
@@ -181,7 +182,7 @@ export function registerProfileHandlers(): void {
    */
   ipcMain.handle(
     IPC_CHANNELS.PROFILES_TEST_CONNECTION,
-    async (_event, baseUrl: string, apiKey: string, requestId: number): Promise<IPCResult<TestConnectionResult>> => {
+    async (_event, baseUrl: string, apiKey: string, requestId: number, profileId?: string): Promise<IPCResult<TestConnectionResult>> => {
       // Create AbortController for timeout and cancellation
       const controller = new AbortController();
       const timeoutMs = 15000; // 15 seconds
@@ -220,6 +221,15 @@ export function registerProfileHandlers(): void {
         // Clear timeout on success
         clearTimeout(timeoutId);
         activeTestConnections.delete(requestId);
+
+        // Record the outcome for a saved profile (only an auth failure rejects a key)
+        if (profileId) {
+          if (result.success) {
+            await recordApiKeyOutcome(profileId, 'valid');
+          } else if (outcomeFromConnectionError(result.errorType) === 'rejected') {
+            await recordApiKeyOutcome(profileId, 'rejected');
+          }
+        }
 
         return { success: true, data: result };
       } catch (error) {

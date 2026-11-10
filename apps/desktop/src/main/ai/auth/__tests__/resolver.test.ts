@@ -474,6 +474,38 @@ describe('resolveAuthFromQueue', () => {
 
     expect(result?.accountId).toBe('acc-2');
   });
+
+  it('skips a rejected api-key account and picks the next one', async () => {
+    mockScoreProviderAccount.mockImplementation((a: { keyStatus?: string }) =>
+      a.keyStatus === 'rejected' ? { available: false, score: 0 } : { available: true, score: 100 },
+    );
+    const rejected = { ...baseAccount, id: 'acc-rejected', keyStatus: 'rejected' as const };
+    const next = { ...baseAccount, id: 'acc-next' };
+
+    const result = await resolveAuthFromQueue('sonnet', [rejected, next]);
+
+    expect(result?.accountId).toBe('acc-next');
+  });
+
+  it('failover prefers a valid account over a higher-priority unverified one', async () => {
+    const unverified = { ...baseAccount, id: 'acc-unverified' };
+    const valid = { ...baseAccount, id: 'acc-valid', keyStatus: 'valid' as const };
+
+    const result = await resolveAuthFromQueue('sonnet', [unverified, valid], {
+      excludeAccountIds: ['acc-other'],
+    });
+
+    expect(result?.accountId).toBe('acc-valid');
+  });
+
+  it('keeps queue order when there are no exclude ids', async () => {
+    const unverified = { ...baseAccount, id: 'acc-unverified' };
+    const valid = { ...baseAccount, id: 'acc-valid', keyStatus: 'valid' as const };
+
+    const result = await resolveAuthFromQueue('sonnet', [unverified, valid]);
+
+    expect(result?.accountId).toBe('acc-unverified');
+  });
 });
 
 // =============================================================================
