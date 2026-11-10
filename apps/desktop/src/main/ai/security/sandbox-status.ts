@@ -7,14 +7,16 @@
 
 import { findExecutable, isLinux, isMacOS } from '../../platform/index';
 import type { SandboxMode } from './sandbox';
+import { resolvePowerShell } from './sandbox-windows';
 
 export interface SandboxAvailability {
   state: 'available' | 'tool-missing' | 'unsupported';
-  tool: 'bwrap' | 'sandbox-exec' | null;
+  tool: 'bwrap' | 'sandbox-exec' | 'powershell' | null;
   installHint: 'bubblewrap' | null;
+  unsupportedModes?: SandboxMode[];
 }
 
-export type SandboxStatus = 'active' | 'available-off' | 'tool-missing' | 'unsupported';
+export type SandboxStatus = 'active' | 'available-off' | 'tool-missing' | 'unsupported' | 'mode-unsupported';
 
 export interface SandboxAvailabilityOptions {
   find?: (name: string) => string | null;
@@ -32,17 +34,25 @@ export function getSandboxAvailability(opts: SandboxAvailabilityOptions = {}): S
   const platform = resolvePlatform(opts.platformName);
   const find = opts.find ?? ((name: string) => findExecutable(name));
 
+  // zeenha fork: 'restricted-rights' exists only on Windows, and Windows offers nothing else.
+  const unixOnly: SandboxMode[] = ['restricted-rights'];
   if (platform === 'linux') {
     return find('bwrap')
-      ? { state: 'available', tool: 'bwrap', installHint: null }
-      : { state: 'tool-missing', tool: 'bwrap', installHint: 'bubblewrap' };
+      ? { state: 'available', tool: 'bwrap', installHint: null, unsupportedModes: unixOnly }
+      : { state: 'tool-missing', tool: 'bwrap', installHint: 'bubblewrap', unsupportedModes: unixOnly };
   }
   if (platform === 'darwin') {
     return find('sandbox-exec')
-      ? { state: 'available', tool: 'sandbox-exec', installHint: null }
-      : { state: 'tool-missing', tool: 'sandbox-exec', installHint: null };
+      ? { state: 'available', tool: 'sandbox-exec', installHint: null, unsupportedModes: unixOnly }
+      : { state: 'tool-missing', tool: 'sandbox-exec', installHint: null, unsupportedModes: unixOnly };
   }
-  return { state: 'unsupported', tool: null, installHint: null };
+  // zeenha fork: Windows runs 'restricted-rights' (restricted token + Job object)
+  // through a PowerShell launcher. Git Bash cannot run with the profile hidden,
+  // so both home-hidden modes are refused.
+  const windowsUnsupported: SandboxMode[] = ['home-hidden', 'home-hidden-no-network'];
+  return resolvePowerShell(opts.find)
+    ? { state: 'available', tool: 'powershell', installHint: null, unsupportedModes: windowsUnsupported }
+    : { state: 'tool-missing', tool: 'powershell', installHint: null, unsupportedModes: windowsUnsupported };
 }
 
 export { deriveSandboxStatus } from '../../../shared/utils/sandbox-status';

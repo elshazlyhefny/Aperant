@@ -471,13 +471,15 @@
         "available-off": "Available, off",
         "tool-missing": "Sandbox tool missing",
         "unsupported": "Not supported on this platform",
-        "checking": "Checking..."
+        "checking": "Checking...",
+        "mode-unsupported": "Mode not supported here"
       },
       "statusDetail": {
         "active": "Agent shell commands run inside the sandbox.",
         "available-off": "{{tool}} is installed, but agent shell commands currently run unsandboxed. Turn it on below.",
         "tool-missing": "{{tool}} was not found, so the sandbox cannot run.",
-        "unsupported": "The shell sandbox is not available on this operating system."
+        "unsupported": "The shell sandbox is not available on this operating system.",
+        "mode-unsupported": "This mode cannot be enforced on this operating system, so every agent shell command will be refused. Choose another mode."
       },
       "installHint": {
         "linux": "Install bubblewrap with your package manager, for example: sudo apt install bubblewrap, sudo dnf install bubblewrap or sudo pacman -S bubblewrap.",
@@ -491,9 +493,13 @@
         "homeHiddenNoNetwork": "Home directory hidden and no network",
         "offExplanation": "Off: commands run with your full permissions. Nothing is isolated.",
         "homeHiddenExplanation": "Home directory hidden: commands cannot read your home directory (keys, tokens, other projects), only the project.",
-        "homeHiddenNoNetworkExplanation": "Home directory hidden and no network: as above, and commands cannot reach the network."
+        "homeHiddenNoNetworkExplanation": "Home directory hidden and no network: as above, and commands cannot reach the network.",
+        "notSupported": "{{mode}} (not supported on this system)",
+        "restrictedRights": "Restricted rights (Windows only)",
+        "restrictedRightsExplanation": "Restricted rights (Windows only): commands run without administrator rights or privileges, and every process they start is stopped when the command ends. Your home directory is NOT hidden and the network is NOT blocked."
       },
-      "refusedWarning": "The sandbox cannot run on this machine. With this mode on, every agent shell command will be refused instead of run unsandboxed."
+      "refusedWarning": "The sandbox cannot run on this machine. With this mode on, every agent shell command will be refused instead of run unsandboxed.",
+      "windowsNote": "On Windows only \"Restricted rights\" is available. Git Bash cannot run in a sandbox that hides your user profile, so the \"home directory hidden\" modes are refused and every agent shell command fails while one of them is selected. Restricted rights runs commands with a restricted token in a Job object: administrator groups become deny-only, every privilege except bypass traverse checking is removed, and leftover processes cannot break away and are stopped. Commands still run as you, so they can read and write everything your account can, including your keys and tokens, and they can reach the network."
     },
     "memory": {
       "title": "Memory",

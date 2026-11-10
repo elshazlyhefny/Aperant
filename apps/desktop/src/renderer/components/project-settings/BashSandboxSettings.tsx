@@ -24,12 +24,35 @@ interface BashSandboxSettingsProps {
 }
 
 type StatusKey = SandboxStatusKind | 'checking';
+type SandboxModeOption = Exclude<BashSandboxMode, 'off'>;
+
+const MODE_OPTIONS: { value: SandboxModeOption; labelKey: string; explanationKey: string; platformSpecific: boolean }[] = [
+  {
+    value: 'home-hidden',
+    labelKey: 'projectSections.security.mode.homeHidden',
+    explanationKey: 'projectSections.security.mode.homeHiddenExplanation',
+    platformSpecific: false
+  },
+  {
+    value: 'home-hidden-no-network',
+    labelKey: 'projectSections.security.mode.homeHiddenNoNetwork',
+    explanationKey: 'projectSections.security.mode.homeHiddenNoNetworkExplanation',
+    platformSpecific: false
+  },
+  {
+    value: 'restricted-rights',
+    labelKey: 'projectSections.security.mode.restrictedRights',
+    explanationKey: 'projectSections.security.mode.restrictedRightsExplanation',
+    platformSpecific: true
+  }
+];
 
 const STATUS_BADGE: Record<StatusKey, string> = {
   active: 'bg-success/10 text-success',
   'available-off': 'bg-warning/10 text-warning',
   'tool-missing': 'bg-destructive/10 text-destructive',
   unsupported: 'bg-muted text-muted-foreground',
+  'mode-unsupported': 'bg-destructive/10 text-destructive',
   checking: 'bg-muted text-muted-foreground'
 };
 
@@ -54,14 +77,29 @@ export function BashSandboxSettings({ settings, setSettings }: BashSandboxSettin
 
   const mode: BashSandboxMode = settings?.bashSandbox ?? 'off';
   const status: StatusKey = availability ? deriveSandboxStatus(availability, mode) : 'checking';
-  const cannotRun = availability?.state === 'tool-missing' || availability?.state === 'unsupported';
+  const cannotRun =
+    availability?.state === 'tool-missing' ||
+    availability?.state === 'unsupported' ||
+    status === 'mode-unsupported';
   const toolName = availability?.tool ?? '';
+  // zeenha fork: 'restricted-rights' is Windows only (it needs the PowerShell launcher);
+  // until availability is known, only that mode is treated as unsupported.
+  const isUnsupported = (m: SandboxModeOption): boolean =>
+    (m === 'restricted-rights' && availability?.tool !== 'powershell') ||
+    (availability?.unsupportedModes?.includes(m) ?? false);
+  // An unsupported mode is shown disabled, except a platform-specific extra mode
+  // (restricted-rights off Windows), which is not offered unless it is saved.
+  const visibleModes = MODE_OPTIONS.filter(
+    (o) => !(isUnsupported(o.value) && o.platformSpecific && mode !== o.value)
+  );
 
   const installHintKey =
     status === 'tool-missing'
       ? availability?.tool === 'bwrap'
         ? 'projectSections.security.installHint.linux'
-        : 'projectSections.security.installHint.macos'
+        : availability?.tool === 'sandbox-exec'
+          ? 'projectSections.security.installHint.macos'
+          : null
       : null;
 
   return (
@@ -100,10 +138,13 @@ export function BashSandboxSettings({ settings, setSettings }: BashSandboxSettin
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="off">{t('projectSections.security.mode.off')}</SelectItem>
-              <SelectItem value="home-hidden">{t('projectSections.security.mode.homeHidden')}</SelectItem>
-              <SelectItem value="home-hidden-no-network">
-                {t('projectSections.security.mode.homeHiddenNoNetwork')}
-              </SelectItem>
+              {visibleModes.map((o) => (
+                <SelectItem key={o.value} value={o.value} disabled={isUnsupported(o.value) && mode !== o.value}>
+                  {isUnsupported(o.value)
+                    ? t('projectSections.security.mode.notSupported', { mode: t(o.labelKey) })
+                    : t(o.labelKey)}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -117,9 +158,16 @@ export function BashSandboxSettings({ settings, setSettings }: BashSandboxSettin
 
         <ul className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-xs text-muted-foreground">
           <li>{t('projectSections.security.mode.offExplanation')}</li>
-          <li>{t('projectSections.security.mode.homeHiddenExplanation')}</li>
-          <li>{t('projectSections.security.mode.homeHiddenNoNetworkExplanation')}</li>
+          {visibleModes
+            .filter((o) => !isUnsupported(o.value) || mode === o.value)
+            .map((o) => (
+              <li key={o.value}>{t(o.explanationKey)}</li>
+            ))}
         </ul>
+
+        {availability?.tool === 'powershell' && (
+          <p className="text-xs text-muted-foreground">{t('projectSections.security.windowsNote')}</p>
+        )}
       </div>
     </section>
   );

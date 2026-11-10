@@ -337,6 +337,22 @@ describe('Bash Tool', () => {
       expect(mockExecFile).not.toHaveBeenCalled();
     });
 
+    it('fails closed on Windows when the sandbox is unavailable', async () => {
+      mockIsWindows.mockReturnValue(true);
+      mockFindExecutable.mockReturnValue('C:\\Program Files\\Git\\bin\\bash.exe' as never);
+      mockWrapForSandbox.mockReturnValue({ ok: false, reason: 'PowerShell launcher missing' });
+      const result = await bashTool.config.execute({ command: 'dir' }, sandboxCtx);
+      expect(result).toContain('Error: Sandbox unavailable');
+      expect(result).toContain('PowerShell launcher missing');
+      expect(mockWrapForSandbox).toHaveBeenCalledWith(
+        'C:\\Program Files\\Git\\bin\\bash.exe',
+        ['-c', 'dir'],
+        expect.objectContaining({ mode: 'home-hidden' }),
+      );
+      expect(mockExecFile).not.toHaveBeenCalled();
+      mockFindExecutable.mockReturnValue(null);
+    });
+
     it('does not call the wrapper when mode is off', async () => {
       setupExecFile('ok', '', 0);
       await bashTool.config.execute({ command: 'ls' }, baseContext);

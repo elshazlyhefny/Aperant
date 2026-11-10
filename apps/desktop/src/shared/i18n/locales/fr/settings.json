@@ -471,13 +471,15 @@
         "available-off": "Disponible, désactivé",
         "tool-missing": "Outil du bac à sable manquant",
         "unsupported": "Non pris en charge sur cette plateforme",
-        "checking": "Vérification..."
+        "checking": "Vérification...",
+        "mode-unsupported": "Mode non pris en charge ici"
       },
       "statusDetail": {
         "active": "Les commandes shell des agents s'exécutent dans le bac à sable.",
         "available-off": "{{tool}} est installé, mais les commandes shell des agents s'exécutent actuellement sans isolation. Activez-le ci-dessous.",
         "tool-missing": "{{tool}} est introuvable, le bac à sable ne peut donc pas fonctionner.",
-        "unsupported": "Le bac à sable shell n'est pas disponible sur ce système d'exploitation."
+        "unsupported": "Le bac à sable shell n'est pas disponible sur ce système d'exploitation.",
+        "mode-unsupported": "Ce mode ne peut pas être appliqué sur ce système d'exploitation, chaque commande shell d'un agent sera donc refusée. Choisissez un autre mode."
       },
       "installHint": {
         "linux": "Installez bubblewrap avec votre gestionnaire de paquets, par exemple : sudo apt install bubblewrap, sudo dnf install bubblewrap ou sudo pacman -S bubblewrap.",
@@ -491,9 +493,13 @@
         "homeHiddenNoNetwork": "Dossier personnel masqué et pas de réseau",
         "offExplanation": "Désactivé : les commandes s'exécutent avec tous vos droits. Rien n'est isolé.",
         "homeHiddenExplanation": "Dossier personnel masqué : les commandes ne peuvent pas lire votre dossier personnel (clés, jetons, autres projets), seulement le projet.",
-        "homeHiddenNoNetworkExplanation": "Dossier personnel masqué et pas de réseau : comme ci-dessus, et les commandes n'ont pas accès au réseau."
+        "homeHiddenNoNetworkExplanation": "Dossier personnel masqué et pas de réseau : comme ci-dessus, et les commandes n'ont pas accès au réseau.",
+        "notSupported": "{{mode}} (non pris en charge sur ce système)",
+        "restrictedRights": "Droits restreints (Windows uniquement)",
+        "restrictedRightsExplanation": "Droits restreints (Windows uniquement) : les commandes s'exécutent sans droits ni privilèges d'administrateur, et tous les processus qu'elles lancent sont arrêtés à la fin de la commande. Votre dossier personnel n'est PAS masqué et le réseau n'est PAS bloqué."
       },
-      "refusedWarning": "Le bac à sable ne peut pas fonctionner sur cette machine. Avec ce mode, chaque commande shell d'un agent sera refusée au lieu d'être exécutée sans isolation."
+      "refusedWarning": "Le bac à sable ne peut pas fonctionner sur cette machine. Avec ce mode, chaque commande shell d'un agent sera refusée au lieu d'être exécutée sans isolation.",
+      "windowsNote": "Sous Windows, seul le mode « Droits restreints » est disponible. Git Bash ne peut pas fonctionner dans un bac à sable qui masque votre profil utilisateur : les modes « Dossier personnel masqué » sont donc refusés, et chaque commande shell d'un agent échoue tant que l'un d'eux est sélectionné. Le mode Droits restreints exécute les commandes avec un jeton restreint dans un objet Job : les groupes d'administrateurs ne servent plus qu'à refuser l'accès, tous les privilèges sauf le contournement de la vérification de parcours sont retirés, et les processus restants ne peuvent pas s'échapper et sont arrêtés. Les commandes s'exécutent toujours sous votre compte : elles peuvent lire et modifier tout ce que votre compte peut atteindre, y compris vos clés et jetons, et elles ont accès au réseau."
     },
     "memory": {
       "title": "Mémoire",

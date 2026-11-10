@@ -68,6 +68,36 @@ Or use WSL2 to avoid the issue entirely.
 
 Windows filesystems are case-insensitive. Be consistent with casing in import paths — a mismatch that works on Windows will fail on Linux CI.
 
+## Testing the Bash sandbox
+
+On Windows the Bash sandbox offers one mode, `restricted-rights` ("Restricted rights"). It starts Git Bash with a restricted copy of your own token and puts it in a Job object (see `apps/desktop/src/main/ai/security/sandbox-windows.ts`).
+
+| Mode | Windows behaviour |
+|---|---|
+| `off` | Commands run with your full rights. |
+| `restricted-rights` | Administrators and every other non-generic group become deny-only. Every privilege except `SeChangeNotifyPrivilege` is removed. The Job object stops every process the command started when the command ends or is killed, does not allow breakaway, and blocks clipboard, desktop and other UI access. **It does not hide your home directory and does not block the network.** Commands still run as you and can read and write everything your account can. |
+| `home-hidden`, `home-hidden-no-network` | Refused. Every agent shell command fails while one of these is selected, and the settings page shows "Mode not supported here". |
+
+**Why the home-hidden modes are refused.** Git Bash (MSYS2) protects its own pipes and shared memory with an access list for your user, Administrators and SYSTEM. Your profile folder has the same access list. A restricted token that lets Git Bash open its own objects can therefore also read your profile. An AppContainer is no better, because MSYS2 programs die at startup inside one. Low integrity is not used either, because it would also block writes to the project.
+
+**How the launcher runs.** The launcher script is written to `%LOCALAPPDATA%\Aperant\bash-sandbox`. Before running it, the PowerShell bootstrap checks the script's SHA-256, so a script changed by a sandboxed command is refused instead of run.
+
+**Prerequisites:** Windows 10/11, Git for Windows (Git Bash) and PowerShell 5.1 or newer.
+
+**Enable it:** open the project settings and choose "Restricted rights (Windows only)". Then ask an agent to run the commands below, or run the automated test: `cd apps/desktop && npx vitest run src/main/ai/security/__tests__/sandbox-windows.integration.test.ts`.
+
+| Command (in the sandboxed shell) | Expected output |
+|---|---|
+| `npm test` in the worktree | Runs and passes |
+| `whoami.exe /groups` | `BUILTIN\Administrators` shows `Group used for deny only` (when your account is an administrator) |
+| `whoami.exe /priv` | Only `SeChangeNotifyPrivilege` |
+| `(sleep 5; touch late.txt) &` | `late.txt` never appears: the background process is stopped when the command ends |
+
+**Known limits**
+
+- This mode is not a security boundary between the agent and your files or your other processes. It drops administrator rights and cleans up processes, nothing more.
+- It is not a defence against a kernel exploit.
+
 ## Resources
 
 - [Node.js on Windows](https://nodejs.org/en/download/)

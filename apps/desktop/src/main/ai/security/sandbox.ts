@@ -3,6 +3,9 @@
  *
  * zeenha fork: wraps the shell invocation with bubblewrap (Linux) or
  * sandbox-exec (macOS) so the home directory (and its credentials) is hidden.
+ * On Windows only the weaker 'restricted-rights' mode exists: a restricted token
+ * plus a Job object (via a PowerShell launcher, see sandbox-windows.ts) that
+ * does not hide the home directory; the home-hidden modes are refused there.
  * Fails closed: if a sandbox is requested but cannot be built, the caller must
  * refuse to run the command instead of running it unsandboxed.
  */
@@ -11,8 +14,17 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { findExecutable, isLinux, isMacOS } from '../../platform/index';
+import { buildWindows, resolvePowerShell, WINDOWS_HOME_HIDDEN_REFUSAL } from './sandbox-windows';
 
-export type SandboxMode = 'off' | 'home-hidden' | 'home-hidden-no-network';
+/**
+ * 'restricted-rights' is Windows only: it drops admin rights and privileges and
+ * kills leftover child processes, but does not hide the home directory or
+ * block the network. The home-hidden modes are Linux and macOS only.
+ */
+export type SandboxMode = 'off' | 'home-hidden' | 'home-hidden-no-network' | 'restricted-rights';
+
+export const RESTRICTED_RIGHTS_WINDOWS_ONLY =
+  'The "restricted rights" Bash sandbox mode is only available on Windows. Choose a "home hidden" mode or turn the sandbox off.';
 
 export interface SandboxOptions {
   mode: SandboxMode;
@@ -22,6 +34,8 @@ export interface SandboxOptions {
   homeDir?: string;
   find?: (name: string) => string | null;
   platformName?: 'linux' | 'darwin' | 'win32';
+  /** Windows only: where the launcher script is written. Defaults to os.tmpdir(). */
+  launcherDir?: string;
 }
 
 export type SandboxResult =
@@ -29,7 +43,9 @@ export type SandboxResult =
   | { ok: false; reason: string };
 
 export function parseSandboxMode(value: unknown): SandboxMode {
-  return value === 'home-hidden' || value === 'home-hidden-no-network' ? value : 'off';
+  return value === 'home-hidden' || value === 'home-hidden-no-network' || value === 'restricted-rights'
+    ? value
+    : 'off';
 }
 
 function resolvePlatform(override?: SandboxOptions['platformName']): 'linux' | 'darwin' | 'win32' {
@@ -117,6 +133,9 @@ export function wrapForSandbox(
   if (options.mode === 'off') return { ok: true, file: shell, args: shellArgs };
 
   const platform = resolvePlatform(options.platformName);
+  if (options.mode === 'restricted-rights' && platform !== 'win32') {
+    return { ok: false, reason: RESTRICTED_RIGHTS_WINDOWS_ONLY };
+  }
   const find = options.find ?? ((name: string) => findExecutable(name));
   const home = options.homeDir ?? os.homedir();
 
@@ -134,5 +153,14 @@ export function wrapForSandbox(
     }
     return buildMac(shell, shellArgs, options, home, exec);
   }
-  return { ok: false, reason: 'Bash sandbox is not supported on Windows. Disable the sandbox to run commands.' };
+  // zeenha fork: Windows only offers 'restricted-rights' (restricted token + Job
+  // object, launched through PowerShell). The home-hidden modes are refused.
+  if (options.mode !== 'restricted-rights') {
+    return { ok: false, reason: WINDOWS_HOME_HIDDEN_REFUSAL };
+  }
+  const powershell = resolvePowerShell(options.find);
+  if (!powershell) {
+    return { ok: false, reason: 'Bash sandbox requested but powershell.exe was not found on Windows. Disable the sandbox to run commands.' };
+  }
+  return buildWindows(shell, shellArgs, options, powershell);
 }

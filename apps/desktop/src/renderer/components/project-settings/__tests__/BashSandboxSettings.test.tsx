@@ -22,10 +22,15 @@ function renderIt(mode?: BashSandboxMode) {
   return render(<BashSandboxSettings settings={settings} setSettings={vi.fn()} />);
 }
 
-const available: SandboxAvailability = { state: 'available', tool: 'bwrap', installHint: null };
+const available: SandboxAvailability = {
+  state: 'available', tool: 'bwrap', installHint: null, unsupportedModes: ['restricted-rights'],
+};
 const missingLinux: SandboxAvailability = { state: 'tool-missing', tool: 'bwrap', installHint: 'bubblewrap' };
 const missingMac: SandboxAvailability = { state: 'tool-missing', tool: 'sandbox-exec', installHint: null };
 const unsupported: SandboxAvailability = { state: 'unsupported', tool: null, installHint: null };
+const windows: SandboxAvailability = {
+  state: 'available', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden', 'home-hidden-no-network'],
+};
 
 afterEach(async () => {
   await i18n.changeLanguage('en');
@@ -65,6 +70,41 @@ describe('BashSandboxSettings', () => {
     renderIt('home-hidden-no-network');
     expect(await screen.findByText('Not supported on this platform')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
+
+  it('refuses a home-hidden mode on Windows and explains the Windows model', async () => {
+    mockAvailability(windows);
+    renderIt('home-hidden-no-network');
+    expect(await screen.findByText('Mode not supported here')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/refused/);
+    expect(screen.getByText(/restricted token/)).toBeInTheDocument();
+  });
+
+  it('refuses home-hidden on Windows too', async () => {
+    mockAvailability(windows);
+    renderIt('home-hidden');
+    expect(await screen.findByText('Mode not supported here')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
+
+  it('shows restricted rights as active on Windows and says what it does not do', async () => {
+    mockAvailability(windows);
+    renderIt('restricted-rights');
+    expect(await screen.findByText('Sandbox active')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText(/Restricted rights \(Windows only\): .*NOT hidden.*NOT blocked/)).toBeInTheDocument();
+  });
+
+  it('does not explain restricted rights on Linux, and refuses it when saved there', async () => {
+    mockAvailability(available);
+    const { unmount } = renderIt();
+    await screen.findByText('Available, off');
+    expect(screen.queryByText(/Restricted rights \(Windows only\):/)).not.toBeInTheDocument();
+    unmount();
+    mockAvailability(available);
+    renderIt('restricted-rights');
+    expect(await screen.findByText('Mode not supported here')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/refused/);
   });
 
   it('explains both modes', async () => {

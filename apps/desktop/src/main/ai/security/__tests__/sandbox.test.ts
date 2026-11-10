@@ -1,11 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
 import { parseSandboxMode, wrapForSandbox } from '../sandbox';
+
+// The Windows launcher writes its script file here instead of the shared temp dir.
+const launcherDir = mkdtempSync(path.join(os.tmpdir(), 'aperant-sbx-test-'));
+afterAll(() => rmSync(launcherDir, { recursive: true, force: true }));
 
 const base = {
   cwd: '/work/wt',
   projectDir: '/work/main',
   writablePaths: ['/work/extra'],
   homeDir: '/home/u',
+  launcherDir,
 };
 const found = (n: string) => `/usr/bin/${n}`;
 
@@ -75,9 +83,41 @@ describe('wrapForSandbox', () => {
       const r = wrapForSandbox('sh', [], { ...base, mode: 'home-hidden', platformName, find: () => null });
       expect(r.ok).toBe(false);
     }
-    const w = wrapForSandbox('sh', [], { ...base, mode: 'home-hidden', platformName: 'win32', find: found });
+    const w = wrapForSandbox('sh', [], { ...base, mode: 'home-hidden', platformName: 'win32', find: () => null });
     expect(w.ok).toBe(false);
     if (!w.ok) expect(w.reason).toMatch(/Windows/);
+  });
+
+  it('builds a PowerShell launcher on win32 for restricted-rights when powershell is found', () => {
+    const r = wrapForSandbox('C:\\Git\\bash.exe', [], {
+      ...base, cwd: 'C:\\work\\wt', projectDir: 'C:\\work\\main', writablePaths: [], homeDir: 'C:\\Users\\u',
+      mode: 'restricted-rights', platformName: 'win32', find: (n: string) => `C:\\bin\\${n}`,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.file.endsWith('powershell.exe')).toBe(true);
+    expect(r.args).toContain('-NoProfile');
+    expect(r.args).toContain('-NonInteractive');
+    expect(r.args).toContain('-Command');
+  });
+
+  it('refuses both home-hidden modes on win32 even when powershell is found', () => {
+    for (const mode of ['home-hidden', 'home-hidden-no-network'] as const) {
+      const r = wrapForSandbox('C:\\Git\\bash.exe', [], {
+        ...base, cwd: 'C:\\work\\wt', projectDir: 'C:\\work\\main', writablePaths: [], homeDir: 'C:\\Users\\u',
+        mode, platformName: 'win32', find: (n: string) => `C:\\bin\\${n}`,
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/not supported on Windows/);
+    }
+  });
+
+  it('refuses restricted-rights on linux and macOS even when the sandbox tool is found', () => {
+    for (const platformName of ['linux', 'darwin'] as const) {
+      const r = wrapForSandbox('/bin/bash', ['-c', 'ls'], { ...base, mode: 'restricted-rights', platformName, find: found });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/only available on Windows/);
+    }
   });
 });
 
@@ -85,6 +125,7 @@ describe('parseSandboxMode', () => {
   it('accepts valid modes and defaults to off', () => {
     expect(parseSandboxMode('home-hidden')).toBe('home-hidden');
     expect(parseSandboxMode('home-hidden-no-network')).toBe('home-hidden-no-network');
+    expect(parseSandboxMode('restricted-rights')).toBe('restricted-rights');
     for (const v of [undefined, null, 5, 'nope', {}, '']) expect(parseSandboxMode(v)).toBe('off');
   });
 });

@@ -45,11 +45,14 @@ export interface ProjectSettings {
    */
   envPassthrough?: string[];
   /**
-   * zeenha fork: run agent Bash commands in an OS sandbox that hides the home
-   * directory (bubblewrap on Linux, sandbox-exec on macOS). 'home-hidden-no-network'
-   * also blocks network access. Default 'off'. See main/ai/security/sandbox.ts.
+   * zeenha fork: run agent Bash commands in an OS sandbox. 'home-hidden' hides the home
+   * directory (bubblewrap on Linux, sandbox-exec on macOS); 'home-hidden-no-network' also
+   * blocks network access. Both are refused on Windows. 'restricted-rights' is Windows only:
+   * a restricted token plus a Job object that drops admin rights and privileges and kills
+   * leftover child processes, but does not hide the home directory or block the network.
+   * Default 'off'. See main/ai/security/sandbox.ts.
    */
-  bashSandbox?: 'off' | 'home-hidden' | 'home-hidden-no-network';
+  bashSandbox?: 'off' | 'home-hidden' | 'home-hidden-no-network' | 'restricted-rights';
 }
 
 export interface NotificationSettings {
@@ -558,9 +561,11 @@ export interface FileNode {
 
 // zeenha fork: whether the OS-level Bash sandbox tool can run on this machine
 export type BashSandboxMode = NonNullable<ProjectSettings['bashSandbox']>;
-export type SandboxStatusKind = 'active' | 'available-off' | 'tool-missing' | 'unsupported';
+export type SandboxStatusKind = 'active' | 'available-off' | 'tool-missing' | 'unsupported' | 'mode-unsupported';
 export interface SandboxAvailability {
   state: 'available' | 'tool-missing' | 'unsupported';
-  tool: 'bwrap' | 'sandbox-exec' | null;
+  tool: 'bwrap' | 'sandbox-exec' | 'powershell' | null;
   installHint: 'bubblewrap' | null;
+  /** zeenha fork: modes this platform cannot enforce; the Bash tool refuses them. */
+  unsupportedModes?: BashSandboxMode[];
 }

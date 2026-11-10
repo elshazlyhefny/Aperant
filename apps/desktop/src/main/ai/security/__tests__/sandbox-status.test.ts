@@ -7,31 +7,37 @@ const missing = () => null;
 describe('getSandboxAvailability', () => {
   it('reports bwrap available on linux', () => {
     expect(getSandboxAvailability({ platformName: 'linux', find: found })).toEqual({
-      state: 'available', tool: 'bwrap', installHint: null,
+      state: 'available', tool: 'bwrap', installHint: null, unsupportedModes: ['restricted-rights'],
     });
   });
 
   it('reports bwrap missing on linux with install hint', () => {
     expect(getSandboxAvailability({ platformName: 'linux', find: missing })).toEqual({
-      state: 'tool-missing', tool: 'bwrap', installHint: 'bubblewrap',
+      state: 'tool-missing', tool: 'bwrap', installHint: 'bubblewrap', unsupportedModes: ['restricted-rights'],
     });
   });
 
   it('reports sandbox-exec available on macOS', () => {
     expect(getSandboxAvailability({ platformName: 'darwin', find: found })).toEqual({
-      state: 'available', tool: 'sandbox-exec', installHint: null,
+      state: 'available', tool: 'sandbox-exec', installHint: null, unsupportedModes: ['restricted-rights'],
     });
   });
 
   it('reports sandbox-exec missing on macOS', () => {
     expect(getSandboxAvailability({ platformName: 'darwin', find: missing })).toEqual({
-      state: 'tool-missing', tool: 'sandbox-exec', installHint: null,
+      state: 'tool-missing', tool: 'sandbox-exec', installHint: null, unsupportedModes: ['restricted-rights'],
     });
   });
 
-  it('reports unsupported on windows', () => {
+  it('reports PowerShell available on windows', () => {
     expect(getSandboxAvailability({ platformName: 'win32', find: found })).toEqual({
-      state: 'unsupported', tool: null, installHint: null,
+      state: 'available', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden', 'home-hidden-no-network'],
+    });
+  });
+
+  it('reports PowerShell missing on windows', () => {
+    expect(getSandboxAvailability({ platformName: 'win32', find: missing })).toEqual({
+      state: 'tool-missing', tool: 'powershell', installHint: null, unsupportedModes: ['home-hidden', 'home-hidden-no-network'],
     });
   });
 });
@@ -58,5 +64,18 @@ describe('deriveSandboxStatus', () => {
   it('is unsupported regardless of mode', () => {
     expect(deriveSandboxStatus(unsupported, 'home-hidden')).toBe('unsupported');
     expect(deriveSandboxStatus(unsupported, 'off')).toBe('unsupported');
+  });
+
+  it('is mode-unsupported only for a mode the platform refuses', () => {
+    const windows = getSandboxAvailability({ platformName: 'win32', find: found });
+    expect(deriveSandboxStatus(windows, 'home-hidden')).toBe('mode-unsupported');
+    expect(deriveSandboxStatus(windows, 'home-hidden-no-network')).toBe('mode-unsupported');
+    expect(deriveSandboxStatus(windows, 'restricted-rights')).toBe('active');
+    expect(deriveSandboxStatus(windows, 'off')).toBe('available-off');
+    const linux = getSandboxAvailability({ platformName: 'linux', find: found });
+    expect(deriveSandboxStatus(linux, 'restricted-rights')).toBe('mode-unsupported');
+    expect(deriveSandboxStatus(linux, 'home-hidden')).toBe('active');
+    const mac = getSandboxAvailability({ platformName: 'darwin', find: found });
+    expect(deriveSandboxStatus(mac, 'restricted-rights')).toBe('mode-unsupported');
   });
 });

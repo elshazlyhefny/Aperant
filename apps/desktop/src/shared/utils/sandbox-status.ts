@@ -11,5 +11,6 @@ export function deriveSandboxStatus(
 ): SandboxStatusKind {
   if (availability.state === 'unsupported') return 'unsupported';
   if (availability.state === 'tool-missing') return 'tool-missing';
+  if (availability.unsupportedModes?.includes(mode)) return 'mode-unsupported';
   return mode === 'off' ? 'available-off' : 'active';
 }

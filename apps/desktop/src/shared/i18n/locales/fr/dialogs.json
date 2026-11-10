@@ -248,6 +248,10 @@
       "description": "Comme ci-dessus, et les commandes n'ont pas accès au réseau."
     },
     "failClosed": "Si le bac à sable ne peut plus fonctionner, les commandes shell des agents sont refusées au lieu d'être exécutées sans isolation.",
-    "skip": "Pas maintenant"
+    "skip": "Pas maintenant",
+    "restrictedRights": {
+      "label": "Droits restreints",
+      "description": "Les commandes s'exécutent sans droits ni privilèges d'administrateur, et les processus restants sont arrêtés à la fin d'une commande. Votre dossier personnel n'est pas masqué et le réseau n'est pas bloqué."
+    }
   }
 }
