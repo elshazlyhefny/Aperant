@@ -18,10 +18,11 @@ import { Label } from './ui/label';
 import { Combobox } from './ui/combobox';
 import { TaskModalLayout } from './task-form/TaskModalLayout';
 import { TaskFormFields } from './task-form/TaskFormFields';
+import { TaskDependencyPicker, mapDependencyError } from './task-form/TaskDependencyPicker';
 import { type FileReferenceData } from './task-form/useImageUpload';
 import { TaskFileExplorerDrawer } from './TaskFileExplorerDrawer';
 import { FileAutocomplete } from './FileAutocomplete';
-import { createTask, saveDraft, loadDraft, clearDraft, isDraftEmpty } from '../stores/task-store';
+import { createTask, useTaskStore, saveDraft, loadDraft, clearDraft, isDraftEmpty } from '../stores/task-store';
 import { useProjectStore } from '../stores/project-store';
 import { parseTokenBudgetText } from '../../shared/utils/token-budget';
 import { buildBranchOptions } from '../lib/branch-utils';
@@ -79,6 +80,9 @@ export function TaskCreationWizard({
   const [description, setDescription] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [taskDependencies, setTaskDependencies] = useState<string[]>([]);
+  const allTasks = useTaskStore((state) => state.tasks);
+  const projectTasks = useMemo(() => allTasks.filter((x) => x.projectId === projectId), [allTasks, projectId]);
   const [showClassification, setShowClassification] = useState(false);
   const [showFileExplorer, setShowFileExplorer] = useState(false);
   const [showGitOptions, setShowGitOptions] = useState(false);
@@ -518,6 +522,7 @@ export function TaskCreationWizard({
       if (isSelectedBranchLocal) metadata.useLocalBranch = true;
       if (!pushNewBranches) metadata.pushNewBranches = false;
       metadata.fastMode = fastMode;
+      if (taskDependencies.length > 0) metadata.taskDependencies = taskDependencies;
       const budgetOverride = parseTokenBudgetText(tokenBudgetText);
       if (budgetOverride !== undefined) metadata.tokenBudget = budgetOverride;
 
@@ -527,7 +532,7 @@ export function TaskCreationWizard({
         resetForm();
         onOpenChange(false);
       } else {
-        setError(t('tasks:wizard.errors.createFailed'));
+        setError(mapDependencyError(useTaskStore.getState().error, t) ?? t('tasks:wizard.errors.createFailed'));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common:errors.unknownError'));
@@ -550,6 +555,7 @@ export function TaskCreationWizard({
     setPhaseThinking(resolvedPhaseThinking);
     setImages([]);
     setReferencedFiles([]);
+    setTaskDependencies([]);
     setRequireReviewBeforeCoding(false);
     setFastMode(false);
     setBaseBranch(PROJECT_DEFAULT_BRANCH);
@@ -758,6 +764,14 @@ export function TaskCreationWizard({
             />
           )}
         </TaskFormFields>
+
+        <TaskDependencyPicker
+          value={taskDependencies}
+          onChange={setTaskDependencies}
+          tasks={projectTasks}
+          disabled={isCreating}
+          idPrefix="create"
+        />
 
         {/* Git Options Toggle - unique to creation */}
         <button

@@ -1,4 +1,27 @@
 {
+  "dependencies": {
+    "title": "Depends on",
+    "add": "Add dependency: {{title}}",
+    "addButton": "Add",
+    "remove": "Remove dependency: {{title}}",
+    "none": "No dependencies",
+    "cycleError": "This would create a dependency cycle: {{path}}",
+    "selfError": "A task cannot depend on itself.",
+    "unknownError": "One of the selected dependencies no longer exists.",
+    "searchPlaceholder": "Search tasks...",
+    "waitingFor": "Waiting for {{title}}",
+    "waitingForMore": " +{{count}} more",
+    "heldFailed": "Held: {{title}} failed",
+    "heldMissing": "Held: dependency missing",
+    "reason": {
+      "not_finished": "Not finished yet",
+      "pr_not_merged": "PR not merged yet",
+      "failed": "Failed",
+      "missing": "Task no longer exists",
+      "archived": "Archived"
+    },
+    "heldHint": "This task stays held until you remove the dependency, retry the failed task, or move this task."
+  },
   "refreshTasks": "Refresh Tasks",
   "status": {
     "backlog": "Backlog",

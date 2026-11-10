@@ -918,6 +918,7 @@ export async function persistUpdateTask(
     }
 
     console.error('Failed to persist task update:', result.error);
+    store.setError(result.error || null);
     return false;
   } catch (error) {
     console.error('Error persisting task update:', error);
