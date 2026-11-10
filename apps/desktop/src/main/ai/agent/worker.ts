@@ -19,7 +19,7 @@ import { runAgentSession } from '../session/runner';
 import { runContinuableSession } from '../session/continuation';
 import { createProvider } from '../providers/factory';
 import type { SupportedProvider } from '../providers/types';
-import { getModelContextWindow } from '../../../shared/constants/models';
+import { getModelContextWindow, modelSupportsVision } from '../../../shared/constants/models';
 import { refreshOAuthTokenReactive } from '../auth/resolver';
 import { buildToolRegistry } from '../tools/build-registry';
 import type { ToolRegistry } from '../tools/registry';
@@ -227,6 +227,7 @@ function buildToolContext(session: SerializableSessionConfig, securityProfile: S
     specDir: session.toolContext.specDir,
     securityProfile,
     abortSignal: abortController.signal,
+    modelSupportsVision: modelSupportsVision(session.modelId),
   };
 }
 

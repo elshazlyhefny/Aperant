@@ -25,7 +25,7 @@ import type {
   LanguageModelV3Usage,
 } from '@ai-sdk/provider';
 
-import { effortFromProviderOptions, isRecord, renderPrompt, systemFromMessages } from './cli-args';
+import { effortFromProviderOptions, extractImages, isRecord, renderPrompt, systemFromMessages } from './cli-args';
 import type { CliUsage } from './cli-events';
 import { type ClaudeCodeRunOptions, type ClaudeCodeRunResult, runClaudeCode } from './engine';
 
@@ -74,6 +74,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV3 {
     return {
       system: systemFromMessages(messages) || undefined,
       prompt: renderPrompt(messages),
+      images: extractImages(messages),
       jsonSchema,
       effort: effortFromProviderOptions(options.providerOptions),
     };
