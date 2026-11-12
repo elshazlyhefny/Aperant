@@ -247,18 +247,20 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
     mcpServers: [],
     thinkingDefault: 'low',
   },
+  // zeenha fork: PR author text reaches these agents and they run in the
+  // author's checkout, so they are read-only (no Bash, Write, Edit, web tools).
   pr_reviewer: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...BASE_READ_TOOLS],
     mcpServers: ['context7'],
     thinkingDefault: 'high',
   },
   pr_orchestrator_parallel: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...BASE_READ_TOOLS],
     mcpServers: ['context7'],
     thinkingDefault: 'high',
   },
   pr_followup_parallel: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...BASE_READ_TOOLS],
     mcpServers: ['context7'],
     thinkingDefault: 'high',
   },
@@ -267,8 +269,9 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
     mcpServers: [],
     thinkingDefault: 'low',
   },
+  // zeenha fork: read-only, same reason as pr_reviewer above.
   pr_finding_validator: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...BASE_READ_TOOLS],
     mcpServers: [],
     thinkingDefault: 'medium',
   },
