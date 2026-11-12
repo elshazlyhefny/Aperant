@@ -75,6 +75,10 @@
     "deleteProfileAriaLabel": "Delete profile"
   },
   "buttons": {
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyPath": "Copy Path",
+    "copyCode": "Copy code",
     "save": "Save",
     "cancel": "Cancel",
     "skip": "Skip",
