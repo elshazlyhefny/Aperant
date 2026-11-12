@@ -43,6 +43,33 @@ export function getIsShuttingDown(): boolean {
   return isShuttingDown;
 }
 
+/** Max time output is held before being sent to the renderer as one batch. */
+export const OUTPUT_FLUSH_INTERVAL_MS = 12;
+/** Queued output above this many characters is flushed immediately. */
+export const OUTPUT_FLUSH_THRESHOLD_CHARS = 64 * 1024;
+
+function clearOutputFlushTimer(terminal: TerminalProcess): void {
+  if (terminal.outputFlushTimer !== undefined) {
+    clearTimeout(terminal.outputFlushTimer);
+    terminal.outputFlushTimer = undefined;
+  }
+}
+
+/**
+ * Send all queued output for a terminal to the renderer as a single message.
+ * Safe to call with nothing queued.
+ */
+export function flushPendingOutput(terminal: TerminalProcess, getWindow: WindowGetter): void {
+  clearOutputFlushTimer(terminal);
+  const queue = terminal.pendingOutput;
+  if (!queue || queue.length === 0) return;
+  terminal.pendingOutput = [];
+  terminal.pendingOutputLength = 0;
+  if (isShuttingDown) return;
+  // isDestroyed() check lives in safeSendToRenderer
+  safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OUTPUT, terminal.id, queue.join(''));
+}
+
 /**
  * Result of spawning a PTY process
  */
@@ -221,7 +248,11 @@ export function setupPtyHandlers(
     if (terminal.hasExited) return;
 
     // Append to output buffer (limit to 100KB)
-    terminal.outputBuffer = (terminal.outputBuffer + data).slice(-100000);
+    if (terminal.outputStore) {
+      terminal.outputStore.append(data);
+    } else {
+      terminal.outputBuffer = (terminal.outputBuffer + data).slice(-100000);
+    }
 
     // Call custom data handler. This must never crash the main process:
     // parser logic in higher layers can throw on unexpected output.
@@ -231,9 +262,24 @@ export function setupPtyHandlers(
       debugError('[PtyManager] onData callback failed for terminal:', id, 'error:', error);
     }
 
-    // Send to renderer with isDestroyed() check to prevent crashes
-    // when the window is closed during terminal activity
-    safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OUTPUT, id, data);
+    // Queue for the renderer and send in batches: one IPC message per interval
+    // (or sooner when a large burst arrives) instead of one per PTY chunk.
+    if (!terminal.pendingOutput) terminal.pendingOutput = [];
+    terminal.pendingOutput.push(data);
+    terminal.pendingOutputLength = (terminal.pendingOutputLength ?? 0) + data.length;
+    if (terminal.pendingOutputLength > OUTPUT_FLUSH_THRESHOLD_CHARS) {
+      flushPendingOutput(terminal, getWindow);
+    } else if (terminal.outputFlushTimer === undefined) {
+      terminal.outputFlushTimer = setTimeout(() => {
+        terminal.outputFlushTimer = undefined;
+        if (isShuttingDown) {
+          terminal.pendingOutput = [];
+          terminal.pendingOutputLength = 0;
+          return;
+        }
+        flushPendingOutput(terminal, getWindow);
+      }, OUTPUT_FLUSH_INTERVAL_MS);
+    }
   });
 
   // Handle terminal exit
@@ -254,7 +300,15 @@ export function setupPtyHandlers(
 
     // Shutdown guard (GitHub #1469): skip accessing win.webContents and callbacks
     // to avoid pty.node SIGABRT from destroyed BrowserWindow resources
-    if (isShuttingDown) return;
+    if (isShuttingDown) {
+      clearOutputFlushTimer(terminal);
+      terminal.pendingOutput = [];
+      terminal.pendingOutputLength = 0;
+      return;
+    }
+
+    // Deliver queued output first so it stays ordered before the exit event.
+    flushPendingOutput(terminal, getWindow);
 
     // Send to renderer with isDestroyed() check to prevent crashes
     // when the window is closed during terminal exit
