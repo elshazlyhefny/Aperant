@@ -255,7 +255,7 @@ export async function runInsightsQuery(
     abortSignal,
   };
 
-  // Bind tools via registry (insights agent gets Read, Glob, Grep)
+  // Bind tools via registry (insights agent gets Read, Glob, Grep, Bash, WebFetch, WebSearch; no Write/Edit)
   const registry = buildToolRegistry();
   const tools = registry.getToolsForAgent('insights', toolContext);
 

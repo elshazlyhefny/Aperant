@@ -506,6 +506,8 @@ export async function runRoadmapGeneration(
     specDir: join(projectDir, '.auto-claude', 'specs'),
     securityProfile: null as unknown as SecurityProfile,
     abortSignal,
+    // Write/Edit are confined to the output directory
+    writeRoot: outputDir,
   };
 
   const registry = buildToolRegistry();

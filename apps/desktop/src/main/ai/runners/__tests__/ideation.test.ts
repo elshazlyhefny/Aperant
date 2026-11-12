@@ -22,11 +22,14 @@ const mockExistsSync = vi.fn();
 const mockReadFileSync = vi.fn();
 const mockReaddirSync = vi.fn();
 const mockStatSync = vi.fn();
+const mockMkdirSync = vi.fn();
+const mockGetToolsForAgent = vi.fn();
 
 vi.mock('node:fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
   readdirSync: (...args: unknown[]) => mockReaddirSync(...args),
+  mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   // The path stands in for the file descriptor, so readFileSync still sees it.
   openSync: (file: string) => file,
   fstatSync: (...args: unknown[]) => mockStatSync(...args),
@@ -58,7 +61,7 @@ function streamThatWrites(file: { name: string; content: string } | null, parts:
 // Mock the tool registry so we don't need real tool initialization
 vi.mock('../../tools/build-registry', () => ({
   buildToolRegistry: () => ({
-    getToolsForAgent: vi.fn().mockReturnValue({}),
+    getToolsForAgent: (...args: unknown[]) => mockGetToolsForAgent(...args),
   }),
 }));
 
@@ -115,6 +118,7 @@ describe('runIdeation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreateSimpleClient.mockResolvedValue(makeMockClient());
+    mockGetToolsForAgent.mockReturnValue({});
     // Prompt file exists and has content by default
     mockExistsSync.mockReturnValue(true);
     agentWrote('code_improvements');
@@ -128,6 +132,17 @@ describe('runIdeation', () => {
   // ---------------------------------------------------------------------------
   // A finished stream is not success without the ideas file (zeenha fork)
   // ---------------------------------------------------------------------------
+
+  it('confines Write to outputDir and creates it first', async () => {
+    mockStreamText.mockReturnValue(makeStream([]));
+    const config = baseConfig();
+
+    await runIdeation(config);
+
+    expect(mockMkdirSync).toHaveBeenCalledWith(config.outputDir, { recursive: true });
+    const ctx = mockGetToolsForAgent.mock.calls[0][1];
+    expect(ctx.writeRoot).toBe(config.outputDir);
+  });
 
   it('fails when the agent finished without writing its ideas file', async () => {
     ideasFile = null;
