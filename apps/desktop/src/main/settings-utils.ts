@@ -12,6 +12,7 @@ import { app } from 'electron';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { promises as fsPromises } from 'fs';
 import path from 'path';
+import type { AppSettings } from '../shared/types/settings';
 
 /**
  * Get the path to the settings file
@@ -22,12 +23,12 @@ export function getSettingsPath(): string {
 
 /**
  * Read and parse settings from disk.
- * Returns the raw parsed settings object, or undefined if the file doesn't exist or fails to parse.
+ * Returns the raw on-disk subset of settings (Partial<AppSettings>, not validated), or undefined if the file doesn't exist or fails to parse.
  *
  * This function does NOT merge with defaults or perform any migrations.
  * Callers are responsible for merging with DEFAULT_APP_SETTINGS.
  */
-export function readSettingsFile(): Record<string, unknown> | undefined {
+export function readSettingsFile(): Partial<AppSettings> | undefined {
   const settingsPath = getSettingsPath();
 
   if (!existsSync(settingsPath)) {
@@ -62,7 +63,7 @@ export function writeSettingsFile(settings: Record<string, unknown>): void {
 
 /**
  * Read and parse settings from disk asynchronously.
- * Returns the raw parsed settings object, or undefined if the file doesn't exist or fails to parse.
+ * Returns the raw on-disk subset of settings (Partial<AppSettings>, not validated), or undefined if the file doesn't exist or fails to parse.
  *
  * This is the non-blocking version of readSettingsFile, safe to use in Electron main process
  * without blocking the event loop.
@@ -70,7 +71,7 @@ export function writeSettingsFile(settings: Record<string, unknown>): void {
  * This function does NOT merge with defaults or perform any migrations.
  * Callers are responsible for merging with DEFAULT_APP_SETTINGS.
  */
-export async function readSettingsFileAsync(): Promise<Record<string, unknown> | undefined> {
+export async function readSettingsFileAsync(): Promise<Partial<AppSettings> | undefined> {
   const settingsPath = getSettingsPath();
 
   try {

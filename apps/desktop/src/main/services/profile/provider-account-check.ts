@@ -1,12 +1,11 @@
 import { readSettingsFile } from '../../settings-utils';
-import type { ProviderAccount } from '../../../shared/types/provider-account';
 
 /**
  * Check if any provider account is configured (API key or OAuth).
  * Used to bypass the legacy hasValidAuth() check for non-Anthropic providers.
  */
 export function hasAnyProviderAccount(): boolean {
-  const accounts = (readSettingsFile()?.providerAccounts as ProviderAccount[] | undefined) ?? [];
+  const accounts = readSettingsFile()?.providerAccounts ?? [];
   return accounts.length > 0;
 }
 

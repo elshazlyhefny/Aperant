@@ -19,9 +19,8 @@ import {
   DEFAULT_FEATURE_THINKING,
   resolveModelEquivalent,
 } from '../../shared/constants/models';
-import type { FeatureModelConfig, FeatureThinkingConfig } from '../../shared/types/settings';
+import type { AppSettings, FeatureModelConfig } from '../../shared/types/settings';
 import type { BuiltinProvider } from '../../shared/types/provider-account';
-import type { ProviderAccount } from '../../shared/types/provider-account';
 
 type FeatureKey = keyof FeatureModelConfig;
 
@@ -35,9 +34,9 @@ interface FeatureSettings {
  * Looks at globalPriorityOrder + providerAccounts to find
  * the first provider in the user's priority order.
  */
-function resolveActiveProvider(settings: Record<string, unknown>): BuiltinProvider | undefined {
-  const priorityOrder = settings.globalPriorityOrder as string[] | undefined;
-  const accounts = settings.providerAccounts as ProviderAccount[] | undefined;
+function resolveActiveProvider(settings: Partial<AppSettings>): BuiltinProvider | undefined {
+  const priorityOrder = settings.globalPriorityOrder;
+  const accounts = settings.providerAccounts;
 
   if (!priorityOrder?.length || !accounts?.length) return undefined;
 
@@ -71,10 +70,10 @@ export function getActiveProviderFeatureSettings(featureKey: FeatureKey): Featur
   // Try per-provider config first
   const activeProvider = resolveActiveProvider(settings);
   if (activeProvider) {
-    const providerConfig = (settings.providerAgentConfig as Record<string, Record<string, unknown>> | undefined)?.[activeProvider];
+    const providerConfig = settings.providerAgentConfig?.[activeProvider];
     if (providerConfig) {
-      const perProviderModels = providerConfig.featureModels as FeatureModelConfig | undefined;
-      const perProviderThinking = providerConfig.featureThinking as FeatureThinkingConfig | undefined;
+      const perProviderModels = providerConfig.featureModels;
+      const perProviderThinking = providerConfig.featureThinking;
 
       const model = perProviderModels?.[featureKey];
       const thinking = perProviderThinking?.[featureKey];
@@ -89,8 +88,8 @@ export function getActiveProviderFeatureSettings(featureKey: FeatureKey): Featur
   }
 
   // Fallback to legacy global settings
-  const globalModels = settings.featureModels as FeatureModelConfig | undefined;
-  const globalThinking = settings.featureThinking as FeatureThinkingConfig | undefined;
+  const globalModels = settings.featureModels;
+  const globalThinking = settings.featureThinking;
 
   const model = globalModels?.[featureKey] ?? DEFAULT_FEATURE_MODELS[featureKey];
   const thinkingLevel = globalThinking?.[featureKey] ?? DEFAULT_FEATURE_THINKING[featureKey];

@@ -7,7 +7,6 @@
 
 import { getClaudeProfileManager } from '../../claude-profile-manager';
 import { loadProfilesFile } from '../../services/profile/api-profile-store';
-import type { ProviderAccount } from '../../../shared/types/provider-account';
 import { getCredentialsFromKeychain } from '../credential-utils';
 import { ensureValidToken } from '../token-refresh';
 import { ensureValidCodexToken } from '../../ai/auth/codex-oauth';
@@ -52,8 +51,8 @@ export async function resolveActiveCredential(
   try {
     const settings = await readSettingsFileAsync();
     if (settings) {
-      const providerAccounts = (settings.providerAccounts as ProviderAccount[] | undefined) ?? [];
-      const queue = (settings.globalPriorityOrder as string[] | undefined) ?? [];
+      const providerAccounts = settings.providerAccounts ?? [];
+      const queue = settings.globalPriorityOrder ?? [];
       for (const accountId of queue) {
         const account = providerAccounts.find(a => a.id === accountId);
         if (account?.provider === 'openai' && account.authType === 'oauth') {

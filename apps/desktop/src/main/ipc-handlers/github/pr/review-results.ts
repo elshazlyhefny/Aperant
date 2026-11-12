@@ -234,7 +234,7 @@ export function sendReviewStateUpdate(
  * Get GitHub PR model and thinking settings from app settings
  */
 export function getGitHubPRSettings(): { model: string; thinkingLevel: string } {
-  const rawSettings = readSettingsFile() as Partial<AppSettings> | undefined;
+  const rawSettings = readSettingsFile();
 
   // Get feature models/thinking with defaults
   const featureModels = rawSettings?.featureModels ?? DEFAULT_FEATURE_MODELS;

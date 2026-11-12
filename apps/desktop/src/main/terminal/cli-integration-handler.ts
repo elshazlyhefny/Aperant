@@ -1236,12 +1236,12 @@ export async function invokeCLIAsync(
 
     // Dispatch to the appropriate CLI based on preferredCLI setting
     const settings = await readSettingsFileAsync();
-    const preferredCLI = (settings?.preferredCLI as SupportedCLI | undefined) || 'claude-code';
+    const preferredCLI = settings?.preferredCLI || 'claude-code';
 
     if (preferredCLI !== 'claude-code') {
       // Non-Claude CLI: change directory if needed, then run the CLI command directly
       const cwdCommand = buildCdCommand(cwd, terminal.shellType);
-      const command = getCLICommand(preferredCLI, settings?.customCLIPath as string | undefined);
+      const command = getCLICommand(preferredCLI, settings?.customCLIPath);
       debugLog('[ClaudeIntegration:invokeCLIAsync] Non-Claude CLI dispatch:', { preferredCLI, command });
       if (cwdCommand) {
         PtyManager.writeToPty(terminal, `${cwdCommand} && ${command}\r`);

@@ -138,7 +138,7 @@ function getReviewResult(project: Project, mrIid: number): MRReviewResult | null
  * Get GitLab MR model and thinking settings from app settings
  */
 function getGitLabMRSettings(): { model: string; thinkingLevel: string } {
-  const rawSettings = readSettingsFile() as Partial<AppSettings> | undefined;
+  const rawSettings = readSettingsFile();
 
   // Get feature models/thinking with defaults
   const featureModels = rawSettings?.featureModels ?? DEFAULT_FEATURE_MODELS;

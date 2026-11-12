@@ -79,7 +79,7 @@ export async function appendProviderAccountUsage(
     const appSettings = await readSettingsFileAsync();
     if (!appSettings) return;
 
-    const providerAccounts = (appSettings.providerAccounts as ProviderAccount[] | undefined) ?? [];
+    const providerAccounts = appSettings.providerAccounts ?? [];
 
     for (const account of providerAccounts) {
       if (!source.accountFilter(account)) continue;

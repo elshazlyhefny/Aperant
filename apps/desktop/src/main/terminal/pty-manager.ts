@@ -179,7 +179,7 @@ export function spawnPtyProcess(
 ): SpawnPtyResult {
   // Read user's preferred terminal setting
   const settings = readSettingsFile();
-  const preferredTerminal = settings?.preferredTerminal as SupportedTerminal | undefined;
+  const preferredTerminal = settings?.preferredTerminal;
 
   let shell: string;
   let shellType: WindowsShellType | undefined;
