@@ -4,12 +4,17 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, promises as fsPromises } from 'fs';
+import nodePath from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
 import {
   getToolInfo,
+  getToolPath,
   getToolPathAsync,
+  configureTools,
+  type CLITool,
+  type ToolConfig,
   clearToolCache,
   getClaudeDetectionPaths,
   sortNvmVersionDirs,
@@ -18,6 +23,8 @@ import {
 import {
   findWindowsExecutableViaWhere,
   findWindowsExecutableViaWhereAsync,
+  getWindowsExecutablePaths,
+  getWindowsExecutablePathsAsync,
   isSecurePath
 } from '../utils/windows-paths';
 import { findExecutable, findExecutableAsync } from '../env-utils';
@@ -57,7 +64,7 @@ vi.mock('os', () => ({
 vi.mock('fs', () => ({
   existsSync: vi.fn(),
   readdirSync: vi.fn(),
-  promises: {}
+  promises: { readdir: vi.fn() }
 }));
 
 // Mock child_process for execFileSync, execFile, execSync, and exec (used in validation)
@@ -102,6 +109,14 @@ const mockExecFile = vi.fn((_cmd: unknown, _args: unknown, _options: unknown, ca
 
     return childProcess as unknown as import('child_process').ChildProcess;
   });
+
+  // util.promisify(execFile) must resolve { stdout, stderr }. Drive stdout from the same
+  // mock as execFileSync so sync and async validation see identical output (and errors).
+  (mockExecFile as unknown as Record<symbol, unknown>)[Symbol.for('nodejs.util.promisify.custom')] =
+    vi.fn(async (...callArgs: unknown[]) => {
+      const stdout = (sharedSyncMock as unknown as (...a: unknown[]) => unknown)(...callArgs);
+      return { stdout: stdout === undefined ? '' : String(stdout), stderr: '' };
+    });
 
   return {
     execFileSync: sharedSyncMock,
@@ -150,7 +165,11 @@ vi.mock('../env-utils', () => {
     ...baseOptions,
     shell: mockShouldUseShell(command)
   })),
-  existsAsync: vi.fn(() => Promise.resolve(false))
+  // Delegates to the existsSync mock so sync and async detection see the same filesystem
+  existsAsync: vi.fn(async (p: string) => {
+    const fsMock = await import('fs');
+    return Boolean(fsMock.existsSync(p));
+  })
   });
 });
 
@@ -166,7 +185,8 @@ vi.mock('../utils/windows-paths', () => ({
   isSecurePath: vi.fn(() => true),
   getWindowsExecutablePaths: vi.fn(() => []),
   getWindowsExecutablePathsAsync: vi.fn(() => Promise.resolve([])),
-  WINDOWS_GIT_PATHS: {}
+  WINDOWS_GIT_PATHS: {},
+  WINDOWS_GLAB_PATHS: {}
 }));
 
 describe('cli-tool-manager - Claude CLI NVM detection', () => {
@@ -794,5 +814,522 @@ describe('cli-tool-manager - Claude CLI async Windows where.exe detection', () =
     const result = await getToolPathAsync('claude');
 
     expect(result).toBe('claude'); // Fallback
+  });
+});
+
+// ============================================================================
+// Sync/async parity
+// ============================================================================
+
+type ParityOs = 'darwin' | 'win32' | 'linux';
+
+interface ParityScenario {
+  name: string;
+  tool: CLITool;
+  os: ParityOs;
+  homeDir: string;
+  /** Paths for which existsSync/existsAsync return true */
+  existing?: string[];
+  /** Version output keyed by command ("<cmd> <args without --version>"); 'error' throws */
+  versionOutput?: Record<string, string>;
+  /** findExecutable(cmd) results keyed by command name */
+  pathLookup?: Record<string, string>;
+  /** findWindowsExecutableViaWhere results keyed by tool name */
+  where?: Record<string, string>;
+  /** getWindowsExecutablePaths results keyed by log label (e.g. '[Git]') */
+  windowsPatterns?: Record<string, string[]>;
+  /** NVM-style directory listings: dir -> entry names */
+  dirs?: Record<string, string[]>;
+  /** Paths for which isSecurePath returns false */
+  insecure?: string[];
+  userConfig?: ToolConfig;
+  expected: {
+    found: boolean;
+    path: string;
+    source?: string;
+    version?: string;
+    messageContains?: string;
+  };
+}
+
+const HOMES: Record<ParityOs, string> = {
+  linux: '/home/u',
+  darwin: '/Users/u',
+  win32: 'C:\\Users\\u'
+};
+
+const TOOL_META: Record<
+  CLITool,
+  { label: string; configKey: keyof ToolConfig; lookup: string; output: (v: string) => string; notFound: string }
+> = {
+  python: {
+    label: 'Python',
+    configKey: 'pythonPath',
+    lookup: 'python3',
+    output: (v) => `Python ${v}`,
+    notFound: 'Python 3.10.0+ not found'
+  },
+  git: {
+    label: 'Git',
+    configKey: 'gitPath',
+    lookup: 'git',
+    output: (v) => `git version ${v}`,
+    notFound: 'Git not found'
+  },
+  gh: {
+    label: 'GitHub CLI',
+    configKey: 'githubCLIPath',
+    lookup: 'gh',
+    output: (v) => `gh version ${v} (2024-01-01)`,
+    notFound: 'GitHub CLI (gh) not found'
+  },
+  glab: {
+    label: 'GitLab CLI',
+    configKey: 'gitlabCLIPath',
+    lookup: 'glab',
+    output: (v) => `glab ${v} (2024-01-01)`,
+    notFound: 'GitLab CLI (glab) not found'
+  },
+  claude: {
+    label: 'Claude CLI',
+    configKey: 'claudePath',
+    lookup: 'claude',
+    output: (v) => `${v} (Claude Code)`,
+    notFound: 'Claude CLI not found'
+  }
+};
+
+const ALL_TOOLS: CLITool[] = ['python', 'git', 'gh', 'glab', 'claude'];
+
+/** Key used to look up version output: command + args minus the trailing --version */
+function versionKey(cmd: string, args: readonly string[]): string {
+  // Windows .cmd/.bat files are run through cmd.exe /d /s /c ""<path>" --version"
+  if (args[2] === '/c' && typeof args[3] === 'string') {
+    const m = /^""(.*)" --version"$/.exec(args[3]);
+    if (m) return m[1];
+  }
+  return [cmd, ...args.filter((a) => a !== '--version')].join(' ');
+}
+
+/** Build the generic scenarios that apply to every tool */
+function commonScenarios(tool: CLITool): ParityScenario[] {
+  const meta = TOOL_META[tool];
+  const out = meta.output('3.12.1');
+  const sysPath = `/usr/bin/${meta.lookup}`;
+  const homebrewPath = `/opt/homebrew/bin/${tool}`;
+  const label = (s: string) => `${tool}: ${s}`;
+
+  const scenarios: ParityScenario[] = [
+    {
+      name: label('user-config valid'),
+      tool,
+      os: 'linux',
+      homeDir: HOMES.linux,
+      userConfig: { [meta.configKey]: `/opt/custom/${tool}` },
+      versionOutput: { [`/opt/custom/${tool}`]: out, [sysPath]: out },
+      pathLookup: { [meta.lookup]: sysPath },
+      expected: {
+        found: true,
+        path: `/opt/custom/${tool}`,
+        source: 'user-config',
+        version: out.match(/\d+\.\d+\.\d+/)?.[0],
+        messageContains: `Using user-configured ${meta.label}`
+      }
+    },
+    {
+      name: label('user-config from the wrong platform is ignored'),
+      tool,
+      os: 'linux',
+      homeDir: HOMES.linux,
+      userConfig: { [meta.configKey]: `C:\\Tools\\${tool}.exe` },
+      versionOutput: { [`C:\\Tools\\${tool}.exe`]: out, [sysPath]: out },
+      pathLookup: { [meta.lookup]: sysPath },
+      expected: { found: true, path: sysPath, source: 'system-path' }
+    },
+    {
+      name: label('user-config invalid falls through'),
+      tool,
+      os: 'linux',
+      homeDir: HOMES.linux,
+      userConfig: { [meta.configKey]: `/opt/broken/${tool}` },
+      versionOutput: { [sysPath]: out },
+      pathLookup: { [meta.lookup]: sysPath },
+      expected: { found: true, path: sysPath, source: 'system-path', messageContains: `Using system ${meta.label}` }
+    },
+    {
+      name: label('PATH lookup'),
+      tool,
+      os: 'linux',
+      homeDir: HOMES.linux,
+      versionOutput: { [sysPath]: out },
+      pathLookup: { [meta.lookup]: sysPath },
+      expected: { found: true, path: sysPath, source: 'system-path', version: out.match(/\d+\.\d+\.\d+/)?.[0] }
+    },
+    {
+      name: label('Homebrew skipped on linux'),
+      tool,
+      os: 'linux',
+      homeDir: HOMES.linux,
+      existing: [homebrewPath],
+      versionOutput: { [homebrewPath]: out, [sysPath]: out },
+      pathLookup: { [meta.lookup]: sysPath },
+      expected: { found: true, path: sysPath, source: 'system-path' }
+    },
+    {
+      name: label('Homebrew skipped on win32'),
+      tool,
+      os: 'win32',
+      homeDir: HOMES.win32,
+      existing: [homebrewPath],
+      versionOutput: { [homebrewPath]: out, 'C:\\Tools\\path.exe': out },
+      pathLookup: { [meta.lookup]: 'C:\\Tools\\path.exe' },
+      expected: { found: true, path: 'C:\\Tools\\path.exe', source: 'system-path' }
+    },
+    {
+      name: label('not found falls back to tool name'),
+      tool,
+      os: 'linux',
+      homeDir: HOMES.linux,
+      expected: {
+        found: false,
+        path: tool,
+        source: 'fallback',
+        messageContains: meta.notFound
+      }
+    }
+  ];
+
+  // Python's Homebrew list differs between sync and async (see KNOWN_DIVERGENCES)
+  if (tool !== 'python') {
+    scenarios.push({
+      name: label('Homebrew wins over PATH on darwin'),
+      tool,
+      os: 'darwin',
+      homeDir: HOMES.darwin,
+      existing: [homebrewPath],
+      versionOutput: { [homebrewPath]: out, [sysPath]: out },
+      pathLookup: { [meta.lookup]: sysPath },
+      expected: {
+        found: true,
+        path: homebrewPath,
+        source: 'homebrew',
+        messageContains: `Using Homebrew ${meta.label}`
+      }
+    });
+  }
+
+  return scenarios;
+}
+
+const nvmDir = (home: string) => nodePath.join(home, '.nvm', 'versions', 'node');
+const nvmClaude = (home: string, v: string) => nodePath.join(nvmDir(home), v, 'bin', 'claude');
+const claudeOut = TOOL_META.claude.output('1.2.3');
+
+const EXTRA_SCENARIOS: ParityScenario[] = [
+  {
+    name: 'git win32: where.exe',
+    tool: 'git',
+    os: 'win32',
+    homeDir: HOMES.win32,
+    where: { git: 'D:\\Dev\\Git\\git.exe' },
+    versionOutput: { 'D:\\Dev\\Git\\git.exe': TOOL_META.git.output('2.40.0') },
+    expected: {
+      found: true,
+      path: 'D:\\Dev\\Git\\git.exe',
+      source: 'system-path',
+      version: '2.40.0',
+      messageContains: 'Using Windows Git'
+    }
+  },
+  {
+    name: 'claude win32: where.exe',
+    tool: 'claude',
+    os: 'win32',
+    homeDir: HOMES.win32,
+    where: { claude: 'D:\\Tools\\claude.exe' },
+    versionOutput: { 'D:\\Tools\\claude.exe': claudeOut },
+    expected: {
+      found: true,
+      path: 'D:\\Tools\\claude.exe',
+      source: 'system-path',
+      version: '1.2.3',
+      messageContains: 'Using Windows Claude CLI'
+    }
+  },
+  {
+    name: 'git win32: Windows pattern paths',
+    tool: 'git',
+    os: 'win32',
+    homeDir: HOMES.win32,
+    windowsPatterns: { '[Git]': ['C:\\Missing\\git.exe', 'C:\\Program Files\\Git\\cmd\\git.exe'] },
+    versionOutput: { 'C:\\Program Files\\Git\\cmd\\git.exe': TOOL_META.git.output('2.41.0') },
+    expected: {
+      found: true,
+      path: 'C:\\Program Files\\Git\\cmd\\git.exe',
+      source: 'system-path',
+      messageContains: 'Using Windows Git'
+    }
+  },
+  {
+    name: 'glab win32: Windows pattern paths',
+    tool: 'glab',
+    os: 'win32',
+    homeDir: HOMES.win32,
+    windowsPatterns: { '[GitLab CLI]': ['C:\\Program Files\\glab\\glab.exe'] },
+    versionOutput: { 'C:\\Program Files\\glab\\glab.exe': TOOL_META.glab.output('1.40.0') },
+    expected: {
+      found: true,
+      path: 'C:\\Program Files\\glab\\glab.exe',
+      source: 'system-path',
+      version: '1.40.0',
+      messageContains: 'Using Windows GitLab CLI'
+    }
+  },
+  {
+    name: 'gh win32: Program Files path',
+    tool: 'gh',
+    os: 'win32',
+    homeDir: HOMES.win32,
+    existing: ['C:\\Program Files\\GitHub CLI\\gh.exe'],
+    versionOutput: { 'C:\\Program Files\\GitHub CLI\\gh.exe': TOOL_META.gh.output('2.40.0') },
+    expected: {
+      found: true,
+      path: 'C:\\Program Files\\GitHub CLI\\gh.exe',
+      source: 'system-path',
+      messageContains: 'Using Windows GitHub CLI'
+    }
+  },
+  ...(['linux', 'darwin'] as const).map(
+    (os): ParityScenario => ({
+      name: `claude ${os}: NVM newest version first`,
+      tool: 'claude',
+      os,
+      homeDir: HOMES[os],
+      existing: [nvmDir(HOMES[os]), nvmClaude(HOMES[os], 'v18.0.0'), nvmClaude(HOMES[os], 'v22.1.0'), nvmClaude(HOMES[os], 'v20.5.0')],
+      dirs: { [nvmDir(HOMES[os])]: ['v18.0.0', 'v22.1.0', 'v20.5.0'] },
+      versionOutput: {
+        [nvmClaude(HOMES[os], 'v18.0.0')]: claudeOut,
+        [nvmClaude(HOMES[os], 'v22.1.0')]: claudeOut,
+        [nvmClaude(HOMES[os], 'v20.5.0')]: claudeOut
+      },
+      expected: {
+        found: true,
+        path: nvmClaude(HOMES[os], 'v22.1.0'),
+        source: 'nvm',
+        version: '1.2.3',
+        messageContains: 'Using NVM Claude CLI'
+      }
+    })
+  ),
+  {
+    name: 'claude win32: NVM skipped',
+    tool: 'claude',
+    os: 'win32',
+    homeDir: HOMES.win32,
+    existing: [nvmDir(HOMES.win32), nvmClaude(HOMES.win32, 'v22.1.0')],
+    dirs: { [nvmDir(HOMES.win32)]: ['v22.1.0'] },
+    versionOutput: { [nvmClaude(HOMES.win32, 'v22.1.0')]: claudeOut },
+    expected: { found: false, path: 'claude', source: 'fallback' }
+  },
+  {
+    name: 'claude linux: .local/bin platform path',
+    tool: 'claude',
+    os: 'linux',
+    homeDir: HOMES.linux,
+    existing: [nodePath.join(HOMES.linux, '.local', 'bin', 'claude')],
+    versionOutput: { [nodePath.join(HOMES.linux, '.local', 'bin', 'claude')]: claudeOut },
+    expected: {
+      found: true,
+      path: nodePath.join(HOMES.linux, '.local', 'bin', 'claude'),
+      source: 'system-path',
+      messageContains: 'Using Claude CLI'
+    }
+  },
+  {
+    name: 'claude win32: AppData npm claude.cmd platform path',
+    tool: 'claude',
+    os: 'win32',
+    homeDir: HOMES.win32,
+    existing: [nodePath.join(HOMES.win32, 'AppData', 'Roaming', 'npm', 'claude.cmd')],
+    versionOutput: { [nodePath.join(HOMES.win32, 'AppData', 'Roaming', 'npm', 'claude.cmd')]: claudeOut },
+    expected: {
+      found: true,
+      path: nodePath.join(HOMES.win32, 'AppData', 'Roaming', 'npm', 'claude.cmd'),
+      source: 'system-path',
+      version: '1.2.3'
+    }
+  },
+  {
+    name: 'claude win32: insecure user-config rejected',
+    tool: 'claude',
+    os: 'win32',
+    homeDir: HOMES.win32,
+    userConfig: { claudePath: 'C:\\Tools\\claude.exe' },
+    insecure: ['C:\\Tools\\claude.exe'],
+    versionOutput: { 'C:\\Tools\\claude.exe': claudeOut, 'C:\\Other\\claude.exe': claudeOut },
+    pathLookup: { claude: 'C:\\Other\\claude.exe' },
+    expected: { found: true, path: 'C:\\Other\\claude.exe', source: 'system-path' }
+  },
+  {
+    name: 'python: 3.9 rejected as too old, next candidate used',
+    tool: 'python',
+    os: 'linux',
+    homeDir: HOMES.linux,
+    pathLookup: { python3: '/usr/bin/python3', python: '/usr/bin/python' },
+    versionOutput: { '/usr/bin/python3': 'Python 3.9.18', '/usr/bin/python': 'Python 3.11.2' },
+    expected: { found: true, path: '/usr/bin/python', source: 'system-path', version: '3.11.2' }
+  },
+  {
+    name: 'python: only 3.9 available -> not found',
+    tool: 'python',
+    os: 'linux',
+    homeDir: HOMES.linux,
+    pathLookup: { python3: '/usr/bin/python3' },
+    versionOutput: { '/usr/bin/python3': 'Python 3.9.18' },
+    expected: { found: false, path: 'python', source: 'fallback' }
+  },
+  {
+    name: 'python: 3.10 accepted',
+    tool: 'python',
+    os: 'linux',
+    homeDir: HOMES.linux,
+    pathLookup: { python3: '/usr/bin/python3' },
+    versionOutput: { '/usr/bin/python3': 'Python 3.10.0' },
+    expected: { found: true, path: '/usr/bin/python3', source: 'system-path', version: '3.10.0' }
+  },
+  {
+    name: "python win32: 'py -3' launcher used first",
+    tool: 'python',
+    os: 'win32',
+    homeDir: HOMES.win32,
+    pathLookup: { python: 'C:\\Python\\python.exe' },
+    versionOutput: { 'py -3': 'Python 3.12.0', 'C:\\Python\\python.exe': 'Python 3.11.0' },
+    expected: { found: true, path: 'py -3', source: 'system-path', version: '3.12.0' }
+  }
+];
+
+const PARITY_SCENARIOS: ParityScenario[] = [...ALL_TOOLS.flatMap(commonScenarios), ...EXTRA_SCENARIOS];
+
+/**
+ * Cases where sync and async detection currently disagree.
+ * subtask-3-1 (CLIToolManager migration to the shared detector) MUST remove each entry
+ * here and move it into PARITY_SCENARIOS so it is enforced as a normal parity case.
+ */
+const KNOWN_DIVERGENCES: ParityScenario[] = [
+  {
+    // Sync asks findHomebrewPython (mocked to null here; real list is python3.14..3.10, python3),
+    // async walks a hardcoded shorter list that includes python3.12.
+    name: 'python darwin: Homebrew python3.12 (sync util vs async hardcoded list)',
+    tool: 'python',
+    os: 'darwin',
+    homeDir: HOMES.darwin,
+    existing: ['/opt/homebrew/bin/python3.12'],
+    versionOutput: { '/opt/homebrew/bin/python3.12': 'Python 3.12.4' },
+    expected: {
+      found: true,
+      path: '/opt/homebrew/bin/python3.12',
+      source: 'homebrew',
+      version: '3.12.4',
+      messageContains: 'Using Homebrew Python'
+    }
+  }
+];
+
+describe('cli-tool-manager - sync/async parity', () => {
+  const originalPlatform = process.platform;
+
+  function arrange(s: ParityScenario): void {
+    Object.defineProperty(process, 'platform', { value: s.os, writable: true });
+    vi.mocked(os.homedir).mockReturnValue(s.homeDir);
+
+    const existing = new Set(s.existing ?? []);
+    vi.mocked(existsSync).mockImplementation((p) => existing.has(String(p)));
+
+    const direntsFor = (dir: unknown): MockDirent[] =>
+      (s.dirs?.[String(dir)] ?? []).map((name) => createDirent(name, true));
+    vi.mocked(readdirSync).mockImplementation(((dir: unknown) => direntsFor(dir)) as unknown as typeof readdirSync);
+    vi.mocked(fsPromises.readdir).mockImplementation((async (dir: unknown) =>
+      direntsFor(dir)) as unknown as typeof fsPromises.readdir);
+
+    // One table drives both execFileSync and promisified execFile
+    vi.mocked(execFileSync).mockImplementation(((cmd: string, args: readonly string[] = []) => {
+      const key = versionKey(cmd, args);
+      const output = s.versionOutput?.[key];
+      if (output === undefined) {
+        throw new Error(`ENOENT: ${key}`);
+      }
+      return `${output}\n`;
+    }) as unknown as typeof execFileSync);
+
+    const lookup = (cmd: string) => s.pathLookup?.[cmd] ?? null;
+    vi.mocked(findExecutable).mockImplementation(lookup);
+    vi.mocked(findExecutableAsync).mockImplementation(async (cmd: string) => lookup(cmd));
+
+    const where = (tool: string) => s.where?.[tool] ?? null;
+    vi.mocked(findWindowsExecutableViaWhere).mockImplementation(where);
+    vi.mocked(findWindowsExecutableViaWhereAsync).mockImplementation(async (tool: string) => where(tool));
+
+    const patterns = (_paths: unknown, logPrefix?: string) => s.windowsPatterns?.[logPrefix ?? ''] ?? [];
+    vi.mocked(getWindowsExecutablePaths).mockImplementation(patterns as unknown as typeof getWindowsExecutablePaths);
+    vi.mocked(getWindowsExecutablePathsAsync).mockImplementation((async (...a: [unknown, string?]) =>
+      patterns(...a)) as unknown as typeof getWindowsExecutablePathsAsync);
+
+    const insecure = new Set(s.insecure ?? []);
+    vi.mocked(isSecurePath).mockImplementation((p: string) => !insecure.has(p));
+  }
+
+  async function run(s: ParityScenario) {
+    arrange(s);
+
+    configureTools(s.userConfig ?? {});
+    clearToolCache();
+    const syncPath = getToolPath(s.tool);
+    const info = getToolInfo(s.tool);
+
+    configureTools(s.userConfig ?? {});
+    clearToolCache();
+    const asyncPath = await getToolPathAsync(s.tool);
+
+    return { syncPath, asyncPath, info };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    configureTools({});
+    clearToolCache();
+    Object.defineProperty(process, 'platform', { value: originalPlatform, writable: true });
+  });
+
+  describe.each(PARITY_SCENARIOS)('$name', (scenario) => {
+    it('sync and async return the same expected path', async () => {
+      const { syncPath, asyncPath } = await run(scenario);
+      expect(syncPath).toBe(scenario.expected.path);
+      expect(asyncPath).toBe(syncPath);
+    });
+
+    it('getToolInfo reports the expected metadata', async () => {
+      const { info } = await run(scenario);
+      const { expected } = scenario;
+      expect(info.found).toBe(expected.found);
+      if (expected.found) expect(info.path).toBe(expected.path);
+      if (expected.source) expect(info.source).toBe(expected.source);
+      if (expected.version) expect(info.version).toBe(expected.version);
+      if (expected.messageContains) expect(info.message).toContain(expected.messageContains);
+    });
+  });
+
+  describe('KNOWN_DIVERGENCES (currently failing parity)', () => {
+    // it.fails passes while sync and async disagree. When subtask-3-1 unifies them it will
+    // start failing: move the scenario into PARITY_SCENARIOS and delete it from here.
+    for (const scenario of KNOWN_DIVERGENCES) {
+      it.fails(scenario.name, async () => {
+        const { syncPath, asyncPath } = await run(scenario);
+        expect(syncPath).toBe(scenario.expected.path);
+        expect(asyncPath).toBe(syncPath);
+      });
+    }
   });
 });
