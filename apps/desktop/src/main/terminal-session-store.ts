@@ -103,6 +103,18 @@ export class TerminalSessionStore {
    */
   private consecutiveFailures = 0;
   private static readonly MAX_FAILURES_BEFORE_WARNING = 3;
+  /**
+   * zeenha fork: true only after this process has itself written the store file
+   * successfully. While true, the rotate step skips the read-and-validate of the
+   * current file (we wrote it, so it is valid). False at startup so the first
+   * write still validates a file that may have been left corrupted.
+   */
+  private currentFileTrusted = false;
+  /**
+   * zeenha fork: true when in-memory data has changes not yet written to disk.
+   * Cleared when a write snapshots the data, re-set if that write fails.
+   */
+  private dirty = false;
 
   constructor() {
     const sessionsDir = join(app.getPath('userData'), 'sessions');
@@ -140,7 +152,7 @@ export class TerminalSessionStore {
         console.warn('[TerminalSessionStore] Successfully recovered from backup!');
         // Immediately save the recovered data to main file
         try {
-          writeFileSync(this.storePath, JSON.stringify(backupResult.data, null, 2), 'utf-8');
+          writeFileSync(this.storePath, JSON.stringify(backupResult.data), 'utf-8');
           console.warn('[TerminalSessionStore] Restored main file from backup');
         } catch (writeError) {
           console.error('[TerminalSessionStore] Failed to restore main file:', writeError);
@@ -210,17 +222,24 @@ export class TerminalSessionStore {
     }
 
     try {
-      const content = JSON.stringify(this.data, null, 2);
+      // zeenha fork: clear dirty at snapshot time so changes made during the write stay dirty
+      this.dirty = false;
+      const startedAt = Date.now();
+      const content = JSON.stringify(this.data);
 
       // Step 1: Write to temp file
       writeFileSync(this.tempPath, content, 'utf-8');
+      debugLog('[TerminalSessionStore] Sync save wrote', content.length, 'chars in', Date.now() - startedAt, 'ms');
 
       // Step 2: Rotate current file to backup (if it exists and is valid)
       if (existsSync(this.storePath)) {
         try {
-          // Verify current file is valid before backing up
-          const currentContent = readFileSync(this.storePath, 'utf-8');
-          JSON.parse(currentContent); // Throws if invalid
+          // zeenha fork: skip read-back when this process wrote the current file
+          if (!this.currentFileTrusted) {
+            // Verify current file is valid before backing up
+            const currentContent = readFileSync(this.storePath, 'utf-8');
+            JSON.parse(currentContent); // Throws if invalid
+          }
           // Current file is valid, rotate to backup
           if (existsSync(this.backupPath)) {
             unlinkSync(this.backupPath);
@@ -228,6 +247,7 @@ export class TerminalSessionStore {
           renameSync(this.storePath, this.backupPath);
         } catch {
           // Current file is corrupted, don't back it up - just delete
+          this.currentFileTrusted = false;
           console.warn('[TerminalSessionStore] Current file corrupted, not backing up');
           unlinkSync(this.storePath);
         }
@@ -235,7 +255,10 @@ export class TerminalSessionStore {
 
       // Step 3: Atomic rename temp to target
       renameSync(this.tempPath, this.storePath);
+      this.currentFileTrusted = true;
     } catch (error) {
+      this.currentFileTrusted = false;
+      this.dirty = true;
       console.error('[TerminalSessionStore] Error saving sessions:', error);
       // Clean up temp file if it exists
       try {
@@ -276,16 +299,23 @@ export class TerminalSessionStore {
 
     this.writeInProgress = true;
     try {
-      const content = JSON.stringify(this.data, null, 2);
+      // zeenha fork: clear dirty at snapshot time so changes made during the write stay dirty
+      this.dirty = false;
+      const startedAt = Date.now();
+      const content = JSON.stringify(this.data);
 
       // Step 1: Write to temp file
       await fsPromises.writeFile(this.tempPath, content, 'utf-8');
+      debugLog('[TerminalSessionStore] Async save wrote', content.length, 'chars in', Date.now() - startedAt, 'ms');
 
       // Step 2: Rotate current file to backup (if it exists and is valid)
       if (await this.fileExists(this.storePath)) {
         try {
-          const currentContent = await fsPromises.readFile(this.storePath, 'utf-8');
-          JSON.parse(currentContent); // Throws if invalid
+          // zeenha fork: skip read-back when this process wrote the current file
+          if (!this.currentFileTrusted) {
+            const currentContent = await fsPromises.readFile(this.storePath, 'utf-8');
+            JSON.parse(currentContent); // Throws if invalid
+          }
           // Current file is valid, rotate to backup
           if (await this.fileExists(this.backupPath)) {
             await fsPromises.unlink(this.backupPath);
@@ -293,6 +323,7 @@ export class TerminalSessionStore {
           await fsPromises.rename(this.storePath, this.backupPath);
         } catch {
           // Current file is corrupted, don't back it up - just delete
+          this.currentFileTrusted = false;
           console.warn('[TerminalSessionStore] Current file corrupted, not backing up');
           await fsPromises.unlink(this.storePath);
         }
@@ -300,11 +331,14 @@ export class TerminalSessionStore {
 
       // Step 3: Atomic rename temp to target
       await fsPromises.rename(this.tempPath, this.storePath);
+      this.currentFileTrusted = true;
 
       // Reset failure counter on success
       this.consecutiveFailures = 0;
     } catch (error) {
       this.consecutiveFailures++;
+      this.currentFileTrusted = false;
+      this.dirty = true;
       console.error('[TerminalSessionStore] Error saving sessions:', error);
 
       // Clean up temp file if it exists
@@ -430,6 +464,7 @@ export class TerminalSessionStore {
       });
     }
 
+    this.dirty = true;
     return true;
   }
 
@@ -779,6 +814,38 @@ export class TerminalSessionStore {
    */
   async saveSessionAsync(session: TerminalSession): Promise<void> {
     if (this.updateSessionInMemory(session)) {
+      await this.saveAsync();
+    }
+  }
+
+  /**
+   * zeenha fork: apply several sessions in memory, then write the file once.
+   * Does nothing (no write) for an empty list or when every session is pending delete.
+   */
+  async saveSessionsAsync(sessions: TerminalSession[]): Promise<void> {
+    let applied = 0;
+    for (const session of sessions) {
+      if (this.updateSessionInMemory(session)) {
+        applied++;
+      }
+    }
+    if (applied > 0) {
+      await this.saveAsync();
+    }
+  }
+
+  /**
+   * zeenha fork: true when in-memory data has changes not yet written to disk.
+   */
+  hasUnsavedChanges(): boolean {
+    return this.dirty;
+  }
+
+  /**
+   * zeenha fork: write the file only if there are unsaved changes.
+   */
+  async flushIfDirtyAsync(): Promise<void> {
+    if (this.dirty) {
       await this.saveAsync();
     }
   }
