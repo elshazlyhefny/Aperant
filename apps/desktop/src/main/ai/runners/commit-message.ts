@@ -56,7 +56,7 @@ Rules:
 1. First line: type(scope): description (max 72 chars total)
 2. Leave blank line after first line
 3. Body: 1-3 sentences explaining WHAT changed and WHY
-4. If GitHub issue number provided, end with "Fixes #N" on its own line
+4. If source issue lines are provided (e.g. "Fixes #N", "Closes #N", "PROJ-123"), end with them verbatim, each on its own line
 5. Be specific about the changes, not generic
 6. Use imperative mood ("Add feature" not "Added feature")
 
@@ -80,8 +80,11 @@ interface SpecContext {
   category: string;
   description: string;
   // zeenha fork: a list, because a batch task carries githubIssueNumbers.
-  githubIssues: number[];
+  issues: IssueRef[];
 }
+
+/** A link from a task back to the issue it came from, in any supported tracker. */
+export type IssueRef = { kind: 'github' | 'gitlab' | 'jira' | 'linear'; ref: string };
 
 /** Configuration for commit message generation */
 export interface CommitMessageConfig {
@@ -112,6 +115,61 @@ function issueNumbers(value: unknown): number[] {
 }
 
 /**
+ * Same pattern as ISSUE_KEY_RE in ipc-handlers/jira/jira-client.ts (not imported
+ * here to keep the AI layer free of IPC-handler dependencies). Jira keys and
+ * Linear identifiers go into a prompt and a PR body, so they must match it.
+ */
+const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]{1,19}-[1-9][0-9]{0,9}$/;
+
+/** Keep only strings that are a valid issue key. */
+function issueKey(value: unknown): string[] {
+  return typeof value === 'string' && ISSUE_KEY_RE.test(value) ? [value] : [];
+}
+
+/**
+ * Read the validated, de-duplicated issue refs from task_metadata.json.
+ */
+export function readIssueRefs(specDir: string): IssueRef[] {
+  const metaFile = join(specDir, 'task_metadata.json');
+  if (!existsSync(metaFile)) return [];
+  const meta = safeParseJson<Record<string, unknown>>(readFileSync(metaFile, 'utf-8'));
+  if (!meta || typeof meta !== 'object') return [];
+
+  const refs: IssueRef[] = [];
+  const seen = new Set<string>();
+  const add = (kind: IssueRef['kind'], ref: string) => {
+    const id = `${kind}:${ref}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    refs.push({ kind, ref });
+  };
+
+  for (const n of [...issueNumbers(meta.githubIssueNumber), ...issueNumbers(meta.githubIssueNumbers)]) {
+    add('github', String(n));
+  }
+  for (const n of issueNumbers(meta.gitlabIssueIid)) add('gitlab', String(n));
+  for (const k of issueKey(meta.jiraIssueKey)) add('jira', k);
+  for (const k of issueKey(meta.linearIdentifier)) add('linear', k);
+  return refs;
+}
+
+/** One issue-closing line per ref, in input order. */
+export function formatIssueClosingLines(refs: IssueRef[]): string[] {
+  return refs.map((r) => {
+    switch (r.kind) {
+      case 'github':
+        return `Fixes #${r.ref}`;
+      case 'gitlab':
+        return `Closes #${r.ref}`;
+      case 'linear':
+        return `Fixes ${r.ref}`;
+      default:
+        return r.ref;
+    }
+  });
+}
+
+/**
  * Extract context from spec files for commit message generation.
  * Mirrors Python's `_get_spec_context()`.
  */
@@ -120,7 +178,7 @@ function getSpecContext(specDir: string): SpecContext {
     title: '',
     category: 'chore',
     description: '',
-    githubIssues: [],
+    issues: [],
   };
 
   // Try to read spec.md for title
@@ -166,7 +224,7 @@ function getSpecContext(specDir: string): SpecContext {
       const metadata = (planData.metadata as Record<string, unknown>) ?? {};
       const fromPlan = issueNumbers(metadata.githubIssueNumber);
       if (fromPlan.length > 0) {
-        context.githubIssues = fromPlan;
+        context.issues = fromPlan.map((n) => ({ kind: 'github' as const, ref: String(n) }));
       }
       if (!context.title) {
         context.title = String(planData.feature ?? planData.title ?? '');
@@ -177,17 +235,16 @@ function getSpecContext(specDir: string): SpecContext {
   // zeenha fork: task_metadata.json is where the GitHub import
   // (ipc-handlers/github/spec-utils.ts) actually writes githubIssueNumber(s) and
   // the label-derived category; nothing writes them to implementation_plan.json,
-  // so commits never got "Fixes #N". It wins over the plan and requirements.json
+  // so commits never got "Fixes #N". The GitLab, Jira and Linear imports had the
+  // same gap (gitlabIssueIid, jiraIssueKey, linearIdentifier). It wins over the plan and requirements.json
   // (whose workflow_type the import always writes as 'feature').
   const metaFile = join(specDir, 'task_metadata.json');
   if (existsSync(metaFile)) {
     const meta = safeParseJson<Record<string, unknown>>(readFileSync(metaFile, 'utf-8'));
     if (meta) {
-      const issues = issueNumbers(meta.githubIssueNumber);
-      const batch = issueNumbers(meta.githubIssueNumbers);
-      const all = [...new Set([...issues, ...batch])];
-      if (all.length > 0) {
-        context.githubIssues = all;
+      const fromMeta = readIssueRefs(specDir);
+      if (fromMeta.length > 0) {
+        context.issues = fromMeta;
       }
       if (typeof meta.category === 'string' && meta.category.trim()) {
         context.category = meta.category.trim();
@@ -209,11 +266,15 @@ function buildPrompt(
 ): string {
   const commitType = CATEGORY_TO_COMMIT_TYPE[specContext.category.toLowerCase()] ?? 'chore';
 
-  let githubRef = '';
-  if (specContext.githubIssues.length > 0) {
-    const refs = specContext.githubIssues.map((n) => `#${n}`).join(', ');
-    const fixes = specContext.githubIssues.map((n) => `'Fixes #${n}'`).join(', ');
-    githubRef = `\nGitHub Issue: ${refs} (include ${fixes} at the end, each on its own line)`;
+  let issueRef = '';
+  if (specContext.issues.length > 0) {
+    const refs = specContext.issues
+      .map((r) => (r.kind === 'github' || r.kind === 'gitlab' ? `#${r.ref}` : r.ref))
+      .join(', ');
+    const lines = formatIssueClosingLines(specContext.issues)
+      .map((l) => `'${l}'`)
+      .join(', ');
+    issueRef = `\nSource issue(s): ${refs} (include ${lines} at the end, each on its own line)`;
   }
 
   let filesDisplay: string;
@@ -230,7 +291,7 @@ function buildPrompt(
 Task: ${specContext.title || 'Unknown task'}
 Type: ${commitType}
 Files changed: ${filesChanged.length}
-${githubRef}
+${issueRef}
 
 Description: ${specContext.description || 'No description available'}
 
@@ -245,7 +306,7 @@ type(scope): short description
 
 Body explaining changes.
 
-Fixes #N (if applicable)`;
+<issue-closing line, e.g. Fixes #N (if applicable)>`;
 }
 
 // =============================================================================
@@ -282,12 +343,12 @@ export async function generateCommitMessage(
     title: '',
     category: 'chore',
     description: '',
-    githubIssues: [],
+    issues: [],
   };
 
   // Override with provided github issue
   if (githubIssue) {
-    specContext.githubIssues = [githubIssue];
+    specContext.issues = [{ kind: 'github', ref: String(githubIssue) }];
   }
 
   // Build prompt
@@ -319,8 +380,8 @@ export async function generateCommitMessage(
   const title = specContext.title || specName;
   let fallback = `${commitType}: ${title}`;
 
-  if (specContext.githubIssues.length > 0) {
-    fallback += `\n\n${specContext.githubIssues.map((n) => `Fixes #${n}`).join('\n')}`;
+  if (specContext.issues.length > 0) {
+    fallback += `\n\n${formatIssueClosingLines(specContext.issues).join('\n')}`;
   }
 
   return fallback;
