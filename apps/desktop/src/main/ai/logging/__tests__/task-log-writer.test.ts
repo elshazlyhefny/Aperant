@@ -69,6 +69,32 @@ describe('TaskLogWriter coalesced saves', () => {
     expect(JSON.parse(raw).phases.coding.entries).toHaveLength(10);
   });
 
+  it('keeps write count and total bytes far below one full rewrite per entry', () => {
+    const w = new TaskLogWriter(dir, 's');
+    w.startPhase('coding');
+    const big = 'x'.repeat(10 * 1024);
+    const pairs = 40; // 80 entries
+    const stepMs = 50;
+    for (let i = 0; i < pairs; i++) {
+      w.processEvent(toolCall(i), 'coding');
+      vi.advanceTimersByTime(stepMs);
+      w.processEvent({ ...toolResult(i), result: big } as StreamEvent, 'coding');
+      vi.advanceTimersByTime(stepMs);
+    }
+    vi.advanceTimersByTime(600);
+
+    const sizes = writeSpy.mock.calls.map((c) => Buffer.byteLength(String(c[1])));
+    const totalBytes = sizes.reduce((a, b) => a + b, 0);
+    const entries = pairs * 2;
+    const avgEntry = 10 * 1024;
+    const quadraticBytes = (entries * entries * avgEntry) / 2;
+    const durationMs = pairs * 2 * stepMs;
+
+    expect(totalBytes).toBeLessThan(quadraticBytes * 0.1);
+    // 1 write for startPhase + at most one per coalesce window (+ trailing)
+    expect(writeSpy.mock.calls.length).toBeLessThanOrEqual(1 + Math.ceil(durationMs / 500) + 1);
+  });
+
   it('flush cancels a pending timer and writes once', () => {
     const w = new TaskLogWriter(dir, 's');
     w.processEvent(toolCall(1), 'coding');

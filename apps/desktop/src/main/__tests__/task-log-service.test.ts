@@ -105,6 +105,25 @@ describe('TaskLogService stat-based polling', () => {
     expect(appended).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the logs-appended payload small regardless of log length', () => {
+    const payloadSize = (existing: number): number => {
+      writeLogs(mainFile, existing, 0);
+      const local = new TaskLogService();
+      const spy = vi.fn();
+      local.on('logs-appended', spy as (...args: unknown[]) => void);
+      local.startWatching(SPEC_ID, specDir);
+      writeLogs(mainFile, existing + 1, 10 * existing);
+      vi.advanceTimersByTime(1000);
+      local.stopAllWatching();
+      expect(spy).toHaveBeenCalledTimes(1);
+      return JSON.stringify(spy.mock.calls[0][1]).length;
+    };
+    const small = payloadSize(5);
+    const large = payloadSize(500);
+    expect(large).toBeLessThan(1024);
+    expect(Math.abs(large - small)).toBeLessThan(64);
+  });
+
   it('falls back to a full logs-changed when entries shrink', () => {
     writeLogs(mainFile, 3, 0);
     svc.startWatching(SPEC_ID, specDir);
