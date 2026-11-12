@@ -3,9 +3,17 @@
  * conventions and the QA report, so its Testing section stops inventing
  * commands (PR #219 told reviewers to run `php artisan migrate` on the host).
  */
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import { buildPRBodyPrompt, extractConventionSections } from '../pr-creator';
+import {
+  appendIssueLines,
+  buildPRBodyPrompt,
+  extractConventionSections,
+  readSourceIssueLines,
+} from '../pr-creator';
 
 const CLAUDE_MD = `# CLAUDE.md
 
@@ -55,5 +63,72 @@ describe('buildPRBodyPrompt', () => {
     const prompt = buildPRBodyPrompt({ ...ctx, conventions: '', qaReport: '' });
     expect(prompt).toContain('(none found: do not write any commands)');
     expect(prompt).toContain('(no QA report: say that verification was not recorded)');
+  });
+});
+
+describe('appendIssueLines', () => {
+  it('returns the body unchanged when there are no lines', () => {
+    expect(appendIssueLines('body', [])).toBe('body');
+  });
+
+  it('appends the lines after a body that lacks them', () => {
+    expect(appendIssueLines('## Summary\ntext', ['Fixes #5', 'PROJ-1'])).toBe('## Summary\ntext\n\nFixes #5\nPROJ-1');
+  });
+
+  it('does not duplicate a line the body already has', () => {
+    const body = 'text\n\nFixes #5';
+    expect(appendIssueLines(body, ['Fixes #5'])).toBe(body);
+  });
+
+  it('still appends "Fixes #5" when the body only has "Fixes #55"', () => {
+    expect(appendIssueLines('text\nFixes #55', ['Fixes #5'])).toBe('text\nFixes #55\n\nFixes #5');
+  });
+
+  it('works on the spec-summary fallback text', () => {
+    expect(appendIssueLines('Implements 054-x', ['Closes #7'])).toBe('Implements 054-x\n\nCloses #7');
+  });
+});
+
+describe('readSourceIssueLines', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  const makeRoot = (meta?: unknown): string => {
+    const root = mkdtempSync(join(tmpdir(), 'pr-creator-'));
+    dirs.push(root);
+    if (meta !== undefined) {
+      const specDir = join(root, '.auto-claude', 'specs', '054-x');
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, 'task_metadata.json'), JSON.stringify(meta));
+    }
+    return root;
+  };
+
+  it('reads github, gitlab, jira and linear refs', () => {
+    const none = makeRoot();
+    expect(readSourceIssueLines(none, makeRoot({ githubIssueNumber: 12 }), '054-x')).toEqual(['Fixes #12']);
+    expect(readSourceIssueLines(none, makeRoot({ gitlabIssueIid: 8 }), '054-x')).toEqual(['Closes #8']);
+    expect(readSourceIssueLines(none, makeRoot({ jiraIssueKey: 'PROJ-123' }), '054-x')).toEqual(['PROJ-123']);
+    expect(readSourceIssueLines(none, makeRoot({ linearIdentifier: 'ABC-123' }), '054-x')).toEqual(['Fixes ABC-123']);
+  });
+
+  it('prefers the main project over the worktree', () => {
+    const main = makeRoot({ githubIssueNumber: 1 });
+    const wt = makeRoot({ githubIssueNumber: 2 });
+    expect(readSourceIssueLines(wt, main, '054-x')).toEqual(['Fixes #1']);
+  });
+
+  it('falls back to the worktree when main has none', () => {
+    const wt = makeRoot({ githubIssueNumber: 2 });
+    expect(readSourceIssueLines(wt, makeRoot(), '054-x')).toEqual(['Fixes #2']);
+    expect(readSourceIssueLines(wt, makeRoot({ title: 'no refs' }), '054-x')).toEqual(['Fixes #2']);
+  });
+
+  it('yields no lines for invalid values or a missing spec dir', () => {
+    const bad = makeRoot({ githubIssueNumber: -3, jiraIssueKey: 'proj 1; rm', linearIdentifier: 5 });
+    expect(readSourceIssueLines(makeRoot(), bad, '054-x')).toEqual([]);
+    expect(readSourceIssueLines(makeRoot(), makeRoot(), '054-x')).toEqual([]);
   });
 });
