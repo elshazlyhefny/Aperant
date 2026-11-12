@@ -39,6 +39,14 @@ export interface IdeaBase {
   status: IdeationStatus;
   createdAt: Date;
   taskId?: string; // the created task: stored with status 'archived' (or the legacy 'converted')
+  possibleDuplicateOf?: PossibleDuplicateOf; // set when a new idea closely repeats an existing task or idea
+}
+
+export interface PossibleDuplicateOf {
+  kind: 'task' | 'idea';
+  id: string;
+  score: number;
+  title?: string;
 }
 
 export interface CodeImprovementIdea extends IdeaBase {

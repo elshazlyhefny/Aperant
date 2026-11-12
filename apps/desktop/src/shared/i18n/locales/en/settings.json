@@ -375,6 +375,19 @@
       "sending": "Sending...",
       "testSuccess": "Test message sent",
       "testFailed": "Could not send the test message"
+    },
+    "jiraWriteback": {
+      "title": "Jira write-back",
+      "description": "Report a task's outcome back to the Jira issue it was imported from.",
+      "enable": "Enable Jira write-back",
+      "enableDescription": "Update the originating Jira issue when a task finishes",
+      "comment": "Post a comment",
+      "commentDescription": "Add a comment with the task outcome to the Jira issue",
+      "transitionOnReview": "Move issue when ready for review",
+      "transitionOnReviewDescription": "Transition the Jira issue to the status below when the task is ready for review",
+      "statusNameLabel": "Target status name",
+      "statusNamePlaceholder": "In Review",
+      "note": "Only the Jira issue the task was imported from is updated, using the project's existing Jira credentials. This setting is stored only in this app's settings."
     }
   },
   "actions": {

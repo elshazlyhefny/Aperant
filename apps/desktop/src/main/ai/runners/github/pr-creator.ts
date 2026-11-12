@@ -22,6 +22,7 @@ import { join } from 'node:path';
 
 import { getAugmentedEnv } from '../../../env-utils';
 import { createSimpleClient } from '../../client/factory';
+import { formatIssueClosingLines, readIssueRefs } from '../commit-message';
 import type { ModelShorthand, ThinkingLevel } from '../../config/types';
 import type { WorktreeCreatePRErrorCode } from '../../../../shared/types';
 import { capPRTitle } from '../../../../shared/utils/pr-title';
@@ -113,6 +114,36 @@ function readQAReport(worktreePath: string, projectDir: string, specId: string):
     if (report) return report;
   }
   return '';
+}
+
+/**
+ * zeenha fork: append issue-closing lines ("Fixes #5") the body lacks. Lines
+ * are compared whole and trimmed, so "Fixes #5" is not taken as present just
+ * because "Fixes #55" is. Exported for tests.
+ */
+export function appendIssueLines(body: string, lines: string[]): string {
+  if (lines.length === 0) return body;
+  const present = new Set(body.split(/\r?\n/).map((l) => l.trim()));
+  const missing = lines.filter((l) => !present.has(l.trim()));
+  if (missing.length === 0) return body;
+  return `${body}\n\n${missing.join('\n')}`;
+}
+
+/**
+ * zeenha fork: the closing lines for the task's source issue(s). The main
+ * project's spec directory is read first, then the worktree's copy.
+ * Exported for tests.
+ */
+export function readSourceIssueLines(worktreePath: string, projectDir: string, specId: string): string[] {
+  for (const root of [projectDir, worktreePath]) {
+    try {
+      const refs = readIssueRefs(join(root, '.auto-claude', 'specs', specId));
+      if (refs.length > 0) return formatIssueClosingLines(refs);
+    } catch {
+      // unreadable metadata: try the next copy
+    }
+  }
+  return [];
 }
 
 /**
@@ -843,7 +874,13 @@ export async function prepareBranch(config: PrepareBranchConfig): Promise<Prepar
     modelShorthand,
     thinkingLevel,
   );
-  const body = aiBody || extractSpecSummary(projectDir, specId);
+  // zeenha fork: the closing lines are added in code, not asked of the model,
+  // because the model can drop or misspell them and the PR would then not
+  // close the issue it came from.
+  const body = appendIssueLines(
+    aiBody || extractSpecSummary(projectDir, specId),
+    readSourceIssueLines(worktreePath, projectDir, specId),
+  );
 
   const effectiveBase = baseBranch.startsWith('origin/') ? baseBranch.slice('origin/'.length) : baseBranch;
 

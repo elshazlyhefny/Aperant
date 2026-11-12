@@ -4,7 +4,9 @@
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import path from 'path';
+import { DuplicateDetector, SIMILAR_THRESHOLD } from '../../ai/runners/github/duplicate-detector';
 import { normalizeIdeaKeys } from '../../ai/schema/ideation';
+import { readTaskOverviews } from '../../ideation-prior-work';
 import { safeParseJson } from '../../utils/json-repair';
 import type { RawIdea, RawIdeationData } from './types';
 
@@ -158,6 +160,36 @@ export function readIdeasByType(ideationDir: string): Map<string, RawIdea[]> {
   return byType;
 }
 
+interface DuplicateCandidate {
+  kind: 'task' | 'idea';
+  id: string;
+  title: string;
+  body: string;
+}
+
+/**
+ * zeenha fork: what a new idea could be repeating: the project's tasks and
+ * the ideas already turned down or acted on. Never throws.
+ */
+function loadDuplicateCandidates(projectDir: string, previousIdeas: readonly RawIdea[]): DuplicateCandidate[] {
+  const candidates: DuplicateCandidate[] = [];
+  try {
+    for (const task of readTaskOverviews(projectDir)) candidates.push({ kind: 'task', ...task });
+  } catch {
+    // a broken spec folder must not fail the sync
+  }
+  for (const idea of previousIdeas) {
+    if (idea.status !== 'dismissed' && idea.status !== 'archived' && idea.status !== 'converted') continue;
+    candidates.push({
+      kind: 'idea',
+      id: idea.id,
+      title: idea.title,
+      body: `${idea.description ?? ''}\n${idea.rationale ?? ''}`,
+    });
+  }
+  return candidates;
+}
+
 /**
  * Bring `ideation.json` up to date with the category files.
  *
@@ -176,6 +208,7 @@ export function syncIdeationFile(
   ideationDir: string,
   regenerated: readonly string[] | 'all',
   fileName = 'ideation.json',
+  options: { projectDir?: string } = {},
 ): RawIdeationData | null {
   const ideationPath = path.join(ideationDir, fileName);
   const existing = existsSync(ideationPath)
@@ -190,6 +223,9 @@ export function syncIdeationFile(
   const savedAt = existing?.generated_at ?? new Date().toISOString();
   const previousIdeas = (existing?.ideas ?? []).map((idea) => normalizeIdea(idea, savedAt));
   const kept = previousIdeas.filter((idea) => !replaced.has(idea.type));
+  // Built before the replaced types are dropped: a dismissed idea of a regenerated type is in neither `kept` nor `retained`.
+  const candidates = options.projectDir ? loadDuplicateCandidates(options.projectDir, previousIdeas) : [];
+  const detector = new DuplicateDetector();
   const fresh: RawIdea[] = [];
   const retained: RawIdea[] = [];
   const takenIds = new Set(kept.map((idea) => idea.id));
@@ -229,6 +265,25 @@ export function syncIdeationFile(
         takenIds.add(merged.id);
       } else {
         takenIds.add(merged.id);
+      }
+      // zeenha fork: flag, never remove, an idea that repeats a task or a turned-down idea.
+      // An idea matched to a saved non-draft idea is that idea and already has its state.
+      delete merged.possible_duplicate_of;
+      if (candidates.length > 0 && !(previous && previous.status !== 'draft')) {
+        const linked = typeof merged.linked_task_id === 'string' ? merged.linked_task_id : undefined;
+        const pool = candidates.filter(
+          (c) => !(c.kind === 'idea' && c.id === merged.id) && !(c.kind === 'task' && c.id === linked),
+        );
+        const text = { title: merged.title, body: `${merged.description ?? ''}\n${merged.rationale ?? ''}` };
+        const found = detector.findMostSimilar(text, pool, SIMILAR_THRESHOLD, { ignoreEmptyEntities: true });
+        if (found) {
+          merged.possible_duplicate_of = {
+            kind: found.candidate.kind,
+            id: found.candidate.id,
+            score: Number(found.score.toFixed(2)),
+            title: found.candidate.title,
+          };
+        }
       }
       fresh.push(merged);
     });

@@ -344,7 +344,7 @@ export class AgentQueueManager {
       // zeenha fork: the runner writes only per-category files; combine them
       // into ideation.json, which every idea operation (convert, dismiss,
       // archive, delete) reads. Only the categories generated now are replaced.
-      syncIdeationFile(outputDir, Array.from(completedTypes));
+      syncIdeationFile(outputDir, Array.from(completedTypes), 'ideation.json', { projectDir: projectPath });
       const ideationFilePath = path.join(outputDir, 'ideation.json');
       if (existsSync(ideationFilePath)) {
         const content = await fsPromises.readFile(ideationFilePath, 'utf-8');
