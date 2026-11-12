@@ -17,7 +17,7 @@ import { promisify } from 'util';
 import { IPC_CHANNELS, DEFAULT_APP_SETTINGS } from '../../shared/constants';
 import type { IPCResult } from '../../shared/types';
 import type { ClaudeCodeVersionInfo, ClaudeInstallationList, ClaudeInstallationInfo } from '../../shared/types/cli';
-import { getToolInfo, configureTools, sortNvmVersionDirs, getClaudeDetectionPaths, type ExecFileAsyncOptionsWithVerbatim } from '../cli-tool-manager';
+import { getToolInfo, configureTools, sortNvmVersionDirs, getClaudeDetectionPaths, validateClaudeAsync } from '../cli-tool-manager';
 import { readSettingsFile, writeSettingsFile } from '../settings-utils';
 import { isSecurePath, getWhereExePath, getTaskkillExePath } from '../utils/windows-paths';
 import { isWindows, isMacOS, isLinux } from '../platform';
@@ -35,65 +35,6 @@ let cachedLatestVersion: { version: string; timestamp: number } | null = null;
 let cachedVersionList: { versions: string[]; timestamp: number } | null = null;
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const VERSION_LIST_CACHE_DURATION_MS = 60 * 60 * 1000; // 1 hour for version list
-
-/**
- * Validate a Claude CLI path and get its version
- * @param cliPath - Path to the Claude CLI executable
- * @returns Tuple of [isValid, version or null]
- */
-async function validateClaudeCliAsync(cliPath: string): Promise<[boolean, string | null]> {
-  try {
-    // Security validation: reject paths with shell metacharacters or directory traversal
-    if (isWindows() && !isSecurePath(cliPath)) {
-      throw new Error(`Claude CLI path failed security validation: ${cliPath}`);
-    }
-
-    // Augment PATH with the CLI directory for proper resolution
-    const cliDir = path.dirname(cliPath);
-    const env = {
-      ...process.env,
-      PATH: cliDir ? `${cliDir}${path.delimiter}${process.env.PATH || ''}` : process.env.PATH,
-    };
-
-    let stdout: string;
-    // For Windows .cmd/.bat files, use cmd.exe with proper quoting
-    // /d = disable AutoRun registry commands
-    // /s = strip first and last quotes, preserving inner quotes
-    // /c = run command then terminate
-    if (isWindows() && /\.(cmd|bat)$/i.test(cliPath)) {
-      // Get cmd.exe path from environment or use default
-      const cmdExe = process.env.ComSpec
-        || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe');
-      // Use double-quoted command line for paths with spaces
-      const cmdLine = `""${cliPath}" --version"`;
-      const execOptions: ExecFileAsyncOptionsWithVerbatim = {
-        encoding: 'utf-8',
-        timeout: 5000,
-        windowsHide: true,
-        windowsVerbatimArguments: true,
-        env,
-      };
-      const result = await execFileAsync(cmdExe, ['/d', '/s', '/c', cmdLine], execOptions);
-      stdout = result.stdout;
-    } else {
-      const result = await execFileAsync(cliPath, ['--version'], {
-        encoding: 'utf-8',
-        timeout: 5000,
-        windowsHide: true,
-        env,
-      });
-      stdout = result.stdout;
-    }
-
-    const version = String(stdout).trim();
-    const match = version.match(/(\d+\.\d+\.\d+)/);
-    return [true, match ? match[1] : version.split('\n')[0]];
-  } catch (error) {
-    // Log validation errors to help debug CLI detection issues
-    console.warn('[Claude Code] CLI validation failed for', cliPath, ':', error);
-    return [false, null];
-  }
-}
 
 /**
  * Scan all known locations for Claude CLI installations.
@@ -128,8 +69,12 @@ async function scanClaudeInstallations(activePath: string | null): Promise<Claud
       return;
     }
 
-    const [isValid, version] = await validateClaudeCliAsync(cliPath);
-    if (!isValid) return;
+    const validation = await validateClaudeAsync(cliPath);
+    if (!validation.valid) {
+      console.warn('[Claude Code] CLI validation failed for', cliPath, ':', validation.message);
+      return;
+    }
+    const version = validation.version ?? null;
 
     seenPaths.add(normalizedPath);
     installations.push({
@@ -1183,8 +1128,10 @@ export function registerClaudeCodeHandlers(): void {
           throw new Error('Claude CLI not found at specified path');
         }
 
-        const [isValid, version] = await validateClaudeCliAsync(normalizedPath);
-        if (!isValid) {
+        const validation = await validateClaudeAsync(normalizedPath);
+        const version = validation.version ?? null;
+        if (!validation.valid) {
+          console.warn('[Claude Code] CLI validation failed for', normalizedPath, ':', validation.message);
           throw new Error('Claude CLI at specified path is not valid or not executable');
         }
 

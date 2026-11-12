@@ -22,8 +22,10 @@ vi.mock('electron', () => ({
 
 // Mock cli-tool-manager
 const mockGetToolInfo = vi.fn();
+const mockValidateClaudeAsync = vi.fn();
 vi.mock('../cli-tool-manager', () => ({
   getToolInfo: mockGetToolInfo,
+  validateClaudeAsync: mockValidateClaudeAsync,
   configureTools: vi.fn(),
   getClaudeDetectionPaths: vi.fn(() => ({
     homebrewPaths: [],
@@ -83,6 +85,9 @@ global.fetch = mockFetch;
 
 // Import after mocks are set up
 import { IPC_CHANNELS } from '../../shared/constants';
+import { existsSync } from 'fs';
+import { execFile } from 'child_process';
+import { readSettingsFile } from '../settings-utils';
 
 describe('claude-code-handlers - Cache Invalidation', () => {
   let checkVersionHandler: IpcHandler;
@@ -458,5 +463,58 @@ describe('claude-code-handlers - Cache Invalidation', () => {
       // Cache should have been invalidated
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+describe('claude-code-handlers - shared Claude validator', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    registeredHandlers.clear();
+    vi.resetModules();
+    const { registerClaudeCodeHandlers } = await import('../ipc-handlers/claude-code-handlers');
+    registerClaudeCodeHandlers();
+    vi.mocked(existsSync).mockReturnValue(true);
+  });
+
+  test('set-active-path accepts a path when validateClaudeAsync reports valid', async () => {
+    mockValidateClaudeAsync.mockResolvedValue({ valid: true, version: '2.0.0', message: 'ok' });
+    const handler = registeredHandlers.get(IPC_CHANNELS.CLAUDE_CODE_SET_ACTIVE_PATH)!;
+    const result = (await handler({}, '/opt/bin/claude')) as { success: boolean };
+    expect(mockValidateClaudeAsync).toHaveBeenCalledWith('/opt/bin/claude');
+    expect(result.success).toBe(true);
+  });
+
+  test('set-active-path rejects an invalid validation with the existing error text', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockValidateClaudeAsync.mockResolvedValue({ valid: false, message: 'boom' });
+    const handler = registeredHandlers.get(IPC_CHANNELS.CLAUDE_CODE_SET_ACTIVE_PATH)!;
+    const result = (await handler({}, '/opt/bin/claude')) as { success: boolean; error?: string };
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Claude CLI at specified path is not valid or not executable');
+    warn.mockRestore();
+    err.mockRestore();
+  });
+
+  test('scanner reports the version from validateClaudeAsync and skips invalid paths', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockValidateClaudeAsync.mockResolvedValue({ valid: true, version: '9.8.7', message: 'ok' });
+    const handler = registeredHandlers.get(IPC_CHANNELS.CLAUDE_CODE_GET_INSTALLATIONS);
+    if (!handler) throw new Error('CLAUDE_CODE_GET_INSTALLATIONS handler not registered');
+    vi.mocked(existsSync).mockImplementation((p) => String(p) === '/opt/bin/claude');
+    // `which -a claude` fails so only the configured path is scanned
+    vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+      const cb = args[args.length - 1] as (e: Error | null) => void;
+      cb(new Error('not found'));
+    }) as never);
+    vi.mocked(readSettingsFile).mockReturnValue({ claudePath: '/opt/bin/claude' } as never);
+    const ok = (await handler({})) as { data?: { installations: { path: string; version: string | null }[] } };
+    expect(ok.data?.installations).toHaveLength(1);
+    expect(ok.data?.installations[0].version).toBe('9.8.7');
+
+    mockValidateClaudeAsync.mockResolvedValue({ valid: false, message: 'bad' });
+    const bad = (await handler({})) as { data?: { installations: unknown[] } };
+    expect(bad.data?.installations ?? []).toHaveLength(0);
+    warn.mockRestore();
   });
 });
