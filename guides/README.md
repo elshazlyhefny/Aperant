@@ -12,6 +12,7 @@ Detailed documentation for Auto Claude setup and usage.
 | **[project-configuration.md](project-configuration.md)** | Reference for the per-project `.aperant.json` and `.auto-claude/.env` files |
 | **[task-dependencies.md](task-dependencies.md)** | How tasks wait for other tasks, and when a dependency counts as finished |
 | **[notifications-and-webhooks.md](notifications-and-webhooks.md)** | Desktop notifications and the task-outcome webhook: events, payload, URL rules and retries |
+| **[recurring-tasks.md](recurring-tasks.md)** | Recurring task schedules: cadences, when they run, and what missed and skipped runs mean |
 
 ## Quick Links
 

@@ -1,9 +1,9 @@
 /**
- * Duplicate Detector for GitHub Issues
- * =======================================
+ * Duplicate Detector
+ * ==================
  *
- * Detects duplicate and similar issues before processing.
- * See apps/desktop/src/main/ai/runners/github/duplicate-detector.ts for the TypeScript implementation.
+ * Detects duplicate and similar items (GitHub issues, or any title + body
+ * text such as ideation ideas and task specs) before processing.
  *
  * Uses text-based similarity (title + body) with entity extraction.
  * Embedding-based similarity is not available in the Electron main process,
@@ -23,6 +23,31 @@ export const SIMILAR_THRESHOLD = 0.70;
 // =============================================================================
 // Types
 // =============================================================================
+
+/** Anything with a title and an optional body can be compared. */
+export interface Comparable {
+  title: string;
+  body?: string;
+}
+
+/** Options for the opt-in comparison path (defaults keep GitHub scoring unchanged). */
+export interface CompareOptions {
+  /**
+   * Filter English stop words from the token bags, and when neither side has
+   * any extracted entities drop the entity term and weight title/body 50/50.
+   */
+  ignoreEmptyEntities?: boolean;
+}
+
+export interface TextSimilarityResult {
+  overallScore: number;
+  titleScore: number;
+  bodyScore: number;
+  entityScores: Record<string, number>;
+  isDuplicate: boolean;
+  isSimilar: boolean;
+  explanation: string;
+}
 
 export interface GitHubIssue {
   number: number;
@@ -97,11 +122,19 @@ export function extractEntities(content: string): EntityExtraction {
 // Text Similarity Helpers
 // =============================================================================
 
+/** Small English stop-word list, only applied on the opt-in path. */
+const STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'have', 'in', 'into',
+  'is', 'it', 'its', 'of', 'on', 'or', 'that', 'the', 'their', 'this', 'to', 'was', 'were',
+  'will', 'with', 'which', 'can', 'so', 'than', 'then', 'these', 'those', 'we', 'you', 'your',
+]);
+
 /** Tokenize text into a bag-of-words (lowercase, alphanumeric tokens). */
-function tokenize(text: string): Map<string, number> {
+function tokenize(text: string, dropStopWords = false): Map<string, number> {
   const tokens = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
   const bag = new Map<string, number>();
   for (const tok of tokens) {
+    if (dropStopWords && STOP_WORDS.has(tok)) continue;
     bag.set(tok, (bag.get(tok) ?? 0) + 1);
   }
   return bag;
@@ -147,28 +180,25 @@ function jaccardSimilarity(a: string[], b: string[]): number {
 // =============================================================================
 
 /**
- * Detects duplicate and similar GitHub issues using text-based similarity.
+ * Detects duplicate and similar items (GitHub issues or any title + body text) using text-based similarity.
  *
  * Uses cosine similarity on bag-of-words (title, body) plus Jaccard on
  * extracted entities (file paths, error codes, function names).
  */
 export class DuplicateDetector {
   /**
-   * Compare two issues and return a similarity result.
+   * Compare two pieces of text (title + body) and return a similarity result.
    */
-  compareIssues(issueA: GitHubIssue, issueB: GitHubIssue): SimilarityResult {
-    const titleA = issueA.title ?? '';
-    const titleB = issueB.title ?? '';
-    const bodyA = issueA.body ?? '';
-    const bodyB = issueB.body ?? '';
+  compareTexts(a: Comparable, b: Comparable, options: CompareOptions = {}): TextSimilarityResult {
+    const dropStop = options.ignoreEmptyEntities === true;
+    const titleA = a.title ?? '';
+    const titleB = b.title ?? '';
+    const bodyA = a.body ?? '';
+    const bodyB = b.body ?? '';
 
-    // Title similarity
-    const titleScore = cosineSimilarity(tokenize(titleA), tokenize(titleB));
+    const titleScore = cosineSimilarity(tokenize(titleA, dropStop), tokenize(titleB, dropStop));
+    const bodyScore = cosineSimilarity(tokenize(bodyA, dropStop), tokenize(bodyB, dropStop));
 
-    // Body similarity
-    const bodyScore = cosineSimilarity(tokenize(bodyA), tokenize(bodyB));
-
-    // Entity overlap
     const entitiesA = extractEntities(`${titleA} ${bodyA}`);
     const entitiesB = extractEntities(`${titleB} ${bodyB}`);
 
@@ -179,11 +209,20 @@ export class DuplicateDetector {
       urls: jaccardSimilarity(entitiesA.urls, entitiesB.urls),
     };
 
-    // Weighted combination: title 40%, body 40%, entity avg 20%
-    const entityAvg =
-      Object.values(entityScores).reduce((s, v) => s + v, 0) /
-      Math.max(Object.values(entityScores).length, 1);
-    const overallScore = 0.4 * titleScore + 0.4 * bodyScore + 0.2 * entityAvg;
+    const noEntities = [entitiesA, entitiesB].every(
+      (e) => e.errorCodes.length + e.filePaths.length + e.functionNames.length + e.urls.length === 0,
+    );
+
+    let overallScore: number;
+    if (dropStop && noEntities) {
+      overallScore = 0.5 * titleScore + 0.5 * bodyScore;
+    } else {
+      // Weighted combination: title 40%, body 40%, entity avg 20%
+      const entityAvg =
+        Object.values(entityScores).reduce((s, v) => s + v, 0) /
+        Math.max(Object.values(entityScores).length, 1);
+      overallScore = 0.4 * titleScore + 0.4 * bodyScore + 0.2 * entityAvg;
+    }
 
     const isDuplicate = overallScore >= DUPLICATE_THRESHOLD;
     const isSimilar = !isDuplicate && overallScore >= SIMILAR_THRESHOLD;
@@ -194,17 +233,38 @@ export class DuplicateDetector {
         ? `Issues may be related (score: ${overallScore.toFixed(2)})`
         : `Issues are not related (score: ${overallScore.toFixed(2)})`;
 
+    return { overallScore, titleScore, bodyScore, entityScores, isDuplicate, isSimilar, explanation };
+  }
+
+  /**
+   * Compare two issues and return a similarity result.
+   */
+  compareIssues(issueA: GitHubIssue, issueB: GitHubIssue): SimilarityResult {
     return {
       issueA: issueA.number,
       issueB: issueB.number,
-      overallScore,
-      titleScore,
-      bodyScore,
-      entityScores,
-      isDuplicate,
-      isSimilar,
-      explanation,
+      ...this.compareTexts(issueA, issueB),
     };
+  }
+
+  /**
+   * Find the candidate most similar to `item`, if any scores at least `minScore`.
+   */
+  findMostSimilar<T extends Comparable>(
+    item: Comparable,
+    candidates: readonly T[],
+    minScore = SIMILAR_THRESHOLD,
+    options: CompareOptions = {},
+  ): { candidate: T; score: number } | null {
+    let best: { candidate: T; score: number } | null = null;
+    for (const candidate of candidates) {
+      const result = this.compareTexts(item, candidate, options);
+      if (!(result.isDuplicate || result.isSimilar) || result.overallScore < minScore) continue;
+      if (!best || result.overallScore > best.score) {
+        best = { candidate, score: result.overallScore };
+      }
+    }
+    return best;
   }
 
   /**

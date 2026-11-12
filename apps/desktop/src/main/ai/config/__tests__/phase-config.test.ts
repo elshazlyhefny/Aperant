@@ -99,6 +99,8 @@ describe('resolveModelId', () => {
 
   it('should resolve shorthands to model IDs', () => {
     expect(resolveModelId('opus')).toBe('claude-opus-5-5');
+    // zeenha fork: 'fable' is Claude Fable 5.2
+    expect(resolveModelId('fable')).toBe('claude-fable-5-2');
     expect(resolveModelId('sonnet')).toMatch(/^claude-sonnet/);
     expect(resolveModelId('haiku')).toMatch(/^claude-haiku/);
   });
@@ -161,6 +163,7 @@ describe('isAdaptiveModel', () => {
   it('should return true for adaptive models', () => {
     expect(isAdaptiveModel('claude-opus-4-6')).toBe(true);
     expect(isAdaptiveModel('claude-opus-5-5')).toBe(true);
+    expect(isAdaptiveModel('claude-fable-5-2')).toBe(true);
   });
 
   it('should return false for non-adaptive models', () => {

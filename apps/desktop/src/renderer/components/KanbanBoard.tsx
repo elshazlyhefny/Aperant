@@ -22,7 +22,8 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy
 } from '@dnd-kit/sortable';
-import { Plus, Inbox, Loader2, Eye, CheckCircle2, Archive, RefreshCw, GitPullRequest, X, Settings, ListPlus, ChevronLeft, ChevronRight, ChevronsRight, Lock, Unlock, Trash2, Search } from 'lucide-react';
+import { Plus, Inbox, Loader2, Eye, CheckCircle2, Archive, RefreshCw, GitPullRequest, X, Settings, ListPlus, ChevronLeft, ChevronRight, ChevronsRight, Lock, Unlock, Trash2, Search, Filter } from 'lucide-react';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { Checkbox } from './ui/checkbox';
 import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
@@ -51,7 +52,49 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import type { Task, TaskStatus, TaskOrderState } from '../../shared/types';
-import { FAILED_COLUMN, canDropTask, filterColumnsBySearch, getBoardColumns, getVisualColumn, type BoardColumn as BoardColumnKey } from './kanban-columns';
+import { FAILED_COLUMN, TASK_PRIORITY_FILTERS, TASK_SOURCE_FILTERS, canDropTask, filterColumnsByFacets, filterColumnsBySearch, getBoardColumns, getVisualColumn, type BoardColumn as BoardColumnKey, type TaskPriorityFilter, type TaskSourceFilter } from './kanban-columns';
+
+interface FacetFilterMenuProps<T extends string> {
+  label: string;
+  ariaLabel: string;
+  selectedCountLabel: string;
+  options: readonly T[];
+  selected: readonly T[];
+  getOptionLabel: (option: T) => string;
+  onToggle: (option: T, checked: boolean) => void;
+}
+
+// zeenha fork: multi-select dropdown used by the board's source and priority filters
+function FacetFilterMenuInner<T extends string>({ label, ariaLabel, selectedCountLabel, options, selected, getOptionLabel, onToggle }: FacetFilterMenuProps<T>) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" aria-label={ariaLabel} className="h-9 gap-1.5">
+          <Filter className="h-4 w-4" />
+          <span>{label}</span>
+          {selected.length > 0 && (
+            <span className="rounded-full bg-primary/10 px-1.5 text-xs text-primary" title={selectedCountLabel}>
+              {selected.length}
+            </span>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option}
+            checked={selected.includes(option)}
+            onCheckedChange={(checked) => onToggle(option, checked === true)}
+            onSelect={(e) => e.preventDefault()}
+          >
+            {getOptionLabel(option)}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+const FacetFilterMenu = memo(FacetFilterMenuInner) as typeof FacetFilterMenuInner;
 
 // Type guard for valid drop column targets - preserves literal type from TASK_STATUS_COLUMNS
 const VALID_DROP_COLUMNS = new Set<string>(TASK_STATUS_COLUMNS);
@@ -669,6 +712,12 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
   const { showArchived, toggleShowArchived } = useViewState();
   const [searchQuery, setSearchQuery] = useState('');
   const isSearchActive = searchQuery.trim().length > 0;
+  const [selectedSources, setSelectedSources] = useState<TaskSourceFilter[]>([]);
+  const [selectedPriorities, setSelectedPriorities] = useState<TaskPriorityFilter[]>([]);
+  const isFacetFilterActive = selectedSources.length > 0 || selectedPriorities.length > 0;
+  const isBoardFiltered = isSearchActive || isFacetFilterActive;
+  const toggleSelection = <T extends string>(setter: (fn: (prev: T[]) => T[]) => void) => (option: T, checked: boolean) =>
+    setter((prev) => (checked ? (prev.includes(option) ? prev : [...prev, option]) : prev.filter((o) => o !== option)));
 
   // Project store for queue settings
   const projects = useProjectStore((state) => state.projects);
@@ -841,8 +890,8 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
   }, [filteredTasks, taskOrder]);
 
   const visibleTasksByStatus = useMemo(
-    () => filterColumnsBySearch(tasksByStatus, searchQuery),
-    [tasksByStatus, searchQuery]
+    () => filterColumnsByFacets(filterColumnsBySearch(tasksByStatus, searchQuery), { sources: selectedSources, priorities: selectedPriorities }),
+    [tasksByStatus, searchQuery, selectedSources, selectedPriorities]
   );
 
   const totalTaskCount = useMemo(
@@ -966,7 +1015,7 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;
-    if (isSearchActive) {
+    if (isBoardFiltered) {
       setActiveTask(null);
       setOverColumnId(null);
       return;
@@ -1324,8 +1373,8 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
     setActiveTask(null);
     setOverColumnId(null);
 
-    // Reordering against a partial (searched) column would corrupt the saved order
-    if (isSearchActive) return;
+    // Reordering against a partial (searched or filtered) column would corrupt the saved order
+    if (isBoardFiltered) return;
 
     if (!over) return;
 
@@ -1442,7 +1491,38 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
                 </Button>
               )}
             </div>
-            {isSearchActive && (
+            <FacetFilterMenu
+              label={t('tasks:kanban.sourceFilterLabel')}
+              ariaLabel={t('tasks:kanban.sourceFilterAriaLabel')}
+              selectedCountLabel={t('tasks:kanban.filterSelectedCount', { count: selectedSources.length })}
+              options={TASK_SOURCE_FILTERS}
+              selected={selectedSources}
+              getOptionLabel={(s) => t(`tasks:kanban.sources.${s}`)}
+              onToggle={toggleSelection<TaskSourceFilter>(setSelectedSources)}
+            />
+            <FacetFilterMenu
+              label={t('tasks:kanban.priorityFilterLabel')}
+              ariaLabel={t('tasks:kanban.priorityFilterAriaLabel')}
+              selectedCountLabel={t('tasks:kanban.filterSelectedCount', { count: selectedPriorities.length })}
+              options={TASK_PRIORITY_FILTERS}
+              selected={selectedPriorities}
+              getOptionLabel={(p) => t(`tasks:kanban.priorities.${p}`)}
+              onToggle={toggleSelection<TaskPriorityFilter>(setSelectedPriorities)}
+            />
+            {isFacetFilterActive && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSelectedSources([]);
+                  setSelectedPriorities([]);
+                }}
+                className="h-9 whitespace-nowrap"
+              >
+                {t('tasks:kanban.clearFilters')}
+              </Button>
+            )}
+            {isBoardFiltered && (
               <span aria-live="polite" className="whitespace-nowrap text-sm text-muted-foreground">
                 {t('tasks:kanban.searchMatchCount', { matched: matchedTaskCount, total: totalTaskCount })}
               </span>
@@ -1494,8 +1574,8 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
               onTaskClick={onTaskClick}
               onStatusChange={handleStatusChange}
               isOver={false}
-              isDragDisabled={isSearchActive}
-              isSearchActive={isSearchActive}
+              isDragDisabled={isBoardFiltered}
+              isSearchActive={isBoardFiltered}
               fileOverlaps={fileOverlaps}
               holdBlockerTitles={holdBlockerTitles}
             />
@@ -1504,8 +1584,8 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
               key={status}
               status={status}
               tasks={visibleTasksByStatus[status]}
-              isDragDisabled={isSearchActive}
-              isSearchActive={isSearchActive}
+              isDragDisabled={isBoardFiltered}
+              isSearchActive={isBoardFiltered}
               fileOverlaps={fileOverlaps}
               holdBlockerTitles={holdBlockerTitles}
               onTaskClick={onTaskClick}

@@ -89,6 +89,16 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `GITLAB_PROJECT` | `group/project` | Yes |
 | `GITLAB_AUTO_SYNC` | `true` or `false` | Yes |
 
+### Jira
+
+| Key | Purpose or example | Settings UI writes it |
+|-----|--------------------|-----------------------|
+| `JIRA_ENABLED` | `true` or `false`. With `JIRA_API_TOKEN` present, the integration is on unless this is `false` (compared case-insensitively). When unset it is written as the commented line `# JIRA_ENABLED=true`. | Yes |
+| `JIRA_SITE_URL` | `https://your-site.atlassian.net`. Only Atlassian Cloud hosts of the form `<name>.atlassian.net` are accepted. | Yes |
+| `JIRA_EMAIL` | Atlassian account email, used with the token for Basic auth | Yes |
+| `JIRA_API_TOKEN` | Atlassian API token. A secret, see [Secrets](#secrets). | Yes |
+| `JIRA_PROJECT_KEY` | Default project key, for example `PROJ` | Yes |
+
 ### MCP servers
 
 | Key | Purpose or example | Settings UI writes it |
@@ -154,4 +164,4 @@ Rules:
 
 ## Secrets
 
-`.auto-claude/.env` can hold API keys and tokens, such as `GITHUB_TOKEN`, `GITLAB_TOKEN`, `LINEAR_API_KEY` and the embedding provider keys. Do not commit it to version control.
+`.auto-claude/.env` can hold API keys and tokens, such as `GITHUB_TOKEN`, `GITLAB_TOKEN`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` and the embedding provider keys. Do not commit it to version control.

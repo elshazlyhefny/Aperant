@@ -14,7 +14,8 @@ import type {
   SeoIdea,
   IdeationStatus,
   IdeationType,
-  IdeationSession
+  IdeationSession,
+  PossibleDuplicateOf
 } from '../../../shared/types';
 import { debugLog } from '../../../shared/utils/debug-logger';
 import type { RawIdea } from './types';
@@ -61,7 +62,19 @@ export function transformIdeaFromSnakeCase(idea: RawIdea): Idea {
   // idea offered "Go to task".
   const linked = idea.linked_task_id ?? idea.taskId;
   const transformed = transformIdeaFields(idea);
-  return typeof linked === 'string' && linked ? { ...transformed, taskId: linked } : transformed;
+  const withTask = typeof linked === 'string' && linked ? { ...transformed, taskId: linked } : transformed;
+  const possibleDuplicateOf = parsePossibleDuplicateOf(idea.possible_duplicate_of ?? idea.possibleDuplicateOf);
+  return possibleDuplicateOf ? { ...withTask, possibleDuplicateOf } : withTask;
+}
+
+/** zeenha fork: validate the duplicate flag written by the generation step; a malformed value is ignored. */
+function parsePossibleDuplicateOf(value: unknown): PossibleDuplicateOf | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const { kind, id, score, title } = value as Record<string, unknown>;
+  if (kind !== 'task' && kind !== 'idea') return undefined;
+  if (typeof id !== 'string' || !id) return undefined;
+  if (typeof score !== 'number' || !Number.isFinite(score)) return undefined;
+  return typeof title === 'string' ? { kind, id, score, title } : { kind, id, score };
 }
 
 /** zeenha fork: the prompt now asks for `line_count`; the renderer reads `lineCount`. Both are accepted. */

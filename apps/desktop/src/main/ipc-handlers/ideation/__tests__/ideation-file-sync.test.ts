@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -169,6 +169,12 @@ describe('one field convention in ideation.json', () => {
     expect(out).not.toHaveProperty('filePath');
   });
 
+  it('leaves a top-level possible_duplicate_of object intact', () => {
+    const dup = { kind: 'task', id: '001-x', score: 0.8, title: 'X' };
+    const out = normalizeIdea({ id: 'a', type: 't', title: 'x', description: 'd', rationale: 'r', possible_duplicate_of: dup }, 'now');
+    expect(out.possible_duplicate_of).toEqual(dup);
+  });
+
   it('fills a missing status and creation date, keeping ones that exist', () => {
     const base = { id: 'a', type: 'code_quality', title: 't', description: 'd', rationale: 'r' };
     expect(normalizeIdea(base, '2026-10-26T00:00:00.000Z')).toMatchObject({ status: 'draft', created_at: '2026-10-26T00:00:00.000Z' });
@@ -214,5 +220,78 @@ describe('ids and config after a sync', () => {
     syncIdeationFile(dir, ['performance_optimizations']);
 
     expect(combined().config.enabled_types).toEqual(['code_quality', 'performance_optimizations']);
+  });
+});
+
+describe('possible_duplicate_of', () => {
+  let project: string;
+  let ideationDir: string;
+  const full = (id: string, type: string, title: string, description: string, rationale = 'r') => ({
+    id, type, title, description, rationale, status: 'draft',
+  });
+  const flagged = () => combined().ideas as Array<{ id: string; title: string; possible_duplicate_of?: { kind: string; id: string; score: number; title: string } }>;
+
+  beforeEach(() => {
+    project = mkdtempSync(path.join(tmpdir(), 'ideation-project-'));
+    ideationDir = path.join(project, '.auto-claude', 'ideation');
+    mkdirSync(ideationDir, { recursive: true });
+    const specDir = path.join(project, '.auto-claude', 'specs', '038-low-stock-reorder');
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(
+      path.join(specDir, 'spec.md'),
+      '# Low-stock reorder drafts\n\n## Overview\nDraft stock reorder orders automatically for products whose inventory runs low, so the merchant can review the drafts.\n\n## Scope\nx\n',
+    );
+    dir = ideationDir;
+  });
+  afterEach(() => rmSync(project, { recursive: true, force: true }));
+
+  const repeat = full(
+    'feat-001', 'code_improvements', 'Automatic low-stock reorder drafts',
+    'Draft stock reorder orders automatically for products whose inventory runs low so the merchant can review drafts.',
+    'Inventory runs low often',
+  );
+
+  it('flags a reworded repeat of a task and keeps the idea', () => {
+    write('a_ideas.json', { code_improvements: [repeat, full('feat-002', 'code_improvements', 'Zebra crossing theme', 'Colourful animated login screen background gradients')] });
+    syncIdeationFile(ideationDir, 'all', 'ideation.json', { projectDir: project });
+    const ideas = flagged();
+    expect(ideas).toHaveLength(2);
+    const hit = ideas.find((i) => i.id === 'feat-001')?.possible_duplicate_of;
+    expect(hit?.kind).toBe('task');
+    expect(hit?.id).toBe('038-low-stock-reorder');
+    expect(hit?.score).toBeGreaterThanOrEqual(0.7);
+    expect(hit?.title).toBe('Low-stock reorder drafts');
+    expect(ideas.find((i) => i.id === 'feat-002')?.possible_duplicate_of).toBeUndefined();
+  });
+
+  it('flags a repeat of a dismissed idea of the same regenerated type', () => {
+    writeFileSync(
+      path.join(ideationDir, 'ideation.json'),
+      JSON.stringify({ ideas: [{ ...full('old-001', 'code_improvements', 'Dark mode scheduler', 'Switch the application theme to dark mode automatically at sunset based on location'), status: 'dismissed' }] }),
+    );
+    write('a_ideas.json', { code_improvements: [full('new-001', 'code_improvements', 'Sunset dark mode scheduling', 'Switch the application theme to dark mode automatically at sunset based on location')] });
+    syncIdeationFile(ideationDir, ['code_improvements'], 'ideation.json', { projectDir: project });
+    const hit = flagged().find((i) => i.id === 'new-001')?.possible_duplicate_of;
+    expect(hit?.kind).toBe('idea');
+    expect(hit?.id).toBe('old-001');
+  });
+
+  it('flags nothing without projectDir', () => {
+    write('a_ideas.json', { code_improvements: [repeat] });
+    syncIdeationFile(ideationDir, 'all');
+    expect(flagged()[0].possible_duplicate_of).toBeUndefined();
+  });
+
+  it('keeps an unchanged idea and clears a stale flag', () => {
+    writeFileSync(
+      path.join(ideationDir, 'ideation.json'),
+      JSON.stringify({ ideas: [{ ...full('x-001', 'code_improvements', 'Zebra crossing theme', 'Colourful animated login screen background gradients'), possible_duplicate_of: { kind: 'task', id: 'gone', score: 0.9, title: 'Gone' } }] }),
+    );
+    write('a_ideas.json', { code_improvements: [full('x-001', 'code_improvements', 'Zebra crossing theme', 'Colourful animated login screen background gradients')] });
+    syncIdeationFile(ideationDir, ['code_improvements'], 'ideation.json', { projectDir: project });
+    const ideas = flagged();
+    expect(ideas).toHaveLength(1);
+    expect(ideas[0].id).toBe('x-001');
+    expect(ideas[0].possible_duplicate_of).toBeUndefined();
   });
 });
