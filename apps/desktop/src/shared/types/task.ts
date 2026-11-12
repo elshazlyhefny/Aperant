@@ -103,6 +103,22 @@ export interface TaskLogs {
   };
 }
 
+/**
+ * Incremental update for task logs: only entries appended since the last emit.
+ * baseCount is the number of entries of that phase already emitted before this delta.
+ */
+export interface TaskLogsDelta {
+  spec_id: string;
+  updated_at: string;
+  phases: Partial<Record<TaskLogPhase, {
+    status: TaskLogPhaseStatus;
+    started_at: string | null;
+    completed_at: string | null;
+    baseCount: number;
+    entries: TaskLogEntry[];
+  }>>;
+}
+
 // Image attachment types for task creation
 export interface ImageAttachment {
   id: string;           // Unique identifier (UUID)

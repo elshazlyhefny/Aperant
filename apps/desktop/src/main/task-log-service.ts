@@ -1,11 +1,32 @@
 import path from 'path';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { EventEmitter } from 'events';
-import type { TaskLogs, TaskLogPhase, TaskPhaseLog } from '../shared/types';
+import type { TaskLogs, TaskLogPhase, TaskPhaseLog, TaskLogEntry, TaskLogsDelta } from '../shared/types';
 import { findTaskWorktree } from './worktree-paths';
 import { debugLog, debugWarn, debugError } from '../shared/utils/debug-logger';
 
 type FileSignature = { mtimeMs: number; size: number };
+type PhaseBaseline = { count: number; lastKey: string | null };
+type Baseline = Record<TaskLogPhase, PhaseBaseline>;
+
+const LOG_PHASES: TaskLogPhase[] = ['planning', 'coding', 'validation'];
+
+// Same key shape combinePhaseLogs uses to identify an entry
+function entryKey(entry: TaskLogEntry): string {
+  return `${entry.timestamp}|${entry.type}|${entry.content}`;
+}
+
+function buildBaseline(logs: TaskLogs): Baseline {
+  const baseline = {} as Baseline;
+  for (const phase of LOG_PHASES) {
+    const entries = logs.phases[phase]?.entries ?? [];
+    baseline[phase] = {
+      count: entries.length,
+      lastKey: entries.length > 0 ? entryKey(entries[entries.length - 1]) : null
+    };
+  }
+  return baseline;
+}
 
 function findWorktreeSpecDir(projectPath: string, specId: string, specsRelPath: string): string | null {
   const worktreePath = findTaskWorktree(projectPath, specId);
@@ -33,6 +54,13 @@ export class TaskLogService extends EventEmitter {
   private pollIntervals: Map<string, NodeJS.Timeout> = new Map();
   // Store paths being watched for each specId (main + worktree)
   private watchedPaths: Map<string, { mainSpecDir: string; worktreeSpecDir: string | null; specsRelPath: string }> = new Map();
+
+  // Per-spec record of what has been emitted to (or fetched by) the renderer.
+  // Seeded from the initial load in startWatching and reset via markEmitted()
+  // whenever the renderer does a full getTaskLogs load, so both sides agree.
+  private emitted: Map<string, Baseline> = new Map();
+  // Last status triple emitted per phase, to detect status-only changes
+  private emittedStatus: Map<string, Record<TaskLogPhase, string>> = new Map();
 
   // Poll interval for watching log changes (more reliable than fs.watch on some systems)
   private readonly POLL_INTERVAL_MS = 1000;
@@ -319,6 +347,7 @@ export class TaskLogService extends EventEmitter {
         }
       });
       this.logCache.set(specDir, initialLogs);
+      this.markEmitted(specId, initialLogs);
     } else {
       debugLog('[TaskLogService.startWatching] No initial logs found');
     }
@@ -379,17 +408,16 @@ export class TaskLogService extends EventEmitter {
         const logs = this.loadLogs(specDir);
 
         if (logs) {
-          debugLog('[TaskLogService] Emitting logs-changed event:', {
-            specId,
-            entryCounts: {
-              planning: logs.phases.planning?.entries?.length || 0,
-              coding: logs.phases.coding?.entries?.length || 0,
-              validation: logs.phases.validation?.entries?.length || 0
-            }
-          });
-
-          // Emit change event with the merged logs
-          this.emit('logs-changed', specId, logs);
+          const delta = this.computeDelta(specId, logs);
+          if (delta === 'none') {
+            debugLog('[TaskLogService] No new entries or status changes, emitting nothing:', specId);
+          } else if (delta) {
+            debugLog('[TaskLogService] Emitting logs-appended event:', { specId });
+            this.emit('logs-appended', specId, delta);
+          } else {
+            debugLog('[TaskLogService] Emitting logs-changed event (resync):', { specId });
+            this.emit('logs-changed', specId, logs);
+          }
         } else {
           debugWarn('[TaskLogService] No logs loaded after file change:', specId);
         }
@@ -416,6 +444,75 @@ export class TaskLogService extends EventEmitter {
       this.pollIntervals.delete(specId);
       this.watchedPaths.delete(specId);
     }
+    this.emitted.delete(specId);
+    this.emittedStatus.delete(specId);
+  }
+
+  /**
+   * Record that the renderer now holds `logs` in full (e.g. after a getTaskLogs
+   * load or a full 'logs-changed' emit), so later deltas are computed against it.
+   */
+  markEmitted(specId: string, logs: TaskLogs): void {
+    this.emitted.set(specId, buildBaseline(logs));
+    const statuses = {} as Record<TaskLogPhase, string>;
+    for (const phase of LOG_PHASES) {
+      statuses[phase] = this.statusKey(logs.phases[phase]);
+    }
+    this.emittedStatus.set(specId, statuses);
+  }
+
+  private statusKey(log: TaskPhaseLog | undefined): string {
+    return `${log?.status}|${log?.started_at}|${log?.completed_at}`;
+  }
+
+  /**
+   * Compare freshly loaded logs against the emitted baseline.
+   * Returns a delta when entries were only appended, 'none' when nothing
+   * observable changed, or null when a full resync is required (shrink/reorder
+   * or no baseline). The baseline is updated in every case.
+   */
+  private computeDelta(specId: string, logs: TaskLogs): TaskLogsDelta | 'none' | null {
+    const prev = this.emitted.get(specId);
+    const prevStatus = this.emittedStatus.get(specId);
+
+    let appendOnly = !!prev && !!prevStatus;
+    if (prev) {
+      for (const phase of LOG_PHASES) {
+        const entries = logs.phases[phase]?.entries ?? [];
+        const base = prev[phase];
+        if (entries.length < base.count) {
+          appendOnly = false;
+          break;
+        }
+        if (base.count > 0 && entryKey(entries[base.count - 1]) !== base.lastKey) {
+          appendOnly = false;
+          break;
+        }
+      }
+    }
+
+    if (!appendOnly || !prev || !prevStatus) {
+      this.markEmitted(specId, logs);
+      return null;
+    }
+
+    const delta: TaskLogsDelta = { spec_id: logs.spec_id, updated_at: logs.updated_at, phases: {} };
+    for (const phase of LOG_PHASES) {
+      const log = logs.phases[phase];
+      const entries = log?.entries ?? [];
+      const newEntries = entries.slice(prev[phase].count);
+      if (newEntries.length === 0 && this.statusKey(log) === prevStatus[phase]) continue;
+      delta.phases[phase] = {
+        status: log.status,
+        started_at: log.started_at,
+        completed_at: log.completed_at,
+        baseCount: prev[phase].count,
+        entries: newEntries
+      };
+    }
+
+    this.markEmitted(specId, logs);
+    return Object.keys(delta.phases).length === 0 ? 'none' : delta;
   }
 
   /**
