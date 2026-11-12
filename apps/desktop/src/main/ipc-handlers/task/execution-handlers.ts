@@ -163,8 +163,7 @@ export async function applyTaskStatusUpdate(
     }
   }
 
-  // Get the spec directory and plan path using shared utility
-  const specsBaseDir = getSpecsDir(project.autoBuildPath);
+  // Get the plan path using shared utility
   const planPath = getPlanPath(project, task);
 
   try {
