@@ -11,6 +11,7 @@
 import { z } from 'zod/v3';
 
 import { Tool } from '../define';
+import { webToolsBlockedBySandbox } from '../../security/sandbox';
 import { validateFetchUrl } from '../../security/url-policy';
 import { createBrowseProvider } from '../providers';
 import { parseWebFetchProvider } from '../providers/types';
@@ -51,6 +52,10 @@ export const webFetchTool = Tool.define({
   inputSchema,
   execute: async (input, context) => {
     const { url, prompt } = input;
+
+    if (webToolsBlockedBySandbox(context.securityProfile)) {
+      return "Error: WebFetch is disabled because this project's Bash sandbox blocks network access";
+    }
 
     const policy = await validateFetchUrl(url);
     if (!policy.ok) {
