@@ -503,6 +503,7 @@ export const WORKTREE_CREATE_PR_ERROR_CODES = [
   'PUSH_FAILED',
   'GH_TIMEOUT',
   'GH_FAILED',
+  'MR_FAILED',
   'RETRIES_EXHAUSTED',
   'UNKNOWN'
 ] as const;
