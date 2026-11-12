@@ -172,7 +172,7 @@ export interface ColorThemeDefinition {
 export type ThinkingLevel = 'low' | 'medium' | 'high' | 'xhigh';
 
 // Model type shorthand
-export type ModelTypeShort = 'haiku' | 'sonnet' | 'opus' | 'opus-1m' | 'opus-4.5';
+export type ModelTypeShort = 'fable' | 'haiku' | 'sonnet' | 'opus' | 'opus-1m' | 'opus-4.5';
 
 /** Widened model type: Claude shorthands + any arbitrary model ID */
 export type ModelSelection = ModelTypeShort | (string & {});
