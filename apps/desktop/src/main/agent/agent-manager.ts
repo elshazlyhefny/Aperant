@@ -38,6 +38,7 @@ import { createOrGetWorktree } from '../ai/worktree';
 import { findTaskWorktree } from '../worktree-paths';
 import { landsThroughPullRequestsOnly } from '../../shared/utils/landing-policy';
 import { readSettingsFile } from '../settings-utils';
+import { hasUsableAuth } from '../services/profile/provider-account-check';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
 import { getApprovals } from '../mcp-approval-store';
@@ -129,16 +130,6 @@ export class AgentManager extends EventEmitter {
    */
   configure(pythonPath?: string, autoBuildSourcePath?: string): void {
     this.processManager.configure(pythonPath, autoBuildSourcePath);
-  }
-
-  /**
-   * Check if any provider account is configured (API key or OAuth).
-   * Used to bypass the legacy hasValidAuth() check for non-Anthropic providers.
-   */
-  private hasAnyProviderAccount(): boolean {
-    const settings = readSettingsFile();
-    const accounts = (settings?.providerAccounts as ProviderAccount[] | undefined) ?? [];
-    return accounts.length > 0;
   }
 
   /**
@@ -371,7 +362,7 @@ export class AgentManager extends EventEmitter {
       this.emit('error', taskId, 'Failed to initialize profile manager. Please check file permissions and disk space.');
       return;
     }
-    if (!profileManager.hasValidAuth() && !this.hasAnyProviderAccount()) {
+    if (!hasUsableAuth(profileManager)) {
       this.emit('error', taskId, 'Authentication required. Please add an account in Settings > Accounts before starting tasks.');
       return;
     }
@@ -500,7 +491,7 @@ export class AgentManager extends EventEmitter {
       this.emit('error', taskId, 'Failed to initialize profile manager. Please check file permissions and disk space.');
       return;
     }
-    if (!profileManager.hasValidAuth() && !this.hasAnyProviderAccount()) {
+    if (!hasUsableAuth(profileManager)) {
       this.emit('error', taskId, 'Authentication required. Please add an account in Settings > Accounts before starting tasks.');
       return;
     }
@@ -629,7 +620,7 @@ export class AgentManager extends EventEmitter {
       this.emit('error', taskId, 'Failed to initialize profile manager. Please check file permissions and disk space.');
       return;
     }
-    if (!profileManager.hasValidAuth() && !this.hasAnyProviderAccount()) {
+    if (!hasUsableAuth(profileManager)) {
       this.emit('error', taskId, 'Authentication required. Please add an account in Settings > Accounts before starting tasks.');
       return;
     }
