@@ -169,6 +169,12 @@ describe('one field convention in ideation.json', () => {
     expect(out).not.toHaveProperty('filePath');
   });
 
+  it('leaves a top-level possible_duplicate_of object intact', () => {
+    const dup = { kind: 'task', id: '001-x', score: 0.8, title: 'X' };
+    const out = normalizeIdea({ id: 'a', type: 't', title: 'x', description: 'd', rationale: 'r', possible_duplicate_of: dup }, 'now');
+    expect(out.possible_duplicate_of).toEqual(dup);
+  });
+
   it('fills a missing status and creation date, keeping ones that exist', () => {
     const base = { id: 'a', type: 'code_quality', title: 't', description: 'd', rationale: 'r' };
     expect(normalizeIdea(base, '2026-10-26T00:00:00.000Z')).toMatchObject({ status: 'draft', created_at: '2026-10-26T00:00:00.000Z' });
