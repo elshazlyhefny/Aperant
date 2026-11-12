@@ -59,6 +59,7 @@ Then either:
 | **Self-Validating QA** | Built-in quality assurance loop catches issues before you review |
 | **AI-Powered Merge** | Automatic conflict resolution when integrating back to main |
 | **Memory Layer** | Agents retain insights across sessions for smarter builds |
+| **Recurring Schedules** | Run a task on a daily, weekly or interval cadence while the app is open; see [guides/recurring-tasks.md](guides/recurring-tasks.md) |
 | **GitHub/GitLab Integration** | Import issues, investigate with AI, create merge requests |
 | **Linear Integration** | Sync tasks with Linear for team progress tracking |
 | **Jira Import** | Import Jira issues as tasks. Keys are set in the project's `.auto-claude/.env`, see [Jira configuration](guides/project-configuration.md#jira) |
