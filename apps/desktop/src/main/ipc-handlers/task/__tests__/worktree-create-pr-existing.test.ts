@@ -4,6 +4,7 @@
  * it back), the task must still record it. Before the fix the task stayed in
  * Human Review with no PR link, and every later click said "already exists".
  */
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -39,7 +40,10 @@ vi.mock('../../../cli-tool-manager', () => ({ getToolPath: (tool: string) => too
 const createPR = vi.hoisted(() => vi.fn());
 // zeenha fork: with no title sent (the bulk dialog), the handler asks for an AI title.
 const suggestPRTitleForWorktree = vi.hoisted(() => vi.fn(async () => null as string | null));
-vi.mock('../../../ai/runners/github/pr-creator', () => ({ createPR, suggestPRTitleForWorktree }));
+const createMR = vi.hoisted(() => vi.fn());
+vi.mock('../../../ai/runners/github/pr-creator', () => ({ createPR, createMR, suggestPRTitleForWorktree }));
+const getGitLabConfig = vi.hoisted(() => vi.fn(async () => null as unknown));
+vi.mock('../../gitlab/utils', () => ({ getGitLabConfig }));
 
 const PR_URL = 'https://github.com/owner/repo/pull/7';
 
@@ -67,6 +71,9 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
     await resetStateMachine();
     handlers.clear();
     createPR.mockReset();
+    createMR.mockReset();
+    getGitLabConfig.mockReset();
+    getGitLabConfig.mockResolvedValue(null);
     ref.path = fs.mkdtempSync(path.join(os.tmpdir(), 'create-pr-'));
     ref.worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'create-pr-wt-'));
     ref.settings = {};
@@ -194,6 +201,65 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
       await handler({}, 't1');
 
       expect(createPR.mock.calls.at(-1)?.[0].subtaskProgress).toBeUndefined();
+    });
+  });
+
+  // zeenha fork: GitLab merge requests
+  describe('GitLab provider', () => {
+    const MR_URL = 'https://gitlab.example.com/group/repo/-/merge_requests/3';
+    const gitlab = { token: 't', instanceUrl: 'https://gitlab.example.com', project: 'group/repo' };
+
+    function setOrigin(url: string) {
+      execFileSync('git', ['init', '-q'], { cwd: ref.path });
+      execFileSync('git', ['remote', 'add', 'origin', url], { cwd: ref.path });
+    }
+
+    it('opens a merge request when GitLab is configured and origin matches', async () => {
+      setOrigin('git@gitlab.example.com:group/repo.git');
+      getGitLabConfig.mockResolvedValue(gitlab);
+      createMR.mockResolvedValue({ success: true, prUrl: MR_URL, alreadyExists: false });
+
+      const result = await (await createPrHandler())({}, 't1');
+
+      expect(createPR).not.toHaveBeenCalled();
+      expect(createMR.mock.calls[0][0].gitlab).toEqual(gitlab);
+      expect(createMR.mock.calls[0][0].ghPath).toBeUndefined();
+      expect(result.data).toMatchObject({ success: true, prUrl: MR_URL });
+      expect(JSON.parse(fs.readFileSync(specFile('task_metadata.json'), 'utf-8')).prUrl).toBe(MR_URL);
+      expect(JSON.parse(fs.readFileSync(specFile('implementation_plan.json'), 'utf-8')).status).toBe('done');
+    });
+
+    it('still opens a GitHub PR when origin is on another host', async () => {
+      setOrigin('git@github.com:owner/repo.git');
+      getGitLabConfig.mockResolvedValue(gitlab);
+      createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+
+      await (await createPrHandler())({}, 't1');
+
+      expect(createMR).not.toHaveBeenCalled();
+      expect(createPR).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens a GitHub PR when GitLab is not configured', async () => {
+      setOrigin('git@gitlab.example.com:group/repo.git');
+      createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+
+      await (await createPrHandler())({}, 't1');
+
+      expect(createMR).not.toHaveBeenCalled();
+      expect(createPR).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces a createMR failure code', async () => {
+      setOrigin('https://gitlab.example.com/group/repo.git');
+      getGitLabConfig.mockResolvedValue(gitlab);
+      createMR.mockResolvedValue({ success: false, errorCode: 'MR_FAILED', error: 'nope' });
+
+      const result = await (await createPrHandler())({}, 't1');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('nope');
+      expect(result.data?.errorCode).toBe('MR_FAILED');
     });
   });
 
