@@ -32,6 +32,9 @@ let globalCleanup: (() => void) | null = null;
  * 3. When a terminal becomes visible again, it can replay the buffered output
  * 4. No output is lost during project navigation
  *
+ * Main batches PTY output per ~12 ms, so each message here is a larger chunk;
+ * the buffer manager keeps a chunk list, so getSize() is cheap (no join).
+ *
  * This hook should be called once in App.tsx alongside useIpcListeners().
  */
 export function useGlobalTerminalListeners(): void {

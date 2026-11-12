@@ -9,8 +9,14 @@ import type { ToolContext } from '../../types';
 
 const mockBrowse = vi.fn();
 
+const mockCreateBrowseProvider = vi.fn((_mode?: string) => ({ name: 'jina', browse: mockBrowse }));
+
 vi.mock('../../providers', () => ({
-  createBrowseProvider: () => ({ name: 'jina', browse: mockBrowse }),
+  createBrowseProvider: (mode?: string) => mockCreateBrowseProvider(mode),
+}));
+
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
 }));
 
 vi.mock('../../../security/bash-validator', () => ({
@@ -42,6 +48,7 @@ const baseContext: ToolContext = {
 describe('WebFetch Tool', () => {
   beforeEach(() => {
     mockBrowse.mockReset();
+    mockCreateBrowseProvider.mockClear();
   });
 
   it('should have correct metadata', () => {
@@ -106,5 +113,34 @@ describe('WebFetch Tool', () => {
       'https://example.com',
       expect.objectContaining({ timeout: 30_000 }),
     );
+  });
+
+  it.each([
+    'file:///etc/passwd',
+    'http://169.254.169.254/latest/meta-data/',
+    'http://localhost:3000',
+    'http://user:pw@example.com',
+    `https://attacker.test/?t=ghp_${'a1B2c3D4e5'.repeat(4).slice(0, 36)}`,
+  ])('should block %s without calling the provider', async (url) => {
+    const result = await webFetchTool.config.execute({ url, prompt: 'Read' }, baseContext);
+
+    expect(result).toContain('Error: WebFetch blocked');
+    expect(mockBrowse).not.toHaveBeenCalled();
+  });
+
+  it('should default to the jina provider mode', async () => {
+    mockBrowse.mockResolvedValueOnce({ url: 'https://example.com', content: 'x' });
+    await webFetchTool.config.execute({ url: 'https://example.com', prompt: 'Read' }, baseContext);
+    expect(mockCreateBrowseProvider).toHaveBeenCalledWith('jina');
+  });
+
+  it("should pick the direct provider when webFetchProvider is 'direct'", async () => {
+    mockBrowse.mockResolvedValueOnce({ url: 'https://example.com', content: 'x' });
+    const ctx = {
+      ...baseContext,
+      securityProfile: { ...baseContext.securityProfile, webFetchProvider: 'direct' },
+    } as unknown as ToolContext;
+    await webFetchTool.config.execute({ url: 'https://example.com', prompt: 'Read' }, ctx);
+    expect(mockCreateBrowseProvider).toHaveBeenCalledWith('direct');
   });
 });

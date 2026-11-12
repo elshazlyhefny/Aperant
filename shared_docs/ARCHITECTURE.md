@@ -174,7 +174,9 @@ Tool permission is enforced when a tool runs, not by hiding tools, so most agent
 - `path-containment.ts` keeps file tools inside the allowed project and worktree directories.
 - `denylist.ts` blocks protected paths and commands.
 - `child-env.ts` scrubs credential variables from the environment of Bash and MCP child processes.
-- `sandbox.ts` is the opt-in OS sandbox (bubblewrap or `sandbox-exec`), the real isolation control.
+- `sandbox.ts` is the opt-in OS sandbox (bubblewrap on Linux, `sandbox-exec` on macOS), the real isolation control.
+- `sandbox-windows.ts` is the Windows `restricted-rights` mode: a restricted token plus a Job object, started through a PowerShell launcher. It does not hide the home directory or block the network. See [guides/windows-development.md](../guides/windows-development.md) for Windows details.
+- `sandbox-status.ts` detects whether a mode is available. It drives the status badge in project settings, including "Mode not supported here". If the selected mode is unsupported, every agent shell command fails.
 - `secret-scanner.ts` detects secrets.
 - `tool-input-validator.ts` checks tool inputs before execution.
 

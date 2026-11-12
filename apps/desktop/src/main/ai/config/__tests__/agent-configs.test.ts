@@ -11,6 +11,7 @@ import {
   ELECTRON_TOOLS,
   type AgentType,
 } from '../agent-configs';
+import { isReviewReadOnlyTool } from '../review-tools';
 
 // =============================================================================
 // All Agent Types (26 total)
@@ -107,6 +108,31 @@ describe('AGENT_CONFIGS', () => {
     expect(config.tools).not.toContain('Bash');
     expect(config.tools).toContain('WebFetch');
     expect(config.mcpServers).toContain('context7');
+  });
+
+  it.each(['ideation', 'roadmap_discovery', 'competitor_analysis'] as AgentType[])(
+    'should give %s analysis tools without Edit',
+    (agentType) => {
+      const tools = AGENT_CONFIGS[agentType].tools;
+      for (const t of ['Read', 'Glob', 'Grep', 'Write', 'Bash', 'WebFetch', 'WebSearch']) {
+        expect(tools).toContain(t);
+      }
+      expect(tools).not.toContain('Edit');
+    }
+  );
+
+  it('should give insights read/shell tools without Write or Edit', () => {
+    const tools = AGENT_CONFIGS.insights.tools;
+    for (const t of ['Read', 'Glob', 'Grep', 'Bash']) {
+      expect(tools).toContain(t);
+    }
+    expect(tools).not.toContain('Write');
+    expect(tools).not.toContain('Edit');
+  });
+
+  it.each(['coder', 'qa_fixer'] as AgentType[])('should keep Edit and Write for %s', (agentType) => {
+    expect(AGENT_CONFIGS[agentType].tools).toContain('Edit');
+    expect(AGENT_CONFIGS[agentType].tools).toContain('Write');
   });
 
   it('should configure merge_resolver with no tools', () => {
@@ -297,5 +323,29 @@ describe('getRequiredMcpServers', () => {
     });
     expect(servers).toContain('context7');
     expect(servers).not.toContain('memory');
+  });
+});
+
+describe('PR review agents are read-only', () => {
+  const REVIEW_AGENT_TYPES: AgentType[] = [
+    'pr_finding_validator',
+    'pr_reviewer',
+    'pr_orchestrator_parallel',
+    'pr_followup_parallel',
+    'pr_security_specialist',
+    'pr_quality_specialist',
+    'pr_logic_specialist',
+    'pr_codebase_fit_specialist',
+  ];
+
+  it.each(REVIEW_AGENT_TYPES)('%s only has Read, Glob and Grep', (agentType) => {
+    const { tools } = getAgentConfig(agentType);
+    expect([...tools]).toEqual(['Read', 'Glob', 'Grep']);
+    for (const banned of ['Bash', 'Write', 'Edit', 'WebFetch', 'WebSearch', 'SpawnSubagent']) {
+      expect(tools).not.toContain(banned);
+    }
+    for (const tool of tools) {
+      expect(isReviewReadOnlyTool(tool)).toBe(true);
+    }
   });
 });

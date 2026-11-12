@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { MAX_LISTED, priorWorkNote, readPriorWork, roadmapPriorWorkNote } from '../ideation-prior-work';
+import { MAX_LISTED, priorWorkNote, readPriorWork, readTaskOverviews, roadmapPriorWorkNote } from '../ideation-prior-work';
 
 let project: string;
 beforeEach(() => {
@@ -104,5 +104,30 @@ describe('roadmapPriorWorkNote', () => {
 
   it('is undefined for a project with nothing yet', () => {
     expect(roadmapPriorWorkNote({ tasks: [], ideas: [] })).toBeUndefined();
+  });
+});
+
+describe('readTaskOverviews', () => {
+  it('returns the Overview section of each spec', () => {
+    spec('038-low-stock-reorder', {
+      spec: '# Low-stock reorder\n\n## Overview\nDraft stock orders when a product runs low.\n\n## Scope\nOther text\n',
+    });
+    expect(readTaskOverviews(project)).toEqual([
+      { id: '038-low-stock-reorder', title: 'Low-stock reorder', body: 'Draft stock orders when a product runs low.' },
+    ]);
+  });
+
+  it('falls back to the whole spec, then to the plan description', () => {
+    spec('001-a', { spec: '# Title A\n\nJust some prose.\n' });
+    spec('002-b', { plan: { feature: 'Feature B', description: 'Plan description' } });
+    const byId = Object.fromEntries(readTaskOverviews(project).map((t) => [t.id, t]));
+    expect(byId['001-a'].body).toBe('Just some prose.');
+    expect(byId['002-b']).toEqual({ id: '002-b', title: 'Feature B', body: 'Plan description' });
+  });
+
+  it('skips a folder without a spec safely and a missing specs dir', () => {
+    expect(readTaskOverviews(project)).toEqual([]);
+    spec('003-empty', {});
+    expect(readTaskOverviews(project)).toEqual([{ id: '003-empty', title: '003-empty', body: '' }]);
   });
 });

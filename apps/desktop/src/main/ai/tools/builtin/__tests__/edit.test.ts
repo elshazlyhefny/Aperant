@@ -235,4 +235,39 @@ describe('Edit Tool', () => {
     expect(fs.readFileSync).not.toHaveBeenCalled();
     expect(fs.writeFileSync).not.toHaveBeenCalled();
   });
+
+  it.each(['/test/project/.git/hooks/pre-commit', '/test/project/.git/config'])(
+    'should reject edits to git internals: %s',
+    async (file_path) => {
+      await expect(
+        editTool.config.execute(
+          { file_path, old_string: 'a', new_string: 'b', replace_all: false },
+          baseContext,
+        ),
+      ).rejects.toThrow('git internals');
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    },
+  );
+
+  it('should enforce writeRoot when set', async () => {
+    vi.mocked(assertPathContained).mockImplementation((filePath: string, root: string) => {
+      if (!filePath.startsWith(root)) throw new Error('outside');
+      return { contained: true, resolvedPath: filePath };
+    });
+    vi.mocked(fs.readFileSync).mockReturnValue('aaa');
+    vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+    const context = { ...baseContext, writeRoot: '/test/project/sub' } as ToolContext;
+    const args = { old_string: 'aaa', new_string: 'bbb', replace_all: false };
+
+    await expect(
+      editTool.config.execute({ file_path: '/test/project/other.ts', ...args }, context),
+    ).rejects.toThrow('outside the allowed write root');
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+
+    const result = await editTool.config.execute(
+      { file_path: '/test/project/sub/ok.ts', ...args },
+      context,
+    );
+    expect(result).toContain('Successfully edited');
+  });
 });

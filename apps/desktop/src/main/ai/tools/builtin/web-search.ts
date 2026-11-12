@@ -12,6 +12,7 @@
 import { z } from 'zod/v3';
 
 import { Tool } from '../define';
+import { webToolsBlockedBySandbox } from '../../security/sandbox';
 import { createSearchProvider } from '../providers';
 import { DEFAULT_EXECUTION_OPTIONS, ToolPermission } from '../types';
 
@@ -55,8 +56,12 @@ export const webSearchTool = Tool.define({
     },
   },
   inputSchema,
-  execute: async (input) => {
+  execute: async (input, context) => {
     const { query, allowed_domains, blocked_domains } = input;
+
+    if (webToolsBlockedBySandbox(context.securityProfile)) {
+      return "Error: WebSearch is disabled because this project's Bash sandbox blocks network access";
+    }
 
     try {
       const provider = createSearchProvider();

@@ -32,6 +32,8 @@ export interface ToolContext {
   abortSignal?: AbortSignal;
   /** If set, Write/Edit tools can only write within these directories */
   allowedWritePaths?: string[];
+  /** If set, Write/Edit may only write inside this directory; narrower than projectDir */
+  writeRoot?: string;
   /**
    * Whether the model can receive image input (default true). When false the
    * Read tool returns a text note instead of image data.

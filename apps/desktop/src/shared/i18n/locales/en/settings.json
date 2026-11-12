@@ -375,6 +375,19 @@
       "sending": "Sending...",
       "testSuccess": "Test message sent",
       "testFailed": "Could not send the test message"
+    },
+    "jiraWriteback": {
+      "title": "Jira write-back",
+      "description": "Report a task's outcome back to the Jira issue it was imported from.",
+      "enable": "Enable Jira write-back",
+      "enableDescription": "Update the originating Jira issue when a task finishes",
+      "comment": "Post a comment",
+      "commentDescription": "Add a comment with the task outcome to the Jira issue",
+      "transitionOnReview": "Move issue when ready for review",
+      "transitionOnReviewDescription": "Transition the Jira issue to the status below when the task is ready for review",
+      "statusNameLabel": "Target status name",
+      "statusNamePlaceholder": "In Review",
+      "note": "Only the Jira issue the task was imported from is updated, using the project's existing Jira credentials. This setting is stored only in this app's settings."
     }
   },
   "actions": {
@@ -485,6 +498,17 @@
         "linux": "Install bubblewrap with your package manager, for example: sudo apt install bubblewrap, sudo dnf install bubblewrap or sudo pacman -S bubblewrap.",
         "macos": "sandbox-exec ships with macOS and should be at /usr/bin/sandbox-exec. Check that your system is not missing it."
       },
+      "webFetch": {
+        "label": "Web fetch provider",
+        "description": "Choose how the agent's WebFetch tool downloads pages.",
+        "options": {
+          "jina": "Jina Reader (r.jina.ai)",
+          "direct": "Direct from this machine"
+        },
+        "jinaNote": "Jina Reader (r.jina.ai) receives every URL the agent fetches, including internal wiki links and presigned URLs.",
+        "directNote": "Direct fetches pages from this machine, with blocks for internal addresses and for secrets in URLs.",
+        "disabledByNoNetwork": "WebFetch and WebSearch are turned off while the shell sandbox is set to home directory hidden and no network."
+      },
       "mode": {
         "label": "Shell command sandbox",
         "description": "Choose how much of your machine agent shell commands can see.",
@@ -493,7 +517,7 @@
         "homeHiddenNoNetwork": "Home directory hidden and no network",
         "offExplanation": "Off: commands run with your full permissions. Nothing is isolated.",
         "homeHiddenExplanation": "Home directory hidden: commands cannot read your home directory (keys, tokens, other projects), only the project.",
-        "homeHiddenNoNetworkExplanation": "Home directory hidden and no network: as above, and commands cannot reach the network.",
+        "homeHiddenNoNetworkExplanation": "Home directory hidden and no network: as above, and Bash commands cannot reach the network. WebFetch and WebSearch are turned off.",
         "notSupported": "{{mode}} (not supported on this system)",
         "restrictedRights": "Restricted rights (Windows only)",
         "restrictedRightsExplanation": "Restricted rights (Windows only): commands run without administrator rights or privileges, and every process they start is stopped when the command ends. Your home directory is NOT hidden and the network is NOT blocked."

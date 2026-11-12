@@ -14,6 +14,10 @@
  * It also blocks the protected integration-token files (`.auto-claude/.env*`),
  * whatever the project directory is (see isProtectedProjectSecretPath).
  *
+ * Write and Edit additionally go through security/write-guard.ts, which refuses
+ * writes into .git for every agent and can narrow writes to a writeRoot for
+ * analysis agents.
+ *
  * See apps/desktop/src/main/ai/security/path-containment.ts for the TypeScript implementation.
  */
 

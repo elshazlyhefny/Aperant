@@ -53,6 +53,19 @@ export function parseSandboxMode(value: unknown): SandboxMode {
     : 'off';
 }
 
+/**
+ * zeenha fork: true when the project's Bash sandbox blocks network access, so the
+ * in-process WebFetch/WebSearch tools must not be offered either. The sandbox's
+ * --unshare-net / (deny network*) only wraps Bash; those tools run in the app
+ * process and would otherwise be a network path. The Windows 'restricted-rights'
+ * mode does not block network, so it is intentionally not affected.
+ */
+export function webToolsBlockedBySandbox(
+  securityProfile: { bashSandbox?: unknown } | null | undefined,
+): boolean {
+  return parseSandboxMode(securityProfile?.bashSandbox) === 'home-hidden-no-network';
+}
+
 function resolvePlatform(override?: SandboxOptions['platformName']): 'linux' | 'darwin' | 'win32' {
   if (override) return override;
   if (isLinux()) return 'linux';
