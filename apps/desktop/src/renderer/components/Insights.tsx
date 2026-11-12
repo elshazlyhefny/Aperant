@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, isValidElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MessageSquare,
@@ -18,11 +18,14 @@ import {
   Camera,
   RotateCcw,
   Pencil,
-  X
+  Square,
+  X,
+  ArrowDown
 } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from './ui/button';
+import { CopyButton } from './ui/copy-button';
 import { Textarea } from './ui/textarea';
 import { ScrollArea } from './ui/scroll-area';
 import { Card, CardContent } from './ui/card';
@@ -35,6 +38,7 @@ import {
   sendMessage,
   retryLastMessage,
   getLastUserMessage,
+  stopMessage,
   newSession,
   switchSession,
   deleteSession,
@@ -100,6 +104,37 @@ const createSafeLink = (opensInNewWindowText: string) => {
   };
 };
 
+// Recursively collect the plain text of React children (strings, arrays, elements)
+function extractNodeText(node: React.ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(extractNodeText).join('');
+  if (isValidElement(node)) {
+    return extractNodeText((node.props as { children?: React.ReactNode }).children);
+  }
+  return '';
+}
+
+const COPY_REVEAL_CLASSES =
+  'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-opacity';
+const CODE_COPY_REVEAL_CLASSES =
+  'opacity-0 group-hover/code:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-opacity';
+
+// Wraps the default <pre> and adds a hover/focus-revealed copy button
+function CodeBlock({ children, node: _node, ...props }: React.HTMLAttributes<HTMLPreElement> & { node?: unknown }) {
+  const text = extractNodeText(children).replace(/\n$/, '');
+  return (
+    <div className="relative group/code">
+      <pre {...props}>{children}</pre>
+      {text && (
+        <div className={cn('absolute right-2 top-2', CODE_COPY_REVEAL_CLASSES)}>
+          <CopyButton text={text} size="icon" className="h-7 w-7" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface InsightsProps {
   projectId: string;
 }
@@ -112,10 +147,12 @@ export function Insights({ projectId }: InsightsProps) {
   const streamingContent = useInsightsStore((state) => state.streamingContent);
   const currentTool = useInsightsStore((state) => state.currentTool);
   const isLoadingSessions = useInsightsStore((state) => state.isLoadingSessions);
+  const messageCount = session?.messages?.length ?? 0;
 
   // Create markdown components with translated accessibility text
   const markdownComponents = useMemo(() => ({
     a: createSafeLink(t('accessibility.opensInNewWindow')),
+    pre: CodeBlock,
   }), [t]);
 
   const [inputValue, setInputValue] = useState('');
@@ -169,6 +206,12 @@ export function Insights({ projectId }: InsightsProps) {
     return scrollHeight - scrollTop - clientHeight <= SCROLL_BOTTOM_THRESHOLD;
   }, []);
 
+  const scrollToBottom = useCallback(() => {
+    if (viewportEl) {
+      viewportEl.scrollTop = viewportEl.scrollHeight;
+    }
+  }, [viewportEl]);
+
   // Handle scroll events to track user position
   const handleScroll = useCallback(() => {
     if (viewportEl) {
@@ -207,12 +250,15 @@ export function Insights({ projectId }: InsightsProps) {
 
   // Smart auto-scroll: only scroll if user is already at bottom
   // This allows users to scroll up to read previous messages without being
-  // yanked back down during streaming responses
+  // yanked back down during streaming responses. Re-runs on content changes
+  // (streaming text, new messages, tool activity) so the view follows new output.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: streamingContent, messageCount and currentTool are intentional triggers for re-scrolling when content changes
   useEffect(() => {
     if (isUserAtBottom && viewportEl) {
-      viewportEl.scrollTop = viewportEl.scrollHeight;
+      const frame = requestAnimationFrame(() => scrollToBottom());
+      return () => cancelAnimationFrame(frame);
     }
-  }, [isUserAtBottom, viewportEl]);
+  }, [isUserAtBottom, viewportEl, streamingContent, messageCount, currentTool, scrollToBottom]);
 
   // Focus textarea on mount
   useEffect(() => {
@@ -236,6 +282,12 @@ export function Insights({ projectId }: InsightsProps) {
     setPendingImages([]);
     setImageError(null);
     setIsUserAtBottom(true); // Resume auto-scroll when user sends a message
+    requestAnimationFrame(scrollToBottom); // Show the new user message even if already at bottom
+  };
+
+  const handleJumpToLatest = () => {
+    scrollToBottom();
+    setIsUserAtBottom(true);
   };
 
   const handleRetry = () => {
@@ -287,6 +339,11 @@ export function Insights({ projectId }: InsightsProps) {
   }, [pendingImages, setPendingImages, setImageError, t]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && isLoading) {
+      e.preventDefault();
+      stopMessage(projectId);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -440,7 +497,7 @@ export function Insights({ projectId }: InsightsProps) {
               size="icon"
               className="h-8 w-8"
               onClick={() => setShowSidebar(!showSidebar)}
-              title={showSidebar ? 'Hide sidebar' : 'Show sidebar'}
+              title={showSidebar ? t('insights.hideSidebar') : t('insights.showSidebar')}
             >
               {showSidebar ? (
                 <PanelLeftClose className="h-4 w-4" />
@@ -452,9 +509,9 @@ export function Insights({ projectId }: InsightsProps) {
               <Sparkles className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h2 className="font-semibold text-foreground">Insights</h2>
+              <h2 className="font-semibold text-foreground">{t('insights.title')}</h2>
               <p className="text-sm text-muted-foreground">
-                Ask questions about your codebase
+                {t('insights.subtitle')}
               </p>
             </div>
           </div>
@@ -470,7 +527,7 @@ export function Insights({ projectId }: InsightsProps) {
               onClick={handleNewSession}
             >
               <Plus className="mr-2 h-4 w-4" />
-              New Chat
+              {t('insights.newChat')}
             </Button>
           </div>
         </div>
@@ -486,18 +543,17 @@ export function Insights({ projectId }: InsightsProps) {
               <MessageSquare className="h-8 w-8 text-muted-foreground" />
             </div>
             <h3 className="mb-2 text-lg font-medium text-foreground">
-              Start a Conversation
+              {t('insights.emptyState.title')}
             </h3>
             <p className="max-w-md text-sm text-muted-foreground">
-              Ask questions about your codebase, get suggestions for improvements,
-              or discuss features you'd like to implement.
+              {t('insights.emptyState.body')}
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-2">
               {[
-                'What is the architecture of this project?',
-                'Suggest improvements for code quality',
-                'What features could I add next?',
-                'Are there any security concerns?'
+                t('insights.emptyState.suggestion1'),
+                t('insights.emptyState.suggestion2'),
+                t('insights.emptyState.suggestion3'),
+                t('insights.emptyState.suggestion4')
               ].map((suggestion) => (
                 <Button
                   key={suggestion}
@@ -536,7 +592,7 @@ export function Insights({ projectId }: InsightsProps) {
                 </div>
                 <div className="flex-1">
                   <div className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
-                    Assistant
+                    {t('insights.roles.assistant')}
                     {status.phase === 'error' && streamingContent && (
                       <span className="text-xs font-normal text-amber-500">
                         {t('insights.error.incompleteResponse')}
@@ -566,7 +622,7 @@ export function Insights({ projectId }: InsightsProps) {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Thinking...
+                  {t('insights.thinking')}
                 </div>
               </div>
             )}
@@ -592,7 +648,20 @@ export function Insights({ projectId }: InsightsProps) {
       </ScrollArea>
 
       {/* Input */}
-      <div className="flex-shrink-0 border-t border-border p-4">
+      <div className="relative flex-shrink-0 border-t border-border p-4">
+        {!isUserAtBottom && isLoading && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={handleJumpToLatest}
+            aria-label={t('insights.jumpToLatest')}
+            className="absolute -top-12 left-1/2 z-10 -translate-x-1/2 gap-1.5 rounded-full shadow-md"
+          >
+            <ArrowDown className="h-4 w-4" aria-hidden="true" />
+            <span className="text-xs">{t('insights.jumpToLatest')}</span>
+          </Button>
+        )}
         <div className="relative flex gap-2">
           <div className="relative flex-1">
             <Textarea
@@ -604,12 +673,11 @@ export function Insights({ projectId }: InsightsProps) {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              placeholder="Ask about your codebase..."
+              placeholder={t('insights.inputPlaceholder')}
               className={cn(
                 'min-h-[80px] resize-none',
                 isDragOver && 'border-primary ring-2 ring-primary/20'
               )}
-              disabled={isLoading}
             />
             {/* Drag-over overlay */}
             {isDragOver && (
@@ -632,19 +700,28 @@ export function Insights({ projectId }: InsightsProps) {
             >
               <Camera className="h-4 w-4" />
             </Button>
-            <Button
-              onClick={handleSend}
-              disabled={(!inputValue.trim() && pendingImages.length === 0) || isLoading}
-              className="h-9 w-9"
-              size="icon"
-              aria-label={t('iconButtons.send')}
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
+            {isLoading ? (
+              <Button
+                onClick={() => stopMessage(projectId)}
+                variant="destructive"
+                className="h-9 w-9"
+                size="icon"
+                aria-label={t('iconButtons.stop')}
+                title={t('iconButtons.stop')}
+              >
+                <Square className="h-4 w-4 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSend}
+                disabled={!inputValue.trim() && pendingImages.length === 0}
+                className="h-9 w-9"
+                size="icon"
+                aria-label={t('iconButtons.send')}
+              >
                 <Send className="h-4 w-4" />
-              )}
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -691,7 +768,7 @@ export function Insights({ projectId }: InsightsProps) {
         )}
 
         <p className="mt-2 text-xs text-muted-foreground">
-          {t('insights.images.pasteHint')} · Press Enter to send, Shift+Enter for new line
+          {t('insights.images.pasteHint')} · {t('insights.sendHint')}
         </p>
       </div>
 
@@ -740,15 +817,27 @@ function MessageBubble({
           <Bot className="h-4 w-4 text-primary" />
         )}
       </div>
-      <div className="flex-1 space-y-2">
+      <div className="group relative flex-1 space-y-2">
+        {!isUser && message.content && (
+          <div className={cn('absolute right-0 top-0', COPY_REVEAL_CLASSES)}>
+            <CopyButton text={message.content} size="icon" className="h-7 w-7" />
+          </div>
+        )}
         <div className="text-sm font-medium text-foreground">
-          {isUser ? 'You' : 'Assistant'}
+          {isUser ? t('insights.roles.user') : t('insights.roles.assistant')}
         </div>
         {message.content && (
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {message.content}
             </ReactMarkdown>
+          </div>
+        )}
+
+        {message.stopped && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Square className="h-3 w-3 fill-current" />
+            <span>{t('insights.stopped')}</span>
           </div>
         )}
 
@@ -872,6 +961,7 @@ interface ToolUsageHistoryProps {
 }
 
 function ToolUsageHistory({ tools }: ToolUsageHistoryProps) {
+  const { t } = useTranslation('common');
   const [expanded, setExpanded] = useState(false);
 
   if (tools.length === 0) return null;
@@ -926,7 +1016,7 @@ function ToolUsageHistory({ tools }: ToolUsageHistoryProps) {
             );
           })}
         </span>
-        <span>{tools.length} tool{tools.length !== 1 ? 's' : ''} used</span>
+        <span>{t('insights.toolsUsed', { count: tools.length })}</span>
         <span className="text-[10px]">{expanded ? '▲' : '▼'}</span>
       </button>
 
@@ -962,25 +1052,26 @@ interface ToolIndicatorProps {
 }
 
 function ToolIndicator({ name, input }: ToolIndicatorProps) {
+  const { t } = useTranslation('common');
   // Get friendly name and icon for each tool
   const getToolInfo = (toolName: string) => {
     switch (toolName) {
       case 'Read':
         return {
           icon: FileText,
-          label: 'Reading file',
+          label: t('insights.tools.reading'),
           color: 'text-blue-500 bg-blue-500/10'
         };
       case 'Glob':
         return {
           icon: FolderSearch,
-          label: 'Searching files',
+          label: t('insights.tools.searchingFiles'),
           color: 'text-amber-500 bg-amber-500/10'
         };
       case 'Grep':
         return {
           icon: Search,
-          label: 'Searching code',
+          label: t('insights.tools.searchingCode'),
           color: 'text-green-500 bg-green-500/10'
         };
       default:

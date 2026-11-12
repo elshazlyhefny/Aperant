@@ -375,6 +375,19 @@
       "sending": "Envoi...",
       "testSuccess": "Message de test envoyé",
       "testFailed": "Impossible d'envoyer le message de test"
+    },
+    "jiraWriteback": {
+      "title": "Retour vers Jira",
+      "description": "Reporter le résultat d'une tâche sur le ticket Jira d'où elle a été importée.",
+      "enable": "Activer le retour vers Jira",
+      "enableDescription": "Mettre à jour le ticket Jira d'origine lorsqu'une tâche se termine",
+      "comment": "Publier un commentaire",
+      "commentDescription": "Ajouter un commentaire avec le résultat de la tâche sur le ticket Jira",
+      "transitionOnReview": "Déplacer le ticket quand la revue est prête",
+      "transitionOnReviewDescription": "Faire passer le ticket Jira au statut ci-dessous lorsque la tâche est prête pour la revue",
+      "statusNameLabel": "Nom du statut cible",
+      "statusNamePlaceholder": "In Review",
+      "note": "Seul le ticket Jira d'où la tâche a été importée est mis à jour, avec les identifiants Jira existants du projet. Ce paramètre est stocké uniquement dans les paramètres de cette application."
     }
   },
   "actions": {

@@ -53,7 +53,7 @@ interface InsightsState {
   addToolUsage: (tool: ToolUsage) => void;
   clearToolsUsed: () => void;
   addStreamingTasks: (tasks: NonNullable<InsightsChatMessage['suggestedTasks']>) => void;
-  finalizeStreamingMessage: () => void;
+  finalizeStreamingMessage: (stopped?: boolean) => void;
   clearSession: () => void;
   setLoadingSessions: (loading: boolean) => void;
   setShowArchived: (showArchived: boolean) => void;
@@ -168,7 +168,7 @@ export const useInsightsStore = create<InsightsState>((set, _get) => ({
       streamingTasks: [...state.streamingTasks, ...tasks]
     })),
 
-  finalizeStreamingMessage: () =>
+  finalizeStreamingMessage: (stopped) =>
     set((state) => {
       const content = state.streamingContent;
       const toolsUsed = state.toolsUsed.length > 0 ? [...state.toolsUsed] : undefined;
@@ -184,7 +184,8 @@ export const useInsightsStore = create<InsightsState>((set, _get) => ({
         content,
         timestamp: new Date(),
         suggestedTasks,
-        toolsUsed
+        toolsUsed,
+        stopped: stopped || undefined
       };
 
       if (!state.session) {
@@ -352,6 +353,16 @@ export function retryLastMessage(projectId: string): void {
   );
 }
 
+export function stopMessage(projectId: string): void {
+  const { phase } = useInsightsStore.getState().status;
+  if (phase !== 'thinking' && phase !== 'streaming') return;
+
+  // Do not change status here: the main process ends the run with a 'done'
+  // chunk (stopped: true) and a 'complete' status, which finalizes the partial
+  // text exactly once.
+  window.electronAPI.cancelInsights(projectId);
+}
+
 export async function clearSession(projectId: string, includeArchived?: boolean): Promise<void> {
   const result = await window.electronAPI.clearInsightsSession(projectId);
   if (result.success) {
@@ -516,7 +527,7 @@ export function setupInsightsListeners(): () => void {
         case 'done':
           // Finalize any remaining content
           store().setCurrentTool(null);
-          store().finalizeStreamingMessage();
+          store().finalizeStreamingMessage(chunk.stopped);
           store().setStatus({
             phase: 'complete',
             message: ''

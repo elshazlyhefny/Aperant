@@ -75,6 +75,10 @@
     "deleteProfileAriaLabel": "Supprimer le profil"
   },
   "buttons": {
+    "copy": "Copier",
+    "copied": "Copié",
+    "copyPath": "Copier le chemin",
+    "copyCode": "Copier le code",
     "save": "Enregistrer",
     "cancel": "Annuler",
     "skip": "Passer",
@@ -475,6 +479,34 @@
       "editMessage": "Modifier le message",
       "incompleteResponse": "Réponse incomplète"
     },
+    "stopped": "Réponse arrêtée",
+    "title": "Insights",
+    "subtitle": "Posez des questions sur votre base de code",
+    "newChat": "Nouvelle conversation",
+    "showSidebar": "Afficher la barre latérale",
+    "hideSidebar": "Masquer la barre latérale",
+    "emptyState": {
+      "title": "Démarrer une conversation",
+      "body": "Posez des questions sur votre base de code, obtenez des suggestions d'amélioration ou discutez des fonctionnalités que vous souhaitez implémenter.",
+      "suggestion1": "Quelle est l'architecture de ce projet ?",
+      "suggestion2": "Suggère des améliorations pour la qualité du code",
+      "suggestion3": "Quelles fonctionnalités pourrais-je ajouter ensuite ?",
+      "suggestion4": "Y a-t-il des problèmes de sécurité ?"
+    },
+    "roles": {
+      "assistant": "Assistant",
+      "user": "Vous"
+    },
+    "thinking": "Réflexion...",
+    "inputPlaceholder": "Posez une question sur votre base de code...",
+    "sendHint": "Appuyez sur Entrée pour envoyer, Maj+Entrée pour un saut de ligne",
+    "toolsUsed": "{{count}} outil utilisé",
+    "toolsUsed_other": "{{count}} outils utilisés",
+    "tools": {
+      "reading": "Lecture du fichier",
+      "searchingFiles": "Recherche de fichiers",
+      "searchingCode": "Recherche dans le code"
+    },
     "suggestedTask": "Tâche suggérée",
     "creating": "Création...",
     "taskCreated": "Tâche créée",
@@ -503,6 +535,7 @@
     "daysAgo": "Il y a {{count}} jours",
     "messageCount": "{{count}} message",
     "messageCount_other": "{{count}} messages",
+    "jumpToLatest": "Aller au dernier message",
     "images": {
       "pasteHint": "Coller une image ou une capture d'écran",
       "dropHint": "Déposer l'image ici",
@@ -538,6 +571,11 @@
     "description": "Description",
     "rationale": "Justification",
     "goToTask": "Aller à la tâche",
+    "possibleDuplicate": {
+      "task": "Répète peut-être la tâche {{id}}",
+      "idea": "Répète peut-être l'idée « {{title}} »",
+      "score": "Similarité {{score}} %"
+    },
     "conversionFailed": "Échec de la conversion",
     "conversionFailedDescription": "Impossible de convertir l'idée en tâche",
     "conversionError": "Erreur de conversion",
@@ -1285,6 +1323,7 @@
     }
   },
   "iconButtons": {
+    "stop": "Arrêter la réponse",
     "send": "Envoyer le message",
     "removeFile": "Retirer le fichier",
     "removeImage": "Retirer l'image",

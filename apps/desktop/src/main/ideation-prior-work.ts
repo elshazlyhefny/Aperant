@@ -82,6 +82,36 @@ export function readPriorWork(projectDir: string): PriorWork {
   return { tasks, ideas };
 }
 
+const MAX_BODY = 2000;
+
+/**
+ * zeenha fork: each task's title plus the text of its spec's `## Overview`
+ * section, for comparing new ideas against what tasks already cover.
+ */
+export function readTaskOverviews(projectDir: string): Array<{ id: string; title: string; body: string }> {
+  const specsDir = path.join(projectDir, '.auto-claude', 'specs');
+  if (!existsSync(specsDir)) return [];
+  const out: Array<{ id: string; title: string; body: string }> = [];
+  for (const entry of readdirSync(specsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(specsDir, entry.name);
+    let body = '';
+    try {
+      const text = readFileSync(path.join(dir, 'spec.md'), 'utf-8');
+      const overview = text.match(/^##[ \t]+Overview[ \t]*$\r?\n?([\s\S]*?)(?=^##[ \t]|(?![\s\S]))/m);
+      body = overview ? overview[1].trim() : text.replace(/^#\s+.+$/m, '').trim();
+    } catch {
+      // no spec.md: fall back to the plan
+    }
+    if (!body) {
+      const description = readJson(path.join(dir, 'implementation_plan.json'))?.description;
+      if (typeof description === 'string') body = description.trim();
+    }
+    out.push({ id: entry.name, title: specTitle(dir) ?? entry.name, body: body.slice(0, MAX_BODY) });
+  }
+  return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+
 const clip = (s: string) => (s.length > MAX_TITLE ? `${s.slice(0, MAX_TITLE - 1)}…` : s);
 
 function list<T>(items: T[], line: (item: T) => string): string {

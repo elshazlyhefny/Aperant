@@ -39,6 +39,14 @@ export interface IdeaBase {
   status: IdeationStatus;
   createdAt: Date;
   taskId?: string; // the created task: stored with status 'archived' (or the legacy 'converted')
+  possibleDuplicateOf?: PossibleDuplicateOf; // set when a new idea closely repeats an existing task or idea
+}
+
+export interface PossibleDuplicateOf {
+  kind: 'task' | 'idea';
+  id: string;
+  score: number;
+  title?: string;
 }
 
 export interface CodeImprovementIdea extends IdeaBase {
@@ -204,6 +212,8 @@ export interface InsightsChatMessage {
   }>;
   // Image attachments (screenshots, pasted images)
   images?: ImageAttachment[];
+  // Assistant message whose run was cancelled and holds only a partial answer
+  stopped?: boolean;
   // Tools used during this response (assistant messages only)
   toolsUsed?: InsightsToolUsage[];
 }
@@ -240,6 +250,8 @@ export interface InsightsChatStatus {
 export interface InsightsStreamChunk {
   type: 'text' | 'task_suggestion' | 'tool_start' | 'tool_end' | 'done' | 'error';
   content?: string;
+  // Set on 'done' chunk when the run was cancelled by the user
+  stopped?: boolean;
   suggestedTasks?: Array<{
     title: string;
     description: string;
