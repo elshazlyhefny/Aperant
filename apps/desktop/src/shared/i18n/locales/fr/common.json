@@ -474,6 +474,7 @@
     "starting": "Démarrage..."
   },
   "insights": {
+    "stopped": "Réponse arrêtée",
     "title": "Insights",
     "subtitle": "Posez des questions sur votre base de code",
     "newChat": "Nouvelle conversation",
@@ -1317,6 +1318,7 @@
     }
   },
   "iconButtons": {
+    "stop": "Arrêter la réponse",
     "send": "Envoyer le message",
     "removeFile": "Retirer le fichier",
     "removeImage": "Retirer l'image",

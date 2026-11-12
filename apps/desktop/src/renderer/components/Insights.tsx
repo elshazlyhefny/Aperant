@@ -16,6 +16,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Camera,
+  Square,
   X,
   ArrowDown
 } from 'lucide-react';
@@ -33,6 +34,7 @@ import {
   useInsightsStore,
   loadInsightsSession,
   sendMessage,
+  stopMessage,
   newSession,
   switchSession,
   deleteSession,
@@ -315,6 +317,11 @@ export function Insights({ projectId }: InsightsProps) {
   }, [pendingImages, setPendingImages, setImageError, t]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && isLoading) {
+      e.preventDefault();
+      stopMessage(projectId);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -636,7 +643,6 @@ export function Insights({ projectId }: InsightsProps) {
                 'min-h-[80px] resize-none',
                 isDragOver && 'border-primary ring-2 ring-primary/20'
               )}
-              disabled={isLoading}
             />
             {/* Drag-over overlay */}
             {isDragOver && (
@@ -659,19 +665,28 @@ export function Insights({ projectId }: InsightsProps) {
             >
               <Camera className="h-4 w-4" />
             </Button>
-            <Button
-              onClick={handleSend}
-              disabled={(!inputValue.trim() && pendingImages.length === 0) || isLoading}
-              className="h-9 w-9"
-              size="icon"
-              aria-label={t('iconButtons.send')}
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
+            {isLoading ? (
+              <Button
+                onClick={() => stopMessage(projectId)}
+                variant="destructive"
+                className="h-9 w-9"
+                size="icon"
+                aria-label={t('iconButtons.stop')}
+                title={t('iconButtons.stop')}
+              >
+                <Square className="h-4 w-4 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSend}
+                disabled={!inputValue.trim() && pendingImages.length === 0}
+                className="h-9 w-9"
+                size="icon"
+                aria-label={t('iconButtons.send')}
+              >
                 <Send className="h-4 w-4" />
-              )}
-            </Button>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -781,6 +796,13 @@ function MessageBubble({
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {message.content}
             </ReactMarkdown>
+          </div>
+        )}
+
+        {message.stopped && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Square className="h-3 w-3 fill-current" />
+            <span>{t('insights.stopped')}</span>
           </div>
         )}
 

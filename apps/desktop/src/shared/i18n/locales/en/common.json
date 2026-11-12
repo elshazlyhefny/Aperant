@@ -474,6 +474,7 @@
     "starting": "Starting..."
   },
   "insights": {
+    "stopped": "Response stopped",
     "title": "Insights",
     "subtitle": "Ask questions about your codebase",
     "newChat": "New Chat",
@@ -1317,6 +1318,7 @@
     }
   },
   "iconButtons": {
+    "stop": "Stop response",
     "send": "Send message",
     "removeFile": "Remove file",
     "removeImage": "Remove image",
