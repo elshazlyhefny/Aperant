@@ -995,7 +995,7 @@ export function registerSettingsHandlers(
         settings.providerAccounts = accounts;
 
         // Add to globalPriorityOrder — prepend so new account becomes active
-        const queue: string[] = (settings.globalPriorityOrder as string[] | undefined) ?? [];
+        const queue: string[] = settings.globalPriorityOrder ?? [];
         queue.unshift(newAccount.id);
         settings.globalPriorityOrder = queue;
 
@@ -1057,11 +1057,11 @@ export function registerSettingsHandlers(
         settings.providerAccounts = filtered;
 
         // Remove from globalPriorityOrder
-        const queue: string[] = (settings.globalPriorityOrder as string[] | undefined) ?? [];
+        const queue: string[] = settings.globalPriorityOrder ?? [];
         settings.globalPriorityOrder = queue.filter(qid => qid !== id);
 
         // Remove from crossProviderPriorityOrder
-        const cpQueue: string[] = (settings.crossProviderPriorityOrder as string[] | undefined) ?? [];
+        const cpQueue: string[] = settings.crossProviderPriorityOrder ?? [];
         if (cpQueue.length > 0) {
           settings.crossProviderPriorityOrder = cpQueue.filter(qid => qid !== id);
         }
