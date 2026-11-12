@@ -18,7 +18,7 @@ import * as PtyManager from './pty-manager';
 import { safeSendToRenderer } from '../ipc-handlers/utils';
 import { debugLog, debugError } from '../../shared/utils/debug-logger';
 import { escapeShellArg, escapeForWindowsDoubleQuote, buildCdCommand } from '../../shared/utils/shell-escape';
-import { getClaudeCliInvocation, getClaudeCliInvocationAsync } from '../cli-utils';
+import { getClaudeCliInvocationAsync } from '../cli-utils';
 import { isWindows } from '../platform';
 import { readSettingsFileAsync } from '../settings-utils';
 import type { SupportedCLI } from '../../shared/types/settings';
@@ -236,12 +236,12 @@ function escapeShellCommand(cmd: string): string {
 
 /**
  * Flag for YOLO mode (skip all permission prompts)
- * Extracted as constant to ensure consistency across invokeClaude and invokeCLIAsync
+ * Extracted as constant to ensure consistency across invokeCLIAsync and resumeClaudeAsync
  */
 const YOLO_MODE_FLAG = ' --dangerously-skip-permissions';
 
 // ============================================================================
-// SHARED HELPERS - Used by both sync and async invokeClaude
+// SHARED HELPERS - Used by invokeCLIAsync
 // ============================================================================
 
 /**
@@ -718,7 +718,7 @@ export function handleOAuthToken(
  * Called when terminal output indicates Claude Code is ready after login/onboarding.
  *
  * Note: This is now a no-op. The onboarding flag is set proactively via
- * ensureOnboardingComplete() in handleOAuthToken() and executeProfileCommand(),
+ * ensureOnboardingComplete() in handleOAuthToken() and executeProfileCommandAsync(),
  * so awaitingOnboardingComplete is never set and this path is never reached.
  * Kept as a stub to satisfy the terminal-event-handler callback interface.
  */
@@ -847,85 +847,8 @@ interface ExecuteProfileCommandOptions {
   logPrefix: string;
 }
 
-function executeProfileCommand(options: ExecuteProfileCommandOptions): boolean {
-  const {
-    needsEnvOverride,
-    activeProfile,
-    cwdCommand,
-    pathPrefix,
-    escapedClaudeCmd,
-    extraFlags,
-    terminal,
-    profileManager,
-    projectPath,
-    startTime,
-    getWindow,
-    onSessionCapture,
-    logPrefix,
-  } = options;
-
-  if (!needsEnvOverride || !activeProfile || activeProfile.isDefault) {
-    return false; // Use default method
-  }
-
-  // Prefer configDir over token because CLAUDE_CONFIG_DIR lets Claude Code
-  // read full Keychain credentials including subscriptionType ("max") and rateLimitTier.
-  // Using CLAUDE_CODE_OAUTH_TOKEN alone lacks tier info, causing "Claude API" display.
-  if (activeProfile.configDir) {
-    // Ensure Claude Code skips onboarding for authenticated profiles
-    ensureOnboardingComplete(activeProfile.configDir);
-
-    const command = buildClaudeShellCommand(
-      cwdCommand,
-      pathPrefix,
-      escapedClaudeCmd,
-      { method: 'config-dir', configDir: activeProfile.configDir },
-      extraFlags
-    );
-    debugLog(`${logPrefix} Executing command (configDir method, history-safe)`);
-    PtyManager.writeToPty(terminal, command);
-    profileManager.markProfileUsed(activeProfile.id);
-    finalizeClaudeInvoke(terminal, activeProfile, projectPath, startTime, getWindow, onSessionCapture);
-    debugLog(`${logPrefix} ========== INVOKE CLAUDE COMPLETE (configDir) ==========`);
-    return true;
-  }
-
-  // Legacy fallback: use temp-file method if only token is available
-  const token = profileManager.getProfileToken(activeProfile.id);
-  debugLog(`${logPrefix} Token retrieval:`, {
-    hasToken: !!token
-  });
-
-  if (token) {
-    const nonce = crypto.randomBytes(8).toString('hex');
-    const tempFile = path.join(
-      os.tmpdir(),
-      `.claude-token-${Date.now()}-${nonce}${getTempFileExtension()}`
-    );
-    debugLog(`${logPrefix} Writing token to temp file:`, tempFile);
-    fs.writeFileSync(tempFile, generateTokenTempFileContent(token), { mode: 0o600 });
-
-    const command = buildClaudeShellCommand(
-      cwdCommand,
-      pathPrefix,
-      escapedClaudeCmd,
-      { method: 'temp-file', tempFile },
-      extraFlags
-    );
-    debugLog(`${logPrefix} Executing command (temp file method, history-safe)`);
-    PtyManager.writeToPty(terminal, command);
-    profileManager.markProfileUsed(activeProfile.id);
-    finalizeClaudeInvoke(terminal, activeProfile, projectPath, startTime, getWindow, onSessionCapture);
-    debugLog(`${logPrefix} ========== INVOKE CLAUDE COMPLETE (temp file) ==========`);
-    return true;
-  }
-
-  debugLog(`${logPrefix} WARNING: No token or configDir available for non-default profile`);
-  return false;
-}
-
 /**
- * Async version of executeProfileCommand for non-blocking file operations
+ * Execute a profile-based command using non-blocking file operations
  * Returns true if command was executed via configDir or temp-file method
  */
 async function executeProfileCommandAsync(options: ExecuteProfileCommandOptions): Promise<boolean> {
@@ -1005,194 +928,8 @@ async function executeProfileCommandAsync(options: ExecuteProfileCommandOptions)
   return false;
 }
 
-/**
- * Invoke Claude with optional profile override
- */
-export function invokeClaude(
-  terminal: TerminalProcess,
-  cwd: string | undefined,
-  profileId: string | undefined,
-  getWindow: WindowGetter,
-  onSessionCapture: (terminalId: string, projectPath: string, startTime: number) => void,
-  dangerouslySkipPermissions?: boolean
-): void {
-  debugLog('[ClaudeIntegration:invokeClaude] ========== INVOKE CLAUDE START ==========');
-  debugLog('[ClaudeIntegration:invokeClaude] Terminal ID:', terminal.id);
-  debugLog('[ClaudeIntegration:invokeClaude] Requested profile ID:', profileId);
-  debugLog('[ClaudeIntegration:invokeClaude] CWD:', cwd);
-  debugLog('[ClaudeIntegration:invokeClaude] Dangerously skip permissions:', dangerouslySkipPermissions);
-
-  // Compute extra flags for YOLO mode
-  const extraFlags = dangerouslySkipPermissions ? YOLO_MODE_FLAG : undefined;
-
-  // Track terminal state for cleanup on error
-  const wasClaudeMode = terminal.isCLIMode;
-  const previousProfileId = terminal.claudeProfileId;
-
-  try {
-    terminal.isCLIMode = true;
-    // Store YOLO mode setting so it persists across profile switches
-    terminal.dangerouslySkipPermissions = dangerouslySkipPermissions;
-    SessionHandler.releaseSessionId(terminal.id);
-    terminal.claudeSessionId = undefined;
-
-    const startTime = Date.now();
-    const projectPath = cwd || terminal.projectPath || terminal.cwd;
-
-    const profileManager = getClaudeProfileManager();
-    const activeProfile = profileId
-      ? profileManager.getProfile(profileId)
-      : profileManager.getActiveProfile();
-
-    terminal.claudeProfileId = activeProfile?.id;
-
-    debugLog('[ClaudeIntegration:invokeClaude] Profile resolution:', {
-      previousProfileId,
-      newProfileId: activeProfile?.id,
-      profileName: activeProfile?.name,
-      hasOAuthToken: !!activeProfile?.oauthToken,
-      isDefault: activeProfile?.isDefault
-    });
-
-    const cwdCommand = buildCdCommand(cwd, terminal.shellType);
-    const { command: claudeCmd, env: claudeEnv } = getClaudeCliInvocation();
-    const escapedClaudeCmd = escapeShellCommand(claudeCmd);
-    const pathPrefix = isAbsoluteExecutableCommand(claudeCmd)
-      ? ''
-      : buildPathPrefix(claudeEnv.PATH || '');
-    const needsEnvOverride: boolean = !!(profileId && profileId !== previousProfileId);
-
-    debugLog('[ClaudeIntegration:invokeClaude] Environment override check:', {
-      profileIdProvided: !!profileId,
-      previousProfileId,
-      needsEnvOverride
-    });
-
-    // Try to execute using profile-specific method (configDir or temp-file)
-    const executed = executeProfileCommand({
-      needsEnvOverride,
-      activeProfile,
-      cwdCommand,
-      pathPrefix,
-      escapedClaudeCmd,
-      extraFlags,
-      terminal,
-      profileManager,
-      projectPath,
-      startTime,
-      getWindow,
-      onSessionCapture,
-      logPrefix: '[ClaudeIntegration:invokeClaude]',
-    });
-
-    if (executed) {
-      return; // Command already executed via configDir or temp-file method
-    }
-
-    // Fall back to default method
-    if (activeProfile && !activeProfile.isDefault) {
-      debugLog('[ClaudeIntegration:invokeClaude] Using terminal environment for non-default profile:', activeProfile.name);
-    }
-
-    const command = buildClaudeShellCommand(cwdCommand, pathPrefix, escapedClaudeCmd, { method: 'default' }, extraFlags);
-    debugLog('[ClaudeIntegration:invokeClaude] Executing command (default method):', command);
-    PtyManager.writeToPty(terminal, command);
-
-    if (activeProfile) {
-      profileManager.markProfileUsed(activeProfile.id);
-    }
-
-    finalizeClaudeInvoke(terminal, activeProfile, projectPath, startTime, getWindow, onSessionCapture);
-    debugLog('[ClaudeIntegration:invokeClaude] ========== INVOKE CLAUDE COMPLETE (default) ==========');
-  } catch (error) {
-    // Reset terminal state on error to prevent inconsistent state
-    terminal.isCLIMode = wasClaudeMode;
-    terminal.claudeSessionId = undefined;
-    terminal.claudeProfileId = previousProfileId;
-    debugError('[ClaudeIntegration:invokeClaude] Invocation failed:', error);
-    debugError('[ClaudeIntegration:invokeClaude] Error details:', {
-      terminalId: terminal.id,
-      profileId,
-      cwd,
-      errorName: error instanceof Error ? error.name : 'Unknown',
-      errorMessage: error instanceof Error ? error.message : String(error)
-    });
-    throw error; // Re-throw to allow caller to handle
-  }
-}
-
-/**
- * Resume Claude session in the current directory
- *
- * Uses `claude --continue` which resumes the most recent conversation in the
- * current directory. This is simpler and more reliable than tracking session IDs,
- * since Auto Claude already restores terminals to their correct cwd/projectPath.
- *
- * Note: The sessionId parameter is kept for backwards compatibility but is ignored.
- * Claude Code's --resume flag expects user-named sessions (set via /rename), not
- * internal session file IDs.
- */
-export function resumeClaude(
-  terminal: TerminalProcess,
-  _sessionId: string | undefined,
-  getWindow: WindowGetter
-): void {
-  // Track terminal state for cleanup on error
-  const wasClaudeMode = terminal.isCLIMode;
-
-  try {
-    terminal.isCLIMode = true;
-    SessionHandler.releaseSessionId(terminal.id);
-
-    const { command: claudeCmd, env: claudeEnv } = getClaudeCliInvocation();
-    const escapedClaudeCmd = escapeShellCommand(claudeCmd);
-    const pathPrefix = isAbsoluteExecutableCommand(claudeCmd)
-      ? ''
-      : buildPathPrefix(claudeEnv.PATH || '');
-
-    // Always use --continue which resumes the most recent session in the current directory.
-    // This is more reliable than --resume with session IDs since Auto Claude already restores
-    // terminals to their correct cwd/projectPath.
-    //
-    // Note: We clear claudeSessionId because --continue doesn't track specific sessions,
-    // and we don't want stale IDs persisting through SessionHandler.persistSession().
-    terminal.claudeSessionId = undefined;
-
-    // Deprecation warning for callers still passing sessionId
-    if (_sessionId) {
-      console.warn('[ClaudeIntegration:resumeClaude] sessionId parameter is deprecated and ignored; using claude --continue instead');
-    }
-
-    // Preserve YOLO mode flag from terminal's stored state
-    const extraFlags = terminal.dangerouslySkipPermissions ? YOLO_MODE_FLAG : '';
-
-    const command = `${pathPrefix}${escapedClaudeCmd} --continue${extraFlags}`;
-
-    // Use PtyManager.writeToPty for safer write with error handling
-    PtyManager.writeToPty(terminal, `${command}\r`);
-
-    // Only auto-rename if terminal has default name
-    // This preserves user-customized names and prevents renaming on every resume
-    if (shouldAutoRenameTerminal(terminal.title)) {
-      terminal.title = 'Claude';
-      safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_TITLE_CHANGE, terminal.id, 'Claude');
-    }
-
-    // Persist session
-    if (terminal.projectPath) {
-      SessionHandler.persistSession(terminal);
-    }
-  } catch (error) {
-    // Reset terminal state on error to prevent inconsistent state
-    terminal.isCLIMode = wasClaudeMode;
-    // Note: Don't restore claudeSessionId since --continue doesn't use session IDs
-    debugError('[ClaudeIntegration:resumeClaude] Resume failed:', error);
-    throw error; // Re-throw to allow caller to handle
-  }
-}
-
 // ============================================================================
-// ASYNC VERSIONS - Non-blocking alternatives for Electron main process
+// ASYNC VERSIONS - Non-blocking implementations for Electron main process
 // ============================================================================
 
 /**

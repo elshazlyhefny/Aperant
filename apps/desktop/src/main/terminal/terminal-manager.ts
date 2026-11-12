@@ -178,34 +178,6 @@ export class TerminalManager {
   }
 
   /**
-   * Invoke Claude in a terminal with optional profile override
-   * @deprecated Use invokeCLIAsync for non-blocking behavior
-   */
-  invokeClaude(id: string, cwd?: string, profileId?: string, dangerouslySkipPermissions?: boolean): void {
-    const terminal = this.terminals.get(id);
-    if (!terminal) {
-      return;
-    }
-
-    ClaudeIntegration.invokeClaude(
-      terminal,
-      cwd,
-      profileId,
-      this.getWindow,
-      (terminalId, projectPath, startTime) => {
-        SessionHandler.captureClaudeSessionId(
-          terminalId,
-          projectPath,
-          startTime,
-          this.terminals,
-          this.getWindow
-        );
-      },
-      dangerouslySkipPermissions
-    );
-  }
-
-  /**
    * Switch a terminal to a different Claude profile
    */
   async switchClaudeProfile(id: string, profileId: string): Promise<TerminalOperationResult> {
@@ -278,19 +250,6 @@ export class TerminalManager {
 
     // Now actually resume Claude
     await ClaudeIntegration.resumeClaudeAsync(terminal, undefined, this.getWindow);
-  }
-
-  /**
-   * Resume Claude in a terminal with a specific session ID
-   * @deprecated Use resumeClaudeAsync for non-blocking behavior
-   */
-  resumeClaude(id: string, sessionId?: string): void {
-    const terminal = this.terminals.get(id);
-    if (!terminal) {
-      return;
-    }
-
-    ClaudeIntegration.resumeClaude(terminal, sessionId, this.getWindow);
   }
 
   /**

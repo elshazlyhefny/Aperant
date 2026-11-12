@@ -174,7 +174,6 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
     destroy: ReturnType<typeof vi.fn>;
     write: ReturnType<typeof vi.fn>;
     resize: ReturnType<typeof vi.fn>;
-    invokeClaude: ReturnType<typeof vi.fn>;
     killAll: ReturnType<typeof vi.fn>;
   };
   beforeEach(async () => {
@@ -210,7 +209,6 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
       destroy: vi.fn(() => Promise.resolve({ success: true })),
       write: vi.fn(),
       resize: vi.fn(),
-      invokeClaude: vi.fn(),
       killAll: vi.fn(() => Promise.resolve()),
     };
 
