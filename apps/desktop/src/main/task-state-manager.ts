@@ -150,6 +150,16 @@ export class TaskStateManager {
         } else if (!currentState && task.reviewReason === 'plan_review') {
           // Fallback: No actor exists (e.g., after app restart), use task data
           this.handleUiEvent(taskId, { type: 'PLAN_APPROVED' }, task, project);
+        } else if (
+          currentState === 'backlog' ||
+          (!currentState && (task.status === 'queue' || task.status === 'backlog'))
+        ) {
+          // zeenha fork: a task that has not run yet starts in the machine's `backlog`
+          // state, which ignores USER_RESUMED. The only status emitted was then
+          // 'backlog', so the task queue saw a free slot after every promotion and
+          // started every queued task at once. PLANNING_STARTED (what TASK_START
+          // sends for a fresh start) moves it to in_progress immediately.
+          this.handleUiEvent(taskId, { type: 'PLANNING_STARTED' }, task, project);
         } else {
           this.handleUiEvent(taskId, { type: 'USER_RESUMED' }, task, project);
         }
