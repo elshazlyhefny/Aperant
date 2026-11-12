@@ -21,6 +21,9 @@ import type { TaskLogs, TaskLogPhase, TaskLogPhaseStatus, TaskLogEntry, TaskLogE
 import type { StreamEvent } from '../session/types';
 import type { Phase } from '../config/types';
 
+/** Window in which tool/text log saves are merged into a single write. */
+const SAVE_COALESCE_MS = 500;
+
 // =============================================================================
 // Phase Mapping
 // =============================================================================
@@ -77,6 +80,8 @@ export class TaskLogWriter {
   private currentSubtask: string | undefined;
   private pendingText = '';
   private pendingTextPhase: TaskLogPhase | undefined;
+  private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  private dirty = false;
 
   constructor(specDir: string, specId: string) {
     this.logFile = join(specDir, 'task_logs.json');
@@ -178,15 +183,19 @@ export class TaskLogWriter {
   logText(content: string, phase?: Phase, entryType: TaskLogEntryType = 'text'): void {
     const logPhase = phase ? toLogPhase(phase) : this.currentPhase;
     this.addEntry(logPhase, entryType, content);
-    this.save();
+    this.scheduleSave();
   }
 
   /**
    * Flush any accumulated text and save.
    */
   flush(): void {
-    this.flushPendingText();
-    this.save();
+    try {
+      this.flushPendingText();
+      this.save();
+    } catch {
+      // Non-fatal: flush must never throw (called on exit paths)
+    }
   }
 
   /**
@@ -235,7 +244,7 @@ export class TaskLogWriter {
       tool_name: toolName,
       tool_input: toolInput,
     });
-    this.save();
+    this.scheduleSave();
   }
 
   private writeToolEnd(
@@ -259,7 +268,7 @@ export class TaskLogWriter {
       tool_name: toolName,
       ...(detail ? { detail, collapsed: true } : {}),
     });
-    this.save();
+    this.scheduleSave();
   }
 
   // ===========================================================================
@@ -291,7 +300,7 @@ export class TaskLogWriter {
 
     // Write as a text entry
     this.addEntry(phase, 'text', content.slice(0, 4000));
-    this.save();
+    this.scheduleSave();
 
     this.pendingText = '';
     this.pendingTextPhase = undefined;
@@ -361,7 +370,26 @@ export class TaskLogWriter {
     };
   }
 
+  /**
+   * zeenha fork: coalesce high-frequency saves into one write per window
+   * instead of rewriting the whole file on every tool event.
+   */
+  private scheduleSave(): void {
+    this.dirty = true;
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = undefined;
+      this.save();
+    }, SAVE_COALESCE_MS);
+    this.saveTimer.unref?.();
+  }
+
   private save(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = undefined;
+    }
+    this.dirty = false;
     this.data.updated_at = this.timestamp();
     try {
       // Ensure directory exists
@@ -372,7 +400,7 @@ export class TaskLogWriter {
 
       // Atomic-like write: write to temp file then rename
       const tmpFile = `${this.logFile}.tmp`;
-      writeFileSync(tmpFile, JSON.stringify(this.data, null, 2), 'utf-8');
+      writeFileSync(tmpFile, JSON.stringify(this.data), 'utf-8');
       // renameSync is atomic on same filesystem (POSIX)
       renameSync(tmpFile, this.logFile);
     } catch {

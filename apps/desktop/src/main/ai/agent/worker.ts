@@ -108,6 +108,8 @@ function memoryContext(): { memoryContext?: MemorySessionContext } {
 const logWriter = config.session.specDir
   ? new TaskLogWriter(config.session.specDir, basename(config.session.specDir))
   : null;
+// zeenha fork: log saves are coalesced, so write any pending entries on exit.
+process.once('exit', () => logWriter?.flush());
 
 // =============================================================================
 // Messaging Helpers
@@ -152,6 +154,7 @@ const abortController = new AbortController();
 parentPort.on('message', (msg: MainToWorkerMessage) => {
   if (msg.type === 'abort') {
     abortController.abort();
+    logWriter?.flush();
   }
 });
 
@@ -1442,4 +1445,4 @@ function buildFallbackPrompt(agentType: AgentType, specDir: string, projectDir: 
 run().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   postError(`Unhandled worker error: ${message}`);
-});
+}).finally(() => logWriter?.flush());
