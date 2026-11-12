@@ -83,11 +83,18 @@ const tasks = [
   makeTask('t4', 'human_review', 'Delta settings', '004-delta'),
 ];
 
-function renderBoard() {
+const facetTasks = [
+  makeTask('g1', 'backlog', 'Gh issue task', '011-gh', '', { sourceType: 'github', githubIssueNumber: 87, priority: 'high' }),
+  makeTask('j1', 'backlog', 'Jira issue task', '012-jira', '', { sourceType: 'jira', jiraIssueKey: 'PROJ-123', priority: 'low' }),
+  makeTask('m1', 'human_review', 'Manual plain task', '013-manual'),
+  makeTask('g2', 'human_review', 'Gh low task', '014-gh2', '', { sourceType: 'github', priority: 'low' }),
+];
+
+function renderBoard(boardTasks: unknown[] = tasks) {
   render(
     <TooltipProvider>
       <ViewStateProvider>
-        <KanbanBoard tasks={tasks} onTaskClick={vi.fn()} />
+        <KanbanBoard tasks={boardTasks as never[]} onTaskClick={vi.fn()} />
       </ViewStateProvider>
     </TooltipProvider>
   );
@@ -320,5 +327,89 @@ describe('KanbanBoard search box', { timeout: 20000 }, () => {
     fireEvent.click(screen.getByLabelText('tasks:kanban.clearSearch'));
     await drop('t1', 'queue');
     expect(persistTaskStatus).toHaveBeenCalledWith('t1', 'queue');
+  });
+});
+
+describe('KanbanBoard source and priority filters', { timeout: 20000 }, () => {
+  const openMenu = (name: string) => {
+    const trigger = screen.getByLabelText(name);
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+  };
+  const toggle = (menu: string, option: string) => {
+    openMenu(menu);
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: option }));
+  };
+  const source = (s: string) => toggle('tasks:kanban.sourceFilterAriaLabel', `tasks:kanban.sources.${s}`);
+  const priority = (p: string) => toggle('tasks:kanban.priorityFilterAriaLabel', `tasks:kanban.priorities.${p}`);
+
+  it('finds a task by Jira key and GitHub number', () => {
+    renderBoard(facetTasks);
+    search('PROJ-123');
+    expect(screen.getByText('Jira issue task')).toBeInTheDocument();
+    expect(screen.queryByText('Gh issue task')).not.toBeInTheDocument();
+    search('#87');
+    expect(screen.getByText('Gh issue task')).toBeInTheDocument();
+    expect(screen.queryByText('Jira issue task')).not.toBeInTheDocument();
+  });
+
+  it('filters by source and shows the match count', () => {
+    renderBoard(facetTasks);
+    source('github');
+    expect(screen.getByText('Gh issue task')).toBeInTheDocument();
+    expect(screen.getByText('Gh low task')).toBeInTheDocument();
+    expect(screen.queryByText('Jira issue task')).not.toBeInTheDocument();
+    expect(screen.queryByText('Manual plain task')).not.toBeInTheDocument();
+    expect(screen.getByText('tasks:kanban.searchMatchCount')).toBeInTheDocument();
+  });
+
+  it('treats tasks without a source as manual', () => {
+    renderBoard(facetTasks);
+    source('manual');
+    expect(screen.getByText('Manual plain task')).toBeInTheDocument();
+    expect(screen.queryByText('Gh issue task')).not.toBeInTheDocument();
+  });
+
+  it('filters by priority', () => {
+    renderBoard(facetTasks);
+    priority('high');
+    expect(screen.getByText('Gh issue task')).toBeInTheDocument();
+    expect(screen.queryByText('Gh low task')).not.toBeInTheDocument();
+    expect(screen.queryByText('Manual plain task')).not.toBeInTheDocument();
+  });
+
+  it('ANDs search with a facet and clears filters', () => {
+    renderBoard(facetTasks);
+    source('github');
+    search('low');
+    expect(screen.getByText('Gh low task')).toBeInTheDocument();
+    expect(screen.queryByText('Gh issue task')).not.toBeInTheDocument();
+    expect(screen.queryByText('Jira issue task')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('tasks:kanban.clearSearch'));
+    fireEvent.click(screen.getByText('tasks:kanban.clearFilters'));
+    expect(screen.getByText('Gh issue task')).toBeInTheDocument();
+    expect(screen.getByText('Jira issue task')).toBeInTheDocument();
+    expect(screen.getByText('Manual plain task')).toBeInTheDocument();
+    expect(screen.queryByText('tasks:kanban.clearFilters')).not.toBeInTheDocument();
+  });
+
+  it('ignores drops while a facet is active and allows them after clearing', async () => {
+    renderBoard(facetTasks);
+    source('github');
+    await drop('g1', 'queue');
+    expect(persistTaskStatus).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('tasks:kanban.clearFilters'));
+    await drop('g1', 'queue');
+    expect(persistTaskStatus).toHaveBeenCalledWith('g1', 'queue');
+  });
+
+  it('keeps the selection when a selected task is hidden by a facet', () => {
+    renderBoard(facetTasks);
+    fireEvent.click(screen.getAllByRole('checkbox', { name: 'tasks:actions.selectTask' })[0]);
+    expect(screen.getByText('kanban.selectedCountOther')).toBeInTheDocument();
+    source('jira');
+    expect(screen.queryByText('Manual plain task')).not.toBeInTheDocument();
+    expect(screen.getByText('kanban.selectedCountOther')).toBeInTheDocument();
   });
 });
