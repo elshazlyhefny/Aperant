@@ -13,7 +13,6 @@ import { atomicModifyProfiles } from './profile/api-profile-store';
 import { extractProfileId } from '../../shared/utils/unified-account';
 import { getKeyStatus, withKeyStatus } from '../../shared/utils/api-key-status';
 import type { ApiKeyStatus, ConnectionErrorType } from '../../shared/types/profile';
-import type { ProviderAccount } from '../../shared/types/provider-account';
 
 export type ApiKeyOutcome = 'valid' | 'rejected';
 
@@ -27,7 +26,7 @@ export function outcomeFromConnectionError(errorType?: ConnectionErrorType): 're
 
 function recordForProviderAccount(accountId: string, status: ApiKeyStatus): boolean | null {
   const settings = readSettingsFile();
-  const accounts = settings?.providerAccounts as ProviderAccount[] | undefined;
+  const accounts = settings?.providerAccounts;
   const index = accounts?.findIndex((a) => a.id === accountId) ?? -1;
   if (!settings || !accounts || index === -1) return null;
 

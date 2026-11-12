@@ -147,7 +147,7 @@ export async function sendWebhook(
 
 function loadWebhookSettings(): WebhookSettings {
   const raw = readSettingsFile() ?? {};
-  const merged = { ...DEFAULT_APP_SETTINGS, ...raw } as { webhook?: Partial<WebhookSettings> };
+  const merged = { ...DEFAULT_APP_SETTINGS, ...raw };
   const def = DEFAULT_APP_SETTINGS.webhook;
   const w = merged.webhook ?? {};
   return {

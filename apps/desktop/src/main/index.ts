@@ -136,7 +136,7 @@ registerSettingsAccessor((key: string) => {
  */
 function loadSettingsSync(): AppSettings {
   const savedSettings = readSettingsFile();
-  return { ...DEFAULT_APP_SETTINGS, ...savedSettings } as AppSettings;
+  return { ...DEFAULT_APP_SETTINGS, ...savedSettings };
 }
 
 /**

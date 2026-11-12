@@ -137,7 +137,7 @@ export class AgentManager extends EventEmitter {
    */
   private hasAnyProviderAccount(): boolean {
     const settings = readSettingsFile();
-    const accounts = (settings?.providerAccounts as ProviderAccount[] | undefined) ?? [];
+    const accounts = settings?.providerAccounts ?? [];
     return accounts.length > 0;
   }
 
@@ -156,8 +156,8 @@ export class AgentManager extends EventEmitter {
   }> {
     // Read provider accounts and priority order from settings
     const settings = readSettingsFile();
-    const accounts = (settings?.providerAccounts as ProviderAccount[] | undefined) ?? [];
-    const priorityOrder = (settings?.globalPriorityOrder as string[] | undefined) ?? [];
+    const accounts = settings?.providerAccounts ?? [];
+    const priorityOrder = settings?.globalPriorityOrder ?? [];
 
     if (accounts.length > 0 && priorityOrder.length > 0) {
       // Sort accounts by priority order
