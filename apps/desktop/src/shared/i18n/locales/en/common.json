@@ -533,6 +533,11 @@
     "description": "Description",
     "rationale": "Rationale",
     "goToTask": "Go to Task",
+    "possibleDuplicate": {
+      "task": "May repeat task {{id}}",
+      "idea": "May repeat idea \"{{title}}\"",
+      "score": "Similarity {{score}}%"
+    },
     "conversionFailed": "Conversion failed",
     "conversionFailedDescription": "Failed to convert idea to task",
     "conversionError": "Conversion error",
