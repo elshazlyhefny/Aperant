@@ -127,7 +127,7 @@ initSentryMain();
 // and priority order from app settings without a circular dependency on the settings store.
 registerSettingsAccessor((key: string) => {
   const settings = readSettingsFile();
-  return settings?.[key] as string | undefined;
+  return (settings as Record<string, unknown> | undefined)?.[key] as string | undefined;
 });
 
 /**

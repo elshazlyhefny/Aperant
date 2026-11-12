@@ -21,18 +21,18 @@ function buildEmbeddingConfig(): EmbeddingConfig | undefined {
   const settings = readSettingsFile();
   if (!settings?.memoryEmbeddingProvider) return undefined;
   return {
-    provider: settings.memoryEmbeddingProvider as EmbeddingConfig['provider'],
-    openaiApiKey: settings.globalOpenAIApiKey as string | undefined,
-    openaiEmbeddingModel: settings.memoryOpenaiEmbeddingModel as string | undefined,
-    googleApiKey: settings.globalGoogleApiKey as string | undefined,
-    googleEmbeddingModel: settings.memoryGoogleEmbeddingModel as string | undefined,
-    azureApiKey: settings.memoryAzureApiKey as string | undefined,
-    azureBaseUrl: settings.memoryAzureBaseUrl as string | undefined,
-    azureDeployment: settings.memoryAzureEmbeddingDeployment as string | undefined,
-    voyageApiKey: settings.memoryVoyageApiKey as string | undefined,
-    voyageModel: settings.memoryVoyageEmbeddingModel as string | undefined,
-    ollamaBaseUrl: settings.ollamaBaseUrl as string | undefined,
-    ollamaModel: settings.memoryOllamaEmbeddingModel as string | undefined,
+    provider: settings.memoryEmbeddingProvider,
+    openaiApiKey: settings.globalOpenAIApiKey,
+    openaiEmbeddingModel: settings.memoryOpenaiEmbeddingModel,
+    googleApiKey: settings.globalGoogleApiKey,
+    googleEmbeddingModel: settings.memoryGoogleEmbeddingModel,
+    azureApiKey: settings.memoryAzureApiKey,
+    azureBaseUrl: settings.memoryAzureBaseUrl,
+    azureDeployment: settings.memoryAzureEmbeddingDeployment,
+    voyageApiKey: settings.memoryVoyageApiKey,
+    voyageModel: settings.memoryVoyageEmbeddingModel,
+    ollamaBaseUrl: settings.ollamaBaseUrl,
+    ollamaModel: settings.memoryOllamaEmbeddingModel,
   };
 }
 

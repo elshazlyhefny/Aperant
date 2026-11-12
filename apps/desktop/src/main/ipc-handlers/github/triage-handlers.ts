@@ -233,7 +233,7 @@ function saveTriageResultToDisk(project: Project, result: TriageResult): void {
  * Returns the model shorthand (for TypeScript engine) and thinkingLevel.
  */
 function getGitHubIssuesSettings(): { modelShorthand: ModelShorthand; thinkingLevel: ThinkingLevel } {
-  const rawSettings = readSettingsFile() as Partial<AppSettings> | undefined;
+  const rawSettings = readSettingsFile();
 
   const featureModels = rawSettings?.featureModels ?? DEFAULT_FEATURE_MODELS;
   const featureThinking = rawSettings?.featureThinking ?? DEFAULT_FEATURE_THINKING;

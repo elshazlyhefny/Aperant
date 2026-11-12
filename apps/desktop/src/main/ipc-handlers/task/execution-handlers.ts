@@ -35,7 +35,7 @@ import { appLog } from '../../app-logger';
  */
 function hasAnyProviderAccount(): boolean {
   const settings = readSettingsFile();
-  const accounts = (settings?.providerAccounts as ProviderAccount[] | undefined) ?? [];
+  const accounts = settings?.providerAccounts ?? [];
   return accounts.length > 0;
 }
 

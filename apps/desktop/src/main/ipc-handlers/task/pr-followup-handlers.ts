@@ -39,7 +39,6 @@ import { getIsolatedGitEnv } from '../../utils/git-isolation';
 import { initializeClaudeProfileManager } from '../../claude-profile-manager';
 import { readSettingsFile } from '../../settings-utils';
 import { taskStateManager } from '../../task-state-manager';
-import type { ProviderAccount } from '../../../shared/types/provider-account';
 
 export const PR_FOLLOWUP_MARKER = 'PR_FOLLOWUP.json';
 export const MAX_FOLLOWUP_ITEMS = 100;
@@ -110,7 +109,7 @@ function checkWorktree(project: Project, task: Task): WorktreeCheck {
 
 function hasAuth(profileManager: { hasValidAuth(): boolean }): boolean {
   if (profileManager.hasValidAuth()) return true;
-  const accounts = (readSettingsFile()?.providerAccounts as ProviderAccount[] | undefined) ?? [];
+  const accounts = readSettingsFile()?.providerAccounts ?? [];
   return accounts.length > 0;
 }
 
