@@ -1,5 +1,6 @@
 import { debugLog } from '@shared/utils/debug-logger';
-import { isHoldActive, findFileOverlaps, type TaskFileOverlap } from '@shared/utils/file-overlap';
+import { isHoldActive, columnOverlapEntriesAreEqual, type TaskFileOverlap } from '@shared/utils/file-overlap';
+import { useStableFileOverlaps } from '../hooks/useStableFileOverlaps';
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useViewState } from '../contexts/ViewStateContext';
@@ -162,8 +163,6 @@ function droppableColumnPropsAreEqual(
   if (prevProps.onToggleLocked !== nextProps.onToggleLocked) return false;
   if (prevProps.isDragDisabled !== nextProps.isDragDisabled) return false;
   if (prevProps.isSearchActive !== nextProps.isSearchActive) return false;
-  if (prevProps.fileOverlaps !== nextProps.fileOverlaps) return false;
-  if (prevProps.holdBlockerTitles !== nextProps.holdBlockerTitles) return false;
 
   // Compare selection props
   const prevSelected = prevProps.selectedTaskIds;
@@ -177,7 +176,16 @@ function droppableColumnPropsAreEqual(
   }
 
   // Deep compare tasks
-  const tasksEqual = tasksAreEquivalent(prevProps.tasks, nextProps.tasks);
+  // zeenha fork: also re-render when this column's own overlap entries or hold titles change
+  const tasksEqual =
+    tasksAreEquivalent(prevProps.tasks, nextProps.tasks) &&
+    columnOverlapEntriesAreEqual(
+      nextProps.tasks,
+      prevProps.fileOverlaps,
+      nextProps.fileOverlaps,
+      prevProps.holdBlockerTitles,
+      nextProps.holdBlockerTitles
+    );
 
   // Only log when re-rendering (reduces noise)
   if (window.DEBUG && !tasksEqual) {
@@ -652,16 +660,7 @@ const DroppableColumn = memo(function DroppableColumn({ status, tasks, onTaskCli
 
 export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isRefreshing }: KanbanBoardProps) {
   // zeenha fork: tasks that plan to change the same files, and who a held task waits for
-  const fileOverlaps = useMemo(() => findFileOverlaps(tasks), [tasks]);
-  const holdBlockerTitles = useMemo(() => {
-    const titles = new Map<string, string>();
-    for (const task of tasks) {
-      if (!isHoldActive(task, tasks)) continue;
-      const blocker = tasks.find((t) => t.id === task.metadata?.holdUntilTaskId);
-      if (blocker) titles.set(task.id, blocker.title);
-    }
-    return titles;
-  }, [tasks]);
+  const { fileOverlaps, holdBlockerTitles } = useStableFileOverlaps(tasks);
   const { t } = useTranslation(['tasks', 'dialogs', 'common']);
   const { toast } = useToast();
   const [activeTask, setActiveTask] = useState<Task | null>(null);
