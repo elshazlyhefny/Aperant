@@ -4,6 +4,7 @@ import { useProjectStore } from '../../../stores/project-store';
 import { useSettingsStore } from '../../../stores/settings-store';
 import { checkTaskRunning, isIncompleteHumanReview, getTaskProgress, useTaskStore, loadTasks, hasRecentActivity } from '../../../stores/task-store';
 import type { Task, TaskLogs, TaskLogPhase, WorktreeStatus, WorktreeDiff, MergeConflict, MergeStats, GitConflictInfo, ImageAttachment } from '../../../../shared/types';
+import { applyLogsDelta } from './applyLogsDelta';
 
 /**
  * Validates task subtasks structure to prevent infinite loops during resume.
@@ -225,52 +226,79 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
   useEffect(() => {
     if (!currentProject) return;
 
-    const loadLogs = async () => {
-      setIsLoadingLogs(true);
+    // Latest logs held by this effect; deltas are applied against it so the
+    // resync decision happens outside of a state updater.
+    let current: TaskLogs | null = null;
+    let resyncInFlight = false;
+    let cancelled = false;
+
+    const phaseOrder: TaskLogPhase[] = ['planning', 'coding', 'validation'];
+    const expandActive = (logs: TaskLogs, replace: boolean) => {
+      const activePhase = phaseOrder.find(phase => logs.phases[phase]?.status === 'active');
+      if (!activePhase) return;
+      if (replace) {
+        setExpandedPhases(new Set([activePhase]));
+      } else {
+        setExpandedPhases(prev => {
+          const next = new Set(prev);
+          next.add(activePhase);
+          return next;
+        });
+      }
+    };
+
+    const loadLogs = async (showLoading: boolean) => {
+      if (showLoading) setIsLoadingLogs(true);
       try {
         const result = await window.electronAPI.getTaskLogs(currentProject.id, task.specId);
-        if (result.success && result.data) {
+        if (!cancelled && result.success && result.data) {
+          current = result.data;
           setPhaseLogs(result.data);
-          // Auto-expand active phase
-          const activePhase = (['planning', 'coding', 'validation'] as TaskLogPhase[]).find(
-            phase => result.data?.phases[phase]?.status === 'active'
-          );
-          if (activePhase) {
-            setExpandedPhases(new Set([activePhase]));
-          }
+          expandActive(result.data, showLoading);
         }
       } catch (err) {
         console.error('Failed to load task logs:', err);
       } finally {
-        setIsLoadingLogs(false);
+        if (showLoading) setIsLoadingLogs(false);
       }
     };
 
-    loadLogs();
+    loadLogs(true);
 
     // Start watching for log changes
     window.electronAPI.watchTaskLogs(currentProject.id, task.specId);
 
-    // Listen for log changes
+    // Full-log updates (initial/resync emits)
     const unsubscribe = window.electronAPI.onTaskLogsChanged((specId, logs) => {
       if (specId === task.specId) {
+        current = logs;
         setPhaseLogs(logs);
-        // Auto-expand newly active phase
-        const activePhase = (['planning', 'coding', 'validation'] as TaskLogPhase[]).find(
-          phase => logs.phases[phase]?.status === 'active'
-        );
-        if (activePhase) {
-          setExpandedPhases(prev => {
-            const next = new Set(prev);
-            next.add(activePhase);
-            return next;
-          });
-        }
+        expandActive(logs, false);
       }
     });
 
+    // Incremental updates: only the entries appended since the last emit
+    const unsubscribeAppended = window.electronAPI.onTaskLogsAppended((specId, delta) => {
+      if (specId !== task.specId) return;
+      const next = applyLogsDelta(current, delta);
+      if (next) {
+        current = next;
+        setPhaseLogs(next);
+        expandActive(next, false);
+        return;
+      }
+      // Delta does not line up with what we hold: reload the full log (one at a time)
+      if (resyncInFlight) return;
+      resyncInFlight = true;
+      loadLogs(false).finally(() => {
+        resyncInFlight = false;
+      });
+    });
+
     return () => {
+      cancelled = true;
       unsubscribe();
+      unsubscribeAppended();
       window.electronAPI.unwatchTaskLogs(task.specId);
     };
   }, [currentProject, task.specId]);
