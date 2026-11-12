@@ -4,7 +4,7 @@ import { IPC_CHANNELS, DEFAULT_APP_SETTINGS } from '../../shared/constants';
 import type { IPCResult, ProjectEnvConfig, AppSettings } from '../../shared/types';
 import path from 'path';
 import { app } from 'electron';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { projectStore } from '../project-store';
 import { parseEnvFile } from './utils';
 import { describeProjectMcpTrust, parseSecureOrigins } from '../ai/mcp/project-settings';
@@ -649,7 +649,18 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         const newContent = generateEnvContent(config, existingContent);
 
         // Write to file
-        writeFileSync(envPath, newContent, 'utf-8');
+        // zeenha fork: this file holds integration tokens (GitHub, GitLab, ...).
+        // Agents are kept away from it by path containment, the credential-path
+        // validators and the OS sandbox; owner-only mode is defence in depth.
+        // Long-term plan: move tokens to the encrypted store
+        // (claude-profile/token-encryption.ts).
+        writeFileSync(envPath, newContent, { encoding: 'utf-8', mode: 0o600 });
+        try {
+          // mode only applies on creation; chmod covers existing files (no-op on Windows)
+          chmodSync(envPath, 0o600);
+        } catch {
+          // best-effort
+        }
 
         const after = describeProjectMcpTrust(project.path, project.autoBuildPath, undefined);
         const knownHashes = new Set(before.servers.map((t) => t.hash));
