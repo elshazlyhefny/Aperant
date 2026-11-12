@@ -166,6 +166,24 @@ function createSessionObject(terminal: TerminalProcess): TerminalSession {
 }
 
 /**
+ * zeenha fork: last persisted change signature per terminal. Title, cwd and
+ * claudeSessionId are mutated in many places without an explicit persist call,
+ * so output activity alone cannot tell whether a terminal is dirty.
+ */
+const lastPersistedSignatures = new WeakMap<TerminalProcess, string>();
+
+function getChangeSignature(terminal: TerminalProcess): string {
+  return JSON.stringify([
+    terminal.outputSeq ?? 0,
+    terminal.title,
+    terminal.cwd,
+    terminal.isCLIMode,
+    terminal.claudeSessionId,
+    JSON.stringify(terminal.worktreeConfig),
+  ]);
+}
+
+/**
  * Persist a terminal session to disk
  */
 export function persistSession(terminal: TerminalProcess): void {
@@ -175,6 +193,8 @@ export function persistSession(terminal: TerminalProcess): void {
 
   const store = getTerminalSessionStore();
   store.saveSession(createSessionObject(terminal));
+  // zeenha fork: remember what was written so the periodic cycle skips unchanged terminals
+  lastPersistedSignatures.set(terminal, getChangeSignature(terminal));
 }
 
 /**
@@ -187,7 +207,13 @@ export function persistSessionAsync(terminal: TerminalProcess): void {
   }
 
   const store = getTerminalSessionStore();
-  store.saveSessionAsync(createSessionObject(terminal)).catch((error) => {
+  const signature = getChangeSignature(terminal);
+  store.saveSessionAsync(createSessionObject(terminal)).then(() => {
+    // zeenha fork: only record when the write really succeeded
+    if (!store.hasUnsavedChanges()) {
+      lastPersistedSignatures.set(terminal, signature);
+    }
+  }).catch((error) => {
     debugError('[SessionHandler] Failed to persist session:', error);
   });
 }
@@ -198,17 +224,38 @@ export function persistSessionAsync(terminal: TerminalProcess): void {
  * Uses async persistence to avoid blocking the main process when saving
  * multiple sessions (e.g., on app quit).
  */
-export async function persistAllSessionsAsync(terminals: Map<string, TerminalProcess>): Promise<void> {
+export async function persistAllSessionsAsync(
+  terminals: Map<string, TerminalProcess>,
+  options: { force?: boolean } = {}
+): Promise<void> {
   const store = getTerminalSessionStore();
 
-  const savePromises: Promise<void>[] = [];
+  // zeenha fork: only send terminals whose persisted state changed, in one batched write
+  const dirty: Array<{ terminal: TerminalProcess; signature: string }> = [];
   terminals.forEach((terminal) => {
-    if (terminal.projectPath) {
-      savePromises.push(store.saveSessionAsync(createSessionObject(terminal)));
+    if (!terminal.projectPath) {
+      return;
+    }
+    const signature = getChangeSignature(terminal);
+    if (options.force || lastPersistedSignatures.get(terminal) !== signature) {
+      dirty.push({ terminal, signature });
     }
   });
 
-  await Promise.all(savePromises);
+  if (dirty.length === 0) {
+    // Retries an earlier failed write
+    await store.flushIfDirtyAsync();
+    return;
+  }
+
+  await store.saveSessionsAsync(dirty.map(({ terminal }) => createSessionObject(terminal)));
+
+  // A failed write leaves unsaved changes; skip recording so the next cycle retries
+  if (!store.hasUnsavedChanges()) {
+    for (const { terminal, signature } of dirty) {
+      lastPersistedSignatures.set(terminal, signature);
+    }
+  }
 }
 
 /**

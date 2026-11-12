@@ -343,7 +343,8 @@ export async function destroyAllTerminals(
   // destroyed BrowserWindow.webContents (GitHub #1469 shutdown guard pattern)
   PtyManager.setShuttingDown(true);
 
-  await SessionHandler.persistAllSessionsAsync(terminals);
+  // zeenha fork: shutdown must persist everything, even terminals that look clean
+  await SessionHandler.persistAllSessionsAsync(terminals, { force: true });
 
   if (saveTimer) {
     clearInterval(saveTimer);
