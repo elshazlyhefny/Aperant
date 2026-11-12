@@ -533,6 +533,11 @@
     "description": "Description",
     "rationale": "Justification",
     "goToTask": "Aller à la tâche",
+    "possibleDuplicate": {
+      "task": "Répète peut-être la tâche {{id}}",
+      "idea": "Répète peut-être l'idée « {{title}} »",
+      "score": "Similarité {{score}} %"
+    },
     "conversionFailed": "Échec de la conversion",
     "conversionFailedDescription": "Impossible de convertir l'idée en tâche",
     "conversionError": "Erreur de conversion",
