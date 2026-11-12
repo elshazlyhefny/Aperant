@@ -11,6 +11,7 @@ import { homedir } from 'os';
 import { getClaudeProfileManager } from '../../claude-profile-manager';
 import { loadProfilesFile } from '../../services/profile/api-profile-store';
 import type { ProviderAccount } from '../../../shared/types/provider-account';
+import type { AppSettings } from '../../../shared/types/settings';
 import { getCredentialsFromKeychain } from '../credential-utils';
 import { ensureValidToken } from '../token-refresh';
 import { ensureValidCodexToken } from '../../ai/auth/codex-oauth';
@@ -113,7 +114,7 @@ async function resolveAnthropicOAuth(
       const accountId = account.id;
       readSettingsFileAsync().then(currentSettings => {
         if (!currentSettings) return;
-        const accounts = (currentSettings.providerAccounts as ProviderAccount[] | undefined) ?? [];
+        const accounts = currentSettings.providerAccounts ?? [];
         const target = accounts.find(a => a.id === accountId);
         if (target && !target.email) {
           target.email = discoveredEmail;
@@ -265,7 +266,7 @@ export async function resolveActiveProfile(
   deps: ActiveProfileResolverDeps
 ): Promise<ActiveProfileResult | null> {
   const { log } = deps;
-  let settings: Record<string, unknown> | undefined;
+  let settings: Partial<AppSettings> | undefined;
   try {
     settings = await readSettingsFileAsync();
   } catch (error) {
@@ -277,8 +278,8 @@ export async function resolveActiveProfile(
     return resolveActiveProfileLegacy(deps);
   }
 
-  const providerAccounts = (settings.providerAccounts as ProviderAccount[] | undefined) ?? [];
-  const globalPriorityOrder = (settings.globalPriorityOrder as string[] | undefined) ?? [];
+  const providerAccounts = settings.providerAccounts ?? [];
+  const globalPriorityOrder = settings.globalPriorityOrder ?? [];
 
   if (globalPriorityOrder.length === 0) {
     log.traceLog('[UsageMonitor:TRACE] No globalPriorityOrder in settings, falling back to legacy profile detection');

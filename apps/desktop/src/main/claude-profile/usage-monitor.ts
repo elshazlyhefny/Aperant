@@ -29,7 +29,6 @@ import { reactiveTokenRefresh } from './token-refresh';
 import { isProfileRateLimited } from './rate-limit-manager';
 import { getOperationRegistry } from './operation-registry';
 import { readSettingsFileAsync } from '../settings-utils';
-import type { ProviderAccount } from '../../shared/types/provider-account';
 
 import { appLog } from '../app-logger';
 import type { ActiveProfileResult } from './usage/types';
@@ -374,7 +373,7 @@ export class UsageMonitor extends EventEmitter {
       try {
         const appSettings = await readSettingsFileAsync();
         if (appSettings) {
-          const accounts = (appSettings.providerAccounts as ProviderAccount[] | undefined) ?? [];
+          const accounts = appSettings.providerAccounts ?? [];
           for (const account of accounts) {
             providerAccountsMap.set(account.id, account.provider);
             if (account.claudeProfileId) {
