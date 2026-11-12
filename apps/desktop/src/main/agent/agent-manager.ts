@@ -34,10 +34,12 @@ import {
 } from '../ai/agent/task-session';
 import { parseEnvPassthrough } from '../ai/security/child-env';
 import { parseSandboxMode } from '../ai/security/sandbox';
+import { parseWebFetchProvider } from '../ai/tools/providers/types';
 import { createOrGetWorktree } from '../ai/worktree';
 import { findTaskWorktree } from '../worktree-paths';
 import { landsThroughPullRequestsOnly } from '../../shared/utils/landing-policy';
 import { readSettingsFile } from '../settings-utils';
+import { hasUsableAuth } from '../services/profile/provider-account-check';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
 import { getApprovals } from '../mcp-approval-store';
@@ -129,16 +131,6 @@ export class AgentManager extends EventEmitter {
    */
   configure(pythonPath?: string, autoBuildSourcePath?: string): void {
     this.processManager.configure(pythonPath, autoBuildSourcePath);
-  }
-
-  /**
-   * Check if any provider account is configured (API key or OAuth).
-   * Used to bypass the legacy hasValidAuth() check for non-Anthropic providers.
-   */
-  private hasAnyProviderAccount(): boolean {
-    const settings = readSettingsFile();
-    const accounts = (settings?.providerAccounts as ProviderAccount[] | undefined) ?? [];
-    return accounts.length > 0;
   }
 
   /**
@@ -371,7 +363,7 @@ export class AgentManager extends EventEmitter {
       this.emit('error', taskId, 'Failed to initialize profile manager. Please check file permissions and disk space.');
       return;
     }
-    if (!profileManager.hasValidAuth() && !this.hasAnyProviderAccount()) {
+    if (!hasUsableAuth(profileManager)) {
       this.emit('error', taskId, 'Authentication required. Please add an account in Settings > Accounts before starting tasks.');
       return;
     }
@@ -454,6 +446,10 @@ export class AgentManager extends EventEmitter {
           parseSandboxMode(
             projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath)?.settings?.bashSandbox,
           ),
+          // zeenha fork: WebFetch provider mode
+          parseWebFetchProvider(
+            projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath)?.settings?.webFetchProvider,
+          ),
         ),
       },
     };
@@ -500,7 +496,7 @@ export class AgentManager extends EventEmitter {
       this.emit('error', taskId, 'Failed to initialize profile manager. Please check file permissions and disk space.');
       return;
     }
-    if (!profileManager.hasValidAuth() && !this.hasAnyProviderAccount()) {
+    if (!hasUsableAuth(profileManager)) {
       this.emit('error', taskId, 'Authentication required. Please add an account in Settings > Accounts before starting tasks.');
       return;
     }
@@ -585,7 +581,7 @@ export class AgentManager extends EventEmitter {
         projectDir: effectiveProjectDir,
         specDir: worktreeSpecDir,
         // zeenha fork: carry PR-only landing into the worker's Bash validator.
-        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough), parseSandboxMode(project?.settings?.bashSandbox)),
+        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough), parseSandboxMode(project?.settings?.bashSandbox), parseWebFetchProvider(project?.settings?.webFetchProvider)),
       },
     };
 
@@ -629,7 +625,7 @@ export class AgentManager extends EventEmitter {
       this.emit('error', taskId, 'Failed to initialize profile manager. Please check file permissions and disk space.');
       return;
     }
-    if (!profileManager.hasValidAuth() && !this.hasAnyProviderAccount()) {
+    if (!hasUsableAuth(profileManager)) {
       this.emit('error', taskId, 'Authentication required. Please add an account in Settings > Accounts before starting tasks.');
       return;
     }
@@ -692,7 +688,7 @@ export class AgentManager extends EventEmitter {
         projectDir: effectiveProjectDir,
         specDir: effectiveSpecDir,
         // zeenha fork: carry PR-only landing into the worker's Bash validator.
-        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough), parseSandboxMode(project?.settings?.bashSandbox)),
+        securityProfile: this.serializeSecurityProfile(effectiveProjectDir, landsThroughPullRequestsOnly(project?.settings), parseEnvPassthrough(project?.settings?.envPassthrough), parseSandboxMode(project?.settings?.bashSandbox), parseWebFetchProvider(project?.settings?.webFetchProvider)),
       },
     };
 
@@ -977,8 +973,8 @@ export class AgentManager extends EventEmitter {
   // Private helpers for TypeScript agent path
   // ============================================
 
-  private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean, envPassthrough: string[], bashSandbox: string): SerializedSecurityProfile {
-    return serializeSecurityProfile(projectDir, { prOnlyLanding, envPassthrough, bashSandbox });
+  private serializeSecurityProfile(projectDir: string, prOnlyLanding: boolean, envPassthrough: string[], bashSandbox: string, webFetchProvider?: string): SerializedSecurityProfile {
+    return serializeSecurityProfile(projectDir, { prOnlyLanding, envPassthrough, bashSandbox, webFetchProvider });
   }
 
   /**

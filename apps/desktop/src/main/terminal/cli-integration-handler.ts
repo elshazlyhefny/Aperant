@@ -1478,8 +1478,9 @@ async function waitForClaudeExit(
   debugLog('[ClaudeIntegration:waitForClaudeExit] Waiting for Claude to exit...');
   debugLog('[ClaudeIntegration:waitForClaudeExit] Config:', { timeout, pollInterval });
 
-  // Capture current buffer length to detect new output
-  const initialBufferLength = terminal.outputBuffer.length;
+  // Capture a monotonic byte offset to detect new output. The buffer length stops
+  // growing once the buffer is full (old output is trimmed), so it can't be used.
+  const startOffset = terminal.outputStore?.getTotalAppended() ?? terminal.outputBuffer.length;
   const startTime = Date.now();
 
   return new Promise((resolve) => {
@@ -1499,7 +1500,9 @@ async function waitForClaudeExit(
       }
 
       // Get new output since we started waiting
-      const newOutput = terminal.outputBuffer.slice(initialBufferLength);
+      const newOutput = terminal.outputStore
+        ? terminal.outputStore.readSince(startOffset)
+        : terminal.outputBuffer.slice(startOffset);
 
       // Check if we can see a shell prompt in the new output
       for (const pattern of SHELL_PROMPT_PATTERNS) {

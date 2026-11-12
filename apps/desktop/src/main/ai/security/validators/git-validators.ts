@@ -5,6 +5,9 @@
  * Validators for git operations:
  * - Commit with secret scanning
  * - Config protection (prevent setting identity fields)
+ * - zeenha fork: block core.hooksPath/core.fsmonitor and writes into
+ *   .git/hooks or .git/config. These are speed bumps that obfuscation can
+ *   bypass; the OS sandbox is the real control.
  *
  * See apps/desktop/src/main/ai/security/validators/git-validators.ts for the TypeScript implementation.
  */
@@ -27,6 +30,27 @@ const BLOCKED_GIT_CONFIG_KEYS = new Set([
   'committer.name',
   'committer.email',
 ]);
+
+/**
+ * zeenha fork: git config keys that make git run arbitrary programs (hooks,
+ * fsmonitor). Lowercase because git config keys are case-insensitive.
+ * This is a speed bump, not a sandbox: obfuscation (variables, eval, scripts,
+ * GIT_CONFIG_* env vars) can bypass it. The OS sandbox is the real control.
+ */
+const BLOCKED_GIT_HOOK_CONFIG_KEYS = new Set(['core.hookspath', 'core.fsmonitor']);
+
+function hookConfigDenied(source: string, key: string): ValidationResult {
+  return [
+    false,
+    `BLOCKED: Cannot set git hook configuration\n\n` +
+      `You attempted to set '${key}' via ${source}, which can make git run ` +
+      `arbitrary programs.\n\n` +
+      `WHY: Hook and fsmonitor settings execute code outside the agent's tool ` +
+      `controls. This check is a speed bump that can be bypassed by obfuscation; ` +
+      `the OS sandbox is the real control.\n\n` +
+      `WHAT TO DO: Do not change core.hooksPath or core.fsmonitor.`,
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,6 +142,10 @@ function validateGitConfig(commandString: string): ValidationResult {
     return [true, '']; // No config key specified
   }
 
+  if (BLOCKED_GIT_HOOK_CONFIG_KEYS.has(configKey)) {
+    return hookConfigDenied('git config', configKey);
+  }
+
   if (BLOCKED_GIT_CONFIG_KEYS.has(configKey)) {
     return [
       false,
@@ -150,6 +178,9 @@ function validateGitInlineConfig(tokens: string[]): ValidationResult {
         const configPair = tokens[i + 1];
         if (configPair.includes('=')) {
           const configKey = configPair.split('=')[0].toLowerCase();
+          if (BLOCKED_GIT_HOOK_CONFIG_KEYS.has(configKey)) {
+            return hookConfigDenied('the -c flag', configKey);
+          }
           if (BLOCKED_GIT_CONFIG_KEYS.has(configKey)) {
             return [
               false,
@@ -172,6 +203,9 @@ function validateGitInlineConfig(tokens: string[]): ValidationResult {
       const configPair = token.slice(2);
       if (configPair.includes('=')) {
         const configKey = configPair.split('=')[0].toLowerCase();
+        if (BLOCKED_GIT_HOOK_CONFIG_KEYS.has(configKey)) {
+          return hookConfigDenied('the -c flag', configKey);
+        }
         if (BLOCKED_GIT_CONFIG_KEYS.has(configKey)) {
           return [
             false,
@@ -189,6 +223,70 @@ function validateGitInlineConfig(tokens: string[]): ValidationResult {
     }
 
     i++;
+  }
+
+  return [true, ''];
+}
+
+// ---------------------------------------------------------------------------
+// .git internals write guard
+// ---------------------------------------------------------------------------
+
+const GIT_INTERNALS_PATH = String.raw`\.git[\\/](?:hooks|config)(?![\w-])`;
+const GIT_INTERNALS_REDIRECT = new RegExp(String.raw`>{1,2}\|?\s*["']?[^\s"'<>|;&]*${GIT_INTERNALS_PATH}`, 'i');
+const GIT_INTERNALS_TOKEN = new RegExp(GIT_INTERNALS_PATH, 'i');
+const WRITING_COMMANDS = new Set(['tee', 'cp', 'mv', 'ln', 'install', 'chmod', 'rsync']);
+
+/**
+ * zeenha fork: deny commands that write into .git/hooks or .git/config.
+ *
+ * SPEED BUMP ONLY: this is a lexical check and can be bypassed by obfuscation
+ * (variables, eval, scripts, symlinks). The OS sandbox is the real control.
+ * Reads such as `ls .git/hooks` or `cat .git/config` are allowed.
+ */
+export function validateGitInternalsWrite(command: string): ValidationResult {
+  const deny = (how: string): ValidationResult => [
+    false,
+    `BLOCKED: Cannot write into .git/hooks or .git/config (${how})\n\n` +
+      `WHY: Hooks and git config run arbitrary programs outside the agent's tool ` +
+      `controls. This check is a speed bump that can be bypassed by obfuscation; ` +
+      `the OS sandbox is the real control.\n\n` +
+      `WHAT TO DO: Do not modify files under .git/hooks or .git/config.`,
+  ];
+
+  if (GIT_INTERNALS_REDIRECT.test(command)) {
+    return deny('output redirection');
+  }
+
+  for (const segment of command.split(/[;&|\n]+/)) {
+    if (!GIT_INTERNALS_TOKEN.test(segment)) continue;
+    const tokens = segment
+      .trim()
+      .split(/\s+/)
+      .map((t) => t.replace(/^["']|["']$/g, ''))
+      .filter((t) => t.length > 0);
+    // Skip leading VAR=value assignments and common wrappers
+    let idx = 0;
+    while (idx < tokens.length && (/^\w+=/.test(tokens[idx]) || tokens[idx] === 'sudo' || tokens[idx] === 'command')) idx++;
+    const name = (tokens[idx] ?? '').split(/[\\/]/).pop() ?? '';
+    const args = tokens.slice(idx + 1);
+    const touches = (t: string) => GIT_INTERNALS_TOKEN.test(t);
+
+    if (WRITING_COMMANDS.has(name) && args.some(touches)) {
+      // cp/install/rsync/ln only write to the final argument; mv also removes sources
+      if (name === 'cp' || name === 'install' || name === 'rsync' || name === 'ln') {
+        const operands = args.filter((a) => !a.startsWith('-'));
+        if (operands.length > 0 && touches(operands[operands.length - 1])) return deny(name);
+        continue;
+      }
+      return deny(name);
+    }
+    if (name === 'sed' && args.some((a) => /^-[a-zA-Z]*i/.test(a) || a.startsWith('--in-place')) && args.some(touches)) {
+      return deny('sed -i');
+    }
+    if (name === 'dd' && args.some((a) => a.startsWith('of=') && touches(a))) {
+      return deny('dd');
+    }
   }
 
   return [true, ''];

@@ -19,6 +19,7 @@ import * as crypto from 'node:crypto';
 import { createSimpleClient } from '../../client/factory';
 import { streamText } from '../../claude-code/sdk';
 import { getAgentConfig } from '../../config/agent-configs';
+import { isReviewReadOnlyTool } from '../../config/review-tools';
 import type { ModelShorthand, ThinkingLevel } from '../../config/types';
 import { parseLLMJson } from '../../schema/structured-output';
 import { MRReviewResultSchema } from '../../schema/pr-review';
@@ -30,9 +31,6 @@ import type { PRReviewMcpSession } from '../github/pr-review-mcp';
 
 /** Step limit for the tool-using MR review loop. */
 export const MR_REVIEW_MAX_STEPS = 60;
-
-/** The only tools an MR review may use: it must never modify the checkout. */
-const MR_REVIEW_READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['Read', 'Glob', 'Grep']);
 
 const MR_CHECKOUT_INSTRUCTIONS = `## Using your tools
 
@@ -302,7 +300,7 @@ ${diffContent}
       };
       const registry = buildToolRegistry();
       for (const name of getAgentConfig('pr_reviewer').tools) {
-        if (!MR_REVIEW_READ_ONLY_TOOLS.has(name)) continue;
+        if (!isReviewReadOnlyTool(name)) continue;
         const definedTool = registry.getTool(name);
         if (definedTool) tools[name] = definedTool.bind(toolContext);
       }

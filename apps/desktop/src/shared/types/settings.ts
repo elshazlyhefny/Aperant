@@ -172,7 +172,7 @@ export interface ColorThemeDefinition {
 export type ThinkingLevel = 'low' | 'medium' | 'high' | 'xhigh';
 
 // Model type shorthand
-export type ModelTypeShort = 'haiku' | 'sonnet' | 'opus' | 'opus-1m' | 'opus-4.5';
+export type ModelTypeShort = 'fable' | 'haiku' | 'sonnet' | 'opus' | 'opus-1m' | 'opus-4.5';
 
 /** Widened model type: Claude shorthands + any arbitrary model ID */
 export type ModelSelection = ModelTypeShort | (string & {});
@@ -259,6 +259,13 @@ export type MixedPhaseConfig = Record<PipelinePhase, MixedPhaseEntry>;
 // Cross-provider feature config
 export type MixedFeatureConfig = Record<keyof FeatureModelConfig, MixedPhaseEntry>;
 
+export interface JiraWritebackSettings {
+  enabled: boolean;
+  comment: boolean;
+  transitionOnReview: boolean;
+  transitionStatusName: string;
+}
+
 export interface WebhookSettings {
   enabled: boolean;
   url: string;
@@ -281,6 +288,8 @@ export interface AppSettings {
   notifications: NotificationSettings;
   // Outgoing task-outcome webhook (app-wide)
   webhook?: WebhookSettings;
+  // zeenha fork: Jira write-back of task outcomes (app-wide, user settings only)
+  jiraWriteback?: JiraWritebackSettings;
   // Global API keys (used as defaults for all projects)
   globalOpenAIApiKey?: string;
   globalAnthropicApiKey?: string;

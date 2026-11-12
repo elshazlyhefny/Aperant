@@ -9,6 +9,7 @@ import {
 } from '../../../shared/constants';
 import type { Idea } from '../../../shared/types';
 import { TypeIcon } from './TypeIcon';
+import { PossibleDuplicateBadge } from './PossibleDuplicateBadge';
 import {
   isCodeImprovementIdea,
   isUIUXIdea,
@@ -59,6 +60,7 @@ export function IdeaDetailPanel({ idea, onClose, onConvert, onGoToTask, onDismis
                   {idea.status}
                 </Badge>
               )}
+              <PossibleDuplicateBadge idea={idea} />
             </div>
             <h2 className="font-semibold">{idea.title}</h2>
           </div>

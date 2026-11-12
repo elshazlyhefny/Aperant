@@ -1,5 +1,6 @@
 import type * as pty from '@lydell/node-pty';
 import type { BrowserWindow } from 'electron';
+import type { TerminalOutputBuffer } from './output-buffer';
 import type { TerminalWorktreeConfig, WindowsShellType } from '../../shared/types';
 
 // Re-export WindowsShellType for backwards compatibility
@@ -16,9 +17,18 @@ export interface TerminalProcess {
   cwd: string;
   claudeSessionId?: string;
   claudeProfileId?: string;
+  /** Replay buffer text. In real terminals this is a getter/setter over `outputStore`. */
   outputBuffer: string;
   /** Bumped whenever outputBuffer changes; undefined is treated as 0. */
   outputSeq?: number;
+  /** Chunk-list backing store for outputBuffer (O(chunk) appends). */
+  outputStore?: TerminalOutputBuffer;
+  /** Output chunks waiting to be sent to the renderer in one batch. */
+  pendingOutput?: string[];
+  /** Total characters currently queued in pendingOutput. */
+  pendingOutputLength?: number;
+  /** Timer that flushes pendingOutput; at most one armed at a time. */
+  outputFlushTimer?: ReturnType<typeof setTimeout>;
   title: string;
   /** Associated worktree configuration (persisted across restarts) */
   worktreeConfig?: TerminalWorktreeConfig;

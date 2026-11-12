@@ -106,3 +106,37 @@ describe('task state manager -> task queue wiring (no window)', () => {
     expect(tasks.find((t) => t.id === 'queued-new')?.status).toBe('queue');
   });
 });
+
+describe('queue promotion through the real state machine', () => {
+  it('stops at the parallel limit when a queued task is promoted', async () => {
+    const stateManager = new TaskStateManager();
+    stateManager.configure(() => null);
+    const tasks = [1, 2, 3, 4, 5].map((n) => makeTask(`queued-${n}`, 'queue', 1000 + n));
+    const promoteCalls: string[] = [];
+    const queueManager = new TaskQueueManager({
+      getProjects: () => [project],
+      getTasks: () => tasks,
+      // Same call applyTaskStatusUpdate makes for a promotion
+      promote: async (taskId) => {
+        promoteCalls.push(taskId);
+        const t = tasks.find((x) => x.id === taskId) as Task;
+        stateManager.handleManualStatusChange(taskId, 'in_progress', t, project);
+        return { success: true };
+      }
+    });
+    stateManager.onStatusEmitted((taskId, status) => {
+      const t = tasks.find((x) => x.id === taskId);
+      if (t) t.status = status;
+    });
+    stateManager.onStatusEmitted((taskId, status, projectId) => {
+      void queueManager.onTaskStatusChanged(taskId, status, projectId);
+    });
+
+    await queueManager.requestProcess(PROJECT_ID);
+    await queueManager.requestProcess(PROJECT_ID);
+    stateManager.clearAllTasks();
+
+    expect(promoteCalls).toEqual(['queued-1']);
+    expect(tasks.map((t) => t.status)).toEqual(['in_progress', 'queue', 'queue', 'queue', 'queue']);
+  });
+});

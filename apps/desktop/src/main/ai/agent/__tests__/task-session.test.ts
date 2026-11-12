@@ -36,10 +36,12 @@ describe('serializeSecurityProfile', () => {
       prOnlyLanding: true,
       envPassthrough: ['FOO'],
       bashSandbox: 'auto',
+      webFetchProvider: 'direct',
     });
     expect(result.prOnlyLanding).toBe(true);
     expect(result.envPassthrough).toEqual(['FOO']);
     expect(result.bashSandbox).toBe('auto');
+    expect(result.webFetchProvider).toBe('direct');
     expect(Array.isArray(result.baseCommands)).toBe(true);
     expect(result.baseCommands).toEqual(['ls']);
     expect(result.stackCommands).toEqual(['npm']);

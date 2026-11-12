@@ -51,7 +51,7 @@ Auto Claude is a desktop application (+ CLI) where users describe a goal and AI 
 - **Isolated Workspaces** — Git worktree isolation for every build; AI-powered semantic merge
 - **Flexible Authentication** — Use a Claude Code subscription (OAuth) or API profiles with any Anthropic-compatible endpoint (e.g., Anthropic API, z.ai for GLM models)
 - **Multi-Account Swapping** — Register multiple Claude accounts; when one hits a rate limit, Auto Claude automatically switches to an available account
-- **Cross-Platform** — Native desktop app for Windows, macOS, and Linux with auto-updates
+- **Cross-Platform** — Native desktop app for Windows, macOS, and Linux. In-app updates are disabled (`UPDATES_DISABLED` in `apps/desktop/src/main/app-updater.ts`); updating means pulling the `zeenha` branch and running `scripts/zeenha-release.sh`. The disabled updater is intentional, so do not "fix" it.
 
 ## Critical Rules
 
@@ -190,7 +190,7 @@ All AI agent logic lives in TypeScript using the Vercel AI SDK v6. This replaces
 - **Worker Threads** (`agent/`) — Agent sessions run in `worker_threads` to avoid blocking the Electron main process. The `WorkerBridge` relays `postMessage()` events to the existing `AgentManagerEvents` interface.
 - **Build Orchestration** (`orchestration/`) — Full planner → coder → QA pipeline. Parallel subagent execution via `Promise.allSettled()`.
 - **Tools** (`tools/`) — 9 builtin tools (Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, SpawnSubagent) defined with Zod schemas via AI SDK `tool()`.
-- **Security** (`security/`) — A denylist-based, allow-by-default Bash validator (a guardrail, not a sandbox), path containment for file tools, environment scrubbing of credential variables for Bash and MCP child processes, a credential-path validator (a speed bump), and an opt-in OS sandbox (bubblewrap/sandbox-exec) as the real isolation control.
+- **Security** (`security/`) — A denylist-based, allow-by-default Bash validator (a guardrail, not a sandbox), path containment for file tools, environment scrubbing of credential variables for Bash and MCP child processes, a credential-path validator (a speed bump), and an opt-in OS sandbox as the real isolation control, with per-platform backends: bubblewrap (Linux) and sandbox-exec (macOS) in `sandbox.ts`, a restricted token + Job object launcher on Windows in `sandbox-windows.ts`, and `sandbox-status.ts` for availability detection feeding the settings status badge. Modes: `off`, `home-hidden`, `home-hidden-no-network`, `restricted-rights`.
 - **Config** (`config/`) — `AGENT_CONFIGS` registry (25+ agent types), phase-aware model resolution, thinking budgets.
 
 ### Key Patterns

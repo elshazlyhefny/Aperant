@@ -6,6 +6,10 @@ import { JinaBrowseProvider } from '../jina-browse';
 // Mock fetch
 // ---------------------------------------------------------------------------
 
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+}));
+
 const mockFetch = vi.fn();
 
 vi.stubGlobal('fetch', mockFetch);
@@ -123,5 +127,13 @@ describe('JinaBrowseProvider', () => {
         signal: expect.any(AbortSignal),
       }),
     );
+  });
+
+  it('should refuse internal URLs without calling fetch', async () => {
+    const provider = new JinaBrowseProvider();
+    await expect(provider.browse('http://169.254.169.254/latest/meta-data/')).rejects.toThrow(
+      'blocked',
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

@@ -17,6 +17,7 @@ import type { SearchProvider } from './types';
 import type { BrowseProvider } from './types';
 import { SerperSearchProvider } from './serper-search';
 import { JinaBrowseProvider } from './jina-browse';
+import { FetchBrowseProvider } from './fetch-browse';
 
 /**
  * Create the default search provider.
@@ -27,9 +28,9 @@ export function createSearchProvider(): SearchProvider {
 }
 
 /**
- * Create the default browse provider.
- * Currently returns JinaBrowseProvider (URL → markdown, no API key needed).
+ * Create the browse provider.
+ * 'jina' (default) relays via Jina Reader; 'direct' fetches locally with native fetch.
  */
-export function createBrowseProvider(): BrowseProvider {
-  return new JinaBrowseProvider();
+export function createBrowseProvider(mode: 'jina' | 'direct' = 'jina'): BrowseProvider {
+  return mode === 'direct' ? new FetchBrowseProvider() : new JinaBrowseProvider();
 }

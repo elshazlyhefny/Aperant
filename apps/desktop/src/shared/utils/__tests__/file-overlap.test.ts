@@ -4,11 +4,16 @@
 import { describe, expect, it } from 'vitest';
 import type { Task, TaskStatus } from '../../types';
 import {
+  buildHoldBlockerTitles,
+  columnOverlapEntriesAreEqual,
   extractPlannedFiles,
   findFileOverlaps,
+  getOverlapInputKey,
   getPlannedFiles,
   isHoldActive,
   normalizePlannedPath,
+  reuseFileOverlaps,
+  reuseHoldBlockerTitles,
 } from '../file-overlap';
 
 function makeTask(id: string, files: string[][] | null, o: Partial<Task> = {}): Task {
@@ -129,5 +134,112 @@ describe('isHoldActive', () => {
     expect(isHoldActive(held('b'), [])).toBe(false);
     expect(isHoldActive(held('b'), [makeTask('b', null, { metadata: { archivedAt: 'x' } })])).toBe(false);
     expect(isHoldActive(held(undefined), [makeTask('b', null)])).toBe(false);
+  });
+});
+
+describe('getOverlapInputKey', () => {
+  const base = () => [makeTask('a', [['x.ts']]), makeTask('b', [['y.ts']])];
+
+  it('is unchanged by progress, timestamps and logs', () => {
+    const before = getOverlapInputKey(base());
+    const changed = base().map((t) => ({
+      ...t,
+      executionProgress: { phase: 'coding', phaseProgress: 50, overallProgress: 50 },
+      updatedAt: new Date(5000),
+      logs: ['line'],
+    })) as Task[];
+    expect(getOverlapInputKey(changed)).toBe(before);
+  });
+
+  it('changes on status, archivedAt, title, projectId, files and holdUntilTaskId', () => {
+    const before = getOverlapInputKey(base());
+    const variants: Array<Partial<Task>> = [
+      { status: 'queue' },
+      { metadata: { archivedAt: '2026-01-01' } },
+      { title: 'Other' },
+      { projectId: 'p2' },
+      { metadata: { holdUntilTaskId: 'b' } },
+    ];
+    for (const v of variants) {
+      const tasks = base();
+      tasks[0] = { ...tasks[0], ...v } as Task;
+      expect(getOverlapInputKey(tasks)).not.toBe(before);
+    }
+    expect(getOverlapInputKey([makeTask('a', [['z.ts']]), makeTask('b', [['y.ts']])])).not.toBe(before);
+  });
+});
+
+describe('reuseFileOverlaps', () => {
+  it('returns the identical Map and arrays for equal results', () => {
+    const prev = findFileOverlaps([makeTask('a', [['x.ts']]), makeTask('b', [['x.ts']])]);
+    const next = findFileOverlaps([makeTask('a', [['x.ts']]), makeTask('b', [['x.ts']])]);
+    expect(reuseFileOverlaps(prev, next)).toBe(prev);
+    expect(reuseFileOverlaps(undefined, next)).toBe(next);
+  });
+
+  it('keeps unchanged arrays when one entry changes', () => {
+    const prev = findFileOverlaps([
+      makeTask('a', [['x.ts']]),
+      makeTask('b', [['x.ts']]),
+      makeTask('c', [['z.ts']]),
+      makeTask('d', [['z.ts']]),
+    ]);
+    const next = findFileOverlaps([
+      makeTask('a', [['x.ts']]),
+      makeTask('b', [['x.ts']]),
+      makeTask('c', [['z.ts']]),
+      makeTask('d', [['z.ts']], { title: 'Renamed' }),
+    ]);
+    const merged = reuseFileOverlaps(prev, next);
+    expect(merged).not.toBe(prev);
+    expect(merged.get('a')).toBe(prev.get('a'));
+    expect(merged.get('b')).toBe(prev.get('b'));
+    expect(merged.get('c')).toBe(next.get('c'));
+    expect(merged.get('c')).not.toBe(prev.get('c'));
+    expect(merged.get('d')).toBe(prev.get('d'));
+  });
+});
+
+describe('buildHoldBlockerTitles', () => {
+  it('matches the isHoldActive-based result', () => {
+    const held = (id: string, blocker: string) => makeTask(id, null, { metadata: { holdUntilTaskId: blocker } });
+    const tasks = [
+      makeTask('run', [['x.ts']]),
+      makeTask('arch', null, { metadata: { archivedAt: 'x' } }),
+      makeTask('fin', null, { status: 'done' }),
+      held('h1', 'run'),
+      held('h2', 'arch'),
+      held('h3', 'fin'),
+      held('h4', 'missing'),
+    ];
+    const expected = new Map<string, string>();
+    for (const t of tasks) {
+      const id = t.metadata?.holdUntilTaskId;
+      if (id && isHoldActive(t, tasks)) expected.set(t.id, tasks.find((x) => x.id === id)?.title ?? '');
+    }
+    expect(buildHoldBlockerTitles(tasks)).toEqual(expected);
+    expect([...buildHoldBlockerTitles(tasks).keys()]).toEqual(['h1']);
+  });
+
+  it('reuseHoldBlockerTitles returns prev when identical', () => {
+    const prev = new Map([['h', 'T']]);
+    expect(reuseHoldBlockerTitles(prev, new Map([['h', 'T']]))).toBe(prev);
+    const changed = new Map([['h', 'U']]);
+    expect(reuseHoldBlockerTitles(prev, changed)).toBe(changed);
+  });
+});
+
+describe('columnOverlapEntriesAreEqual', () => {
+  it('ignores other columns and detects its own changes', () => {
+    const col = [{ id: 'a' }];
+    const aList = [{ taskId: 'b', title: 'B', files: ['x.ts'] }];
+    const prevO = new Map([['a', aList], ['z', [{ taskId: 'q', title: 'Q', files: ['q'] }]]]);
+    const nextO = new Map([['a', aList], ['z', [{ taskId: 'q', title: 'Q2', files: ['q'] }]]]);
+    expect(columnOverlapEntriesAreEqual(col, prevO, nextO, undefined, undefined)).toBe(true);
+    const changedO = new Map([['a', [{ ...aList[0] }]]]);
+    expect(columnOverlapEntriesAreEqual(col, prevO, changedO, undefined, undefined)).toBe(false);
+    expect(columnOverlapEntriesAreEqual(col, undefined, new Map(), undefined, undefined)).toBe(true);
+    expect(columnOverlapEntriesAreEqual(col, undefined, undefined, new Map([['a', 'T']]), new Map([['a', 'U']]))).toBe(false);
+    expect(columnOverlapEntriesAreEqual(col, undefined, undefined, new Map([['z', 'T']]), new Map([['z', 'U']]))).toBe(true);
   });
 });

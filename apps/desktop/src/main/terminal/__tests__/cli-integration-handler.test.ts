@@ -1,7 +1,8 @@
 import { writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
+import { TerminalOutputBuffer } from '../output-buffer';
 import type * as pty from '@lydell/node-pty';
 import type { TerminalProcess } from '../types';
 import { buildCdCommand, escapeShellArg } from '../../../shared/utils/shell-escape';
@@ -1149,5 +1150,78 @@ describe('cli-integration-handler - Helper Functions', () => {
       // Tab instead of space doesn't match
       expect(shouldAutoRenameTerminal('Terminal\t1')).toBe(false);
     });
+  });
+});
+
+describe('switchClaudeProfile - waitForClaudeExit byte offset', () => {
+  const makeFullStoreTerminal = (): TerminalProcess => {
+    const outputStore = new TerminalOutputBuffer();
+    // Fill past the 100 KB limit; ends with a prompt-like line from the OLD session.
+    outputStore.append(`${'x'.repeat(120_000)}\nuser@host:~/proj$ `);
+    return createMockTerminal({
+      isCLIMode: true,
+      outputStore,
+    });
+  };
+
+  const setup = () => {
+    const profileManager = {
+      getProfile: vi.fn(() => ({ id: 'p2', name: 'Two', isDefault: false })),
+      setActiveProfile: vi.fn(),
+    };
+    mockInitializeClaudeProfileManager.mockResolvedValue(profileManager);
+    mockWriteToPty.mockReset();
+    return profileManager;
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('detects a shell prompt arriving after waiting starts when the buffer is already full', async () => {
+    setup();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const terminal = makeFullStoreTerminal();
+    expect(terminal.outputStore?.length).toBe(100_000);
+    terminal.isCLIMode = true;
+
+    mockWriteToPty.mockImplementation((_t: TerminalProcess, data: string) => {
+      if (data === '/exit\r') {
+        setTimeout(() => {
+          terminal.outputStore?.append('\nuser@host:~/proj$ ');
+          // Simulate the shell having taken over from Claude only via output.
+        }, 300);
+      }
+    });
+
+    const { switchClaudeProfile } = await import('../cli-integration-handler');
+    const promise = switchClaudeProfile(terminal, 'p2', () => null, vi.fn(async () => {}), vi.fn());
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+
+    const messages = warnSpy.mock.calls.map((c) => String(c[0]));
+    expect(messages.some((m) => m.includes('Claude exited successfully'))).toBe(true);
+    expect(messages.some((m) => m.includes('Timed out'))).toBe(false);
+  });
+
+  it('does not mistake old prompt-like output for new output', async () => {
+    setup();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const terminal = makeFullStoreTerminal();
+    mockWriteToPty.mockImplementation(() => {});
+
+    const { switchClaudeProfile } = await import('../cli-integration-handler');
+    const promise = switchClaudeProfile(terminal, 'p2', () => null, vi.fn(async () => {}), vi.fn());
+    await vi.advanceTimersByTimeAsync(6000);
+    await promise;
+
+    const messages = warnSpy.mock.calls.map((c) => String(c[0]));
+    expect(messages.some((m) => m.includes('Timed out'))).toBe(true);
+    expect(messages.some((m) => m.includes('Claude exited successfully'))).toBe(false);
   });
 });

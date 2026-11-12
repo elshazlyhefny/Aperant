@@ -28,6 +28,7 @@ import type {
   SeoIdea
 } from '../../../shared/types';
 import { TypeIcon } from './TypeIcon';
+import { PossibleDuplicateBadge } from './PossibleDuplicateBadge';
 import {
   isCodeImprovementIdea,
   isUIUXIdea,
@@ -101,6 +102,7 @@ export function IdeaCard({ idea, isSelected, onClick, onConvert, onGoToTask, onD
                 {idea.status}
               </Badge>
             )}
+            <PossibleDuplicateBadge idea={idea} />
             {isCodeImprovementIdea(idea) && typeof (idea as CodeImprovementIdea).estimatedEffort === 'string' && (
               <Badge variant="outline" className={IDEATION_EFFORT_COLORS[(idea as CodeImprovementIdea).estimatedEffort]}>
                 {(idea as CodeImprovementIdea).estimatedEffort}

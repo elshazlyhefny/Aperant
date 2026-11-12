@@ -24,6 +24,7 @@ import {
   Eraser
 } from 'lucide-react';
 import { Button } from './ui/button';
+import { CopyButton } from './ui/copy-button';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -737,17 +738,13 @@ export function Worktrees({ projectId }: WorktreesProps) {
                               {t('common:buttons.openPR')}
                             </Button>
                           )}
-                          <Button
+                          <CopyButton
+                            text={worktree.path}
+                            icon={FolderOpen}
+                            label={t('common:buttons.copyPath')}
                             variant="outline"
                             size="sm"
-                            onClick={() => {
-                              // Copy worktree path to clipboard
-                              navigator.clipboard.writeText(worktree.path);
-                            }}
-                          >
-                            <FolderOpen className="h-3.5 w-3.5 mr-1.5" />
-                            Copy Path
-                          </Button>
+                          />
                           <Button
                             variant="outline"
                             size="sm"
@@ -825,17 +822,13 @@ export function Worktrees({ projectId }: WorktreesProps) {
 
                       {/* Actions */}
                       <div className="flex flex-wrap gap-2">
-                        <Button
+                        <CopyButton
+                          text={wt.worktreePath}
+                          icon={FolderOpen}
+                          label={t('common:buttons.copyPath')}
                           variant="outline"
                           size="sm"
-                          onClick={() => {
-                            // Copy worktree path to clipboard
-                            navigator.clipboard.writeText(wt.worktreePath);
-                          }}
-                        >
-                          <FolderOpen className="h-3.5 w-3.5 mr-1.5" />
-                          Copy Path
-                        </Button>
+                        />
                         <Button
                           variant="outline"
                           size="sm"

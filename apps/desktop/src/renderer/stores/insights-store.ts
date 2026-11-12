@@ -17,6 +17,12 @@ interface ToolUsage {
   input?: string;
 }
 
+interface LastSentMessage {
+  sessionId: string | undefined;
+  message: string;
+  images?: ImageAttachment[];
+}
+
 interface InsightsState {
   // Data
   session: InsightsSession | null;
@@ -30,8 +36,11 @@ interface InsightsState {
   isLoadingSessions: boolean;
   showArchived: boolean; // Whether to include archived sessions in listings
   pendingImages: ImageAttachment[]; // Images pending attachment to next message
+  // Last message sent, with full image data. In memory only: session images are stripped of data.
+  lastSent: LastSentMessage | null;
 
   // Actions
+  setLastSent: (lastSent: LastSentMessage | null) => void;
   setSession: (session: InsightsSession | null) => void;
   setSessions: (sessions: InsightsSessionSummary[]) => void;
   setStatus: (status: InsightsChatStatus) => void;
@@ -44,7 +53,7 @@ interface InsightsState {
   addToolUsage: (tool: ToolUsage) => void;
   clearToolsUsed: () => void;
   addStreamingTasks: (tasks: NonNullable<InsightsChatMessage['suggestedTasks']>) => void;
-  finalizeStreamingMessage: () => void;
+  finalizeStreamingMessage: (stopped?: boolean) => void;
   clearSession: () => void;
   setLoadingSessions: (loading: boolean) => void;
   setShowArchived: (showArchived: boolean) => void;
@@ -69,8 +78,11 @@ export const useInsightsStore = create<InsightsState>((set, _get) => ({
   isLoadingSessions: false,
   showArchived: false,
   pendingImages: [],
+  lastSent: null,
 
   // Actions
+  setLastSent: (lastSent) => set({ lastSent }),
+
   setSession: (session) => set({ session }),
 
   setSessions: (sessions) => set({ sessions }),
@@ -156,7 +168,7 @@ export const useInsightsStore = create<InsightsState>((set, _get) => ({
       streamingTasks: [...state.streamingTasks, ...tasks]
     })),
 
-  finalizeStreamingMessage: () =>
+  finalizeStreamingMessage: (stopped) =>
     set((state) => {
       const content = state.streamingContent;
       const toolsUsed = state.toolsUsed.length > 0 ? [...state.toolsUsed] : undefined;
@@ -172,7 +184,8 @@ export const useInsightsStore = create<InsightsState>((set, _get) => ({
         content,
         timestamp: new Date(),
         suggestedTasks,
-        toolsUsed
+        toolsUsed,
+        stopped: stopped || undefined
       };
 
       if (!state.session) {
@@ -211,7 +224,8 @@ export const useInsightsStore = create<InsightsState>((set, _get) => ({
       streamingTasks: [],
       currentTool: null,
       toolsUsed: [],
-      pendingImages: []
+      pendingImages: [],
+      lastSent: null
     }),
 
   setPendingImages: (images) => set({ pendingImages: images })
@@ -280,8 +294,73 @@ export function sendMessage(projectId: string, message: string, modelConfig?: In
   // Use provided modelConfig, or fall back to session's config
   const configToUse = modelConfig || session?.modelConfig;
 
+  // Remember the full-data send so a retry can resend the original images
+  store.setLastSent({ sessionId: session?.id, message, images });
+
   // Send to main process
   window.electronAPI.sendInsightsMessage(projectId, message, configToUse, images);
+}
+
+function findLastUserMessage(session: InsightsSession | null): InsightsChatMessage | null {
+  if (!session) return null;
+  for (let i = session.messages.length - 1; i >= 0; i--) {
+    if (session.messages[i].role === 'user') return session.messages[i];
+  }
+  return null;
+}
+
+/**
+ * Last user message with the best available images: full-data images from the
+ * in-memory lastSent when it matches, otherwise the session's (thumbnail-only) images.
+ */
+export function getLastUserMessage(): { content: string; images: ImageAttachment[] } | null {
+  const { session, lastSent } = useInsightsStore.getState();
+  const userMessage = findLastUserMessage(session);
+  if (!userMessage) return null;
+  if (lastSent && lastSent.message === userMessage.content) {
+    return { content: userMessage.content, images: lastSent.images ?? [] };
+  }
+  return { content: userMessage.content, images: userMessage.images ?? [] };
+}
+
+/**
+ * Re-run the last user turn without adding a new user message
+ * (the turn is already in the session and persisted by main).
+ */
+export function retryLastMessage(projectId: string): void {
+  const store = useInsightsStore.getState();
+  const session = store.session;
+  if (!session) return;
+  if (store.status.phase === 'thinking' || store.status.phase === 'streaming') return;
+
+  const last = getLastUserMessage();
+  if (!last) return;
+
+  store.clearStreamingContent();
+  store.clearToolsUsed();
+  store.setCurrentTool(null);
+  store.setStatus({
+    phase: 'thinking',
+    message: 'Processing your message...'
+  });
+
+  window.electronAPI.sendInsightsMessage(
+    projectId,
+    last.content,
+    session.modelConfig,
+    last.images.length > 0 ? last.images : undefined,
+    true
+  );
+}
+
+export function stopMessage(projectId: string): void {
+  const { phase } = useInsightsStore.getState().status;
+  if (phase !== 'thinking' && phase !== 'streaming') return;
+
+  // Do not change status here: the main process ends the run with a 'done'
+  // chunk (stopped: true) and a 'complete' status, which finalizes the partial
+  // text exactly once.
+  window.electronAPI.cancelInsights(projectId);
 }
 
 export async function clearSession(projectId: string, includeArchived?: boolean): Promise<void> {
@@ -297,6 +376,7 @@ export async function newSession(projectId: string): Promise<void> {
   const result = await window.electronAPI.newInsightsSession(projectId);
   if (result.success && result.data) {
     useInsightsStore.getState().setSession(result.data);
+    useInsightsStore.getState().setLastSent(null);
     // Reload sessions list
     await loadInsightsSessions(projectId);
   }
@@ -306,6 +386,7 @@ export async function switchSession(projectId: string, sessionId: string): Promi
   const result = await window.electronAPI.switchInsightsSession(projectId, sessionId);
   if (result.success && result.data) {
     useInsightsStore.getState().setSession(result.data);
+    useInsightsStore.getState().setLastSent(null);
     // Reset streaming state when switching sessions
     useInsightsStore.getState().clearStreamingContent();
     useInsightsStore.getState().clearToolsUsed();
@@ -446,7 +527,7 @@ export function setupInsightsListeners(): () => void {
         case 'done':
           // Finalize any remaining content
           store().setCurrentTool(null);
-          store().finalizeStreamingMessage();
+          store().finalizeStreamingMessage(chunk.stopped);
           store().setStatus({
             phase: 'complete',
             message: ''

@@ -12,7 +12,7 @@
 
 import { stepCountIs } from 'ai';
 import { streamText } from '../claude-code/sdk';
-import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createSimpleClient } from '../client/factory';
@@ -298,6 +298,9 @@ export async function runIdeation(
   prompt += `\n${IDEATION_EVIDENCE_RULES}\n`;
   if (priorWorkNote) prompt += `\n${priorWorkNote}\n`;
 
+  // Write containment resolves against outputDir, so it must exist before the agent starts
+  mkdirSync(outputDir, { recursive: true });
+
   // Create tool context for read-only tools
   const toolContext: ToolContext = {
     cwd: projectDir,
@@ -305,6 +308,8 @@ export async function runIdeation(
     specDir: join(projectDir, '.auto-claude', 'specs'),
     securityProfile: null as unknown as SecurityProfile,
     abortSignal,
+    // Write/Edit are confined to the output directory
+    writeRoot: outputDir,
   };
 
   // Bind read-only tools + Write for output

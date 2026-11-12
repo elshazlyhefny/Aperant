@@ -35,6 +35,15 @@ const ALL_BUILTIN_TOOLS = [...BASE_READ_TOOLS, ...BASE_WRITE_TOOLS, ...WEB_TOOLS
 /** Spec pipeline tools — read codebase + write to spec dir + web research. No Edit, no Bash. */
 const SPEC_TOOLS = [...BASE_READ_TOOLS, 'Write', ...WEB_TOOLS] as const;
 
+/**
+ * Analysis agent tools (ideation, roadmap, competitor analysis) — read codebase + write
+ * output file + shell for read-only exploration. No Edit, so these agents cannot modify tracked source.
+ */
+const ANALYSIS_TOOLS = [...BASE_READ_TOOLS, 'Write', 'Bash', ...WEB_TOOLS] as const;
+
+/** Chat agent tools (insights) — read codebase + shell + web. No Write, no Edit. */
+const CHAT_TOOLS = [...BASE_READ_TOOLS, 'Bash', ...WEB_TOOLS] as const;
+
 // =============================================================================
 // External MCP Tools
 // =============================================================================
@@ -228,7 +237,7 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   // UTILITY PHASES (Minimal, no MCP)
   // ═══════════════════════════════════════════════════════════════════════
   insights: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...CHAT_TOOLS],
     mcpServers: [],
     thinkingDefault: 'low',
   },
@@ -247,18 +256,20 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
     mcpServers: [],
     thinkingDefault: 'low',
   },
+  // zeenha fork: PR author text reaches these agents and they run in the
+  // author's checkout, so they are read-only (no Bash, Write, Edit, web tools).
   pr_reviewer: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...BASE_READ_TOOLS],
     mcpServers: ['context7'],
     thinkingDefault: 'high',
   },
   pr_orchestrator_parallel: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...BASE_READ_TOOLS],
     mcpServers: ['context7'],
     thinkingDefault: 'high',
   },
   pr_followup_parallel: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...BASE_READ_TOOLS],
     mcpServers: ['context7'],
     thinkingDefault: 'high',
   },
@@ -267,8 +278,9 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
     mcpServers: [],
     thinkingDefault: 'low',
   },
+  // zeenha fork: read-only, same reason as pr_reviewer above.
   pr_finding_validator: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...BASE_READ_TOOLS],
     mcpServers: [],
     thinkingDefault: 'medium',
   },
@@ -316,17 +328,17 @@ export const AGENT_CONFIGS: Record<AgentType, AgentConfig> = {
   // ROADMAP & IDEATION
   // ═══════════════════════════════════════════════════════════════════════
   roadmap_discovery: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...ANALYSIS_TOOLS],
     mcpServers: ['context7'],
     thinkingDefault: 'high',
   },
   competitor_analysis: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...ANALYSIS_TOOLS],
     mcpServers: ['context7'],
     thinkingDefault: 'high',
   },
   ideation: {
-    tools: [...ALL_BUILTIN_TOOLS],
+    tools: [...ANALYSIS_TOOLS],
     mcpServers: [],
     thinkingDefault: 'high',
   },

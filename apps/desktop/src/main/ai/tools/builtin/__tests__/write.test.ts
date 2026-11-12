@@ -161,4 +161,33 @@ describe('Write Tool', () => {
 
     expect(fs.writeFileSync).not.toHaveBeenCalled();
   });
+
+  it.each(['/test/project/.git/hooks/pre-commit', '/test/project/.git/config'])(
+    'should reject writes to git internals: %s',
+    async (file_path) => {
+      await expect(
+        writeTool.config.execute({ file_path, content: 'x' }, baseContext),
+      ).rejects.toThrow('git internals');
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    },
+  );
+
+  it('should enforce writeRoot when set', async () => {
+    vi.mocked(assertPathContained).mockImplementation((filePath: string, root: string) => {
+      if (!filePath.startsWith(root)) throw new Error('outside');
+      return { contained: true, resolvedPath: filePath };
+    });
+    const context = { ...baseContext, writeRoot: '/test/project/sub' } as ToolContext;
+
+    await expect(
+      writeTool.config.execute({ file_path: '/test/project/other.ts', content: 'x' }, context),
+    ).rejects.toThrow('outside the allowed write root');
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+
+    const result = await writeTool.config.execute(
+      { file_path: '/test/project/sub/ok.ts', content: 'x' },
+      context,
+    );
+    expect(result).toContain('Successfully wrote');
+  });
 });

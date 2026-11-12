@@ -301,6 +301,16 @@ describe('bashSecurityHook', () => {
     }
   });
 
+  it('blocks git hook config changes and .git/hooks writes', () => {
+    for (const command of ['git config core.hooksPath /tmp/h', 'echo x > .git/hooks/pre-commit']) {
+      const result = bashSecurityHook({ toolName: 'Bash', toolInput: { command } });
+      expect('hookSpecificOutput' in result).toBe(true);
+      if ('hookSpecificOutput' in result) {
+        expect(result.hookSpecificOutput.permissionDecision).toBe('deny');
+      }
+    }
+  });
+
   it('blocks denylist commands inside bash -c strings', () => {
     const result = bashSecurityHook({
       toolName: 'Bash',

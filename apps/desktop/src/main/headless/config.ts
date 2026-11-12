@@ -14,6 +14,7 @@ import { readApprovedProjectMcpOptions } from '../ai/mcp/project-settings';
 import type { McpApprovals } from '../ai/mcp/mcp-approval';
 import { parseEnvPassthrough } from '../ai/security/child-env';
 import { parseSandboxMode } from '../ai/security/sandbox';
+import { parseWebFetchProvider } from '../ai/tools/providers/types';
 import type { SerializableSessionConfig } from '../ai/agent/types';
 
 export interface HeadlessProjectConfig {
@@ -21,6 +22,7 @@ export interface HeadlessProjectConfig {
   pushNewBranches?: boolean;
   envPassthrough?: unknown;
   bashSandbox?: unknown;
+  webFetchProvider?: unknown;
 }
 
 export interface HeadlessConfig {
@@ -41,6 +43,7 @@ export interface HeadlessProjectSettings {
   pushNewBranches: boolean;
   envPassthrough: string[];
   bashSandbox: ReturnType<typeof parseSandboxMode>;
+  webFetchProvider: ReturnType<typeof parseWebFetchProvider>;
   prOnlyLanding: true;
 }
 
@@ -86,14 +89,14 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
     if (!isRecord(raw.project)) {
       throw new Error(`Config file ${configPath}: project must be an object`);
     }
-    const { mainBranch, pushNewBranches, envPassthrough, bashSandbox } = raw.project;
+    const { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider } = raw.project;
     if (mainBranch !== undefined && typeof mainBranch !== 'string') {
       throw new Error(`Config file ${configPath}: project.mainBranch must be a string`);
     }
     if (pushNewBranches !== undefined && typeof pushNewBranches !== 'boolean') {
       throw new Error(`Config file ${configPath}: project.pushNewBranches must be a boolean`);
     }
-    config.project = { mainBranch, pushNewBranches, envPassthrough, bashSandbox };
+    config.project = { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider };
   }
   return config;
 }
@@ -114,6 +117,8 @@ export function resolveProjectSettings(
     pushNewBranches: flags.noPush ? false : (config.project?.pushNewBranches ?? true),
     envPassthrough: parseEnvPassthrough(config.project?.envPassthrough),
     bashSandbox: parseSandboxMode(config.project?.bashSandbox),
+    // zeenha fork: unknown or missing = 'jina'.
+    webFetchProvider: parseWebFetchProvider(config.project?.webFetchProvider),
     // zeenha fork: headless work always lands through a pull request. There is
     // deliberately no flag or config key to switch this off.
     prOnlyLanding: true,
