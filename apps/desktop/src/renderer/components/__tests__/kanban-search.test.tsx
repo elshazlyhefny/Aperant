@@ -42,7 +42,7 @@ vi.mock('../../hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }
 import { KanbanBoard } from '../KanbanBoard';
 import { ViewStateProvider } from '../../contexts/ViewStateContext';
 import { TooltipProvider } from '../ui/tooltip';
-import { filterColumnsBySearch, taskMatchesSearch } from '../kanban-columns';
+import { filterColumnsByFacets, filterColumnsBySearch, taskMatchesSearch } from '../kanban-columns';
 
 beforeAll(() => {
   if (!('ResizeObserver' in globalThis)) {
@@ -54,7 +54,14 @@ beforeAll(() => {
   }
 });
 
-const makeTask = (id: string, status: string, title: string, specId: string, description = '') =>
+const makeTask = (
+  id: string,
+  status: string,
+  title: string,
+  specId: string,
+  description = '',
+  metadata?: Record<string, unknown>
+) =>
   ({
     id,
     specId,
@@ -62,6 +69,7 @@ const makeTask = (id: string, status: string, title: string, specId: string, des
     title,
     description,
     status,
+    metadata,
     subtasks: [],
     logs: [],
     createdAt: new Date(),
@@ -124,6 +132,102 @@ describe('taskMatchesSearch', () => {
 
   it('does not produce false positives', () => {
     expect(taskMatchesSearch(t, 'zzz-nothing')).toBe(false);
+  });
+});
+
+describe('taskMatchesSearch issue keys', () => {
+  const base = { title: 'Unrelated', description: '', specId: '001-x' };
+  const withMeta = (metadata: Record<string, unknown> | undefined) => ({ ...base, metadata }) as never;
+
+  it('matches a Jira key exactly, case-insensitively', () => {
+    const t = withMeta({ jiraIssueKey: 'PROJ-123' });
+    expect(taskMatchesSearch(t, 'PROJ-123')).toBe(true);
+    expect(taskMatchesSearch(t, 'proj-123')).toBe(true);
+    expect(taskMatchesSearch(t, ' proj-123 ')).toBe(true);
+  });
+
+  it('matches a Linear identifier', () => {
+    const t = withMeta({ linearIdentifier: 'ABC-45' });
+    expect(taskMatchesSearch(t, 'abc-45')).toBe(true);
+  });
+
+  it('matches a single GitHub issue number', () => {
+    const t = withMeta({ githubIssueNumber: 87 });
+    expect(taskMatchesSearch(t, '#87')).toBe(true);
+  });
+
+  it('matches any number of a GitHub batch', () => {
+    const t = withMeta({ githubIssueNumbers: [12, 34] });
+    expect(taskMatchesSearch(t, '#12')).toBe(true);
+    expect(taskMatchesSearch(t, '#34')).toBe(true);
+    expect(taskMatchesSearch(t, '#56')).toBe(false);
+  });
+
+  it('matches a GitLab iid', () => {
+    const t = withMeta({ gitlabIssueIid: 9 });
+    expect(taskMatchesSearch(t, '#9')).toBe(true);
+  });
+
+  it('does not produce prefix false positives', () => {
+    expect(taskMatchesSearch(withMeta({ jiraIssueKey: 'PROJ-1234' }), 'PROJ-123')).toBe(false);
+    expect(taskMatchesSearch(withMeta({ githubIssueNumber: 871 }), '#87')).toBe(false);
+    expect(taskMatchesSearch(withMeta({ gitlabIssueIid: 91 }), '#9')).toBe(false);
+  });
+
+  it('does not throw when metadata is undefined or numbers are 0', () => {
+    expect(() => taskMatchesSearch(withMeta(undefined), '#1')).not.toThrow();
+    expect(taskMatchesSearch(withMeta(undefined), '#1')).toBe(false);
+    expect(taskMatchesSearch(withMeta({ githubIssueNumber: 0 }), '#0')).toBe(false);
+  });
+});
+
+describe('filterColumnsByFacets', () => {
+  const columns = {
+    backlog: [
+      makeTask('a', 'backlog', 'A', '001-a', '', { sourceType: 'github', priority: 'high' }),
+      makeTask('b', 'backlog', 'B', '002-b', '', { sourceType: 'jira', priority: 'low' }),
+      makeTask('c', 'backlog', 'C', '003-c', '', { priority: 'high' }),
+      makeTask('d', 'backlog', 'D', '004-d'),
+      makeTask('e', 'backlog', 'E', '005-e', '', { sourceType: 'github', priority: 'low' }),
+    ],
+    done: [] as never[],
+  };
+  const ids = (list: { id: string }[]) => list.map((x) => x.id);
+  const none = { sources: [], priorities: [] };
+
+  it('returns the same reference when both facets are empty', () => {
+    expect(filterColumnsByFacets(columns, none)).toBe(columns);
+  });
+
+  it('filters by source', () => {
+    const r = filterColumnsByFacets(columns, { ...none, sources: ['github'] });
+    expect(ids(r.backlog)).toEqual(['a', 'e']);
+  });
+
+  it('treats a missing sourceType as manual', () => {
+    const r = filterColumnsByFacets(columns, { ...none, sources: ['manual'] });
+    expect(ids(r.backlog)).toEqual(['c', 'd']);
+  });
+
+  it('filters by priority and excludes tasks without one', () => {
+    const r = filterColumnsByFacets(columns, { ...none, priorities: ['high'] });
+    expect(ids(r.backlog)).toEqual(['a', 'c']);
+  });
+
+  it('ANDs the two facets', () => {
+    const r = filterColumnsByFacets(columns, { sources: ['github'], priorities: ['low'] });
+    expect(ids(r.backlog)).toEqual(['e']);
+  });
+
+  it('ORs selections within a facet', () => {
+    const r = filterColumnsByFacets(columns, { ...none, sources: ['github', 'jira'] });
+    expect(ids(r.backlog)).toEqual(['a', 'b', 'e']);
+  });
+
+  it('keeps empty column keys', () => {
+    const r = filterColumnsByFacets(columns, { ...none, sources: ['github'] });
+    expect(Object.keys(r)).toEqual(['backlog', 'done']);
+    expect(r.done).toEqual([]);
   });
 });
 
