@@ -520,6 +520,35 @@ describe('Task Logs Integration (IPC → Service → State)', () => {
       );
     });
 
+    it('should forward logs-appended events to renderer', async () => {
+      const { taskLogService } = await import('../../../task-log-service');
+
+      const delta = {
+        spec_id: '001-test-task',
+        updated_at: '2024-01-01T01:00:00Z',
+        phases: {}
+      };
+
+      const onCall = (taskLogService.on as Mock).mock.calls.find(
+        call => call[0] === 'logs-appended'
+      );
+      expect(onCall).toBeDefined();
+      if (!onCall) throw new Error('logs-appended handler not registered');
+      onCall[1]('001-test-task', delta);
+
+      expect(mockMainWindow.webContents?.send).toHaveBeenCalledWith(
+        'task:logsAppended',
+        '001-test-task',
+        delta
+      );
+
+      // Existing logs-changed forwarder is still registered
+      const changedCall = (taskLogService.on as Mock).mock.calls.find(
+        call => call[0] === 'logs-changed'
+      );
+      expect(changedCall).toBeDefined();
+    });
+
     it('should not register a stream-chunk forwarder', async () => {
       const { taskLogService } = await import('../../../task-log-service');
       const onCall = (taskLogService.on as Mock).mock.calls.find(
