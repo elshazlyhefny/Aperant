@@ -25,6 +25,12 @@ import { createSimpleClient } from '../../client/factory';
 import type { ModelShorthand, ThinkingLevel } from '../../config/types';
 import type { WorktreeCreatePRErrorCode } from '../../../../shared/types';
 import { capPRTitle } from '../../../../shared/utils/pr-title';
+import {
+  createGitLabMergeRequest,
+  findOpenMergeRequestForBranch,
+  GitLabAPIError,
+} from '../../../ipc-handlers/gitlab/utils';
+import type { GitLabConfig } from '../../../ipc-handlers/gitlab/types';
 
 // =============================================================================
 // Constants
@@ -737,13 +743,18 @@ async function getExistingPRUrl(
 // Main PR Creator
 // =============================================================================
 
+type PrepareBranchConfig = Omit<CreatePRConfig, 'ghPath'>;
+
+export type PrepareBranchResult =
+  | { ok: true; title: string; body: string; effectiveBase: string }
+  | { ok: false; result: CreatePRResult };
+
 /**
- * Push a worktree branch and create a GitHub PR with an AI-generated description.
- *
- * @param config - PR creation configuration
- * @returns Result with PR URL or error details
+ * Provider-neutral half of Create PR / Create MR: guard the branch, commit
+ * pending work, check there is something to propose, pick a title, push, and
+ * write the description. Stops at the first failure with the result to return.
  */
-export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> {
+export async function prepareBranch(config: PrepareBranchConfig): Promise<PrepareBranchResult> {
   const {
     projectDir,
     worktreePath,
@@ -753,8 +764,6 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
     title: typedTitle,
     fallbackTitle,
     taskTitle,
-    draft = false,
-    ghPath,
     gitPath,
     modelShorthand = 'haiku',
     thinkingLevel = 'low',
@@ -764,16 +773,15 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
   // touch this task's own branch. Refuse anything else before git runs.
   if (branchName !== `auto-claude/${specId}` || !TASK_BRANCH_RE.test(branchName) || branchName.includes('..')) {
     return {
-      success: false,
-      errorCode: 'BRANCH_REFUSED',
-      error: `Refusing to push "${branchName}": Create PR only pushes the task's own branch (auto-claude/${specId}).`,
+      ok: false,
+      result: {
+        success: false,
+        errorCode: 'BRANCH_REFUSED',
+        error: `Refusing to push "${branchName}": Create PR only pushes the task's own branch (auto-claude/${specId}).`,
+      },
     };
   }
 
-  // zeenha fork: a task can legitimately finish without changing code (e.g.
-  // the fix was running database migrations). GitHub then refuses the PR with
-  // "GraphQL: No commits between main and auto-claude/...", which reads like
-  // a failure. Say what happened before pushing anything.
   // zeenha fork: the coder is told to commit after each subtask but does not
   // always do it, so finished work can sit uncommitted in the worktree. Commit
   // it (never Aperant's own .auto-claude files) before anything is counted or
@@ -782,44 +790,45 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
   const fallback = typed ?? (capPRTitle(fallbackTitle) || `auto-claude: ${specId}`);
   const commitError = await commitPendingWork(worktreePath, gitPath, fallback);
   if (commitError) {
-    return { success: false, errorCode: 'COMMIT_FAILED', error: `Could not commit the task's changes: ${commitError}` };
+    return {
+      ok: false,
+      result: { success: false, errorCode: 'COMMIT_FAILED', error: `Could not commit the task's changes: ${commitError}` },
+    };
   }
 
+  // zeenha fork: a task can legitimately finish without changing code (e.g.
+  // the fix was running database migrations). Say what happened before pushing.
   const ahead = await commitsAheadOfBase(worktreePath, gitPath, baseBranch);
   if (ahead === 0) {
     const progress = config.subtaskProgress;
     const unfinished = progress !== undefined && progress.total > 0 && progress.completed < progress.total;
     return {
-      success: false,
-      noChanges: true,
-      errorCode: 'NO_CHANGES',
-      error: unfinished ? unfinishedTaskMessage(progress.completed, progress.total) : NO_CHANGES_MESSAGE,
+      ok: false,
+      result: {
+        success: false,
+        noChanges: true,
+        errorCode: 'NO_CHANGES',
+        error: unfinished ? unfinishedTaskMessage(progress.completed, progress.total) : NO_CHANGES_MESSAGE,
+      },
     };
   }
 
   // zeenha fork: the title is suggested only now, from the committed branch.
-  // It used to be asked for before commitPendingWork, so work the coder left
-  // uncommitted was invisible to the model, which could see no changes at all.
   const { diffSummary, commitLog } = await gatherPRContext(worktreePath, gitPath, baseBranch);
   const title =
     typed ??
     (await suggestPRTitle({ taskTitle: taskTitle?.trim() ? taskTitle : fallback, specId, diffSummary, commitLog })) ??
     fallback;
 
-  // Step 1: Push the branch to origin
   const pushError = await pushBranch(worktreePath, gitPath, branchName);
   if (pushError) {
     // If it looks like the branch is already up-to-date, don't bail
-    const isUpToDate = pushError.includes('Everything up-to-date') ||
-                       pushError.includes('up to date');
+    const isUpToDate = pushError.includes('Everything up-to-date') || pushError.includes('up to date');
     if (!isUpToDate) {
-      return { success: false, errorCode: 'PUSH_FAILED', error: `Failed to push branch: ${pushError}` };
+      return { ok: false, result: { success: false, errorCode: 'PUSH_FAILED', error: `Failed to push branch: ${pushError}` } };
     }
   }
 
-  // Step 2: the context gathered above (pushing does not change it)
-
-  // Step 3: Generate AI PR body (falls back to spec summary on failure)
   const aiBody = await generatePRBody(
     {
       specId,
@@ -834,15 +843,26 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
     modelShorthand,
     thinkingLevel,
   );
+  const body = aiBody || extractSpecSummary(projectDir, specId);
 
-  const prBody = aiBody || extractSpecSummary(projectDir, specId);
+  const effectiveBase = baseBranch.startsWith('origin/') ? baseBranch.slice('origin/'.length) : baseBranch;
 
-  // Step 4: Strip remote prefix from base branch if present
-  const effectiveBase = baseBranch.startsWith('origin/')
-    ? baseBranch.slice('origin/'.length)
-    : baseBranch;
+  return { ok: true, title, body, effectiveBase };
+}
 
-  // Step 5: Build gh pr create command
+/**
+ * Push a worktree branch and create a GitHub PR with an AI-generated description.
+ *
+ * @param config - PR creation configuration
+ * @returns Result with PR URL or error details
+ */
+export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> {
+  const { projectDir, branchName, draft = false, ghPath } = config;
+
+  const prepared = await prepareBranch(config);
+  if (!prepared.ok) return prepared.result;
+  const { title, body: prBody, effectiveBase } = prepared;
+
   const ghArgs = [
     'pr', 'create',
     '--base', effectiveBase,
@@ -904,4 +924,59 @@ export async function createPR(config: CreatePRConfig): Promise<CreatePRResult> 
   }
 
   return { success: false, errorCode: 'RETRIES_EXHAUSTED', error: 'PR creation failed after 3 attempts' };
+}
+
+// =============================================================================
+// GitLab merge request finisher
+// =============================================================================
+
+/**
+ * Push a worktree branch and open a GitLab merge request with an AI-generated
+ * description. Shares every step before the API call with createPR.
+ */
+export async function createMR(
+  config: Omit<CreatePRConfig, 'ghPath'> & { gitlab: GitLabConfig },
+): Promise<CreatePRResult> {
+  const { branchName, draft = false, gitlab } = config;
+
+  const prepared = await prepareBranch(config);
+  if (!prepared.ok) return prepared.result;
+  const { title, body, effectiveBase } = prepared;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const mr = await createGitLabMergeRequest(gitlab, {
+        sourceBranch: branchName,
+        targetBranch: effectiveBase,
+        title: draft ? `Draft: ${title}` : title,
+        description: body,
+      });
+      return { success: true, prUrl: mr.web_url, alreadyExists: false };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const statusCode = err instanceof GitLabAPIError ? err.statusCode : undefined;
+
+      if (statusCode === 409 || message.toLowerCase().includes('already exists')) {
+        try {
+          const existing = await findOpenMergeRequestForBranch(gitlab, branchName, effectiveBase);
+          return { success: true, prUrl: existing?.web_url, alreadyExists: true };
+        } catch {
+          return { success: true, prUrl: undefined, alreadyExists: true };
+        }
+      }
+
+      // A timeout (statusCode 0) is ambiguous (the MR may exist), so it is not retried.
+      const retryable =
+        statusCode === undefined ? /timeout|connection|network|ECONNRESET|ECONNREFUSED|fetch failed/i.test(message)
+          : statusCode >= 500;
+      if (retryable && attempt < 2 && statusCode !== 0) {
+        await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 2000));
+        continue;
+      }
+
+      return { success: false, errorCode: 'MR_FAILED', error: message || 'Failed to create merge request' };
+    }
+  }
+
+  return { success: false, errorCode: 'MR_FAILED', error: 'Merge request creation failed after 3 attempts' };
 }
