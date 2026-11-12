@@ -63,6 +63,12 @@ describe('resolveProjectSettings', () => {
     expect(Array.isArray(s.envPassthrough)).toBe(true);
     expect(typeof s.bashSandbox).toBe('string');
   });
+
+  it('parses webFetchProvider and falls back to jina', () => {
+    expect(resolveProjectSettings(dir, {}).webFetchProvider).toBe('jina');
+    expect(resolveProjectSettings(dir, { project: { webFetchProvider: 'bogus' } }).webFetchProvider).toBe('jina');
+    expect(resolveProjectSettings(dir, { project: { webFetchProvider: 'direct' } }).webFetchProvider).toBe('direct');
+  });
 });
 
 describe('mcpOptionsForHeadless', () => {

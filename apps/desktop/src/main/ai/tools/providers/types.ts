@@ -12,6 +12,18 @@
  */
 
 // ---------------------------------------------------------------------------
+// WebFetch provider mode
+// ---------------------------------------------------------------------------
+
+/** zeenha fork: how WebFetch reaches a URL. 'jina' relays via r.jina.ai, 'direct' fetches locally. */
+export type WebFetchProviderMode = 'jina' | 'direct';
+
+/** zeenha fork: parse the per-project setting; anything unknown falls back to 'jina' (the existing default). */
+export function parseWebFetchProvider(value: unknown): WebFetchProviderMode {
+  return value === 'direct' ? 'direct' : 'jina';
+}
+
+// ---------------------------------------------------------------------------
 // Search Provider
 // ---------------------------------------------------------------------------
 

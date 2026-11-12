@@ -53,6 +53,11 @@ export interface ProjectSettings {
    * Default 'off'. See main/ai/security/sandbox.ts.
    */
   bashSandbox?: 'off' | 'home-hidden' | 'home-hidden-no-network' | 'restricted-rights';
+  /**
+   * zeenha fork: how the WebFetch tool reaches a URL. 'jina' sends every fetched URL to
+   * r.jina.ai; 'direct' fetches from this machine. Default (missing) 'jina'.
+   */
+  webFetchProvider?: 'jina' | 'direct';
 }
 
 export interface NotificationSettings {
@@ -560,6 +565,7 @@ export interface FileNode {
 }
 
 // zeenha fork: whether the OS-level Bash sandbox tool can run on this machine
+export type WebFetchProviderMode = NonNullable<ProjectSettings['webFetchProvider']>;
 export type BashSandboxMode = NonNullable<ProjectSettings['bashSandbox']>;
 export type SandboxStatusKind = 'active' | 'available-off' | 'tool-missing' | 'unsupported' | 'mode-unsupported';
 export interface SandboxAvailability {

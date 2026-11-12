@@ -59,14 +59,14 @@ describe('validateFetchUrl rejects', () => {
   });
 
   it('hostname resolving to a private IP', async () => {
-    const r = await check('https://evil.example.com/', async () => [{ address: '10.0.0.5' }]);
+    const r = await check('https://evil.example.com/', async () => [{ address: '10.0.0.5', family: 4 }]);
     expect(r.ok).toBe(false);
   });
 
   it('mixed public and private addresses', async () => {
     const r = await check('https://evil.example.com/', async () => [
-      { address: '93.184.216.34' },
-      { address: '192.168.0.2' },
+      { address: '93.184.216.34', family: 4 },
+      { address: '192.168.0.2', family: 4 },
     ]);
     expect(r.ok).toBe(false);
   });
