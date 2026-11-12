@@ -7,24 +7,53 @@ vi.mock('../plan-file-utils', () => ({
 
 import {
   buildCreatePRArgs,
-  isValidGitHubUrl,
+  isValidHttpsUrl,
+  originMatchesInstance,
   parsePRJsonOutput,
   withRetry,
 } from '../worktree-pr';
 
-describe('isValidGitHubUrl', () => {
-  it('accepts https github.com URLs', () => {
-    expect(isValidGitHubUrl('https://github.com/o/r/pull/1')).toBe(true);
+describe('originMatchesInstance', () => {
+  const gl = 'https://gitlab.com';
+  it('matches scp-style ssh', () => {
+    expect(originMatchesInstance('git@gitlab.com:group/repo.git', gl)).toBe(true);
   });
-  it('accepts GitHub Enterprise hosts', () => {
-    expect(isValidGitHubUrl('https://git.corp.example.com/o/r/pull/1')).toBe(true);
+  it('matches ssh:// with a port', () => {
+    expect(originMatchesInstance('ssh://git@gitlab.com:2222/group/repo.git', gl)).toBe(true);
   });
-  it('rejects http', () => {
-    expect(isValidGitHubUrl('http://github.com/o/r/pull/1')).toBe(false);
+  it('matches https with .git', () => {
+    expect(originMatchesInstance('https://gitlab.com/group/repo.git', gl)).toBe(true);
+  });
+  it('rejects a different host', () => {
+    expect(originMatchesInstance('git@github.com:o/r.git', gl)).toBe(false);
+    expect(originMatchesInstance('https://github.com/o/r.git', gl)).toBe(false);
+  });
+  it('matches a self-hosted instance with a port in its URL', () => {
+    expect(originMatchesInstance('git@git.corp.example.com:team/app.git', 'https://git.corp.example.com:8443')).toBe(true);
+  });
+  it('compares hosts case-insensitively', () => {
+    expect(originMatchesInstance('git@GitLab.COM:g/r.git', gl)).toBe(true);
+    expect(originMatchesInstance('https://gitlab.com/g/r.git', 'https://GITLAB.com')).toBe(true);
   });
   it('rejects garbage', () => {
-    expect(isValidGitHubUrl('not a url')).toBe(false);
-    expect(isValidGitHubUrl('')).toBe(false);
+    expect(originMatchesInstance('', gl)).toBe(false);
+    expect(originMatchesInstance('git@gitlab.com:g/r.git', 'not a url')).toBe(false);
+  });
+});
+
+describe('isValidHttpsUrl', () => {
+  it('accepts https github.com URLs', () => {
+    expect(isValidHttpsUrl('https://github.com/o/r/pull/1')).toBe(true);
+  });
+  it('accepts GitHub Enterprise hosts', () => {
+    expect(isValidHttpsUrl('https://git.corp.example.com/o/r/pull/1')).toBe(true);
+  });
+  it('rejects http', () => {
+    expect(isValidHttpsUrl('http://github.com/o/r/pull/1')).toBe(false);
+  });
+  it('rejects garbage', () => {
+    expect(isValidHttpsUrl('not a url')).toBe(false);
+    expect(isValidHttpsUrl('')).toBe(false);
   });
 });
 

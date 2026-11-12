@@ -16,7 +16,7 @@ export function isSkippedErrorCode(code: WorktreeCreatePRErrorCode | undefined):
 
 /**
  * Returns the i18n key for an error code, or null when the server-provided
- * message should be shown instead (NO_CHANGES and GH_FAILED carry specific
+ * message should be shown instead (NO_CHANGES, GH_FAILED and MR_FAILED carry specific
  * details; UNKNOWN / missing codes have no dedicated text).
  */
 export function getBulkPRErrorMessageKey(code: WorktreeCreatePRErrorCode | undefined): string | null {
@@ -44,7 +44,7 @@ export function getBulkPRErrorMessageKey(code: WorktreeCreatePRErrorCode | undef
     case 'RETRIES_EXHAUSTED':
       return 'taskReview:bulkPR.errors.retriesExhausted';
     default:
-      // NO_CHANGES, GH_FAILED, UNKNOWN, undefined: use the server message
+      // NO_CHANGES, GH_FAILED, MR_FAILED, UNKNOWN, undefined: use the server message
       return null;
   }
 }

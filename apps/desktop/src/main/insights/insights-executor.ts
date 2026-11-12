@@ -21,6 +21,8 @@ interface ProcessorResult {
   fullResponse: string;
   suggestedTasks?: InsightsChatMessage['suggestedTasks'];
   toolsUsed: InsightsToolUsage[];
+  /** True when the user stopped this run with the Stop button */
+  stopped: boolean;
 }
 
 /**
@@ -30,6 +32,8 @@ interface ProcessorResult {
 export class InsightsExecutor extends EventEmitter {
   private config: InsightsConfig;
   private abortControllers: Map<string, AbortController> = new Map();
+  // Controllers aborted by the user (Stop button), as opposed to superseded by a new run
+  private userStopped = new WeakSet<AbortController>();
 
   constructor(config: InsightsConfig) {
     super();
@@ -53,6 +57,19 @@ export class InsightsExecutor extends EventEmitter {
     controller.abort();
     this.abortControllers.delete(projectId);
     return true;
+  }
+
+  /**
+   * Stop the active run at the user's request. Unlike a supersede (cancelSession
+   * from execute/sendMessage), the stopped run finishes cleanly: it emits 'done'
+   * and a 'complete' status, and its partial answer is returned with stopped: true.
+   */
+  stopSession(projectId: string): boolean {
+    const controller = this.abortControllers.get(projectId);
+    if (!controller) return false;
+
+    this.userStopped.add(controller);
+    return this.cancelSession(projectId);
   }
 
   /**
@@ -111,6 +128,29 @@ export class InsightsExecutor extends EventEmitter {
         ? deliverable.map((img) => ({ data: img.data, mimeType: img.mimeType }))
         : undefined;
 
+    const finishStopped = (text: string): ProcessorResult => {
+      this.emit('stream-chunk', projectId, {
+        type: 'done',
+        stopped: true,
+      } as InsightsStreamChunk);
+      this.emit('status', projectId, {
+        phase: 'complete',
+      } as InsightsChatStatus);
+      return {
+        fullResponse: text,
+        suggestedTasks: undefined,
+        toolsUsed,
+        stopped: true,
+      };
+    };
+
+    const releaseController = (): void => {
+      // A late-finishing run must not delete the controller of a newer run
+      if (this.abortControllers.get(projectId) === controller) {
+        this.abortControllers.delete(projectId);
+      }
+    };
+
     try {
       const result = await runInsightsQuery(
         {
@@ -153,6 +193,8 @@ export class InsightsExecutor extends EventEmitter {
               break;
             }
             case 'error': {
+              // An aborted run reports its abort as an error; it is not one
+              if (controller.signal.aborted) break;
               allOutput = (allOutput + event.error).slice(-10000);
               this.emit('stream-chunk', projectId, {
                 type: 'error',
@@ -164,7 +206,21 @@ export class InsightsExecutor extends EventEmitter {
         },
       );
 
-      this.abortControllers.delete(projectId);
+      releaseController();
+
+      if (this.userStopped.has(controller)) {
+        return finishStopped(result.text?.trim() || accumulatedText.trim() || fullResponse);
+      }
+
+      // Superseded by a newer run: return what we have, emit nothing
+      if (controller.signal.aborted) {
+        return {
+          fullResponse: result.text?.trim() || accumulatedText.trim(),
+          suggestedTasks: undefined,
+          toolsUsed,
+          stopped: false,
+        };
+      }
 
       // Extract task suggestion from the full result
       if (result.taskSuggestion) {
@@ -195,9 +251,10 @@ export class InsightsExecutor extends EventEmitter {
         fullResponse: result.text.trim() || accumulatedText.trim() || fullResponse,
         suggestedTasks: suggestedTasks.length > 0 ? suggestedTasks : undefined,
         toolsUsed,
+        stopped: false,
       };
     } catch (error) {
-      this.abortControllers.delete(projectId);
+      releaseController();
 
       // Check for rate limit in accumulated output
       this.handleRateLimit(projectId, allOutput);
@@ -206,10 +263,14 @@ export class InsightsExecutor extends EventEmitter {
 
       // Don't emit error if aborted (user cancelled)
       if (error instanceof Error && error.name === 'AbortError') {
+        if (this.userStopped.has(controller)) {
+          return finishStopped(accumulatedText.trim());
+        }
         return {
           fullResponse: accumulatedText.trim(),
           suggestedTasks: suggestedTasks.length > 0 ? suggestedTasks : undefined,
           toolsUsed,
+          stopped: false,
         };
       }
 

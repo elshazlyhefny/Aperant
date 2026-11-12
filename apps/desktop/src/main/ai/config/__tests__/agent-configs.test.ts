@@ -11,6 +11,7 @@ import {
   ELECTRON_TOOLS,
   type AgentType,
 } from '../agent-configs';
+import { isReviewReadOnlyTool } from '../review-tools';
 
 // =============================================================================
 // All Agent Types (26 total)
@@ -297,5 +298,29 @@ describe('getRequiredMcpServers', () => {
     });
     expect(servers).toContain('context7');
     expect(servers).not.toContain('memory');
+  });
+});
+
+describe('PR review agents are read-only', () => {
+  const REVIEW_AGENT_TYPES: AgentType[] = [
+    'pr_finding_validator',
+    'pr_reviewer',
+    'pr_orchestrator_parallel',
+    'pr_followup_parallel',
+    'pr_security_specialist',
+    'pr_quality_specialist',
+    'pr_logic_specialist',
+    'pr_codebase_fit_specialist',
+  ];
+
+  it.each(REVIEW_AGENT_TYPES)('%s only has Read, Glob and Grep', (agentType) => {
+    const { tools } = getAgentConfig(agentType);
+    expect([...tools]).toEqual(['Read', 'Glob', 'Grep']);
+    for (const banned of ['Bash', 'Write', 'Edit', 'WebFetch', 'WebSearch', 'SpawnSubagent']) {
+      expect(tools).not.toContain(banned);
+    }
+    for (const tool of tools) {
+      expect(isReviewReadOnlyTool(tool)).toBe(true);
+    }
   });
 });

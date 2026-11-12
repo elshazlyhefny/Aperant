@@ -13,7 +13,7 @@ import type { SupportedProvider } from '../providers/types';
 // ============================================
 
 /** Valid model shorthands used throughout the application */
-export type ModelShorthand = 'opus' | 'opus-1m' | 'opus-4.5' | 'sonnet' | 'haiku';
+export type ModelShorthand = 'fable' | 'opus' | 'opus-1m' | 'opus-4.5' | 'sonnet' | 'haiku';
 
 /** Valid thinking levels */
 export type ThinkingLevel = 'low' | 'medium' | 'high' | 'xhigh';
@@ -35,6 +35,7 @@ export type Phase = 'spec' | 'planning' | 'coding' | 'qa';
  * - apps/desktop/src/shared/constants/models.ts MODEL_ID_MAP
  */
 export const MODEL_ID_MAP: Record<ModelShorthand, string> = {
+  fable: 'claude-fable-5-2',
   opus: 'claude-opus-5-5',
   'opus-1m': 'claude-opus-4-6',
   'opus-4.5': 'claude-opus-4-5-20251101',
@@ -85,6 +86,7 @@ export const EFFORT_LEVEL_MAP: Record<EffortLevel, string> = {
 export const ADAPTIVE_THINKING_MODELS: ReadonlySet<string> = new Set([
   'claude-opus-4-6',
   'claude-opus-5-5',
+  'claude-fable-5-2',
 ]);
 
 // ============================================

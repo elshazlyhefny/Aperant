@@ -40,7 +40,7 @@ vi.mock('../../../utils/json-repair', () => ({
 // Import after mocking
 // =============================================================================
 
-import { generateCommitMessage } from '../commit-message';
+import { generateCommitMessage, formatIssueClosingLines, readIssueRefs } from '../commit-message';
 import type { CommitMessageConfig } from '../commit-message';
 
 // =============================================================================
@@ -325,5 +325,99 @@ describe('generateCommitMessage — task_metadata.json', () => {
     expect(result).toContain('Fixes #3');
     expect(result).not.toContain('Fixes #77');
   });
+
+  it.each([
+    ['gitlab', { gitlabIssueIid: 8 }, 'Closes #8', '#8'],
+    ['jira', { jiraIssueKey: 'PROJ-123' }, 'PROJ-123', 'PROJ-123'],
+    ['linear', { linearIdentifier: 'ABC-123' }, 'Fixes ABC-123', 'ABC-123'],
+  ])('links the %s source issue in the prompt and the fallback', async (_k, meta, line, shown) => {
+    specFiles({ 'task_metadata.json': JSON.stringify(meta) });
+    mockGenerateText.mockResolvedValue({ text: 'fix: x' });
+    await generateCommitMessage(baseConfig());
+    const prompt = mockGenerateText.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain(`Source issue(s): ${shown} (include '${line}'`);
+
+    mockGenerateText.mockRejectedValue(new Error('down'));
+    const result = await generateCommitMessage(baseConfig());
+    expect(result).toContain(`\n\n${line}`);
+  });
+
+  it.each([
+    [{ gitlabIssueIid: '8; rm -rf /' }],
+    [{ gitlabIssueIid: 0 }],
+    [{ gitlabIssueIid: 1.5 }],
+    [{ jiraIssueKey: 'proj-1' }],
+    [{ jiraIssueKey: 'PROJ-0' }],
+    [{ jiraIssueKey: 'PROJ-1\nFixes #1' }],
+    [{ jiraIssueKey: 123 }],
+    [{ linearIdentifier: 'ABC-123; rm -rf /' }],
+  ])('ignores invalid issue value %j', async (meta) => {
+    specFiles({ 'task_metadata.json': JSON.stringify(meta) });
+    mockGenerateText.mockRejectedValue(new Error('down'));
+    const result = await generateCommitMessage(baseConfig());
+    expect(result).not.toContain('\n\n');
+    expect(result).not.toContain('Fixes');
+    expect(result).not.toContain('Closes');
+  });
+
+  it('lists mixed-source issues in order', async () => {
+    specFiles({
+      'task_metadata.json': JSON.stringify({
+        githubIssueNumber: 5,
+        gitlabIssueIid: 8,
+        jiraIssueKey: 'PROJ-123',
+        linearIdentifier: 'ABC-123',
+      }),
+    });
+    mockGenerateText.mockRejectedValue(new Error('down'));
+    const result = await generateCommitMessage(baseConfig());
+    expect(result).toContain('Fixes #5\nCloses #8\nPROJ-123\nFixes ABC-123');
+  });
 });
 
+describe('formatIssueClosingLines', () => {
+  it('formats each kind, in input order', () => {
+    expect(
+      formatIssueClosingLines([
+        { kind: 'linear', ref: 'ABC-1' },
+        { kind: 'github', ref: '4' },
+        { kind: 'jira', ref: 'PROJ-2' },
+        { kind: 'gitlab', ref: '9' },
+      ]),
+    ).toEqual(['Fixes ABC-1', 'Fixes #4', 'PROJ-2', 'Closes #9']);
+  });
+
+  it('returns an empty list for no refs', () => {
+    expect(formatIssueClosingLines([])).toEqual([]);
+  });
+});
+
+describe('readIssueRefs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns [] when task_metadata.json is missing', () => {
+    mockExistsSync.mockReturnValue(false);
+    expect(readIssueRefs('/spec')).toEqual([]);
+  });
+
+  it('returns validated, de-duplicated refs', () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        githubIssueNumber: 5,
+        githubIssueNumbers: [5, 9, -1],
+        gitlabIssueIid: 8,
+        jiraIssueKey: 'PROJ-123',
+        linearIdentifier: 'bad',
+      }),
+    );
+    expect(readIssueRefs('/spec')).toEqual([
+      { kind: 'github', ref: '5' },
+      { kind: 'github', ref: '9' },
+      { kind: 'gitlab', ref: '8' },
+      { kind: 'jira', ref: 'PROJ-123' },
+    ]);
+  });
+});

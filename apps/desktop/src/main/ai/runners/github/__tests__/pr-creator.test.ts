@@ -58,10 +58,23 @@ vi.mock('../../../../env-utils', () => ({
 vi.mock('../../../client/factory', () => ({
   createSimpleClient: vi.fn(async () => ({ model: {}, systemPrompt: '' })),
 }));
+const gitlab = vi.hoisted(() => {
+  class GitLabAPIError extends Error {
+    constructor(message: string, readonly statusCode: number) {
+      super(message);
+    }
+  }
+  return { GitLabAPIError, create: vi.fn(), find: vi.fn() };
+});
+vi.mock('../../../../ipc-handlers/gitlab/utils', () => ({
+  GitLabAPIError: gitlab.GitLabAPIError,
+  createGitLabMergeRequest: gitlab.create,
+  findOpenMergeRequestForBranch: gitlab.find,
+}));
 vi.mock('ai', () => ({ generateText: vi.fn(async () => ({ text: '## Summary\n- body' })) }));
 
 import { generateText } from 'ai';
-import { createPR, GH_TIMEOUT_MS, NO_CHANGES_MESSAGE, PUSH_TIMEOUT_MS, unfinishedTaskMessage } from '../pr-creator';
+import { createMR, createPR, GH_TIMEOUT_MS, NO_CHANGES_MESSAGE, PUSH_TIMEOUT_MS, unfinishedTaskMessage } from '../pr-creator';
 
 const PR_URL = 'https://github.com/o/r/pull/7';
 
@@ -432,5 +445,70 @@ describe('the PR body is written from the project conventions and the QA report'
     } finally {
       rmSync(worktree, { recursive: true, force: true });
     }
+  });
+});
+
+describe('createMR', () => {
+  const MR_URL = 'https://gitlab.com/o/r/-/merge_requests/3';
+  const glConfig = { token: 't', project: 'o/r', instanceUrl: 'https://gitlab.com' };
+  const mrConfig = (overrides: Record<string, unknown> = {}) => {
+    const { ghPath: _gh, ...rest } = config();
+    return { ...rest, gitlab: glConfig, ...overrides };
+  };
+
+  beforeEach(() => {
+    gitlab.create.mockReset();
+    gitlab.find.mockReset();
+    gitlab.create.mockResolvedValue({ web_url: MR_URL });
+  });
+
+  it('pushes once, never calls gh, and creates the MR', async () => {
+    const result = await createMR(mrConfig());
+    expect(result).toEqual({ success: true, prUrl: MR_URL, alreadyExists: false });
+    expect(pushCalls()).toHaveLength(1);
+    expect(pushCalls()[0].args[1]).toBe('--force-with-lease');
+    expect(state.calls.filter((c) => c.command === 'gh')).toHaveLength(0);
+    expect(gitlab.create).toHaveBeenCalledWith(glConfig, {
+      sourceBranch: 'auto-claude/001-x',
+      targetBranch: 'main',
+      title: 'auto-claude: 001-x',
+      description: '## Summary\n- body',
+    });
+  });
+
+  it('prefixes the title with Draft: for a draft', async () => {
+    await createMR(mrConfig({ draft: true }));
+    expect(gitlab.create.mock.calls[0][1].title).toBe('Draft: auto-claude: 001-x');
+  });
+
+  it('short-circuits on NO_CHANGES without reaching the API', async () => {
+    state.respond = (call) => (call.args[0] === 'rev-list' ? { stdout: '0\n' } : { stdout: '' });
+    const result = await createMR(mrConfig());
+    expect(result.errorCode).toBe('NO_CHANGES');
+    expect(pushCalls()).toHaveLength(0);
+    expect(gitlab.create).not.toHaveBeenCalled();
+  });
+
+  it('short-circuits on PUSH_FAILED without reaching the API', async () => {
+    state.respond = (call) =>
+      call.args[0] === 'push' ? { error: { message: 'Command failed' }, stderr: 'rejected' } : { stdout: '' };
+    const result = await createMR(mrConfig());
+    expect(result.errorCode).toBe('PUSH_FAILED');
+    expect(gitlab.create).not.toHaveBeenCalled();
+  });
+
+  it('recovers the existing MR on a 409', async () => {
+    gitlab.create.mockRejectedValue(new gitlab.GitLabAPIError('Another open merge request already exists', 409));
+    gitlab.find.mockResolvedValue({ web_url: MR_URL });
+    const result = await createMR(mrConfig());
+    expect(result).toEqual({ success: true, prUrl: MR_URL, alreadyExists: true });
+    expect(gitlab.find).toHaveBeenCalledWith(glConfig, 'auto-claude/001-x', 'main');
+  });
+
+  it('reports MR_FAILED for an API error without retrying', async () => {
+    gitlab.create.mockRejectedValue(new gitlab.GitLabAPIError('403 Forbidden', 403));
+    const result = await createMR(mrConfig());
+    expect(result).toEqual({ success: false, errorCode: 'MR_FAILED', error: '403 Forbidden' });
+    expect(gitlab.create).toHaveBeenCalledTimes(1);
   });
 });
