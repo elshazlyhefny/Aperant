@@ -116,3 +116,115 @@ export function isHoldActive(task: Pick<Task, 'metadata'>, tasks: readonly Task[
   if (!blocker || blocker.metadata?.archivedAt) return false;
   return !FINISHED_TASK_STATUSES.includes(blocker.status);
 }
+
+/**
+ * A string that changes only when an input of findFileOverlaps or the hold
+ * logic changes (id, project, status, archived flag, title, hold blocker and
+ * planned files). Progress, logs and timestamps are left out on purpose.
+ * Planned files are only read for overlap candidates.
+ */
+export function getOverlapInputKey(tasks: readonly Task[]): string {
+  const parts: string[] = [];
+  for (const task of tasks) {
+    let part = [
+      task.id,
+      task.projectId,
+      task.status,
+      task.metadata?.archivedAt ? '1' : '0',
+      task.title,
+      task.metadata?.holdUntilTaskId ?? '',
+    ].join('\u0001');
+    if (isOverlapCandidate(task) && task.subtasks) {
+      for (const subtask of task.subtasks) {
+        part += `\u0002${(subtask.files ?? []).join('\u0000')}`;
+      }
+    }
+    parts.push(part);
+  }
+  return parts.join('\u0003');
+}
+
+function overlapListsAreEqual(a: readonly TaskFileOverlap[], b: readonly TaskFileOverlap[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.taskId !== y.taskId || x.title !== y.title || x.files.length !== y.files.length) return false;
+    for (let j = 0; j < x.files.length; j++) {
+      if (x.files[j] !== y.files[j]) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Keeps the previous arrays (and the previous Map when nothing changed) so
+ * consumers that compare by reference do not see a change.
+ */
+export function reuseFileOverlaps(
+  prev: Map<string, TaskFileOverlap[]> | undefined,
+  next: Map<string, TaskFileOverlap[]>
+): Map<string, TaskFileOverlap[]> {
+  if (!prev) return next;
+  const merged = new Map<string, TaskFileOverlap[]>();
+  let allReused = prev.size === next.size;
+  for (const [id, list] of next) {
+    const old = prev.get(id);
+    if (old && overlapListsAreEqual(old, list)) {
+      merged.set(id, old);
+    } else {
+      merged.set(id, list);
+      allReused = false;
+    }
+  }
+  return allReused ? prev : merged;
+}
+
+/**
+ * Held task id -> title of its active blocker. Same rule as isHoldActive, but
+ * with one id lookup table instead of a scan per task.
+ */
+export function buildHoldBlockerTitles(tasks: readonly Task[]): Map<string, string> {
+  const byId = new Map<string, Task>();
+  for (const task of tasks) {
+    if (!byId.has(task.id)) byId.set(task.id, task);
+  }
+  const result = new Map<string, string>();
+  for (const task of tasks) {
+    const blockerId = task.metadata?.holdUntilTaskId;
+    if (!blockerId) continue;
+    const blocker = byId.get(blockerId);
+    if (!blocker || blocker.metadata?.archivedAt) continue;
+    if (FINISHED_TASK_STATUSES.includes(blocker.status)) continue;
+    result.set(task.id, blocker.title);
+  }
+  return result;
+}
+
+export function reuseHoldBlockerTitles(
+  prev: Map<string, string> | undefined,
+  next: Map<string, string>
+): Map<string, string> {
+  if (!prev) return next;
+  if (prev.size !== next.size) return next;
+  for (const [id, title] of next) {
+    if (prev.get(id) !== title) return next;
+  }
+  return prev;
+}
+
+/** True when the overlap and hold-title entries of the given tasks are unchanged. */
+export function columnOverlapEntriesAreEqual(
+  tasks: readonly Pick<Task, 'id'>[],
+  prevOverlaps: Map<string, TaskFileOverlap[]> | undefined,
+  nextOverlaps: Map<string, TaskFileOverlap[]> | undefined,
+  prevTitles: Map<string, string> | undefined,
+  nextTitles: Map<string, string> | undefined
+): boolean {
+  for (const { id } of tasks) {
+    if (prevOverlaps?.get(id) !== nextOverlaps?.get(id)) return false;
+    if (prevTitles?.get(id) !== nextTitles?.get(id)) return false;
+  }
+  return true;
+}
