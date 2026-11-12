@@ -498,6 +498,7 @@
     "daysAgo": "{{count}} days ago",
     "messageCount": "{{count}} message",
     "messageCount_other": "{{count}} messages",
+    "jumpToLatest": "Jump to latest",
     "images": {
       "pasteHint": "Paste an image or screenshot",
       "dropHint": "Drop image here",

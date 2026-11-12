@@ -16,7 +16,8 @@ import {
   PanelLeftClose,
   PanelLeft,
   Camera,
-  X
+  X,
+  ArrowDown
 } from 'lucide-react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -108,6 +109,7 @@ export function Insights({ projectId }: InsightsProps) {
   const streamingContent = useInsightsStore((state) => state.streamingContent);
   const currentTool = useInsightsStore((state) => state.currentTool);
   const isLoadingSessions = useInsightsStore((state) => state.isLoadingSessions);
+  const messageCount = session?.messages?.length ?? 0;
 
   // Create markdown components with translated accessibility text
   const markdownComponents = useMemo(() => ({
@@ -165,6 +167,12 @@ export function Insights({ projectId }: InsightsProps) {
     return scrollHeight - scrollTop - clientHeight <= SCROLL_BOTTOM_THRESHOLD;
   }, []);
 
+  const scrollToBottom = useCallback(() => {
+    if (viewportEl) {
+      viewportEl.scrollTop = viewportEl.scrollHeight;
+    }
+  }, [viewportEl]);
+
   // Handle scroll events to track user position
   const handleScroll = useCallback(() => {
     if (viewportEl) {
@@ -203,12 +211,15 @@ export function Insights({ projectId }: InsightsProps) {
 
   // Smart auto-scroll: only scroll if user is already at bottom
   // This allows users to scroll up to read previous messages without being
-  // yanked back down during streaming responses
+  // yanked back down during streaming responses. Re-runs on content changes
+  // (streaming text, new messages, tool activity) so the view follows new output.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: streamingContent, messageCount and currentTool are intentional triggers for re-scrolling when content changes
   useEffect(() => {
     if (isUserAtBottom && viewportEl) {
-      viewportEl.scrollTop = viewportEl.scrollHeight;
+      const frame = requestAnimationFrame(() => scrollToBottom());
+      return () => cancelAnimationFrame(frame);
     }
-  }, [isUserAtBottom, viewportEl]);
+  }, [isUserAtBottom, viewportEl, streamingContent, messageCount, currentTool, scrollToBottom]);
 
   // Focus textarea on mount
   useEffect(() => {
@@ -232,6 +243,12 @@ export function Insights({ projectId }: InsightsProps) {
     setPendingImages([]);
     setImageError(null);
     setIsUserAtBottom(true); // Resume auto-scroll when user sends a message
+    requestAnimationFrame(scrollToBottom); // Show the new user message even if already at bottom
+  };
+
+  const handleJumpToLatest = () => {
+    scrollToBottom();
+    setIsUserAtBottom(true);
   };
 
   const handleScreenshotCapture = useCallback(async (imageData: string) => {
@@ -557,7 +574,20 @@ export function Insights({ projectId }: InsightsProps) {
       </ScrollArea>
 
       {/* Input */}
-      <div className="flex-shrink-0 border-t border-border p-4">
+      <div className="relative flex-shrink-0 border-t border-border p-4">
+        {!isUserAtBottom && isLoading && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={handleJumpToLatest}
+            aria-label={t('insights.jumpToLatest')}
+            className="absolute -top-12 left-1/2 z-10 -translate-x-1/2 gap-1.5 rounded-full shadow-md"
+          >
+            <ArrowDown className="h-4 w-4" aria-hidden="true" />
+            <span className="text-xs">{t('insights.jumpToLatest')}</span>
+          </Button>
+        )}
         <div className="relative flex gap-2">
           <div className="relative flex-1">
             <Textarea
