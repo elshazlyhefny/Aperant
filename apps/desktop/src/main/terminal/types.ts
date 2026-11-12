@@ -17,6 +17,8 @@ export interface TerminalProcess {
   claudeSessionId?: string;
   claudeProfileId?: string;
   outputBuffer: string;
+  /** Bumped whenever outputBuffer changes; undefined is treated as 0. */
+  outputSeq?: number;
   title: string;
   /** Associated worktree configuration (persisted across restarts) */
   worktreeConfig?: TerminalWorktreeConfig;

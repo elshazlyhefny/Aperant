@@ -112,6 +112,7 @@ export async function createTerminal(
       projectPath,
       cwd: terminalCwd,
       outputBuffer: '',
+      outputSeq: 0,
       title: `Terminal ${terminals.size + 1}`,
       shellType
     };
@@ -132,6 +133,7 @@ export async function createTerminal(
     if (dropNotice) {
       const line = `${dropNotice}\r\n`;
       terminal.outputBuffer += line;
+      terminal.outputSeq = (terminal.outputSeq ?? 0) + 1;
       safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OUTPUT, id, line);
     }
 
