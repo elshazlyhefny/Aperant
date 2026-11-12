@@ -113,6 +113,7 @@ export async function createTerminal(
       hasExited: false,
       projectPath,
       cwd: terminalCwd,
+      outputSeq: 0,
       // Lazy view over the chunk-list store: reads join on demand, writes keep
       // `terminal.outputBuffer += x` working for existing callers.
       get outputBuffer(): string {
@@ -146,6 +147,7 @@ export async function createTerminal(
       // Nothing from the PTY has been queued yet (data events are async), so a
       // direct send keeps the notice ahead of PTY output.
       outputStore.append(line);
+      terminal.outputSeq = (terminal.outputSeq ?? 0) + 1;
       safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OUTPUT, id, line);
     }
 
@@ -355,7 +357,8 @@ export async function destroyAllTerminals(
   // destroyed BrowserWindow.webContents (GitHub #1469 shutdown guard pattern)
   PtyManager.setShuttingDown(true);
 
-  await SessionHandler.persistAllSessionsAsync(terminals);
+  // zeenha fork: shutdown must persist everything, even terminals that look clean
+  await SessionHandler.persistAllSessionsAsync(terminals, { force: true });
 
   if (saveTimer) {
     clearInterval(saveTimer);

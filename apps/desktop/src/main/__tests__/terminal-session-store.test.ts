@@ -3,6 +3,7 @@
  * Tests atomic writes, backup recovery, race condition prevention, and write serialization
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { promises as fsPromises } from 'fs';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs';
 import path from 'path';
 import os from 'os';
@@ -593,6 +594,115 @@ describe('TerminalSessionStore', () => {
 
       expect(dates).toHaveLength(1);
       expect(dates[0].sessionCount).toBe(1);
+    });
+  });
+
+  describe('batch save, trusted rotation, compact JSON', () => {
+    it('saveSessionsAsync persists all sessions with exactly one write', async () => {
+      const { TerminalSessionStore } = await import('../terminal-session-store');
+      const store = new TerminalSessionStore();
+      const writeSpy = vi.spyOn(fsPromises, 'writeFile');
+      const ownWriteCount = () => writeSpy.mock.calls.filter(c => String(c[0]) === `${STORE_PATH}.tmp`).length;
+
+      await store.saveSessionsAsync([
+        createTestSession({ id: 'b-1' }),
+        createTestSession({ id: 'b-2' }),
+        createTestSession({ id: 'b-3' })
+      ]);
+
+      expect(ownWriteCount()).toBe(1);
+      const today = new Date().toISOString().split('T')[0];
+      const content = JSON.parse(readFileSync(STORE_PATH, 'utf-8'));
+      expect(content.sessionsByDate[today][TEST_PROJECT_PATH]).toHaveLength(3);
+      writeSpy.mockRestore();
+    });
+
+    it('saveSessionsAsync skips pendingDelete sessions and ignores empty lists', async () => {
+      const { TerminalSessionStore } = await import('../terminal-session-store');
+      const store = new TerminalSessionStore();
+      store.saveSession(createTestSession({ id: 'gone' }));
+      store.removeSession(TEST_PROJECT_PATH, 'gone');
+
+      const writeSpy = vi.spyOn(fsPromises, 'writeFile');
+      const ownWriteCount = () => writeSpy.mock.calls.filter(c => String(c[0]) === `${STORE_PATH}.tmp`).length;
+      await store.saveSessionsAsync([]);
+      await store.saveSessionsAsync([createTestSession({ id: 'gone' })]);
+      expect(ownWriteCount()).toBe(0);
+      expect(store.getSessions(TEST_PROJECT_PATH)).toHaveLength(0);
+
+      await store.saveSessionsAsync([createTestSession({ id: 'gone' }), createTestSession({ id: 'kept' })]);
+      expect(ownWriteCount()).toBe(1);
+      const sessions = store.getSessions(TEST_PROJECT_PATH);
+      expect(sessions.map(s => s.id)).toEqual(['kept']);
+      writeSpy.mockRestore();
+    });
+
+    it('does not read the store file on the second save but validates on the first', async () => {
+      const today = new Date().toISOString().split('T')[0];
+      writeFileSync(STORE_PATH, createValidStoreData({
+        [today]: { [TEST_PROJECT_PATH]: [createTestSession({ id: 'original' })] }
+      }));
+      const { TerminalSessionStore } = await import('../terminal-session-store');
+      const store = new TerminalSessionStore();
+      const readSpy = vi.spyOn(fsPromises, 'readFile');
+      const storeReads = () => readSpy.mock.calls.filter(c => String(c[0]) === STORE_PATH).length;
+
+      await store.saveSessionsAsync([createTestSession({ id: 'one' })]);
+      expect(storeReads()).toBe(1);
+
+      await store.saveSessionsAsync([createTestSession({ id: 'two' })]);
+      expect(storeReads()).toBe(1);
+
+      // Backup holds the previous valid contents (including 'one')
+      const backup = JSON.parse(readFileSync(BACKUP_PATH, 'utf-8'));
+      const ids = backup.sessionsByDate[today][TEST_PROJECT_PATH].map((s: { id: string }) => s.id);
+      expect(ids).toContain('one');
+      expect(ids).not.toContain('two');
+      readSpy.mockRestore();
+    });
+
+    it('still does not back up a corrupted file on the first async save', async () => {
+      writeFileSync(STORE_PATH, 'not valid json {{{');
+      const { TerminalSessionStore } = await import('../terminal-session-store');
+      const store = new TerminalSessionStore();
+
+      await store.saveSessionsAsync([createTestSession()]);
+
+      expect(existsSync(BACKUP_PATH)).toBe(false);
+      expect(JSON.parse(readFileSync(STORE_PATH, 'utf-8')).version).toBe(2);
+    });
+
+    it('writes compact JSON that still parses as version 2', async () => {
+      const { TerminalSessionStore } = await import('../terminal-session-store');
+      const store = new TerminalSessionStore();
+
+      await store.saveSessionsAsync([createTestSession()]);
+      store.saveSession(createTestSession({ id: 'sync-one' }));
+
+      const raw = readFileSync(STORE_PATH, 'utf-8');
+      expect(raw).not.toContain('\n  ');
+      expect(JSON.parse(raw).version).toBe(2);
+    });
+
+    it('flushIfDirtyAsync is a no-op when clean and writes when dirty', async () => {
+      const { TerminalSessionStore } = await import('../terminal-session-store');
+      const store = new TerminalSessionStore();
+      const writeSpy = vi.spyOn(fsPromises, 'writeFile');
+      const ownWriteCount = () => writeSpy.mock.calls.filter(c => String(c[0]) === `${STORE_PATH}.tmp`).length;
+
+      expect(store.hasUnsavedChanges()).toBe(false);
+      await store.flushIfDirtyAsync();
+      expect(ownWriteCount()).toBe(0);
+
+      // Mark dirty without saving: a pending-delete-free in-memory update via a failed write
+      writeSpy.mockRejectedValueOnce(new Error('disk full'));
+      await store.saveSessionsAsync([createTestSession()]);
+      expect(store.hasUnsavedChanges()).toBe(true);
+
+      await store.flushIfDirtyAsync();
+      expect(store.hasUnsavedChanges()).toBe(false);
+      expect(ownWriteCount()).toBe(2);
+      writeSpy.mockRestore();
     });
   });
 });

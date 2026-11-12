@@ -253,6 +253,7 @@ export function setupPtyHandlers(
     } else {
       terminal.outputBuffer = (terminal.outputBuffer + data).slice(-100000);
     }
+    terminal.outputSeq = (terminal.outputSeq ?? 0) + 1;
 
     // Call custom data handler. This must never crash the main process:
     // parser logic in higher layers can throw on unexpected output.

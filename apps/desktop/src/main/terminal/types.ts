@@ -19,6 +19,8 @@ export interface TerminalProcess {
   claudeProfileId?: string;
   /** Replay buffer text. In real terminals this is a getter/setter over `outputStore`. */
   outputBuffer: string;
+  /** Bumped whenever outputBuffer changes; undefined is treated as 0. */
+  outputSeq?: number;
   /** Chunk-list backing store for outputBuffer (O(chunk) appends). */
   outputStore?: TerminalOutputBuffer;
   /** Output chunks waiting to be sent to the renderer in one batch. */
