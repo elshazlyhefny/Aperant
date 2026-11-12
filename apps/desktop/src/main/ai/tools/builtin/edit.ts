@@ -10,6 +10,7 @@
 import * as fs from 'node:fs';
 import { z } from 'zod/v3';
 
+import { assertNotProtectedPath } from '../../security/path-containment';
 import { assertWriteAllowed } from '../../security/write-guard';
 import { Tool } from '../define';
 import { DEFAULT_EXECUTION_OPTIONS, ToolPermission } from '../types';
@@ -48,6 +49,8 @@ export const editTool = Tool.define({
 
     // Security: inside project (and writeRoot), never git internals
     const { resolvedPath } = assertWriteAllowed(file_path, context);
+    // zeenha fork: keep agents away from the integration tokens in .auto-claude/.env
+    assertNotProtectedPath(resolvedPath);
 
     // Validate inputs
     if (old_string === new_string) {

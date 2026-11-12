@@ -26,6 +26,12 @@ const REFUSED = [
   'cat ~/.kube/config',
   'cat $CLAUDE_CONFIG_DIR/.credentials.json',
   `cat ${homedir()}/.ssh/id_rsa`,
+  'cat .auto-claude/.env',
+  'cat ./.auto-claude/.env.local',
+  'cat ../../../.env',
+  'cat ../.env',
+  'grep TOKEN "/home/x/proj/.auto-claude/.env"',
+  "sh -c 'cat ../../../.env'",
 ];
 
 const ALLOWED = [
@@ -37,6 +43,12 @@ const ALLOWED = [
   'cat ./docs/ssh-notes.md',
   'ls ~/projects',
   'cat ~/.sshconfig-notes.txt',
+  'cat .env',
+  'cat ./.env',
+  'cat .env.example',
+  'ls .auto-claude/specs',
+  'cat .auto-claude/specs/001/spec.md',
+  'cat .auto-claude/environment.md',
 ];
 
 describe('validateCredentialPaths', () => {
@@ -55,6 +67,11 @@ describe('credential paths in the Bash hook', () => {
   it('denies through bashSecurityHook and validateCommand, with or without a profile', () => {
     expect(hookDenies('cat ~/.ssh/id_rsa')).toContain('SSH keys');
     expect(validateCommand('cat ~/.aws/credentials')[0]).toBe(false);
+  });
+
+  it('denies the integration token store through both paths', () => {
+    expect(hookDenies('cat ../../../.env')).toContain('integration tokens');
+    expect(validateCommand('cat .auto-claude/.env')[0]).toBe(false);
   });
 
   it('lets ordinary commands through', () => {

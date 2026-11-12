@@ -6,6 +6,11 @@
  * On Windows only the weaker 'restricted-rights' mode exists: a restricted token
  * plus a Job object (via a PowerShell launcher, see sandbox-windows.ts) that
  * does not hide the home directory; the home-hidden modes are refused there.
+ * Both home-hidden modes also mask `<project>/.auto-claude/.env*` (the integration
+ * token file), including the main project's copy behind a task worktree: bwrap
+ * overlays /dev/null on it, sandbox-exec denies read/write on it. Windows
+ * 'restricted-rights' has no filesystem hiding, so there the token file relies on
+ * the file-tool block and the command validator only.
  * Fails closed: if a sandbox is requested but cannot be built, the caller must
  * refuse to run the command instead of running it unsandboxed.
  */
@@ -72,6 +77,59 @@ function uniquePaths(paths: string[]): string[] {
   return [...new Set(paths.filter((p) => p && p.length > 0))];
 }
 
+/**
+ * Derive the main project root from a task worktree path. Worktrees live at
+ * `<main>/.auto-claude/worktrees/...` (or legacy `<main>/.worktrees/<id>`).
+ */
+function mainRootOf(dir: string): string | null {
+  for (const marker of [
+    `${path.sep}.auto-claude${path.sep}worktrees${path.sep}`,
+    `${path.sep}.worktrees${path.sep}`,
+  ]) {
+    const idx = dir.indexOf(marker);
+    if (idx > 0) return dir.slice(0, idx);
+  }
+  return null;
+}
+
+function secretEnvRoots(opts: Pick<SandboxOptions, 'cwd' | 'projectDir'>): string[] {
+  const roots = [opts.projectDir, opts.cwd].filter((p) => p && p.length > 0);
+  for (const r of [...roots]) {
+    const main = mainRootOf(r);
+    if (main) roots.push(main);
+  }
+  return uniquePaths(roots);
+}
+
+/**
+ * Absolute paths of existing `<root>/.auto-claude/.env*` files (the project,
+ * the cwd and the main project root behind a task worktree) that the sandbox
+ * must hide, because bwrap binds `/` read-only and would otherwise expose them.
+ */
+export function collectSecretEnvFiles(opts: Pick<SandboxOptions, 'cwd' | 'projectDir'>): string[] {
+  const found: string[] = [];
+  for (const root of secretEnvRoots(opts)) {
+    const dir = path.join(root, '.auto-claude');
+    let names: string[];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!name.startsWith('.env')) continue;
+      const file = path.join(dir, name);
+      try {
+        const st = fs.lstatSync(file);
+        if (st.isFile() || st.isSymbolicLink()) found.push(file);
+      } catch {
+        // unreadable entry: skip
+      }
+    }
+  }
+  return uniquePaths(found);
+}
+
 function buildLinux(
   shell: string,
   shellArgs: string[],
@@ -93,6 +151,11 @@ function buildLinux(
   for (const rel of ['.gitconfig', path.join('.config', 'git')]) {
     const p = path.join(home, rel);
     if (fs.existsSync(p)) args.push('--ro-bind', p, p);
+  }
+
+  // Later mounts overlay earlier ones: hide the token file(s) after the binds.
+  for (const file of collectSecretEnvFiles(opts)) {
+    args.push('--ro-bind', '/dev/null', file);
   }
 
   args.push('--die-with-parent');
@@ -132,6 +195,16 @@ function buildMac(
   const lines = ['(version 1)', '(allow default)', `(deny file-read* file-write* (subpath ${homeLit}))`];
   if (allowLits.length > 0) {
     lines.push(`(allow file-read* file-write* ${allowLits.map((l) => `(subpath ${l})`).join(' ')})`);
+  }
+  // Last matching rule wins, so the token-file denies go after the allow line.
+  const denyPaths = uniquePaths([
+    ...secretEnvRoots(opts).map((r) => path.join(r, '.auto-claude', '.env')),
+    ...collectSecretEnvFiles(opts),
+  ]);
+  for (const p of denyPaths) {
+    const lit = sbString(p);
+    if (!lit) return { ok: false, reason: `Sandbox refused: path contains unsafe characters: ${JSON.stringify(p)}` };
+    lines.push(`(deny file-read* file-write* (literal ${lit}))`);
   }
   if (opts.mode === 'home-hidden-no-network') lines.push('(deny network*)');
 

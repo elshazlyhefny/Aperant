@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { parseSandboxMode, wrapForSandbox } from '../sandbox';
+import { collectSecretEnvFiles, parseSandboxMode, wrapForSandbox } from '../sandbox';
 
 // The Windows launcher writes its script file here instead of the shared temp dir.
 const launcherDir = mkdtempSync(path.join(os.tmpdir(), 'aperant-sbx-test-'));
@@ -118,6 +118,67 @@ describe('wrapForSandbox', () => {
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.reason).toMatch(/only available on Windows/);
     }
+  });
+});
+
+describe('integration token file masking', () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'aperant-sbx-env-'));
+  afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+
+  function project(name: string, files: string[]): string {
+    const root = path.join(tmp, name);
+    mkdirSync(path.join(root, '.auto-claude'), { recursive: true });
+    for (const f of files) writeFileSync(path.join(root, '.auto-claude', f), 'TOKEN=x');
+    return root;
+  }
+  const opts = (dir: string, extra = {}) => ({
+    ...base, cwd: dir, projectDir: dir, writablePaths: [] as string[], mode: 'home-hidden' as const, find: found, ...extra,
+  });
+
+  it('masks .env and .env.local with /dev/null after the project bind', () => {
+    const root = project('a', ['.env', '.env.local', 'other.json']);
+    const r = wrapForSandbox('/bin/bash', ['-c', 'ls'], opts(root, { platformName: 'linux' }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const bindIdx = r.args.findIndex((a, k) => a === '--bind' && r.args[k + 1] === root);
+    for (const f of ['.env', '.env.local']) {
+      const file = path.join(root, '.auto-claude', f);
+      const i = r.args.findIndex((a, k) => a === '--ro-bind' && r.args[k + 1] === '/dev/null' && r.args[k + 2] === file);
+      expect(i).toBeGreaterThan(bindIdx);
+    }
+    expect(r.args.some((a) => a.endsWith('other.json'))).toBe(false);
+    expect(r.args.slice(-4)).toEqual(['--', '/bin/bash', '-c', 'ls']);
+  });
+
+  it('masks the main project file when running in a task worktree', () => {
+    const main = project('b', ['.env']);
+    const wt = path.join(main, '.auto-claude', 'worktrees', 'tasks', '001');
+    mkdirSync(wt, { recursive: true });
+    expect(collectSecretEnvFiles({ cwd: wt, projectDir: wt })).toEqual([path.join(main, '.auto-claude', '.env')]);
+    const r = wrapForSandbox('/bin/bash', [], opts(wt, { platformName: 'linux' }));
+    expect(r.ok && r.args.includes(path.join(main, '.auto-claude', '.env'))).toBe(true);
+  });
+
+  it('adds nothing when no .env exists', () => {
+    const root = project('c', []);
+    const r = wrapForSandbox('/bin/bash', [], opts(root, { platformName: 'linux' }));
+    expect(r.ok && r.args.includes('/dev/null')).toBe(false);
+  });
+
+  it('denies the file on macOS after the allow line', () => {
+    const root = project('d', ['.env']);
+    const r = wrapForSandbox('/bin/zsh', [], opts(root, { platformName: 'darwin' }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const profile = r.args[1];
+    const deny = `(deny file-read* file-write* (literal "${path.join(root, '.auto-claude', '.env')}"))`;
+    expect(profile).toContain(deny);
+    expect(profile.indexOf(deny)).toBeGreaterThan(profile.indexOf('(allow file-read* file-write*'));
+  });
+
+  it('refuses unsafe characters on macOS', () => {
+    const r = wrapForSandbox('/bin/zsh', [], opts('/work/"x', { platformName: 'darwin' }));
+    expect(r.ok).toBe(false);
   });
 });
 

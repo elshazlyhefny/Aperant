@@ -11,6 +11,9 @@
  * Applied by the Read, Write, Edit, Glob and Grep tools only. It is NOT applied
  * to Bash, so shell commands are not contained.
  *
+ * It also blocks the protected integration-token files (`.auto-claude/.env*`),
+ * whatever the project directory is (see isProtectedProjectSecretPath).
+ *
  * Write and Edit additionally go through security/write-guard.ts, which refuses
  * writes into .git for every agent and can narrow writes to a writeRoot for
  * analysis agents.
@@ -133,6 +136,32 @@ export function assertPathContained(
     contained: true,
     resolvedPath,
   };
+}
+
+/**
+ * zeenha fork: true when the (symlink-resolved) path is a direct child of a
+ * `.auto-claude` directory whose name starts with `.env`. Those files hold the
+ * app's integration tokens and agents must not read or write them.
+ * Independent of projectDir, so a task worktree's own `.auto-claude/.env` is covered.
+ */
+export function isProtectedProjectSecretPath(resolvedPath: string): boolean {
+  const normalized = path.normalize(resolvedPath);
+  const win = isWindows();
+  const base = win ? path.basename(normalized).toLowerCase() : path.basename(normalized);
+  const parent = path.basename(path.dirname(normalized));
+  const parentName = win ? parent.toLowerCase() : parent;
+  return base.startsWith('.env') && parentName === '.auto-claude';
+}
+
+/**
+ * Throw if the (symlink-resolved) path is a protected integration-token file.
+ */
+export function assertNotProtectedPath(resolvedPath: string): void {
+  if (isProtectedProjectSecretPath(resolvedPath)) {
+    throw new Error(
+      "Access to '.auto-claude/.env' is blocked: it holds the app's integration tokens",
+    );
+  }
 }
 
 /**
