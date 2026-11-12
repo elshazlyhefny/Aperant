@@ -110,6 +110,31 @@ describe('AGENT_CONFIGS', () => {
     expect(config.mcpServers).toContain('context7');
   });
 
+  it.each(['ideation', 'roadmap_discovery', 'competitor_analysis'] as AgentType[])(
+    'should give %s analysis tools without Edit',
+    (agentType) => {
+      const tools = AGENT_CONFIGS[agentType].tools;
+      for (const t of ['Read', 'Glob', 'Grep', 'Write', 'Bash', 'WebFetch', 'WebSearch']) {
+        expect(tools).toContain(t);
+      }
+      expect(tools).not.toContain('Edit');
+    }
+  );
+
+  it('should give insights read/shell tools without Write or Edit', () => {
+    const tools = AGENT_CONFIGS.insights.tools;
+    for (const t of ['Read', 'Glob', 'Grep', 'Bash']) {
+      expect(tools).toContain(t);
+    }
+    expect(tools).not.toContain('Write');
+    expect(tools).not.toContain('Edit');
+  });
+
+  it.each(['coder', 'qa_fixer'] as AgentType[])('should keep Edit and Write for %s', (agentType) => {
+    expect(AGENT_CONFIGS[agentType].tools).toContain('Edit');
+    expect(AGENT_CONFIGS[agentType].tools).toContain('Write');
+  });
+
   it('should configure merge_resolver with no tools', () => {
     const config = AGENT_CONFIGS.merge_resolver;
     expect(config.tools).toHaveLength(0);

@@ -11,6 +11,10 @@
  * Applied by the Read, Write, Edit, Glob and Grep tools only. It is NOT applied
  * to Bash, so shell commands are not contained.
  *
+ * Write and Edit additionally go through security/write-guard.ts, which refuses
+ * writes into .git for every agent and can narrow writes to a writeRoot for
+ * analysis agents.
+ *
  * See apps/desktop/src/main/ai/security/path-containment.ts for the TypeScript implementation.
  */
 

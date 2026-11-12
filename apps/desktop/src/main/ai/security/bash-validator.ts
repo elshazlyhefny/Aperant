@@ -30,7 +30,7 @@ import {
 } from './command-parser';
 import { BLOCKED_COMMANDS, isCommandBlocked } from './denylist';
 import { validateRmCommand, validateChmodCommand } from './validators/filesystem-validators';
-import { validateGitCommand } from './validators/git-validators';
+import { validateGitCommand, validateGitInternalsWrite } from './validators/git-validators';
 import { validateLandingPolicy } from './validators/landing-validators';
 import { validateCredentialPaths } from './validators/credential-validators';
 import { landsThroughPullRequestsOnly } from '../../../shared/utils/landing-policy';
@@ -259,6 +259,18 @@ export function bashSecurityHook(
     };
   }
 
+  // zeenha fork: .git/hooks and .git/config writes, always on (speed bump; sandbox is the real control)
+  const [gitInternalsAllowed, gitInternalsReason] = validateGitInternalsWrite(command);
+  if (!gitInternalsAllowed) {
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: gitInternalsReason,
+      },
+    };
+  }
+
   // zeenha fork: PR-only landing (see checkLandingPolicy)
   const [landingAllowed, landingReason] = checkLandingPolicy(command, profile);
   if (!landingAllowed) {
@@ -334,6 +346,12 @@ export function validateCommand(
   const credentials = validateCredentialPaths(command);
   if (!credentials[0]) {
     return credentials;
+  }
+
+  // zeenha fork: .git/hooks and .git/config writes, always on (speed bump)
+  const gitInternals = validateGitInternalsWrite(command);
+  if (!gitInternals[0]) {
+    return gitInternals;
   }
 
   // zeenha fork: PR-only landing (see checkLandingPolicy)
