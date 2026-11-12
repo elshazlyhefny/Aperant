@@ -16,6 +16,7 @@ import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDir
 
 import { appLog } from './app-logger';
 import { dispatchTaskOutcomeWebhook, mapOutcomeToWebhookEvent } from './task-webhook';
+import { dispatchJiraOutcome } from './ipc-handlers/jira/jira-writeback';
 type TaskActor = ActorRefFrom<typeof taskMachine>;
 
 interface TaskContextEntry {
@@ -352,19 +353,28 @@ export class TaskStateManager {
       // zeenha fork: this subscriber is the single funnel for every task state
       // transition, so terminal outcomes (failed / ready for review / blocked)
       // are reported to the user's webhook from here. Config comes from user
-      // settings only, never from project files. A webhook problem must not
-      // affect persistence or the renderer event, hence the try/catch.
-      try {
-        if (mapOutcomeToWebhookEvent(status, reviewReason)) {
+      // settings only, never from project files. The same outcome is also
+      // written back to the originating Jira issue (user settings config only;
+      // only that one issue is touched). A webhook or Jira problem must not
+      // affect persistence, the renderer event or the other dispatcher, hence
+      // the separate try/catch blocks.
+      const outcomeEvent = mapOutcomeToWebhookEvent(status, reviewReason);
+      if (outcomeEvent) {
+        try {
           dispatchTaskOutcomeWebhook({
             status,
             reviewReason,
             projectName: project.name,
             taskTitle: task.title || task.specId
           });
+        } catch (error) {
+          console.warn(`[TaskStateManager] Webhook dispatch failed for ${taskId}:`, error);
         }
-      } catch (error) {
-        console.warn(`[TaskStateManager] Webhook dispatch failed for ${taskId}:`, error);
+        try {
+          dispatchJiraOutcome({ task, project, event: outcomeEvent });
+        } catch (error) {
+          console.warn(`[TaskStateManager] Jira write-back failed for ${taskId}:`, error);
+        }
       }
     });
 
