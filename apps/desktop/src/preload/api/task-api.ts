@@ -9,6 +9,7 @@ import type {
   ImplementationPlan,
   TaskMetadata,
   TaskLogs,
+  TaskLogsDelta,
   ReviewReason,
   MergeProgress,
   SupportedIDE,
@@ -104,6 +105,7 @@ export interface TaskAPI {
   watchTaskLogs: (projectId: string, specId: string) => Promise<IPCResult>;
   unwatchTaskLogs: (specId: string) => Promise<IPCResult>;
   onTaskLogsChanged: (callback: (specId: string, logs: TaskLogs) => void) => () => void;
+  onTaskLogsAppended: (callback: (specId: string, delta: TaskLogsDelta) => void) => () => void;
 
   // Merge Progress Events
   onMergeProgress: (callback: (taskId: string, progress: MergeProgress) => void) => () => void;
@@ -366,6 +368,22 @@ export const createTaskAPI = (): TaskAPI => ({
     ipcRenderer.on(IPC_CHANNELS.TASK_LOGS_CHANGED, handler);
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.TASK_LOGS_CHANGED, handler);
+    };
+  },
+
+  onTaskLogsAppended: (
+    callback: (specId: string, delta: TaskLogsDelta) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      specId: string,
+      delta: TaskLogsDelta
+    ): void => {
+      callback(specId, delta);
+    };
+    ipcRenderer.on(IPC_CHANNELS.TASK_LOGS_APPENDED, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.TASK_LOGS_APPENDED, handler);
     };
   },
 

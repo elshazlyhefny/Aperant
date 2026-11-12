@@ -76,6 +76,7 @@ export const IPC_CHANNELS = {
   TASK_LOGS_WATCH: 'task:logsWatch',       // Start watching for log changes
   TASK_LOGS_UNWATCH: 'task:logsUnwatch',   // Stop watching for log changes
   TASK_LOGS_CHANGED: 'task:logsChanged',   // Event: logs changed (main -> renderer)
+  TASK_LOGS_APPENDED: 'task:logsAppended', // Event: new log entries appended (main -> renderer)
   TASK_MERGE_PROGRESS: 'task:mergeProgress',  // Event: merge progress update (main -> renderer)
 
   // Terminal operations
