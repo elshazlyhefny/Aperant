@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, isValidElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MessageSquare,
@@ -22,6 +22,7 @@ import {
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from './ui/button';
+import { CopyButton } from './ui/copy-button';
 import { Textarea } from './ui/textarea';
 import { ScrollArea } from './ui/scroll-area';
 import { Card, CardContent } from './ui/card';
@@ -97,6 +98,37 @@ const createSafeLink = (opensInNewWindowText: string) => {
   };
 };
 
+// Recursively collect the plain text of React children (strings, arrays, elements)
+function extractNodeText(node: React.ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(extractNodeText).join('');
+  if (isValidElement(node)) {
+    return extractNodeText((node.props as { children?: React.ReactNode }).children);
+  }
+  return '';
+}
+
+const COPY_REVEAL_CLASSES =
+  'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-opacity';
+const CODE_COPY_REVEAL_CLASSES =
+  'opacity-0 group-hover/code:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-opacity';
+
+// Wraps the default <pre> and adds a hover/focus-revealed copy button
+function CodeBlock({ children, node: _node, ...props }: React.HTMLAttributes<HTMLPreElement> & { node?: unknown }) {
+  const text = extractNodeText(children).replace(/\n$/, '');
+  return (
+    <div className="relative group/code">
+      <pre {...props}>{children}</pre>
+      {text && (
+        <div className={cn('absolute right-2 top-2', CODE_COPY_REVEAL_CLASSES)}>
+          <CopyButton text={text} size="icon" className="h-7 w-7" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface InsightsProps {
   projectId: string;
 }
@@ -114,6 +146,7 @@ export function Insights({ projectId }: InsightsProps) {
   // Create markdown components with translated accessibility text
   const markdownComponents = useMemo(() => ({
     a: createSafeLink(t('accessibility.opensInNewWindow')),
+    pre: CodeBlock,
   }), [t]);
 
   const [inputValue, setInputValue] = useState('');
@@ -734,7 +767,12 @@ function MessageBubble({
           <Bot className="h-4 w-4 text-primary" />
         )}
       </div>
-      <div className="flex-1 space-y-2">
+      <div className="group relative flex-1 space-y-2">
+        {!isUser && message.content && (
+          <div className={cn('absolute right-0 top-0', COPY_REVEAL_CLASSES)}>
+            <CopyButton text={message.content} size="icon" className="h-7 w-7" />
+          </div>
+        )}
         <div className="text-sm font-medium text-foreground">
           {isUser ? t('insights.roles.user') : t('insights.roles.assistant')}
         </div>

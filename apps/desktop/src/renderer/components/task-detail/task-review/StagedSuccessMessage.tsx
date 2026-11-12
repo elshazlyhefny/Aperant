@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GitMerge, Copy, Check, Sparkles, Loader2, RotateCcw } from 'lucide-react';
+import { GitMerge, Check, Sparkles, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '../../ui/button';
+import { CopyButton } from '../../ui/copy-button';
 import { Textarea } from '../../ui/textarea';
 import { persistTaskStatus } from '../../../stores/task-store';
 import type { Task } from '../../../../shared/types';
@@ -30,22 +31,10 @@ export function StagedSuccessMessage({
 }: StagedSuccessMessageProps) {
   const { t } = useTranslation(['taskReview']);
   const [commitMessage, setCommitMessage] = useState(suggestedCommitMessage || '');
-  const [copied, setCopied] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isMarkingDone, setIsMarkingDone] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const handleCopy = async () => {
-    if (!commitMessage) return;
-    try {
-      await navigator.clipboard.writeText(commitMessage);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
 
   const handleDeleteWorktreeAndMarkDone = async () => {
     setIsDeleting(true);
@@ -136,25 +125,16 @@ export function StagedSuccessMessage({
               <Sparkles className="h-3 w-3 text-purple-400" />
               {t('taskReview:stagedSuccess.aiCommitMessage')}
             </p>
-            <Button
+            <CopyButton
+              text={commitMessage}
+              label={t('taskReview:stagedSuccess.copy')}
+              copiedLabel={t('taskReview:stagedSuccess.copied')}
               variant="ghost"
               size="sm"
-              onClick={handleCopy}
               className="h-6 px-2 text-xs"
+              iconClassName="h-3 w-3"
               disabled={!commitMessage}
-            >
-              {copied ? (
-                <>
-                  <Check className="h-3 w-3 mr-1 text-success" />
-                  {t('taskReview:stagedSuccess.copied')}
-                </>
-              ) : (
-                <>
-                  <Copy className="h-3 w-3 mr-1" />
-                  {t('taskReview:stagedSuccess.copy')}
-                </>
-              )}
-            </Button>
+            />
           </div>
           <Textarea
             value={commitMessage}
