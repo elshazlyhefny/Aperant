@@ -8,8 +8,6 @@ import { getToolPath } from '../../cli-tool-manager';
 import { AgentManager } from '../../agent';
 import { fileWatcher } from '../../file-watcher';
 import { findTaskAndProject } from './shared';
-import { checkGitStatus } from '../../project-initializer';
-import { initializeClaudeProfileManager, type ClaudeProfileManager } from '../../claude-profile-manager';
 import { taskStateManager } from '../../task-state-manager';
 import { taskQueueManager } from '../../task-queue-manager';
 import {
@@ -25,94 +23,9 @@ import { projectStore } from '../../project-store';
 import { getIsolatedGitEnv, detectWorktreeBranch } from '../../utils/git-isolation';
 import { cancelFallbackTimer } from '../agent-events-handlers';
 import { canMoveFailedTaskTo } from '../../../shared/utils/task-failure';
-import { readSettingsFile } from '../../settings-utils';
-import type { ProviderAccount } from '../../../shared/types/provider-account';
+import { preflightTaskLaunch, launchTask, planHasSubtasks, safeReadFileSync, checkSubtasksCompletion } from './launch-task';
 
 import { appLog } from '../../app-logger';
-/**
- * Check if any provider account is configured (API key or OAuth).
- * Used to bypass the legacy hasValidAuth() check for non-Anthropic providers.
- */
-function hasAnyProviderAccount(): boolean {
-  const settings = readSettingsFile();
-  const accounts = (settings?.providerAccounts as ProviderAccount[] | undefined) ?? [];
-  return accounts.length > 0;
-}
-
-/**
- * Safe file read that handles missing files without TOCTOU issues.
- * Returns null if file doesn't exist or can't be read.
- */
-function safeReadFileSync(filePath: string): string | null {
-  try {
-    return readFileSync(filePath, 'utf-8');
-  } catch (error) {
-    // ENOENT (file not found) is expected, other errors should be logged
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.error(`[safeReadFileSync] Error reading ${filePath}:`, error);
-    }
-    return null;
-  }
-}
-
-/**
- * Helper function to check subtask completion status
- */
-function checkSubtasksCompletion(plan: Record<string, unknown> | null): {
-  allSubtasks: Array<{ status: string }>;
-  completedCount: number;
-  totalCount: number;
-  allCompleted: boolean;
-} {
-  const allSubtasks = (plan?.phases as Array<{ subtasks?: Array<{ status: string }> }> | undefined)?.flatMap(phase =>
-    phase.subtasks || []
-  ) || [];
-  const completedCount = allSubtasks.filter(s => s.status === 'completed').length;
-  const totalCount = allSubtasks.length;
-  const allCompleted = totalCount > 0 && completedCount === totalCount;
-
-  return { allSubtasks, completedCount, totalCount, allCompleted };
-}
-
-/**
- * Helper function to ensure profile manager is initialized.
- * Returns a discriminated union for type-safe error handling.
- *
- * @returns Success with profile manager, or failure with error message
- */
-async function ensureProfileManagerInitialized(): Promise<
-  | { success: true; profileManager: ClaudeProfileManager }
-  | { success: false; error: string }
-> {
-  try {
-    const profileManager = await initializeClaudeProfileManager();
-    return { success: true, profileManager };
-  } catch (error) {
-    console.error('[ensureProfileManagerInitialized] Failed to initialize:', error);
-    // Include actual error details for debugging while providing actionable guidance
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return {
-      success: false,
-      error: `Failed to initialize profile manager. Please check file permissions and disk space. (${errorMessage})`
-    };
-  }
-}
-
-/**
- * Get the spec directory for file watching, preferring the worktree path if it exists.
- * When a task runs in a worktree, implementation_plan.json is written there,
- * not in the main project's spec directory.
- */
-function getSpecDirForWatcher(projectPath: string, specsBaseDir: string, specId: string): string {
-  const worktreePath = findTaskWorktree(projectPath, specId);
-  if (worktreePath) {
-    const worktreeSpecDir = path.join(worktreePath, specsBaseDir, specId);
-    if (existsSync(path.join(worktreeSpecDir, 'implementation_plan.json'))) {
-      return worktreeSpecDir;
-    }
-  }
-  return path.join(projectPath, specsBaseDir, specId);
-}
 
 /**
  * Update task status manually. Callable from IPC and from the main-process queue manager.
@@ -252,7 +165,6 @@ export async function applyTaskStatusUpdate(
 
   // Get the spec directory and plan path using shared utility
   const specsBaseDir = getSpecsDir(project.autoBuildPath);
-  const specDir = path.join(project.path, specsBaseDir, task.specId);
   const planPath = getPlanPath(project, task);
 
   try {
@@ -282,44 +194,13 @@ export async function applyTaskStatusUpdate(
       taskStateManager.prepareForRestart(taskId);
       const mainWindow = getMainWindow();
 
-      // Check git status before auto-starting
-      const gitStatusCheck = checkGitStatus(project.path);
-      if (!gitStatusCheck.isGitRepo || !gitStatusCheck.hasCommits) {
-        console.warn('[TASK_UPDATE_STATUS] Git check failed, cannot auto-start task');
+      const pre = await preflightTaskLaunch(task, project);
+      if (!pre.ok) {
+        console.warn('[TASK_UPDATE_STATUS] Preflight failed, cannot auto-start task:', pre.error);
         if (mainWindow) {
-          mainWindow.webContents.send(
-            IPC_CHANNELS.TASK_ERROR,
-            taskId,
-            gitStatusCheck.error || 'Git repository with commits required to run tasks.'
-          );
+          mainWindow.webContents.send(IPC_CHANNELS.TASK_ERROR, taskId, pre.error);
         }
-        return { success: false, error: gitStatusCheck.error || 'Git repository required' };
-      }
-
-      // Check authentication before auto-starting
-      // Ensure profile manager is initialized to prevent race condition
-      const initResult = await ensureProfileManagerInitialized();
-      if (!initResult.success) {
-        if (mainWindow) {
-          mainWindow.webContents.send(
-            IPC_CHANNELS.TASK_ERROR,
-            taskId,
-            initResult.error
-          );
-        }
-        return { success: false, error: initResult.error };
-      }
-      const profileManager = initResult.profileManager;
-      if (!profileManager.hasValidAuth() && !hasAnyProviderAccount()) {
-        console.warn('[TASK_UPDATE_STATUS] No valid authentication for active profile or provider accounts');
-        if (mainWindow) {
-          mainWindow.webContents.send(
-            IPC_CHANNELS.TASK_ERROR,
-            taskId,
-            'Authentication required. Please add an account in Settings > Accounts before starting tasks.'
-          );
-        }
-        return { success: false, error: 'Authentication required' };
+        return { success: false, error: pre.error };
       }
 
       console.warn('[TASK_UPDATE_STATUS] Auto-starting task:', taskId);
@@ -335,77 +216,7 @@ export async function applyTaskStatusUpdate(
         console.warn(`[TASK_UPDATE_STATUS] Reset ${resetResult.resetCount} stuck subtask(s) before starting`);
       }
 
-      // Start file watcher for this task
-      // Use worktree path if it exists, since the backend writes implementation_plan.json there
-      const watchSpecDir = getSpecDirForWatcher(project.path, specsBaseDir, task.specId);
-      fileWatcher.watch(taskId, watchSpecDir).catch((err) => {
-        console.error(`[TASK_UPDATE_STATUS] Failed to watch spec dir for ${taskId}:`, err);
-      });
-
-      // Check if spec.md exists
-      const specFilePath = path.join(specDir, AUTO_BUILD_PATHS.SPEC_FILE);
-      const hasSpec = existsSync(specFilePath);
-      const needsSpecCreation = !hasSpec;
-      // FIX (#1562): Check actual plan file for subtasks, not just task.subtasks.length
-      const updatePlanFilePath = path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
-      let updatePlanHasSubtasks = false;
-      const updatePlanContent = safeReadFileSync(updatePlanFilePath);
-      if (updatePlanContent) {
-        try {
-          const plan = JSON.parse(updatePlanContent);
-          updatePlanHasSubtasks = checkSubtasksCompletion(plan).totalCount > 0;
-        } catch {
-          // Invalid/corrupt plan file - treat as no subtasks
-        }
-      }
-      const needsImplementation = hasSpec && !updatePlanHasSubtasks;
-
-      console.warn('[TASK_UPDATE_STATUS] hasSpec:', hasSpec, 'needsSpecCreation:', needsSpecCreation, 'needsImplementation:', needsImplementation);
-
-      // Get base branch: task-level override takes precedence over project settings
-      const baseBranchForUpdate = task.metadata?.baseBranch || project.settings?.mainBranch;
-
-      if (needsSpecCreation) {
-        // No spec file - need to run spec_runner.py to create the spec
-        const taskDescription = task.description || task.title;
-        console.warn('[TASK_UPDATE_STATUS] Starting spec creation for:', task.specId);
-        agentManager.startSpecCreation(taskId, project.path, taskDescription, specDir, task.metadata, baseBranchForUpdate, project.id);
-      } else if (needsImplementation) {
-        // Spec exists but no subtasks - run run.py to create implementation plan and execute
-        console.warn('[TASK_UPDATE_STATUS] Starting task execution (no subtasks) for:', task.specId);
-        agentManager.startTaskExecution(
-          taskId,
-          project.path,
-          task.specId,
-          {
-            parallel: false,
-            workers: 1,
-            baseBranch: baseBranchForUpdate,
-            useWorktree: task.metadata?.useWorktree,
-            useLocalBranch: task.metadata?.useLocalBranch,
-            pushNewBranches: task.metadata?.pushNewBranches
-          },
-          project.id
-        );
-      } else {
-        // Task has subtasks, start normal execution
-        // Note: Parallel execution is handled internally by the agent
-        console.warn('[TASK_UPDATE_STATUS] Starting task execution (has subtasks) for:', task.specId);
-        agentManager.startTaskExecution(
-          taskId,
-          project.path,
-          task.specId,
-          {
-            parallel: false,
-            workers: 1,
-            baseBranch: baseBranchForUpdate,
-            useWorktree: task.metadata?.useWorktree,
-            useLocalBranch: task.metadata?.useLocalBranch,
-            pushNewBranches: task.metadata?.pushNewBranches
-          },
-          project.id
-        );
-      }
+      launchTask({ task, project, agentManager, logTag: '[TASK_UPDATE_STATUS]' });
 
       // Notify renderer about status change
       if (mainWindow) {
@@ -458,19 +269,6 @@ export function registerTaskExecutionHandlers(
         return;
       }
 
-      // Ensure profile manager is initialized before checking auth
-      // This prevents race condition where auth check runs before profile data loads from disk
-      const initResult = await ensureProfileManagerInitialized();
-      if (!initResult.success) {
-        mainWindow.webContents.send(
-          IPC_CHANNELS.TASK_ERROR,
-          taskId,
-          initResult.error
-        );
-        return;
-      }
-      const profileManager = initResult.profileManager;
-
       // Find task and project
       // First search all projects to find the task, then verify the project matches
       // task.projectId to prevent cross-project contamination when multiple projects
@@ -492,35 +290,10 @@ export function registerTaskExecutionHandlers(
         ? (projectStore.getProject(task.projectId) ?? foundProject)
         : foundProject;
 
-      // Check git status - Auto Claude requires git for worktree-based builds
-      const gitStatus = checkGitStatus(project.path);
-      if (!gitStatus.isGitRepo) {
-        console.warn('[TASK_START] Project is not a git repository:', project.path);
-        mainWindow.webContents.send(
-          IPC_CHANNELS.TASK_ERROR,
-          taskId,
-          'Git repository required. Please run "git init" in your project directory. Aperant uses git worktrees for isolated builds.'
-        );
-        return;
-      }
-      if (!gitStatus.hasCommits) {
-        console.warn('[TASK_START] Git repository has no commits:', project.path);
-        mainWindow.webContents.send(
-          IPC_CHANNELS.TASK_ERROR,
-          taskId,
-          'Git repository has no commits. Please make an initial commit first (git add . && git commit -m "Initial commit").'
-        );
-        return;
-      }
-
-      // Check authentication - requires valid legacy profile OR provider account
-      if (!profileManager.hasValidAuth() && !hasAnyProviderAccount()) {
-        console.warn('[TASK_START] No valid authentication for active profile or provider accounts');
-        mainWindow.webContents.send(
-          IPC_CHANNELS.TASK_ERROR,
-          taskId,
-          'Authentication required. Please add an account in Settings > Accounts before starting tasks.'
-        );
+      const pre = await preflightTaskLaunch(task, project);
+      if (!pre.ok) {
+        console.warn('[TASK_START] Preflight failed:', pre.error);
+        mainWindow.webContents.send(IPC_CHANNELS.TASK_ERROR, taskId, pre.error);
         return;
       }
 
@@ -531,25 +304,13 @@ export function registerTaskExecutionHandlers(
       // - lastSequenceByTask doesn't drop events from the new process
       taskStateManager.prepareForRestart(taskId);
 
-      // Check if implementation_plan.json has valid subtasks BEFORE XState handling.
-      // This is more reliable than task.subtasks.length which may not be loaded yet.
       const specsBaseDir = getSpecsDir(project.autoBuildPath);
       const specDir = path.join(
         project.path,
         specsBaseDir,
         task.specId
       );
-      const planFilePath = path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
-      let planHasSubtasks = false;
-      const planContent = safeReadFileSync(planFilePath);
-      if (planContent) {
-        try {
-          const plan = JSON.parse(planContent);
-          planHasSubtasks = checkSubtasksCompletion(plan).totalCount > 0;
-        } catch {
-          // Invalid/corrupt plan file - treat as no subtasks
-        }
-      }
+      const hasSubtasks = planHasSubtasks(specDir);
 
       // Immediately mark as started so the UI moves the card to In Progress.
       // Use XState actor state as source of truth (if actor exists), with task data as fallback.
@@ -563,7 +324,7 @@ export function registerTaskExecutionHandlers(
         // XState says plan_review - send PLAN_APPROVED
         console.warn('[TASK_START] XState: plan_review -> coding via PLAN_APPROVED');
         taskStateManager.handleUiEvent(taskId, { type: 'PLAN_APPROVED' }, task, project);
-      } else if (currentXState === 'error' && !planHasSubtasks) {
+      } else if (currentXState === 'error' && !hasSubtasks) {
         // FIX (#1562): Task crashed during planning (no subtasks yet).
         // Uses planHasSubtasks from implementation_plan.json (more reliable than task.subtasks.length).
         console.warn('[TASK_START] XState: error with no plan subtasks -> planning via PLANNING_STARTED');
@@ -581,7 +342,7 @@ export function registerTaskExecutionHandlers(
         // No XState actor - fallback to task data (e.g., after app restart)
         console.warn('[TASK_START] No XState actor, task data: plan_review -> coding via PLAN_APPROVED');
         taskStateManager.handleUiEvent(taskId, { type: 'PLAN_APPROVED' }, task, project);
-      } else if (task.status === 'error' && !planHasSubtasks) {
+      } else if (task.status === 'error' && !hasSubtasks) {
         // FIX (#1562): No XState actor, task crashed during planning (no subtasks).
         // Uses planHasSubtasks from implementation_plan.json (more reliable than task.subtasks.length).
         console.warn('[TASK_START] No XState actor, error with no plan subtasks -> planning via PLANNING_STARTED');
@@ -604,82 +365,7 @@ export function registerTaskExecutionHandlers(
         console.warn(`[TASK_START] Reset ${resetResult.resetCount} stuck subtask(s) before starting`);
       }
 
-      // Start file watcher for this task
-      // Use worktree path if it exists, since the backend writes implementation_plan.json there
-      const watchSpecDir = getSpecDirForWatcher(project.path, specsBaseDir, task.specId);
-      fileWatcher.watch(taskId, watchSpecDir).catch((err) => {
-        console.error(`[TASK_START] Failed to watch spec dir for ${taskId}:`, err);
-      });
-
-      // Check if spec.md exists (indicates spec creation was already done or in progress)
-      // Check main project path for spec file (spec is created before worktree)
-      const specFilePath = path.join(specDir, AUTO_BUILD_PATHS.SPEC_FILE);
-      const hasSpec = existsSync(specFilePath);
-
-      // Check if this task needs spec creation first (no spec file = not yet created)
-      // OR if it has a spec but no implementation plan subtasks (spec created, needs planning/building)
-      const needsSpecCreation = !hasSpec;
-      // FIX (#1562): Check actual plan file for subtasks, not just task.subtasks.length.
-      // When a task crashes during planning, it may have spec.md but an empty/missing
-      // implementation_plan.json. Previously, this path would call startTaskExecution
-      // (run.py) which expects subtasks to exist. Now we check the actual plan file.
-      const needsImplementation = hasSpec && !planHasSubtasks;
-
-      console.warn('[TASK_START] hasSpec:', hasSpec, 'planHasSubtasks:', planHasSubtasks, 'needsSpecCreation:', needsSpecCreation, 'needsImplementation:', needsImplementation);
-
-      // Get base branch: task-level override takes precedence over project settings
-      const baseBranch = task.metadata?.baseBranch || project.settings?.mainBranch;
-
-      if (needsSpecCreation) {
-        // No spec file - need to run spec_runner.py to create the spec
-        const taskDescription = task.description || task.title;
-        console.warn('[TASK_START] Starting spec creation for:', task.specId, 'in:', specDir, 'baseBranch:', baseBranch);
-
-        // Start spec creation process - pass the existing spec directory
-        // so spec_runner uses it instead of creating a new one
-        // Also pass baseBranch so worktrees are created from the correct branch
-        agentManager.startSpecCreation(taskId, project.path, taskDescription, specDir, task.metadata, baseBranch, project.id);
-      } else if (needsImplementation) {
-        // Spec exists but no valid subtasks in implementation plan
-        // FIX (#1562): Use startTaskExecution (run.py) which will create the planner
-        // agent session to generate the implementation plan. run.py handles the case
-        // where implementation_plan.json is missing or has no subtasks - the planner
-        // agent will generate the plan before the coder starts.
-        console.warn('[TASK_START] Starting task execution (no valid subtasks in plan) for:', task.specId);
-        agentManager.startTaskExecution(
-          taskId,
-          project.path,
-          task.specId,
-          {
-            parallel: false,  // Sequential for planning phase
-            workers: 1,
-            baseBranch,
-            useWorktree: task.metadata?.useWorktree,
-            useLocalBranch: task.metadata?.useLocalBranch,
-            pushNewBranches: task.metadata?.pushNewBranches
-          },
-          project.id
-        );
-      } else {
-        // Task has subtasks, start normal execution
-        // Note: Parallel execution is handled internally by the agent, not via CLI flags
-        console.warn('[TASK_START] Starting task execution (has subtasks) for:', task.specId);
-
-        agentManager.startTaskExecution(
-          taskId,
-          project.path,
-          task.specId,
-          {
-            parallel: false,
-            workers: 1,
-            baseBranch,
-            useWorktree: task.metadata?.useWorktree,
-            useLocalBranch: task.metadata?.useLocalBranch,
-            pushNewBranches: task.metadata?.pushNewBranches
-          },
-          project.id
-        );
-      }
+      launchTask({ task, project, agentManager, logTag: '[TASK_START]', planHasSubtasks: hasSubtasks });
     }
   );
 
@@ -1244,54 +930,22 @@ export function registerTaskExecutionHandlers(
         if (autoRestart) {
           // Clear stale tracking state before restarting
           taskStateManager.prepareForRestart(taskId);
-          // Check git status before auto-restarting
-          const gitStatusForRestart = checkGitStatus(project.path);
-          if (!gitStatusForRestart.isGitRepo || !gitStatusForRestart.hasCommits) {
-            console.warn('[Recovery] Git check failed, cannot auto-restart task');
-            // Recovery succeeded but we can't restart without git
+          const pre = await preflightTaskLaunch(task, project);
+          if (!pre.ok) {
+            console.warn('[Recovery] Preflight failed, cannot auto-restart task:', pre.error);
+            // Recovery succeeded but we can't restart
             return {
               success: true,
               data: {
                 taskId,
                 recovered: true,
                 newStatus,
-                message: `Task recovered but cannot restart: ${gitStatusForRestart.error || 'Git repository with commits required.'}`,
+                message: `Task recovered but cannot restart: ${pre.error}`,
                 autoRestarted: false
               }
             };
           }
 
-          // Check authentication before auto-restarting
-          // Ensure profile manager is initialized to prevent race condition
-          const initResult = await ensureProfileManagerInitialized();
-          if (!initResult.success) {
-            // Recovery succeeded but we can't restart without profile manager
-            return {
-              success: true,
-              data: {
-                taskId,
-                recovered: true,
-                newStatus,
-                message: `Task recovered but cannot restart: ${initResult.error}`,
-                autoRestarted: false
-              }
-            };
-          }
-          const profileManager = initResult.profileManager;
-          if (!profileManager.hasValidAuth() && !hasAnyProviderAccount()) {
-            console.warn('[Recovery] Auth check failed, cannot auto-restart task');
-            // Recovery succeeded but we can't restart without auth
-            return {
-              success: true,
-              data: {
-                taskId,
-                recovered: true,
-                newStatus,
-                message: 'Task recovered but cannot restart: authentication required. Please add an account in Settings > Accounts.',
-                autoRestarted: false
-              }
-            };
-          }
 
           try {
             // Cancel any pending fallback timer from previous process exit
@@ -1322,47 +976,7 @@ export function registerTaskExecutionHandlers(
               projectStore.invalidateTasksCache(project.id);
             }
 
-            // Start the task execution
-            // Start file watcher for this task
-            // Use worktree path if it exists, since the backend writes implementation_plan.json there
-            const watchSpecDir = getSpecDirForWatcher(project.path, specsBaseDir, task.specId);
-            fileWatcher.watch(taskId, watchSpecDir).catch((err) => {
-              console.error(`[Recovery] Failed to watch spec dir for ${taskId}:`, err);
-            });
-
-            // Check if spec.md exists to determine whether to run spec creation or task execution
-            // Check main project path for spec file (spec is created before worktree)
-            // mainSpecDir is declared earlier in the handler scope
-            const specFilePath = path.join(mainSpecDir, AUTO_BUILD_PATHS.SPEC_FILE);
-            const hasSpec = existsSync(specFilePath);
-            const needsSpecCreation = !hasSpec;
-
-            // Get base branch: task-level override takes precedence over project settings
-            const baseBranchForRecovery = task.metadata?.baseBranch || project.settings?.mainBranch;
-
-            if (needsSpecCreation) {
-              // No spec file - need to run spec_runner.py to create the spec
-              const taskDescription = task.description || task.title;
-              console.warn(`[Recovery] Starting spec creation for: ${task.specId}`);
-              agentManager.startSpecCreation(taskId, project.path, taskDescription, mainSpecDir, task.metadata, baseBranchForRecovery, project.id);
-            } else {
-              // Spec exists - run task execution
-              console.warn(`[Recovery] Starting task execution for: ${task.specId}`);
-              agentManager.startTaskExecution(
-                taskId,
-                project.path,
-                task.specId,
-                {
-                  parallel: false,
-                  workers: 1,
-                  baseBranch: baseBranchForRecovery,
-                  useWorktree: task.metadata?.useWorktree,
-                  useLocalBranch: task.metadata?.useLocalBranch,
-                  pushNewBranches: task.metadata?.pushNewBranches
-                },
-                project.id
-              );
-            }
+            launchTask({ task, project, agentManager, logTag: '[Recovery]' });
 
             autoRestarted = true;
             console.warn(`[Recovery] Auto-restarted task ${taskId}`);
