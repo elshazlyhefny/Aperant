@@ -204,6 +204,8 @@ export interface InsightsChatMessage {
   }>;
   // Image attachments (screenshots, pasted images)
   images?: ImageAttachment[];
+  // Assistant message whose run was cancelled and holds only a partial answer
+  stopped?: boolean;
   // Tools used during this response (assistant messages only)
   toolsUsed?: InsightsToolUsage[];
 }
@@ -240,6 +242,8 @@ export interface InsightsChatStatus {
 export interface InsightsStreamChunk {
   type: 'text' | 'task_suggestion' | 'tool_start' | 'tool_end' | 'done' | 'error';
   content?: string;
+  // Set on 'done' chunk when the run was cancelled by the user
+  stopped?: boolean;
   suggestedTasks?: Array<{
     title: string;
     description: string;

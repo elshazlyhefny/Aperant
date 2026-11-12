@@ -140,6 +140,13 @@ export class InsightsService extends EventEmitter {
   }
 
   /**
+   * Stop the in-flight response for a project. Returns false if nothing was running.
+   */
+  cancelMessage(projectId: string): boolean {
+    return this.executor.stopSession(projectId);
+  }
+
+  /**
    * Send a message and get AI response
    */
   async sendMessage(
@@ -218,6 +225,14 @@ export class InsightsService extends EventEmitter {
         images
       );
 
+      // A stop before any output leaves nothing worth keeping
+      if (result.stopped && !result.fullResponse && result.toolsUsed.length === 0) {
+        session.updatedAt = new Date();
+        this.sessionManager.saveSession(projectPath, session);
+        this.emit('session-updated', projectId, session);
+        return;
+      }
+
       // Add assistant message to session
       const assistantMessage: InsightsChatMessage = {
         id: `msg-${Date.now()}`,
@@ -225,7 +240,8 @@ export class InsightsService extends EventEmitter {
         content: result.fullResponse,
         timestamp: new Date(),
         suggestedTasks: result.suggestedTasks,
-        toolsUsed: result.toolsUsed.length > 0 ? result.toolsUsed : undefined
+        toolsUsed: result.toolsUsed.length > 0 ? result.toolsUsed : undefined,
+        stopped: result.stopped || undefined
       };
 
       session.messages.push(assistantMessage);
