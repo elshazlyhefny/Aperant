@@ -11,6 +11,7 @@ Detailed documentation for Auto Claude setup and usage.
 | **[linux.md](linux.md)** | Linux-specific installation and build guide (Flatpak, AppImage) |
 | **[project-configuration.md](project-configuration.md)** | Reference for the per-project `.aperant.json` and `.auto-claude/.env` files |
 | **[task-dependencies.md](task-dependencies.md)** | How tasks wait for other tasks, and when a dependency counts as finished |
+| **[token-budgets.md](token-budgets.md)** | Project default and per-task token budgets, what counts, what happens at the limit, schedules, and how the CLI differs |
 
 ## Quick Links
 
