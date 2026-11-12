@@ -73,7 +73,7 @@ npm run cli -- run <spec> ...
 | Code | Meaning |
 |------|---------|
 | 0 | Success. QA passed. |
-| 1 | Error: bad arguments, setup failure, planning or coding failure, or the run was interrupted. |
+| 1 | Error: bad arguments, setup failure, planning or coding failure, the run was interrupted, or the token budget was reached (see [Token budget](#token-budget)). |
 | 2 | QA failed after the maximum number of iterations. |
 
 ### Output
@@ -106,6 +106,26 @@ The command never reads the desktop app's settings. Credentials come from the en
 ```
 
 `providerAccounts` uses the same account objects as the app. `globalPriorityOrder` lists account ids in the order to try them. When both are set, the account queue is tried first, then the environment. `project` overrides the main branch, whether to push, extra environment variable names passed to Bash, and the sandbox mode. A config file that is missing or invalid stops the run with exit code 1.
+
+### Token budget
+
+The budget comes only from the spec's `task_metadata.json`, key `tokenBudget`, at `.auto-claude/specs/<id>/task_metadata.json` in the project directory (`--project`). There is no project default: the CLI never reads the app's project settings, and the `--config` file has no budget key.
+
+```json
+{ "tokenBudget": 500000 }
+```
+
+`.auto-claude/` is gitignored, like `spec.md`, so a CI job must write this file itself.
+
+- A positive whole number is the limit. `0` means unlimited.
+- A missing key, a missing file or an invalid value means unlimited, even if the desktop project has a limit.
+- Counting is the same as in the app: input plus output tokens, with cache tokens not added again, cumulative over the task.
+
+When the limit is reached the run stops with exit code 1 (not 0, not 2). It prints `reason: token budget reached: <used> of <limit> tokens used` on stderr and a final `RESULT error exit=1 ...` line. It is never reported as success.
+
+To continue, raise `tokenBudget` (or set it to `0`) in `task_metadata.json` and run the same spec again. The run reuses the existing worktree for that spec.
+
+See [token-budgets.md](token-budgets.md) for the app side.
 
 ### Behaviour
 

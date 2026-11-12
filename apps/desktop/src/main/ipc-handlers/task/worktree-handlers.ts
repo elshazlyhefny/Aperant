@@ -7,7 +7,7 @@ import { execFileSync, execFile } from 'child_process';
 import { projectStore } from '../../project-store';
 
 import { MergeOrchestrator } from '../../ai/merge/orchestrator';
-import { createPR, suggestPRTitleForWorktree } from '../../ai/runners/github/pr-creator';
+import { createPR, createMR, suggestPRTitleForWorktree } from '../../ai/runners/github/pr-creator';
 import { capPRTitle } from '../../../shared/utils/pr-title';
 import { findTaskAndProject } from './shared';
 import { updateRoadmapFeatureOutcome } from '../../utils/roadmap-utils';
@@ -17,7 +17,8 @@ import {
   getTaskWorktreeDir,
   findTaskWorktree,
 } from '../../worktree-paths';
-import { updateTaskStatusAfterPRCreation, MAX_PR_TITLE_LENGTH, PRINTABLE_CHARS_REGEX } from './worktree-pr';
+import { updateTaskStatusAfterPRCreation, originMatchesInstance, MAX_PR_TITLE_LENGTH, PRINTABLE_CHARS_REGEX } from './worktree-pr';
+import { getGitLabConfig } from '../gitlab/utils';
 import { refreshGitIndex } from '../../utils/git-isolation';
 import { cleanupWorktree } from '../../utils/worktree-cleanup';
 import { taskStateManager } from '../../task-state-manager';
@@ -897,7 +898,8 @@ export function registerWorktreeHandlers(
 
   /**
    * Create a Pull Request from the worktree branch
-   * Pushes the branch to origin and creates a GitHub PR using gh CLI
+   * Pushes the branch to origin and creates a GitHub PR using gh CLI,
+   * or a GitLab merge request when the project's GitLab instance is its origin
    */
   ipcMain.handle(
     IPC_CHANNELS.TASK_WORKTREE_CREATE_PR,
@@ -979,13 +981,29 @@ export function registerWorktreeHandlers(
         }
 
         // Get tool paths
-        const ghPath = getToolPath('gh');
         const gitPath = getToolPath('git');
 
-        debug('Creating PR via TypeScript runner:', { branchName, baseBranch, typedTitle });
+        // zeenha fork: open a GitLab merge request only when GitLab is configured
+        // AND origin is on that instance's host. A project may keep GitLab
+        // configured for issues while its origin lives on GitHub; that stays a gh PR.
+        let gitlabConfig = await getGitLabConfig(project);
+        if (gitlabConfig) {
+          let originUrl = '';
+          try {
+            const { stdout } = await promisify(execFile)(gitPath, ['remote', 'get-url', 'origin'], {
+              cwd: project.path,
+              timeout: 10000,
+            });
+            originUrl = String(stdout).trim();
+          } catch (err) {
+            debug('Could not read origin URL; using GitHub:', err);
+          }
+          if (!originUrl || !originMatchesInstance(originUrl, gitlabConfig.instanceUrl)) {
+            gitlabConfig = null;
+          }
+        }
 
-        // Run the TypeScript PR creator
-        const result = await createPR({
+        const prConfig = {
           projectDir: project.path,
           worktreePath,
           specId: task.specId,
@@ -995,13 +1013,19 @@ export function registerWorktreeHandlers(
           fallbackTitle,
           taskTitle: task.title ?? '',
           draft: options?.draft,
-          ghPath,
           gitPath,
           subtaskProgress: readSubtaskProgress([
             path.join(worktreePath, project.autoBuildPath || '.auto-claude', 'specs', task.specId),
             specDir,
           ]),
-        });
+        };
+
+        debug('Creating PR via TypeScript runner:', { branchName, baseBranch, typedTitle, gitlab: !!gitlabConfig });
+
+        // Run the TypeScript PR/MR creator
+        const result = gitlabConfig
+          ? await createMR({ ...prConfig, gitlab: gitlabConfig })
+          : await createPR({ ...prConfig, ghPath: getToolPath('gh') });
 
         debug('PR creation result:', result);
 

@@ -37,7 +37,7 @@ import { findTaskWorktree } from '../../worktree-paths';
 import { getToolPath } from '../../cli-tool-manager';
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
 import { initializeClaudeProfileManager } from '../../claude-profile-manager';
-import { readSettingsFile } from '../../settings-utils';
+import { hasUsableAuth } from '../../services/profile/provider-account-check';
 import { taskStateManager } from '../../task-state-manager';
 
 export const PR_FOLLOWUP_MARKER = 'PR_FOLLOWUP.json';
@@ -107,15 +107,9 @@ function checkWorktree(project: Project, task: Task): WorktreeCheck {
   return { available: true, path: wt };
 }
 
-function hasAuth(profileManager: { hasValidAuth(): boolean }): boolean {
-  if (profileManager.hasValidAuth()) return true;
-  const accounts = readSettingsFile()?.providerAccounts ?? [];
-  return accounts.length > 0;
-}
-
 async function checkAuth(): Promise<boolean> {
   try {
-    return hasAuth(await initializeClaudeProfileManager());
+    return hasUsableAuth(await initializeClaudeProfileManager());
   } catch {
     return false;
   }

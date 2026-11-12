@@ -35,9 +35,11 @@ vi.mock('node:fs', () => ({
 }));
 
 // Tool registry mock
+const mockGetToolsForAgent = vi.fn().mockReturnValue({});
+
 vi.mock('../../tools/build-registry', () => ({
   buildToolRegistry: () => ({
-    getToolsForAgent: vi.fn().mockReturnValue({}),
+    getToolsForAgent: (...args: unknown[]) => mockGetToolsForAgent(...args),
   }),
 }));
 
@@ -140,6 +142,7 @@ describe('runRoadmapGeneration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreateSimpleClient.mockResolvedValue(makeMockClient());
+    mockGetToolsForAgent.mockReturnValue({});
     // Output dir exists by default (created by mkdirSync is a no-op)
     mockExistsSync.mockReturnValue(false);
     mockMkdirSync.mockReturnValue(undefined);
@@ -368,6 +371,16 @@ describe('runRoadmapGeneration', () => {
       expect.stringContaining('roadmap'),
       expect.objectContaining({ recursive: true }),
     );
+  });
+
+  it('confines Write to outputDir via the tool context', async () => {
+    mockStreamText.mockReturnValue(makeStream([]));
+    const config = baseConfig({ outputDir: '/project/.auto-claude/roadmap' });
+
+    await runRoadmapGeneration(config);
+
+    const ctx = mockGetToolsForAgent.mock.calls[0][1];
+    expect(ctx.writeRoot).toBe(config.outputDir);
   });
 
   // ---------------------------------------------------------------------------

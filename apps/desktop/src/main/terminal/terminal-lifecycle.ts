@@ -8,6 +8,7 @@ import { existsSync } from 'fs';
 import type { TerminalCreateOptions } from '../../shared/types';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { TerminalSession } from '../terminal-session-store';
+import { TerminalOutputBuffer } from './output-buffer';
 import * as PtyManager from './pty-manager';
 import * as SessionHandler from './session-handler';
 import type {
@@ -104,6 +105,7 @@ export async function createTerminal(
     debugLog('[TerminalLifecycle] PTY process spawned, pid:', ptyProcess.pid, 'shellType:', shellType);
 
     const terminalCwd = effectiveCwd || os.homedir();
+    const outputStore = new TerminalOutputBuffer();
     const terminal: TerminalProcess = {
       id,
       pty: ptyProcess,
@@ -111,7 +113,17 @@ export async function createTerminal(
       hasExited: false,
       projectPath,
       cwd: terminalCwd,
-      outputBuffer: '',
+      // Lazy view over the chunk-list store: reads join on demand, writes keep
+      // `terminal.outputBuffer += x` working for existing callers.
+      get outputBuffer(): string {
+        return outputStore.toString();
+      },
+      set outputBuffer(value: string) {
+        outputStore.set(value);
+      },
+      outputStore,
+      pendingOutput: [],
+      pendingOutputLength: 0,
       title: `Terminal ${terminals.size + 1}`,
       shellType
     };
@@ -131,7 +143,9 @@ export async function createTerminal(
     const dropNotice = formatDroppedEnvNotice(droppedEnv);
     if (dropNotice) {
       const line = `${dropNotice}\r\n`;
-      terminal.outputBuffer += line;
+      // Nothing from the PTY has been queued yet (data events are async), so a
+      // direct send keeps the notice ahead of PTY output.
+      outputStore.append(line);
       safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OUTPUT, id, line);
     }
 

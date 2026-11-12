@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/button';
 import { useToast } from '../../hooks/use-toast';
 import { useTaskStore, setTaskHold } from '../../stores/task-store';
+import { useStableFileOverlaps } from '../../hooks/useStableFileOverlaps';
 import {
-  findFileOverlaps,
   getPlannedFiles,
   isHoldActive,
   isOverlapCandidate
@@ -24,6 +24,7 @@ export function TaskFileOverlap({ task }: TaskFileOverlapProps) {
   const { t } = useTranslation(['tasks']);
   const { toast } = useToast();
   const tasks = useTaskStore((state) => state.tasks);
+  const { fileOverlaps } = useStableFileOverlaps(tasks);
   const current = tasks.find((x) => x.id === task.id) ?? task;
 
   if (!isOverlapCandidate(current)) return null;
@@ -37,7 +38,7 @@ export function TaskFileOverlap({ task }: TaskFileOverlapProps) {
     );
   }
 
-  const overlaps = findFileOverlaps(tasks).get(current.id) ?? [];
+  const overlaps = fileOverlaps.get(current.id) ?? [];
   const holdActive = isHoldActive(current, tasks);
   const blockerId = current.metadata?.holdUntilTaskId;
   const blockerTitle = tasks.find((x) => x.id === blockerId)?.title ?? '';

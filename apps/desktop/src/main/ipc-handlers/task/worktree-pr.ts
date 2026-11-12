@@ -28,21 +28,51 @@ export interface ParsedPRResult {
 }
 
 /**
- * Validate that a URL is a valid GitHub PR URL.
- * Supports both github.com and GitHub Enterprise instances (custom domains).
- * Only requires HTTPS protocol and non-empty hostname to allow any GH Enterprise URL.
+ * Validate that a URL is a valid HTTPS URL for a pull or merge request.
+ * Provider-neutral: github.com, GitHub Enterprise, gitlab.com and self-hosted
+ * GitLab all pass. Only requires HTTPS and a non-empty hostname.
  * @returns true if the URL is a valid HTTPS URL with a non-empty hostname
  */
-export function isValidGitHubUrl(url: string): boolean {
+export function isValidHttpsUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    // Only require HTTPS with non-empty hostname
-    // This supports GH Enterprise instances with custom domains
-    // The URL comes from gh CLI output which we trust to be valid
     return parsed.protocol === 'https:' && parsed.hostname.length > 0;
   } catch {
     return false;
   }
+}
+
+/**
+ * Extract the lowercase host from a git remote URL (SSH scp-style,
+ * scheme URLs such as ssh:// or https://). Ports are ignored.
+ */
+function remoteHost(remoteUrl: string): string | null {
+  const trimmed = remoteUrl.trim();
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    try {
+      return new URL(trimmed).hostname.toLowerCase() || null;
+    } catch {
+      return null;
+    }
+  }
+  const scp = /^(?:[^@/\s]+@)?([^:/\s]+):(?!\/\/)/.exec(trimmed);
+  return scp ? scp[1].toLowerCase() : null;
+}
+
+/**
+ * zeenha fork: true when a git remote URL points at the given GitLab instance.
+ * Compares hosts case-insensitively and ignores ports on the remote, so a
+ * project with GitLab configured but a GitHub origin still opens a GitHub PR.
+ */
+export function originMatchesInstance(remoteUrl: string, instanceUrl: string): boolean {
+  let instanceHost: string;
+  try {
+    instanceHost = new URL(instanceUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!instanceHost) return false;
+  return remoteHost(remoteUrl) === instanceHost;
 }
 
 /**
@@ -73,8 +103,8 @@ export function parsePRJsonOutput(stdout: string): ParsedPRResult | null {
     const rawPrUrl = typeof parsed.pr_url === 'string' ? parsed.pr_url :
                      typeof parsed.prUrl === 'string' ? parsed.prUrl : undefined;
 
-    // Validate PR URL is a valid GitHub URL for robustness
-    const validatedPrUrl = rawPrUrl && isValidGitHubUrl(rawPrUrl) ? rawPrUrl : undefined;
+    // Validate PR URL is a valid HTTPS URL for robustness
+    const validatedPrUrl = rawPrUrl && isValidHttpsUrl(rawPrUrl) ? rawPrUrl : undefined;
 
     return {
       success: typeof parsed.success === 'boolean' ? parsed.success : false,

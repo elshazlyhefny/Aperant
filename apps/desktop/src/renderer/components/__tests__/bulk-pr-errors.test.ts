@@ -4,7 +4,7 @@ import type { WorktreeCreatePRErrorCode } from '../../../shared/types';
 import { getBulkPRErrorMessageKey, isSkippedErrorCode } from '../bulk-pr-errors';
 
 const SKIPPED: WorktreeCreatePRErrorCode[] = ['NO_WORKTREE', 'TASK_NOT_FOUND', 'SPEC_DIR_NOT_FOUND'];
-const SERVER_MESSAGE: WorktreeCreatePRErrorCode[] = ['NO_CHANGES', 'GH_FAILED', 'UNKNOWN'];
+const SERVER_MESSAGE: WorktreeCreatePRErrorCode[] = ['NO_CHANGES', 'GH_FAILED', 'MR_FAILED', 'UNKNOWN'];
 
 describe('isSkippedErrorCode', () => {
   it.each(WORKTREE_CREATE_PR_ERROR_CODES)('classifies %s', (code) => {

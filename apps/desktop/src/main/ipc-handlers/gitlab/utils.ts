@@ -7,7 +7,7 @@ import { execFileSync } from 'child_process';
 import path from 'path';
 import type { Project } from '../../../shared/types';
 import { parseEnvFile } from '../utils';
-import type { GitLabConfig } from './types';
+import type { GitLabConfig, GitLabAPIMergeRequest, CreateMergeRequestOptions } from './types';
 import { getAugmentedEnv } from '../../env-utils';
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
 
@@ -289,6 +289,76 @@ export async function gitlabFetch(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Create a merge request via the GitLab API
+ */
+export async function createGitLabMergeRequest(
+  config: GitLabConfig,
+  options: CreateMergeRequestOptions
+): Promise<GitLabAPIMergeRequest> {
+  const encodedProject = encodeProjectPath(config.project);
+
+  const mrBody: Record<string, unknown> = {
+    source_branch: options.sourceBranch,
+    target_branch: options.targetBranch,
+    title: options.title
+  };
+
+  if (options.description !== undefined) {
+    mrBody.description = options.description;
+  }
+
+  if (options.labels !== undefined) {
+    mrBody.labels = options.labels.join(',');
+  }
+
+  if (options.assigneeIds !== undefined) {
+    mrBody.assignee_ids = options.assigneeIds;
+  }
+
+  if (options.removeSourceBranch !== undefined) {
+    mrBody.remove_source_branch = options.removeSourceBranch;
+  }
+
+  if (options.squash !== undefined) {
+    mrBody.squash = options.squash;
+  }
+
+  return await gitlabFetch(
+    config.token,
+    config.instanceUrl,
+    `/projects/${encodedProject}/merge_requests`,
+    {
+      method: 'POST',
+      body: JSON.stringify(mrBody)
+    }
+  ) as GitLabAPIMergeRequest;
+}
+
+/**
+ * Find an open merge request for a source branch (optionally a target branch)
+ */
+export async function findOpenMergeRequestForBranch(
+  config: GitLabConfig,
+  sourceBranch: string,
+  targetBranch?: string
+): Promise<GitLabAPIMergeRequest | null> {
+  const encodedProject = encodeProjectPath(config.project);
+  let query = `state=opened&source_branch=${encodeURIComponent(sourceBranch)}`;
+  if (targetBranch) {
+    query += `&target_branch=${encodeURIComponent(targetBranch)}`;
+  }
+  query += '&per_page=1';
+
+  const mrs = await gitlabFetch(
+    config.token,
+    config.instanceUrl,
+    `/projects/${encodedProject}/merge_requests?${query}`
+  ) as GitLabAPIMergeRequest[];
+
+  return Array.isArray(mrs) && mrs.length > 0 ? mrs[0] : null;
 }
 
 /**

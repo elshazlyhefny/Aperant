@@ -11,6 +11,7 @@ import type { BuiltinProvider } from '../types/provider-account';
 // ============================================
 
 export const AVAILABLE_MODELS = [
+  { value: 'fable', label: 'Claude Fable 5.2' },
   { value: 'opus', label: 'Claude Opus 5.5' },
   { value: 'opus-1m', label: 'Claude Opus 4.6 (1M)' },
   { value: 'opus-4.5', label: 'Claude Opus 4.5' },
@@ -38,7 +39,8 @@ export interface ModelOption {
 
 export const ALL_AVAILABLE_MODELS: ModelOption[] = [
   // Anthropic
-  { value: 'opus', label: 'Claude Opus 5.5', provider: 'anthropic', description: 'Most capable', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
+  { value: 'fable', label: 'Claude Fable 5.2', provider: 'anthropic', description: 'Most capable', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 1000000 } },
+  { value: 'opus', label: 'Claude Opus 5.5', provider: 'anthropic', description: 'Capable', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
   { value: 'opus-1m', label: 'Claude Opus 4.6 (1M)', provider: 'anthropic', description: '1M context', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 1000000 } },
   { value: 'sonnet', label: 'Claude Sonnet 5.5', provider: 'anthropic', description: 'Balanced', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
   { value: 'opus-4.5', label: 'Claude Opus 4.5', provider: 'anthropic', description: 'Legacy', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
@@ -76,6 +78,7 @@ export const ALL_AVAILABLE_MODELS: ModelOption[] = [
 // Maps model shorthand to actual Claude model IDs
 // Values must match apps/desktop/src/main/ai/config/types.ts MODEL_ID_MAP
 export const MODEL_ID_MAP: Record<string, string> = {
+  fable: 'claude-fable-5-2',
   opus: 'claude-opus-5-5',
   'opus-1m': 'claude-opus-4-6',
   'opus-4.5': 'claude-opus-4-5-20251101',
@@ -357,7 +360,7 @@ export function getProviderPresetOrFallback(provider: BuiltinProvider, presetId:
 export const FAST_MODE_MODELS: readonly string[] = ['opus', 'opus-1m'] as const;
 
 // Models that use adaptive thinking (Opus dynamically decides how much to think within the budget cap)
-export const ADAPTIVE_THINKING_MODELS: readonly string[] = ['opus', 'opus-1m'] as const;
+export const ADAPTIVE_THINKING_MODELS: readonly string[] = ['fable', 'opus', 'opus-1m'] as const;
 
 // Valid thinking levels for validation
 export const VALID_THINKING_LEVELS = ['low', 'medium', 'high', 'xhigh'] as const;
@@ -406,6 +409,11 @@ export interface ProviderModelSpec {
 
 export const DEFAULT_MODEL_EQUIVALENCES: Record<string, Partial<Record<BuiltinProvider, ProviderModelSpec>>> = {
   // ── Anthropic shorthands ──────────────────────────────────────────────────
+  'fable': {
+    anthropic: { modelId: 'claude-fable-5-2', reasoning: { type: 'adaptive_effort', level: 'high' } },
+    openai: { modelId: 'gpt-5.3-codex', reasoning: { type: 'reasoning_effort', level: 'high' } },
+    google: { modelId: 'gemini-2.5-pro', reasoning: { type: 'thinking_toggle', level: 'high' } },
+  },
   'opus': {
     anthropic: { modelId: 'claude-opus-5-5', reasoning: { type: 'adaptive_effort', level: 'high' } },
     openai: { modelId: 'gpt-5.3-codex', reasoning: { type: 'reasoning_effort', level: 'high' } },

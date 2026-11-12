@@ -7,7 +7,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/constants';
 import type { IPCResult, GitLabMergeRequest } from '../../../shared/types';
 import { projectStore } from '../../project-store';
-import { getGitLabConfig, gitlabFetch, encodeProjectPath } from './utils';
+import { getGitLabConfig, gitlabFetch, encodeProjectPath, createGitLabMergeRequest } from './utils';
 import type { GitLabAPIMergeRequest, CreateMergeRequestOptions } from './types';
 import { createDebugLog } from '../../../shared/utils/debug-logger';
 
@@ -194,43 +194,7 @@ export function registerCreateMergeRequest(): void {
       }
 
       try {
-        const encodedProject = encodeProjectPath(config.project);
-
-        const mrBody: Record<string, unknown> = {
-          source_branch: options.sourceBranch,
-          target_branch: options.targetBranch,
-          title: options.title
-        };
-
-        if (options.description !== undefined) {
-          mrBody.description = options.description;
-        }
-
-        if (options.labels !== undefined) {
-          mrBody.labels = options.labels.join(',');
-        }
-
-        if (options.assigneeIds !== undefined) {
-          mrBody.assignee_ids = options.assigneeIds;
-        }
-
-        if (options.removeSourceBranch !== undefined) {
-          mrBody.remove_source_branch = options.removeSourceBranch;
-        }
-
-        if (options.squash !== undefined) {
-          mrBody.squash = options.squash;
-        }
-
-        const apiMr = await gitlabFetch(
-          config.token,
-          config.instanceUrl,
-          `/projects/${encodedProject}/merge_requests`,
-          {
-            method: 'POST',
-            body: JSON.stringify(mrBody)
-          }
-        ) as GitLabAPIMergeRequest;
+        const apiMr = await createGitLabMergeRequest(config, options);
 
         debugLog('Merge request created:', { iid: apiMr.iid });
 

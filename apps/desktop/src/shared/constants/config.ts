@@ -52,6 +52,13 @@ export const DEFAULT_APP_SETTINGS = {
     url: '',
     events: { reviewReady: true, failed: true, blocked: true }
   },
+  // zeenha fork: Jira write-back is opt-in, everything off by default
+  jiraWriteback: {
+    enabled: false,
+    comment: true,
+    transitionOnReview: false,
+    transitionStatusName: 'In Review'
+  },
   // Global API keys (used as defaults for all projects)
   globalOpenAIApiKey: undefined as string | undefined,
   // Selected agent profile - defaults to 'auto' for per-phase optimized model selection

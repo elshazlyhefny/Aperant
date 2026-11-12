@@ -25,6 +25,7 @@ import * as crypto from 'node:crypto';
 
 import { createSimpleClient } from '../../client/factory';
 import type { SimpleClientResult } from '../../client/types';
+import { isReviewReadOnlyTool } from '../../config/review-tools';
 import type { ModelShorthand, ThinkingLevel } from '../../config/types';
 import { buildThinkingProviderOptions } from '../../config/types';
 import { parseLLMJson } from '../../schema/structured-output';
@@ -577,6 +578,7 @@ export class ParallelOrchestratorReviewer {
     const builtinTools: Record<string, AITool> = {};
     const agentConfig = getAgentConfig(config.agentType);
     for (const toolName of agentConfig.tools) {
+      if (!isReviewReadOnlyTool(toolName)) continue;
       const definedTool = this.registry.getTool(toolName);
       if (definedTool) {
         builtinTools[toolName] = definedTool.bind(toolContext);
@@ -756,7 +758,7 @@ export class ParallelOrchestratorReviewer {
 
     const systemPrompt = loadPrompt('github/pr_finding_validator');
 
-    // Build tools from pr_finding_validator config (ALL_BUILTIN_TOOLS excl SpawnSubagent)
+    // Build tools from pr_finding_validator config (read-only review tools only)
     const toolContext: ToolContext = {
       cwd: this.readDir,
       projectDir: this.readDir,
@@ -768,7 +770,7 @@ export class ParallelOrchestratorReviewer {
     const builtinTools: Record<string, AITool> = {};
     const agentConfig = getAgentConfig('pr_finding_validator');
     for (const toolName of agentConfig.tools) {
-      if (toolName === 'SpawnSubagent') continue;
+      if (!isReviewReadOnlyTool(toolName)) continue;
       const definedTool = this.registry.getTool(toolName);
       if (definedTool) {
         builtinTools[toolName] = definedTool.bind(toolContext);

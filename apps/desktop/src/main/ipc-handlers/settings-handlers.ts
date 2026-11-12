@@ -475,6 +475,22 @@ export function registerSettingsHandlers(
           };
         }
 
+        // zeenha fork: Jira write-back settings, rebuilt from strictly-typed fields.
+        if (safeSettings.jiraWriteback !== undefined) {
+          const raw = (safeSettings.jiraWriteback ?? {}) as Partial<NonNullable<AppSettings['jiraWriteback']>>;
+          const defaults = DEFAULT_APP_SETTINGS.jiraWriteback;
+          const statusName = typeof raw.transitionStatusName === 'string'
+            // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars on purpose
+            ? raw.transitionStatusName.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 100).trim()
+            : '';
+          newSettings.jiraWriteback = {
+            enabled: raw.enabled === true,
+            comment: raw.comment === true,
+            transitionOnReview: raw.transitionOnReview === true,
+            transitionStatusName: statusName || defaults?.transitionStatusName || 'In Review',
+          };
+        }
+
         // Sync defaultModel when agent profile changes (#414)
         if (settings.selectedAgentProfile) {
           const profile = DEFAULT_AGENT_PROFILES.find(p => p.id === settings.selectedAgentProfile);

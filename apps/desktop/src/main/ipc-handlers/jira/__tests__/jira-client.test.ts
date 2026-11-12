@@ -14,6 +14,10 @@ import {
   checkConnection,
   searchIssues,
   getIssuesByKeys,
+  buildAdfComment,
+  addIssueComment,
+  transitionIssue,
+  JiraAPIError,
 } from '../jira-client';
 import { findExistingJiraSpecs, createSpecFromJiraIssue } from '../jira-spec';
 
@@ -194,6 +198,102 @@ describe('jiraFetch error mapping', () => {
     const keys = Array.from({ length: 120 }, (_, i) => `PROJ-${i + 1}`);
     await getIssuesByKeys('acme.atlassian.net', 'a', 'b', 'PROJ', [...keys, 'bad key']);
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('jira write calls', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const SITE = 'acme.atlassian.net';
+  const mockFetch = () => fetch as unknown as ReturnType<typeof vi.fn>;
+  const res = (status: number, body: unknown = {}) => ({ ok: status < 400, status, json: async () => body });
+
+  it('defaults to GET without body and sends POST body with headers', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res(200, {})));
+    await jiraFetch(SITE, 'a@b.c', TOKEN, '/x');
+    expect(mockFetch().mock.calls[0][1].method).toBe('GET');
+    expect(mockFetch().mock.calls[0][1].body).toBeUndefined();
+    expect(mockFetch().mock.calls[0][1].headers['Content-Type']).toBeUndefined();
+
+    await jiraFetch(SITE, 'a@b.c', TOKEN, '/x', undefined, { method: 'POST', body: { a: 1 } });
+    const init = mockFetch().mock.calls[1][1];
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe('{"a":1}');
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(init.headers.Authorization).toBe(buildAuthHeader('a@b.c', TOKEN));
+    expect(init.redirect).toBe('error');
+  });
+
+  it('returns null for 204 and empty bodies', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      json: async () => {
+        throw new Error('no body');
+      },
+    }));
+    await expect(jiraFetch(SITE, 'a', 'b', '/x', undefined, { method: 'POST', body: {} })).resolves.toBeNull();
+  });
+
+  it('builds a valid ADF comment', () => {
+    const doc = buildAdfComment('line one\x00\n\n  \nline two');
+    expect(doc).toEqual({
+      version: 1,
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'line one' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'line two' }] },
+      ],
+    });
+  });
+
+  it('posts comment as ADF and rejects invalid keys', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res(201, {})));
+    await addIssueComment(SITE, 'a@b.c', TOKEN, 'PROJ-7', 'hello');
+    const [url, init] = mockFetch().mock.calls[0];
+    expect(url).toBe('https://acme.atlassian.net/rest/api/3/issue/PROJ-7/comment');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ body: buildAdfComment('hello') });
+    await expect(addIssueComment(SITE, 'a', TOKEN, 'bad/../key', 'x')).rejects.toThrow(/Invalid Jira issue key/);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('transitions by target status name, case-insensitively', async () => {
+    const f = vi.fn()
+      .mockResolvedValueOnce(res(200, { transitions: [
+        { id: '11', to: { name: 'In Progress' } },
+        { id: '31', to: { name: 'Done' } },
+      ] }))
+      .mockResolvedValueOnce({ ok: true, status: 204, json: async () => { throw new Error('empty'); } });
+    vi.stubGlobal('fetch', f);
+    await expect(transitionIssue(SITE, 'a@b.c', TOKEN, 'PROJ-7', '  done ')).resolves.toEqual({ transitioned: true });
+    expect(f.mock.calls[0][0]).toBe('https://acme.atlassian.net/rest/api/3/issue/PROJ-7/transitions');
+    expect(f.mock.calls[0][1].method).toBe('GET');
+    expect(f.mock.calls[1][1].method).toBe('POST');
+    expect(JSON.parse(f.mock.calls[1][1].body)).toEqual({ transition: { id: '31' } });
+  });
+
+  it('returns transitioned:false when no transition matches', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res(200, { transitions: [{ id: '11', to: { name: 'In Progress' } }] })));
+    await expect(transitionIssue(SITE, 'a', TOKEN, 'PROJ-7', 'Done')).resolves.toEqual({
+      transitioned: false,
+      reason: 'transition_not_available',
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(transitionIssue(SITE, 'a', TOKEN, 'nope', 'Done')).rejects.toThrow(/Invalid Jira issue key/);
+  });
+
+  it.each([
+    [401, /authentication failed/i],
+    [404, /not found/i],
+  ])('maps %i on write calls without leaking the token', async (status, re) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res(status)));
+    const err = await addIssueComment(SITE, 'a@b.c', TOKEN, 'PROJ-7', 'x').catch((e: Error) => e) as Error;
+    expect(err).toBeInstanceOf(JiraAPIError);
+    expect(err.message).toMatch(re);
+    expect(err.message).not.toContain(TOKEN);
+    const err2 = await transitionIssue(SITE, 'a@b.c', TOKEN, 'PROJ-7', 'Done').catch((e: Error) => e) as Error;
+    expect(err2).toBeInstanceOf(JiraAPIError);
+    expect(err2.message).not.toContain(TOKEN);
   });
 });
 
