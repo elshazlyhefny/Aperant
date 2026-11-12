@@ -143,11 +143,34 @@
     "unlockColumn": "Déverrouiller la largeur de la colonne",
     "columnLocked": "La largeur de la colonne est verrouillée",
     "expandAll": "Développer toutes les colonnes",
-    "searchPlaceholder": "Rechercher des tâches par titre, description ou ID...",
+    "searchPlaceholder": "Rechercher par titre, description, ID ou clé de ticket...",
     "searchAriaLabel": "Rechercher des tâches",
     "clearSearch": "Effacer la recherche",
     "searchMatchCount": "{{matched}} sur {{total}} tâches",
-    "noSearchMatches": "Aucune tâche correspondante"
+    "noSearchMatches": "Aucune tâche correspondante",
+    "sourceFilterLabel": "Source",
+    "sourceFilterAriaLabel": "Filtrer les tâches par source",
+    "priorityFilterLabel": "Priorité",
+    "priorityFilterAriaLabel": "Filtrer les tâches par priorité",
+    "clearFilters": "Effacer les filtres",
+    "filterSelectedCount": "{{count}} sélectionné(s)",
+    "sources": {
+      "github": "GitHub",
+      "gitlab": "GitLab",
+      "jira": "Jira",
+      "linear": "Linear",
+      "ideation": "Idéation",
+      "roadmap": "Feuille de route",
+      "schedule": "Planification",
+      "insights": "Insights",
+      "manual": "Manuel"
+    },
+    "priorities": {
+      "low": "Faible",
+      "medium": "Moyenne",
+      "high": "Haute",
+      "urgent": "Urgente"
+    }
   },
   "queue": {
     "limitReached": "Limite de tâches parallèles atteinte ({{current}}/{{max}}). Tâche déplacée vers la file d'attente.",
