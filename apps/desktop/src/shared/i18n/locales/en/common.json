@@ -470,6 +470,11 @@
     "starting": "Starting..."
   },
   "insights": {
+    "error": {
+      "retry": "Retry",
+      "editMessage": "Edit message",
+      "incompleteResponse": "Incomplete response"
+    },
     "suggestedTask": "Suggested Task",
     "creating": "Creating...",
     "taskCreated": "Task Created",

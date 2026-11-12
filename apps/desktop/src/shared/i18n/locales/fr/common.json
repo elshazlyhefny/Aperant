@@ -470,6 +470,11 @@
     "starting": "Démarrage..."
   },
   "insights": {
+    "error": {
+      "retry": "Réessayer",
+      "editMessage": "Modifier le message",
+      "incompleteResponse": "Réponse incomplète"
+    },
     "suggestedTask": "Tâche suggérée",
     "creating": "Création...",
     "taskCreated": "Tâche créée",
