@@ -5,7 +5,8 @@ import { promisify } from 'util';
 import { shell } from 'electron';
 import type { SupportedIDE, SupportedTerminal } from '../../../../shared/types';
 import { getCurrentOS } from '../../../platform';
-import { escapeSingleQuotedPath, isPathSafe } from './path-safety';
+import { isPathSafe } from './path-safety';
+import { launchTerminal } from './terminal-launch';
 import { IDE_DETECTION, TERMINAL_DETECTION } from './tables';
 
 const execFileAsync = promisify(execFile);
@@ -99,61 +100,7 @@ export async function openInTerminal(dirPath: string, terminal: SupportedTermina
       return { success: true };
     }
 
-    if (platform === 'darwin') {
-      // macOS: Use open command with the directory
-      // Escape single quotes in dirPath to prevent script injection
-      const escapedPath = escapeSingleQuotedPath(dirPath);
-
-      if (terminal === 'system') {
-        // Use AppleScript to open Terminal.app at the directory
-        const script = `tell application "Terminal" to do script "cd '${escapedPath}'"`;
-        await execFileAsync('osascript', ['-e', script]);
-      } else if (terminal === 'iterm2') {
-        // Use AppleScript to open iTerm2 at the directory
-        const script = `tell application "iTerm"
-          create window with default profile
-          tell current session of current window
-            write text "cd '${escapedPath}'"
-          end tell
-        end tell`;
-        await execFileAsync('osascript', ['-e', script]);
-      } else if (terminal === 'warp') {
-        // Warp can be opened with just the directory using execFileAsync
-        await execFileAsync('open', ['-a', 'Warp', dirPath]);
-      } else {
-        // For other terminals, use execFileAsync with arguments array
-        await execFileAsync(commands[0], [...commands.slice(1), dirPath]);
-      }
-    } else if (platform === 'win32') {
-      // Windows: Start terminal at directory using spawn to avoid shell injection
-      if (terminal === 'system') {
-        // Use spawn with proper argument separation
-        spawn('cmd.exe', ['/K', 'cd', '/d', dirPath], { detached: true, stdio: 'ignore' }).unref();
-      } else if (commands.length > 0) {
-        spawn(commands[0], [...commands.slice(1), dirPath], { detached: true, stdio: 'ignore' }).unref();
-      }
-    } else {
-      // Linux: Use the configured terminal with execFileAsync
-      if (terminal === 'system') {
-        // Try common terminal emulators with proper argument arrays
-        try {
-          await execFileAsync('x-terminal-emulator', ['--working-directory', dirPath, '-e', 'bash']);
-        } catch {
-          try {
-            await execFileAsync('gnome-terminal', ['--working-directory', dirPath]);
-          } catch {
-            // xterm doesn't have --working-directory, use -e with a script
-            // Escape the path for shell use within the xterm command
-            const escapedPath = escapeSingleQuotedPath(dirPath);
-            await execFileAsync('xterm', ['-e', `cd '${escapedPath}' && bash`]);
-          }
-        }
-      } else {
-        // Use execFileAsync with arguments array
-        await execFileAsync(commands[0], [...commands.slice(1), dirPath]);
-      }
-    }
-
+    await launchTerminal({ terminal, cwd: dirPath });
     return { success: true };
   } catch (error) {
     console.error(`Failed to open in terminal ${terminal}:`, error);
