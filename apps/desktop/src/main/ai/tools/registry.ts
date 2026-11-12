@@ -22,6 +22,7 @@ import {
   getDefaultThinkingLevel,
   mapMcpServerName,
 } from '../config/agent-configs';
+import { webToolsBlockedBySandbox } from '../security/sandbox';
 import type { DefinedTool } from './define';
 import type { ToolContext } from './types';
 
@@ -107,8 +108,14 @@ export class ToolRegistry {
     const config = getAgentConfig(agentType);
     const allowedNames = new Set(config.tools);
     const result: Record<string, AITool> = {};
+    // zeenha fork: the Bash sandbox's --unshare-net / (deny network*) only wraps Bash,
+    // so the in-process web tools would be a network path around a no-network sandbox.
+    // 'restricted-rights' (Windows) does not block network and is intentionally unaffected.
+    const skipWebTools = webToolsBlockedBySandbox(context.securityProfile);
+    const webToolNames: readonly string[] = WEB_TOOLS;
 
     for (const [name, definedTool] of Array.from(this.tools.entries())) {
+      if (skipWebTools && webToolNames.includes(name)) continue;
       if (allowedNames.has(name)) {
         result[name] = definedTool.bind(context);
       }

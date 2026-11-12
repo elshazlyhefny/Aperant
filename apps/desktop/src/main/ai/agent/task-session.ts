@@ -21,6 +21,8 @@ export interface SecurityProfileSettings {
   prOnlyLanding: boolean;
   envPassthrough: string[];
   bashSandbox: string;
+  /** zeenha fork: WebFetch provider mode; missing = 'jina'. */
+  webFetchProvider?: string;
 }
 
 /**
@@ -34,7 +36,7 @@ export type ProviderPhaseModelsReader = (provider: string) => Record<string, str
  */
 export function serializeSecurityProfile(
   projectDir: string,
-  { prOnlyLanding, envPassthrough, bashSandbox }: SecurityProfileSettings,
+  { prOnlyLanding, envPassthrough, bashSandbox, webFetchProvider }: SecurityProfileSettings,
 ): SerializedSecurityProfile {
   const profile = getSecurityProfile(projectDir);
   return {
@@ -42,6 +44,7 @@ export function serializeSecurityProfile(
     prOnlyLanding,
     envPassthrough,
     bashSandbox,
+    webFetchProvider,
     baseCommands: [...profile.baseCommands],
     stackCommands: [...profile.stackCommands],
     scriptCommands: [...profile.scriptCommands],

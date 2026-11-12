@@ -197,6 +197,8 @@ export interface SerializedSecurityProfile {
   envPassthrough?: string[];
   /** zeenha fork: per-project Bash sandbox mode (project setting). */
   bashSandbox?: string;
+  /** zeenha fork: WebFetch provider mode ('jina' | 'direct'); missing = 'jina'. */
+  webFetchProvider?: string;
 }
 
 // =============================================================================

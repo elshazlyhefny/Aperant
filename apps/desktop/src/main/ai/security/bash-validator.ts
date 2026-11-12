@@ -84,6 +84,8 @@ export interface SecurityProfile {
   envPassthrough?: string[];
   /** zeenha fork: per-project Bash sandbox mode ('off' | 'home-hidden' | 'home-hidden-no-network' | 'restricted-rights'). */
   bashSandbox?: string;
+  /** zeenha fork: WebFetch provider mode ('jina' | 'direct'); missing = 'jina'. */
+  webFetchProvider?: string;
 }
 
 /**

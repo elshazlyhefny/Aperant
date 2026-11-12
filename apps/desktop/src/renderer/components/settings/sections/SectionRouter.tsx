@@ -4,6 +4,7 @@ import { SettingsSection } from '../SettingsSection';
 import { GeneralSettings } from '../../project-settings/GeneralSettings';
 import { AgentMemorySettings } from '../../project-settings/AgentMemorySettings';
 import { BashSandboxSettings } from '../../project-settings/BashSandboxSettings';
+import { WebFetchSettings } from '../../project-settings/WebFetchSettings';
 import { LinearIntegration } from '../integrations/LinearIntegration';
 import { GitHubIntegration } from '../integrations/GitHubIntegration';
 import { GitLabIntegration } from '../integrations/GitLabIntegration';
@@ -266,6 +267,7 @@ export function SectionRouter({
           description={t('projectSections.security.description')}
         >
           <BashSandboxSettings settings={settings} setSettings={setSettings} />
+          <WebFetchSettings settings={settings} setSettings={setSettings} />
         </SettingsSection>
       );
 

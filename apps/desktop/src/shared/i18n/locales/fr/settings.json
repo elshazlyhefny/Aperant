@@ -498,6 +498,17 @@
         "linux": "Installez bubblewrap avec votre gestionnaire de paquets, par exemple : sudo apt install bubblewrap, sudo dnf install bubblewrap ou sudo pacman -S bubblewrap.",
         "macos": "sandbox-exec est fourni avec macOS et devrait se trouver dans /usr/bin/sandbox-exec. Vérifiez qu'il n'a pas été supprimé."
       },
+      "webFetch": {
+        "label": "Fournisseur de récupération web",
+        "description": "Choisissez comment l'outil WebFetch de l'agent télécharge les pages.",
+        "options": {
+          "jina": "Jina Reader (r.jina.ai)",
+          "direct": "Directement depuis cette machine"
+        },
+        "jinaNote": "Jina Reader (r.jina.ai) reçoit chaque URL que l'agent récupère, y compris les liens de wiki internes et les URL présignées.",
+        "directNote": "Le mode direct récupère les pages depuis cette machine, avec un blocage des adresses internes et des secrets présents dans les URL.",
+        "disabledByNoNetwork": "WebFetch et WebSearch sont désactivés lorsque le bac à sable du shell est réglé sur dossier personnel masqué et pas de réseau."
+      },
       "mode": {
         "label": "Bac à sable des commandes shell",
         "description": "Choisissez ce que les commandes shell des agents peuvent voir de votre machine.",
@@ -506,7 +517,7 @@
         "homeHiddenNoNetwork": "Dossier personnel masqué et pas de réseau",
         "offExplanation": "Désactivé : les commandes s'exécutent avec tous vos droits. Rien n'est isolé.",
         "homeHiddenExplanation": "Dossier personnel masqué : les commandes ne peuvent pas lire votre dossier personnel (clés, jetons, autres projets), seulement le projet.",
-        "homeHiddenNoNetworkExplanation": "Dossier personnel masqué et pas de réseau : comme ci-dessus, et les commandes n'ont pas accès au réseau.",
+        "homeHiddenNoNetworkExplanation": "Dossier personnel masqué et pas de réseau : comme ci-dessus, et les commandes Bash n'ont pas accès au réseau. WebFetch et WebSearch sont désactivés.",
         "notSupported": "{{mode}} (non pris en charge sur ce système)",
         "restrictedRights": "Droits restreints (Windows uniquement)",
         "restrictedRightsExplanation": "Droits restreints (Windows uniquement) : les commandes s'exécutent sans droits ni privilèges d'administrateur, et tous les processus qu'elles lancent sont arrêtés à la fin de la commande. Votre dossier personnel n'est PAS masqué et le réseau n'est PAS bloqué."

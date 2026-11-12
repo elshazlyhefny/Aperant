@@ -191,6 +191,7 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
           prOnlyLanding: settings.prOnlyLanding,
           envPassthrough: settings.envPassthrough,
           bashSandbox: settings.bashSandbox,
+          webFetchProvider: settings.webFetchProvider,
         }),
       },
     };
