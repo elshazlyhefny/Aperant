@@ -4,13 +4,16 @@
  *
  * Fetches content from a URL via a pluggable BrowseProvider.
  * Default provider: Jina Reader (r.jina.ai) — returns clean markdown.
- * Fallback: raw fetch if Jina is unavailable.
+ * Per-project setting 'direct' fetches locally with native fetch instead.
+ * Every URL is checked by the URL policy (SSRF / secret-in-URL) before any provider runs.
  */
 
 import { z } from 'zod/v3';
 
 import { Tool } from '../define';
+import { validateFetchUrl } from '../../security/url-policy';
 import { createBrowseProvider } from '../providers';
+import { parseWebFetchProvider } from '../providers/types';
 import { DEFAULT_EXECUTION_OPTIONS, ToolPermission } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -46,11 +49,18 @@ export const webFetchTool = Tool.define({
     },
   },
   inputSchema,
-  execute: async (input) => {
+  execute: async (input, context) => {
     const { url, prompt } = input;
 
+    const policy = await validateFetchUrl(url);
+    if (!policy.ok) {
+      return `Error: WebFetch blocked — ${policy.reason}`;
+    }
+
     try {
-      const provider = createBrowseProvider();
+      const provider = createBrowseProvider(
+        parseWebFetchProvider(context.securityProfile.webFetchProvider),
+      );
       const result = await provider.browse(url, { timeout: FETCH_TIMEOUT_MS });
 
       return `URL: ${url}\nPrompt: ${prompt}\n\n--- Fetched Content ---\n${result.content}`;

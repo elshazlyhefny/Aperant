@@ -10,6 +10,7 @@
  * - With free API key (JINA_API_KEY): ~100 RPM
  */
 
+import { validateFetchUrl } from '../../security/url-policy';
 import type { BrowseOptions, BrowseProvider, BrowseResult } from './types';
 
 const DEFAULT_TIMEOUT = 30_000;
@@ -19,6 +20,11 @@ export class JinaBrowseProvider implements BrowseProvider {
   readonly name = 'jina';
 
   async browse(url: string, options?: BrowseOptions): Promise<BrowseResult> {
+    const policy = await validateFetchUrl(url);
+    if (!policy.ok) {
+      throw new Error(`URL blocked — ${policy.reason}`);
+    }
+
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
