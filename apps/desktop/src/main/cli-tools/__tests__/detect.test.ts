@@ -50,7 +50,6 @@ vi.mock('../../env-utils', () => ({
 }));
 
 vi.mock('../../utils/homebrew-python', () => ({
-  findHomebrewPython: vi.fn(() => null),
   getHomebrewPythonPaths: vi.fn(() => ['/opt/homebrew/bin/python3']),
 }));
 

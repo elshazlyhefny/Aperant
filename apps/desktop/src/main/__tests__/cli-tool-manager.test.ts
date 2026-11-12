@@ -10,6 +10,7 @@ import os from 'os';
 import { execFileSync } from 'child_process';
 import {
   getToolInfo,
+  getToolInfoAsync,
   getToolPath,
   getToolPathAsync,
   configureTools,
@@ -174,9 +175,13 @@ vi.mock('../env-utils', () => {
 });
 
 // Mock homebrew-python utility
-vi.mock('../utils/homebrew-python', () => ({
-  findHomebrewPython: vi.fn(() => null)
-}));
+vi.mock('../utils/homebrew-python', () => {
+  const dirs = ['/opt/homebrew/bin', '/usr/local/bin'];
+  const names = ['python3.14', 'python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3'];
+  return {
+    getHomebrewPythonPaths: vi.fn(() => dirs.flatMap((dir) => names.map((name) => `${dir}/${name}`)))
+  };
+});
 
 // Mock windows-paths utility
 vi.mock('../utils/windows-paths', () => ({
@@ -999,7 +1004,7 @@ function commonScenarios(tool: CLITool): ParityScenario[] {
     }
   ];
 
-  // Python's Homebrew list differs between sync and async (see KNOWN_DIVERGENCES)
+  // Python's Homebrew candidates are a list; it has its own scenario in EXTRA_SCENARIOS
   if (tool !== 'python') {
     scenarios.push({
       name: label('Homebrew wins over PATH on darwin'),
@@ -1205,21 +1210,9 @@ const EXTRA_SCENARIOS: ParityScenario[] = [
     pathLookup: { python: 'C:\\Python\\python.exe' },
     versionOutput: { 'py -3': 'Python 3.12.0', 'C:\\Python\\python.exe': 'Python 3.11.0' },
     expected: { found: true, path: 'py -3', source: 'system-path', version: '3.12.0' }
-  }
-];
-
-const PARITY_SCENARIOS: ParityScenario[] = [...ALL_TOOLS.flatMap(commonScenarios), ...EXTRA_SCENARIOS];
-
-/**
- * Cases where sync and async detection currently disagree.
- * subtask-3-1 (CLIToolManager migration to the shared detector) MUST remove each entry
- * here and move it into PARITY_SCENARIOS so it is enforced as a normal parity case.
- */
-const KNOWN_DIVERGENCES: ParityScenario[] = [
+  },
   {
-    // Sync asks findHomebrewPython (mocked to null here; real list is python3.14..3.10, python3),
-    // async walks a hardcoded shorter list that includes python3.12.
-    name: 'python darwin: Homebrew python3.12 (sync util vs async hardcoded list)',
+    name: 'python darwin: Homebrew python3.12 found by both sync and async',
     tool: 'python',
     os: 'darwin',
     homeDir: HOMES.darwin,
@@ -1234,6 +1227,8 @@ const KNOWN_DIVERGENCES: ParityScenario[] = [
     }
   }
 ];
+
+const PARITY_SCENARIOS: ParityScenario[] = [...ALL_TOOLS.flatMap(commonScenarios), ...EXTRA_SCENARIOS];
 
 describe('cli-tool-manager - sync/async parity', () => {
   const originalPlatform = process.platform;
@@ -1285,12 +1280,13 @@ describe('cli-tool-manager - sync/async parity', () => {
     clearToolCache();
     const syncPath = getToolPath(s.tool);
     const info = getToolInfo(s.tool);
+    const asyncInfo = await getToolInfoAsync(s.tool);
 
     configureTools(s.userConfig ?? {});
     clearToolCache();
     const asyncPath = await getToolPathAsync(s.tool);
 
-    return { syncPath, asyncPath, info };
+    return { syncPath, asyncPath, info, asyncInfo };
   }
 
   beforeEach(() => {
@@ -1319,17 +1315,14 @@ describe('cli-tool-manager - sync/async parity', () => {
       if (expected.version) expect(info.version).toBe(expected.version);
       if (expected.messageContains) expect(info.message).toContain(expected.messageContains);
     });
-  });
 
-  describe('KNOWN_DIVERGENCES (currently failing parity)', () => {
-    // it.fails passes while sync and async disagree. When subtask-3-1 unifies them it will
-    // start failing: move the scenario into PARITY_SCENARIOS and delete it from here.
-    for (const scenario of KNOWN_DIVERGENCES) {
-      it.fails(scenario.name, async () => {
-        const { syncPath, asyncPath } = await run(scenario);
-        expect(syncPath).toBe(scenario.expected.path);
-        expect(asyncPath).toBe(syncPath);
-      });
-    }
+    it('getToolInfoAsync matches getToolInfo', async () => {
+      const { info, asyncInfo } = await run(scenario);
+      expect(asyncInfo.found).toBe(info.found);
+      expect(asyncInfo.path).toBe(info.path);
+      expect(asyncInfo.version).toBe(info.version);
+      expect(asyncInfo.source).toBe(info.source);
+      expect(asyncInfo.message).toBe(info.message);
+    });
   });
 });
