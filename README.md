@@ -123,12 +123,23 @@ Aperant runs AI agents that execute shell commands and edit files. What it enfor
 
 What it does **not** enforce:
 
-- The OS-level sandbox (bubblewrap on Linux, `sandbox-exec` on macOS) is opt-in per project. Unless you turn it on, Bash commands are not isolated.
+- Unless you turn on the OS-level Bash sandbox, Bash commands are not isolated. See the sandbox modes below.
 - Every command not on the denylist is allowed by default.
 - Bash commands run in the task working directory with your user's permissions. They can reach outside the project unless a validator blocks them.
 - The validators are a guardrail, not a sandbox. A script the agent writes and then runs, or an interpreter one-liner, is not inspected.
 
 Only run agents on repositories and machines where that is acceptable.
+
+The OS-level Bash sandbox is opt-in per project and is off by default. Pick a mode in the project settings:
+
+| Mode | Platforms | What it does |
+|---|---|---|
+| `off` | All | Commands run with your full rights. |
+| `home-hidden` | Linux (bubblewrap), macOS (`sandbox-exec`) | Hides your home directory. |
+| `home-hidden-no-network` | Linux, macOS | Hides your home directory and also blocks the network. |
+| `restricted-rights` | Windows only | Restricted token plus Job object: drops admin rights and privileges and kills leftover child processes. It does **not** hide your home folder and does **not** block the network. Commands still run as you. |
+
+If you pick a mode the platform does not support, every agent shell command fails and the settings page shows "Mode not supported here". The home-hidden modes are refused on Windows, and `restricted-rights` is refused on Linux and macOS. For the Windows details, see [Testing the Bash sandbox](guides/windows-development.md#testing-the-bash-sandbox).
 
 The `.auto-claude-allowlist` file is still read, but it no longer affects allow or deny decisions.
 
