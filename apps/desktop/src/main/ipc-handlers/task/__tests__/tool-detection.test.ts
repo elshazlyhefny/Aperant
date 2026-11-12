@@ -1,7 +1,14 @@
 import os from 'os';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '../../../../shared/constants';
-import { escapeSingleQuotedPath, isPathSafe } from '../tool-detection/path-safety';
+import {
+  escapeAppleScriptString,
+  escapeBashCommand,
+  escapeGitBashCommand,
+  escapePowerShellCommand,
+  escapeSingleQuotedPath,
+  isPathSafe,
+} from '../tool-detection/path-safety';
 import { CLI_DETECTION, IDE_DETECTION, TERMINAL_DETECTION } from '../tool-detection/tables';
 import { openInIDE, openInTerminal } from '../tool-detection/launch';
 import { registerWorktreeToolHandlers } from '../tool-handlers';
@@ -16,6 +23,7 @@ vi.mock('electron', () => ({
 
 const mocks = vi.hoisted(() => ({
   execFile: vi.fn(),
+  spawn: vi.fn(),
   os: { current: 'linux' },
 }));
 vi.mock('child_process', async (importOriginal) => {
@@ -23,7 +31,7 @@ vi.mock('child_process', async (importOriginal) => {
   return {
     ...actual,
     execFile: mocks.execFile,
-    spawn: vi.fn(() => ({ unref: vi.fn() })),
+    spawn: mocks.spawn,
   };
 });
 vi.mock('../../../platform', () => ({ getCurrentOS: () => mocks.os.current }));
@@ -40,8 +48,26 @@ function stubExecFile(failing: string[] = []) {
   });
 }
 
+/** Make spawn succeed except for the commands listed in `failing` (emits 'error' like ENOENT). */
+function stubSpawn(failing: string[] = []) {
+  mocks.spawn.mockImplementation((cmd: string) => {
+    const child = {
+      unref: vi.fn(),
+      once: (event: string, cb: (err?: Error) => void) => {
+        if (event === 'error' && failing.includes(cmd)) queueMicrotask(() => cb(new Error(`${cmd} not found`)));
+        if (event === 'spawn' && !failing.includes(cmd)) queueMicrotask(() => cb());
+        return child;
+      },
+      on: vi.fn(),
+    };
+    return child;
+  });
+}
+
 beforeEach(() => {
   mocks.execFile.mockReset();
+  mocks.spawn.mockReset();
+  stubSpawn();
   mocks.os.current = 'linux';
   handlers.clear();
   stubExecFile();
@@ -59,6 +85,28 @@ describe('escapeSingleQuotedPath', () => {
     // Every quote in the output is part of an '\'' sequence
     expect(escaped.replace(/'\\''/g, '')).not.toContain("'");
     expect(escaped.startsWith("/tmp/a'\\''")).toBe(true);
+  });
+});
+
+describe('escapeAppleScriptString', () => {
+  it('escapes backslashes and double quotes, leaves single quotes', () => {
+    expect(escapeAppleScriptString('a\\b"c\'d')).toBe('a\\\\b\\"c\'d');
+  });
+});
+
+describe('escapePowerShellCommand', () => {
+  it('escapes metacharacters and newlines', () => {
+    expect(escapePowerShellCommand('a`b"c$d(e);f&g')).toBe('a``b`"c`$d`(e`)`;f`&g');
+    expect(escapePowerShellCommand('a\r\nb')).toBe('a`r`nb');
+  });
+});
+
+describe('escapeGitBashCommand / escapeBashCommand', () => {
+  it('escapes bash metacharacters', () => {
+    const input = 'a\\b"c$d`e;f|g!h';
+    const expected = 'a\\\\b\\"c\\$d\\`e\\;f\\|g\\!h';
+    expect(escapeGitBashCommand(input)).toBe(expected);
+    expect(escapeBashCommand(input)).toBe(expected);
   });
 });
 
@@ -117,12 +165,12 @@ describe('openInTerminal', () => {
     expect(mocks.execFile).not.toHaveBeenCalled();
   });
   it('falls back to xterm with the escaped path on linux', async () => {
-    stubExecFile(['x-terminal-emulator', 'gnome-terminal']);
+    stubSpawn(['x-terminal-emulator', 'gnome-terminal']);
     const res = await openInTerminal("/tmp/it's", 'system');
     expect(res).toEqual({ success: true });
-    const cmds = mocks.execFile.mock.calls.map((c) => c[0]);
+    const cmds = mocks.spawn.mock.calls.map((c) => c[0]);
     expect(cmds).toEqual(['x-terminal-emulator', 'gnome-terminal', 'xterm']);
-    expect(mocks.execFile.mock.calls[2][1]).toEqual(['-e', "cd '/tmp/it'\\''s' && bash"]);
+    expect(mocks.spawn.mock.calls[2][1]).toEqual(['-e', "cd '/tmp/it'\\''s' && bash"]);
   });
   it('passes the escaped path to osascript on darwin', async () => {
     mocks.os.current = 'darwin';
@@ -131,7 +179,8 @@ describe('openInTerminal', () => {
     const [cmd, args] = mocks.execFile.mock.calls[0];
     expect(cmd).toBe('osascript');
     expect(args[0]).toBe('-e');
-    expect(args[1]).toContain("cd '/tmp/it'\\''s'");
+    // The script is AppleScript-escaped, so the shell escape's backslash is doubled
+    expect(args[1]).toContain("cd '/tmp/it'\\\\''s'");
   });
 });
 
