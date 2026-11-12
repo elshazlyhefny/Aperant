@@ -1,1 +1,81 @@
-{}
+{
+  "page": {
+    "noProjectTitle": "No Project Selected",
+    "noProjectDescription": "Select a project from the sidebar to generate changelogs."
+  },
+  "header": {
+    "title": "Changelog Generator",
+    "step1": "Step 1: Select completed tasks to include",
+    "step2": "Step 2: Configure and generate changelog",
+    "step3": "Step 3: Release and archive tasks",
+    "stepSelect": "Select",
+    "stepGenerate": "Generate",
+    "stepRelease": "Release",
+    "refresh": "Refresh"
+  },
+  "filters": {
+    "source": "Changelog Source",
+    "sourceModes": {
+      "tasks": "Completed Tasks",
+      "git-history": "Git History",
+      "branch-diff": "Branch Comparison"
+    },
+    "sourceModeDescriptions": {
+      "tasks": "Generate from completed spec tasks",
+      "git-history": "Generate from recent commits or tag range",
+      "branch-diff": "Generate from commits between two branches"
+    },
+    "gitHistoryOptions": "Git History Options",
+    "historyType": "History Type",
+    "sinceVersion": "Since Version",
+    "recentCommits": "Recent Commits",
+    "sinceDate": "Since Date",
+    "tagRange": "Tag Range",
+    "numberOfCommits": "Number of Commits",
+    "fromTag": "From Tag",
+    "toTagOptional": "To Tag (optional)",
+    "selectTag": "Select tag...",
+    "headLatest": "HEAD (latest)",
+    "lastVersion": "Last Version",
+    "selectVersion": "Select version...",
+    "sinceVersionHint": "All commits since this version will be included",
+    "includeMergeCommits": "Include merge commits",
+    "loading": "Loading...",
+    "loadCommits": "Load Commits",
+    "branchComparison": "Branch Comparison",
+    "baseBranch": "Base Branch",
+    "selectBaseBranch": "Select base branch...",
+    "baseBranchHint": "The branch you're merging into",
+    "compareBranch": "Compare Branch",
+    "selectCompareBranch": "Select compare branch...",
+    "compareBranchHint": "The branch with your changes",
+    "defaultBadge": "default",
+    "currentBadge": "current",
+    "branchesMustDiffer": "Branches must be different"
+  },
+  "list": {
+    "tasksSelected": "{{selected}} of {{total}} tasks selected",
+    "selectAll": "Select All",
+    "clear": "Clear",
+    "noCompletedTasks": "No Completed Tasks",
+    "noCompletedTasksDescription": "Complete tasks in the Kanban board and mark them as \"Done\" to include them in your changelog.",
+    "commitsFound_one": "{{count}} commit found",
+    "commitsFound_other": "{{count}} commits found",
+    "loadingCommits": "Loading commits...",
+    "noCommits": "No Commits Found",
+    "noCommitsGitHistory": "Configure the history options and click \"Load Commits\" to preview.",
+    "noCommitsBranchDiff": "Select both branches and click \"Load Commits\" to see the changes.",
+    "continue": "Continue",
+    "summaryTasks_one": "{{count}} task",
+    "summaryTasks_other": "{{count}} tasks",
+    "summaryCommits_one": "{{count}} commit",
+    "summaryCommits_other": "{{count}} commits",
+    "summaryItems_one": "{{count}} item",
+    "summaryItems_other": "{{count}} items"
+  },
+  "entry": {
+    "hasSpecs": "Has Specs",
+    "filesChanged_one": "{{count}} file",
+    "filesChanged_other": "{{count}} files"
+  }
+}

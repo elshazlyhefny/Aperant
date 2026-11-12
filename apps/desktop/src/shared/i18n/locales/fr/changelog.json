@@ -1,1 +1,81 @@
-{}
+{
+  "page": {
+    "noProjectTitle": "Aucun projet sélectionné",
+    "noProjectDescription": "Sélectionnez un projet dans la barre latérale pour générer des changelogs."
+  },
+  "header": {
+    "title": "Générateur de changelog",
+    "step1": "Étape 1 : Sélectionnez les tâches terminées à inclure",
+    "step2": "Étape 2 : Configurez et générez le changelog",
+    "step3": "Étape 3 : Publiez et archivez les tâches",
+    "stepSelect": "Sélection",
+    "stepGenerate": "Génération",
+    "stepRelease": "Publication",
+    "refresh": "Actualiser"
+  },
+  "filters": {
+    "source": "Source du changelog",
+    "sourceModes": {
+      "tasks": "Tâches terminées",
+      "git-history": "Historique Git",
+      "branch-diff": "Comparaison de branches"
+    },
+    "sourceModeDescriptions": {
+      "tasks": "Générer à partir des tâches de spécification terminées",
+      "git-history": "Générer à partir des commits récents ou d'une plage de tags",
+      "branch-diff": "Générer à partir des commits entre deux branches"
+    },
+    "gitHistoryOptions": "Options de l'historique Git",
+    "historyType": "Type d'historique",
+    "sinceVersion": "Depuis une version",
+    "recentCommits": "Commits récents",
+    "sinceDate": "Depuis une date",
+    "tagRange": "Plage de tags",
+    "numberOfCommits": "Nombre de commits",
+    "fromTag": "Tag de début",
+    "toTagOptional": "Tag de fin (facultatif)",
+    "selectTag": "Sélectionner un tag...",
+    "headLatest": "HEAD (dernier)",
+    "lastVersion": "Dernière version",
+    "selectVersion": "Sélectionner une version...",
+    "sinceVersionHint": "Tous les commits depuis cette version seront inclus",
+    "includeMergeCommits": "Inclure les commits de fusion",
+    "loading": "Chargement...",
+    "loadCommits": "Charger les commits",
+    "branchComparison": "Comparaison de branches",
+    "baseBranch": "Branche de base",
+    "selectBaseBranch": "Sélectionner la branche de base...",
+    "baseBranchHint": "La branche dans laquelle vous fusionnez",
+    "compareBranch": "Branche à comparer",
+    "selectCompareBranch": "Sélectionner la branche à comparer...",
+    "compareBranchHint": "La branche contenant vos modifications",
+    "defaultBadge": "par défaut",
+    "currentBadge": "actuelle",
+    "branchesMustDiffer": "Les branches doivent être différentes"
+  },
+  "list": {
+    "tasksSelected": "{{selected}} tâche(s) sélectionnée(s) sur {{total}}",
+    "selectAll": "Tout sélectionner",
+    "clear": "Effacer",
+    "noCompletedTasks": "Aucune tâche terminée",
+    "noCompletedTasksDescription": "Terminez des tâches dans le tableau Kanban et marquez-les comme « Terminé » pour les inclure dans votre changelog.",
+    "commitsFound_one": "{{count}} commit trouvé",
+    "commitsFound_other": "{{count}} commits trouvés",
+    "loadingCommits": "Chargement des commits...",
+    "noCommits": "Aucun commit trouvé",
+    "noCommitsGitHistory": "Configurez les options d'historique et cliquez sur « Charger les commits » pour afficher un aperçu.",
+    "noCommitsBranchDiff": "Sélectionnez les deux branches et cliquez sur « Charger les commits » pour voir les modifications.",
+    "continue": "Continuer",
+    "summaryTasks_one": "{{count}} tâche",
+    "summaryTasks_other": "{{count}} tâches",
+    "summaryCommits_one": "{{count}} commit",
+    "summaryCommits_other": "{{count}} commits",
+    "summaryItems_one": "{{count}} élément",
+    "summaryItems_other": "{{count}} éléments"
+  },
+  "entry": {
+    "hasSpecs": "Avec specs",
+    "filesChanged_one": "{{count}} fichier",
+    "filesChanged_other": "{{count}} fichiers"
+  }
+}
