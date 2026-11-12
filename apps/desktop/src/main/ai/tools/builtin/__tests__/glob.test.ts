@@ -9,7 +9,8 @@ import type { ToolContext } from '../../types';
 // ---------------------------------------------------------------------------
 
 vi.mock('node:fs');
-vi.mock('../../../security/path-containment', () => ({
+vi.mock('../../../security/path-containment', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../security/path-containment')>()),
   assertPathContained: vi.fn((_filePath: string, _projectDir: string) => ({
     contained: true,
     resolvedPath: _filePath,
@@ -76,6 +77,7 @@ function setupGlobMatches(absolutePaths: string[], mtimes?: number[]) {
 describe('Glob Tool', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(fs.realpathSync).mockImplementation(((p: string) => p) as typeof fs.realpathSync);
     vi.mocked(assertPathContained).mockImplementation((_filePath: string, _projectDir: string) => ({
       contained: true,
       resolvedPath: _filePath,
@@ -217,5 +219,27 @@ describe('Glob Tool', () => {
     );
 
     expect(truncateToolOutput).toHaveBeenCalled();
+  });
+
+  it('should not list .auto-claude/.env but still list other files there', async () => {
+    setupGlobMatches([
+      '/test/project/.auto-claude/.env',
+      '/test/project/.auto-claude/other.json',
+    ]);
+    vi.mocked(fs.realpathSync).mockImplementation(((p: string) => p) as typeof fs.realpathSync);
+
+    const result = await globTool.config.execute({ pattern: '**/*' }, baseContext) as string;
+
+    expect(result).not.toContain('.auto-claude/.env');
+    expect(result).toContain('.auto-claude/other.json');
+  });
+
+  it('should return "No files found" when only protected files match', async () => {
+    setupGlobMatches(['/test/project/.auto-claude/.env.local']);
+    vi.mocked(fs.realpathSync).mockImplementation(((p: string) => p) as typeof fs.realpathSync);
+
+    const result = await globTool.config.execute({ pattern: '**/.env*' }, baseContext);
+
+    expect(result).toBe('No files found');
   });
 });

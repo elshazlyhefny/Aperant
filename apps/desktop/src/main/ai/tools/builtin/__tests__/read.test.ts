@@ -8,7 +8,8 @@ import type { ToolContext } from '../../types';
 // ---------------------------------------------------------------------------
 
 vi.mock('node:fs');
-vi.mock('../../../security/path-containment', () => ({
+vi.mock('../../../security/path-containment', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../security/path-containment')>()),
   assertPathContained: vi.fn((_filePath: string, _projectDir: string) => ({
     contained: true,
     resolvedPath: _filePath,
@@ -281,5 +282,13 @@ describe('Read Tool', () => {
         baseContext,
       ),
     ).rejects.toThrow('outside the project directory');
+  });
+
+  it('should block reading .auto-claude/.env without touching the file', async () => {
+    await expect(
+      readTool.config.execute({ file_path: '/test/project/.auto-claude/.env' }, baseContext),
+    ).rejects.toThrow('blocked');
+
+    expect(fs.openSync).not.toHaveBeenCalled();
   });
 });

@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod/v3';
 
-import { assertPathContained } from '../../security/path-containment';
+import { assertNotProtectedPath, assertPathContained } from '../../security/path-containment';
 import { Tool } from '../define';
 import { DEFAULT_EXECUTION_OPTIONS, ToolPermission } from '../types';
 
@@ -44,6 +44,8 @@ export const writeTool = Tool.define({
 
     // Security: ensure path is within project boundary
     const { resolvedPath } = assertPathContained(file_path, context.projectDir);
+    // zeenha fork: keep agents away from the integration tokens in .auto-claude/.env
+    assertNotProtectedPath(resolvedPath);
 
     // Ensure parent directory exists
     const parentDir = path.dirname(resolvedPath);

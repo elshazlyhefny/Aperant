@@ -16,9 +16,11 @@ const mockFindExecutable = vi.fn(() => '/usr/bin/rg');
 
 vi.mock('../../../../platform/index', () => ({
   findExecutable: (_name: string, _additionalPaths?: string[]) => mockFindExecutable(),
+  isWindows: () => false,
 }));
 
-vi.mock('../../../security/path-containment', () => ({
+vi.mock('../../../security/path-containment', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../security/path-containment')>()),
   assertPathContained: vi.fn((_filePath: string, _projectDir: string) => ({
     contained: true,
     resolvedPath: _filePath,
@@ -265,5 +267,37 @@ describe('Grep Tool', () => {
     const args = mockExecFile.mock.calls[0][1] as string[];
     // The resolved search path should be the last argument before the pattern
     expect(args).toContain('/test/project/sub');
+  });
+
+  it('should append the protected-file exclusion glob after the user glob', async () => {
+    setupRg('/test/project/src/a.ts\n', '', 0);
+
+    await grepTool.config.execute({ pattern: 'TOKEN', glob: '*.env' }, baseContext);
+
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    const userIdx = args.indexOf('*.env');
+    const excludeIdx = args.indexOf('!**/.auto-claude/.env*');
+    expect(userIdx).toBeGreaterThan(-1);
+    expect(excludeIdx).toBeGreaterThan(userIdx);
+    expect(args[excludeIdx - 1]).toBe('--glob');
+  });
+
+  it('should always exclude the protected files even without a user glob', async () => {
+    setupRg('', '', 1);
+
+    await grepTool.config.execute({ pattern: 'TOKEN', path: '/test/project' }, baseContext);
+
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toContain('!**/.auto-claude/.env*');
+  });
+
+  it('should return no matches without running rg when the path is the protected file', async () => {
+    const result = await grepTool.config.execute(
+      { pattern: 'TOKEN', path: '/test/project/.auto-claude/.env' },
+      baseContext,
+    );
+
+    expect(result).toBe('No matches found');
+    expect(mockExecFile).not.toHaveBeenCalled();
   });
 });

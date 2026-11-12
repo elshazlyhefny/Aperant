@@ -11,7 +11,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod/v3';
 
-import { assertPathContained } from '../../security/path-containment';
+import { assertPathContained, isProtectedProjectSecretPath } from '../../security/path-containment';
 import { Tool } from '../define';
 import { DEFAULT_EXECUTION_OPTIONS, ToolPermission } from '../types';
 import { truncateToolOutput } from '../truncation';
@@ -78,6 +78,10 @@ export const globTool = Tool.define({
       try {
         const stat = fs.statSync(absPath);
         if (stat.isFile()) {
+          // zeenha fork: never list the integration-token files in .auto-claude/.env*
+          if (isProtectedProjectSecretPath(fs.realpathSync(absPath))) {
+            continue;
+          }
           absolutePaths.push(absPath);
         }
       } catch {

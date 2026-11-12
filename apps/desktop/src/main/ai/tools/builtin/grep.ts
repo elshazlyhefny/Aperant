@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { z } from 'zod/v3';
 
 import { findExecutable } from '../../../platform/index';
-import { assertPathContained } from '../../security/path-containment';
+import { assertPathContained, isProtectedProjectSecretPath } from '../../security/path-containment';
 import { Tool } from '../define';
 import { DEFAULT_EXECUTION_OPTIONS, ToolPermission } from '../types';
 
@@ -90,6 +90,10 @@ function buildRgArgs(
     args.push('--glob', input.glob);
   }
 
+  // zeenha fork: skip the integration-token files even when rg is pointed at a
+  // parent directory. Added after the user glob because the later --glob wins.
+  args.push('--glob', '!**/.auto-claude/.env*');
+
   // Always add these defaults
   args.push('--no-heading', '--color', 'never');
 
@@ -155,7 +159,12 @@ export const grepTool = Tool.define({
     const searchPath = input.path ?? context.cwd;
 
     // Security: ensure search path is within project boundary
-    assertPathContained(searchPath, context.projectDir);
+    const contained = assertPathContained(searchPath, context.projectDir);
+
+    // zeenha fork: a search aimed straight at a protected file finds nothing
+    if (isProtectedProjectSecretPath(contained.resolvedPath)) {
+      return 'No matches found';
+    }
 
     const resolvedPath = path.isAbsolute(searchPath)
       ? searchPath
