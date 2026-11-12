@@ -77,5 +77,124 @@
     "hasSpecs": "Has Specs",
     "filesChanged_one": "{{count}} file",
     "filesChanged_other": "{{count}} files"
+  },
+  "configuration": {
+    "backToSelection": "Back to Selection",
+    "including": "Including {{summary}}",
+    "releaseInfo": "Release Info",
+    "version": "Version",
+    "date": "Date",
+    "previous": "Previous: {{version}}",
+    "bumpMajor": "Major version bump (breaking changes detected)",
+    "bumpMinor": "Minor version bump (new features detected)",
+    "bumpPatch": "Patch version bump (fixes/improvements)",
+    "outputStyle": "Output Style",
+    "format": "Format",
+    "audience": "Audience",
+    "emojis": "Emojis",
+    "formats": {
+      "keep-a-changelog": {
+        "label": "Keep a Changelog",
+        "description": "Structured format with Added/Changed/Fixed/Removed sections"
+      },
+      "simple-list": {
+        "label": "Simple List",
+        "description": "Clean bulleted list with categories"
+      },
+      "github-release": {
+        "label": "GitHub Release",
+        "description": "GitHub-style release notes"
+      }
+    },
+    "audiences": {
+      "technical": {
+        "label": "Technical",
+        "description": "Detailed technical changes for developers"
+      },
+      "user-facing": {
+        "label": "User-Facing",
+        "description": "Clear, non-technical descriptions for end users"
+      },
+      "marketing": {
+        "label": "Marketing",
+        "description": "Value-focused copy emphasizing benefits"
+      }
+    },
+    "emojiLevels": {
+      "none": {
+        "label": "None",
+        "description": "No emojis"
+      },
+      "little": {
+        "label": "Headings Only",
+        "description": "Emojis on section headings only"
+      },
+      "medium": {
+        "label": "Headings + Highlights",
+        "description": "Emojis on headings and key items"
+      },
+      "high": {
+        "label": "Everything",
+        "description": "Emojis on headings and every line"
+      }
+    },
+    "advancedOptions": "Advanced Options",
+    "customInstructions": "Custom Instructions",
+    "customInstructionsPlaceholder": "Add any special instructions for the AI...",
+    "customInstructionsHint": "Optional. Guide the AI on tone, specific details to include, etc.",
+    "generating": "Generating...",
+    "generate": "Generate Changelog",
+    "stages": {
+      "loading_specs": "Loading spec files...",
+      "loading_commits": "Loading commits...",
+      "generating": "Generating changelog...",
+      "formatting": "Formatting output...",
+      "complete": "Complete",
+      "error": "Error"
+    }
+  },
+  "preview": {
+    "title": "Preview",
+    "markdown": "Markdown",
+    "preview": "Preview",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "copyTooltip": "Copy to clipboard",
+    "save": "Save to CHANGELOG.md",
+    "saved": "Saved!",
+    "saveTooltip": "Prepend to CHANGELOG.md in project root",
+    "dropImages": "Drop images here to add to changelog",
+    "pasteImagesHint": "Paste images into the description to save them to the changelog",
+    "placeholder": "Generated changelog will appear here...",
+    "emptyState": "Click \"Generate Changelog\" to create release notes.",
+    "loadingImage": "Loading image...",
+    "imageNotFound": "Image not found",
+    "imageLoadFailed": "Failed to load image",
+    "noProjectPath": "Cannot load local image: no project path"
+  },
+  "release": {
+    "title": "Create GitHub Release",
+    "created": "Release created successfully!",
+    "viewOnGitHub": "View Release on GitHub",
+    "description": "Create a new release {{tag}} on GitHub with the changelog as release notes.",
+    "creating": "Creating Release...",
+    "createButton": "Create Release {{tag}}",
+    "createFailed": "Failed to create release"
+  },
+  "archive": {
+    "title": "Archive Completed Tasks",
+    "success_one": "{{count}} task archived!",
+    "success_other": "{{count}} tasks archived!",
+    "description_one": "Archive {{count}} task to clean up your Kanban board. Archived tasks can be viewed using the \"Show Archived\" toggle.",
+    "description_other": "Archive {{count}} tasks to clean up your Kanban board. Archived tasks can be viewed using the \"Show Archived\" toggle.",
+    "archiving": "Archiving...",
+    "button_one": "Archive {{count}} Task",
+    "button_other": "Archive {{count}} Tasks",
+    "failed": "Failed to archive tasks"
+  },
+  "success": {
+    "title": "Changelog Saved!",
+    "description": "Version {{tag}} has been added to CHANGELOG.md",
+    "done": "Done"
   }
 }
