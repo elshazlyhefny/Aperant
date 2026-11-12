@@ -16,6 +16,8 @@ import {
   PanelLeftClose,
   PanelLeft,
   Camera,
+  RotateCcw,
+  Pencil,
   Square,
   X,
   ArrowDown
@@ -34,6 +36,8 @@ import {
   useInsightsStore,
   loadInsightsSession,
   sendMessage,
+  retryLastMessage,
+  getLastUserMessage,
   stopMessage,
   newSession,
   switchSession,
@@ -284,6 +288,24 @@ export function Insights({ projectId }: InsightsProps) {
   const handleJumpToLatest = () => {
     scrollToBottom();
     setIsUserAtBottom(true);
+  };
+
+  const handleRetry = () => {
+    setIsUserAtBottom(true);
+    retryLastMessage(projectId);
+  };
+
+  const handleEditMessage = () => {
+    const last = getLastUserMessage();
+    if (!last) return;
+    const store = useInsightsStore.getState();
+    setInputValue(last.content);
+    setPendingImages(last.images);
+    setImageError(null);
+    store.setStatus({ phase: 'idle', message: '' });
+    store.clearStreamingContent();
+    store.clearToolsUsed();
+    textareaRef.current?.focus();
   };
 
   const handleScreenshotCapture = useCallback(async (imageData: string) => {
@@ -569,8 +591,13 @@ export function Insights({ projectId }: InsightsProps) {
                   <Bot className="h-4 w-4 text-primary" />
                 </div>
                 <div className="flex-1">
-                  <div className="mb-1 text-sm font-medium text-foreground">
+                  <div className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
                     {t('insights.roles.assistant')}
+                    {status.phase === 'error' && streamingContent && (
+                      <span className="text-xs font-normal text-amber-500">
+                        {t('insights.error.incompleteResponse')}
+                      </span>
+                    )}
                   </div>
                   {streamingContent && (
                     <div className="prose prose-sm dark:prose-invert max-w-none">
@@ -602,9 +629,17 @@ export function Insights({ projectId }: InsightsProps) {
 
             {/* Error message */}
             {status.phase === 'error' && status.error && (
-              <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4 shrink-0" />
-                {status.error}
+                <span className="flex-1">{status.error}</span>
+                <Button variant="outline" size="sm" onClick={handleRetry} disabled={isLoading}>
+                  <RotateCcw className="mr-1 h-3 w-3" />
+                  {t('insights.error.retry')}
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleEditMessage}>
+                  <Pencil className="mr-1 h-3 w-3" />
+                  {t('insights.error.editMessage')}
+                </Button>
               </div>
             )}
 

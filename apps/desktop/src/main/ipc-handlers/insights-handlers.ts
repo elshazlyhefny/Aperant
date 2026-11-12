@@ -59,7 +59,7 @@ export function registerInsightsHandlers(getMainWindow: () => BrowserWindow | nu
 
   ipcMain.on(
     IPC_CHANNELS.INSIGHTS_SEND_MESSAGE,
-    async (_, projectId: string, message: string, modelConfig?: InsightsModelConfig, images?: ImageAttachment[]) => {
+    async (_, projectId: string, message: string, modelConfig?: InsightsModelConfig, images?: ImageAttachment[], retry?: boolean) => {
       const project = projectStore.getProject(projectId);
       if (!project) {
         safeSendToRenderer(
@@ -90,7 +90,7 @@ export function registerInsightsHandlers(getMainWindow: () => BrowserWindow | nu
       // the handler returns. This fixes race conditions on Windows where
       // environment setup wouldn't complete before process spawn.
       try {
-        await insightsService.sendMessage(projectId, project.path, message, configWithSettings, images);
+        await insightsService.sendMessage(projectId, project.path, message, configWithSettings, images, retry === true);
       } catch (error) {
         // Errors during sendMessage (executor errors) are already emitted via
         // the 'error' event, but we catch here to prevent unhandled rejection

@@ -474,6 +474,11 @@
     "starting": "Starting..."
   },
   "insights": {
+    "error": {
+      "retry": "Retry",
+      "editMessage": "Edit message",
+      "incompleteResponse": "Incomplete response"
+    },
     "stopped": "Response stopped",
     "title": "Insights",
     "subtitle": "Ask questions about your codebase",

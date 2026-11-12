@@ -154,7 +154,8 @@ export class InsightsService extends EventEmitter {
     projectPath: string,
     message: string,
     modelConfig?: InsightsModelConfig,
-    images?: ImageAttachment[]
+    images?: ImageAttachment[],
+    retry = false
   ): Promise<void> {
     // Cancel any existing session
     this.executor.cancelSession(projectId);
@@ -165,31 +166,38 @@ export class InsightsService extends EventEmitter {
       session = this.sessionManager.createNewSession(projectId, projectPath);
     }
 
-    // Auto-generate title from first user message if still default
-    if (session.messages.length === 0 && session.title === 'New Conversation') {
-      session.title = this.storage.generateTitle(message);
-    }
-
     // Guard: cap images to MAX_IMAGES_PER_TASK
     if (images && images.length > MAX_IMAGES_PER_TASK) {
       images = images.slice(0, MAX_IMAGES_PER_TASK);
     }
 
-    // Add user message (store thumbnails only for persistence, strip full data)
-    const persistImages = images?.map(img => ({
-      ...img,
-      data: undefined
-    }));
-    const userMessage: InsightsChatMessage = {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      content: message,
-      timestamp: new Date(),
-      images: persistImages && persistImages.length > 0 ? persistImages : undefined
-    };
-    session.messages.push(userMessage);
-    session.updatedAt = new Date();
-    this.sessionManager.saveSession(projectPath, session);
+    // A retry re-runs the turn already saved by the failed attempt. Only valid when
+    // the session still ends with a user message; otherwise append normally.
+    const lastMessage = session.messages[session.messages.length - 1];
+    const isRetry = retry && lastMessage?.role === 'user';
+
+    if (!isRetry) {
+      // Auto-generate title from first user message if still default
+      if (session.messages.length === 0 && session.title === 'New Conversation') {
+        session.title = this.storage.generateTitle(message);
+      }
+
+      // Add user message (store thumbnails only for persistence, strip full data)
+      const persistImages = images?.map(img => ({
+        ...img,
+        data: undefined
+      }));
+      const userMessage: InsightsChatMessage = {
+        id: `msg-${Date.now()}`,
+        role: 'user',
+        content: message,
+        timestamp: new Date(),
+        images: persistImages && persistImages.length > 0 ? persistImages : undefined
+      };
+      session.messages.push(userMessage);
+      session.updatedAt = new Date();
+      this.sessionManager.saveSession(projectPath, session);
+    }
 
     // Build conversation history for context
     // Add notation when images are present so the AI has context
