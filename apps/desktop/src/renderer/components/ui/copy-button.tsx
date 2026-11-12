@@ -19,6 +19,8 @@ export interface CopyButtonProps {
   variant?: ButtonProps['variant'];
   size?: ButtonProps['size'];
   className?: string;
+  /** Overrides the default icon size (h-3.5 w-3.5) */
+  iconClassName?: string;
   disabled?: boolean;
   onCopy?: () => void;
 }
@@ -31,6 +33,7 @@ export function CopyButton({
   variant = 'ghost',
   size = 'sm',
   className,
+  iconClassName = 'h-3.5 w-3.5',
   disabled,
   onCopy
 }: CopyButtonProps) {
@@ -74,9 +77,9 @@ export function CopyButton({
       aria-label={copied ? copiedText : idleText}
     >
       {copied ? (
-        <Check className={cn('h-3.5 w-3.5 text-success', label && 'mr-1')} aria-hidden="true" />
+        <Check className={cn(iconClassName, 'text-success', label && 'mr-1')} aria-hidden="true" />
       ) : (
-        <Icon className={cn('h-3.5 w-3.5', label && 'mr-1')} aria-hidden="true" />
+        <Icon className={cn(iconClassName, label && 'mr-1')} aria-hidden="true" />
       )}
       <span aria-live="polite">{copied ? copiedText : label}</span>
     </Button>
