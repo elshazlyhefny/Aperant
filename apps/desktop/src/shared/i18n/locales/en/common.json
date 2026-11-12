@@ -75,6 +75,10 @@
     "deleteProfileAriaLabel": "Delete profile"
   },
   "buttons": {
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyPath": "Copy Path",
+    "copyCode": "Copy code",
     "save": "Save",
     "cancel": "Cancel",
     "skip": "Skip",
@@ -471,6 +475,33 @@
   },
   "insights": {
     "stopped": "Response stopped",
+    "title": "Insights",
+    "subtitle": "Ask questions about your codebase",
+    "newChat": "New Chat",
+    "showSidebar": "Show sidebar",
+    "hideSidebar": "Hide sidebar",
+    "emptyState": {
+      "title": "Start a Conversation",
+      "body": "Ask questions about your codebase, get suggestions for improvements, or discuss features you'd like to implement.",
+      "suggestion1": "What is the architecture of this project?",
+      "suggestion2": "Suggest improvements for code quality",
+      "suggestion3": "What features could I add next?",
+      "suggestion4": "Are there any security concerns?"
+    },
+    "roles": {
+      "assistant": "Assistant",
+      "user": "You"
+    },
+    "thinking": "Thinking...",
+    "inputPlaceholder": "Ask about your codebase...",
+    "sendHint": "Press Enter to send, Shift+Enter for new line",
+    "toolsUsed": "{{count}} tool used",
+    "toolsUsed_other": "{{count}} tools used",
+    "tools": {
+      "reading": "Reading file",
+      "searchingFiles": "Searching files",
+      "searchingCode": "Searching code"
+    },
     "suggestedTask": "Suggested Task",
     "creating": "Creating...",
     "taskCreated": "Task Created",
@@ -499,6 +530,7 @@
     "daysAgo": "{{count}} days ago",
     "messageCount": "{{count}} message",
     "messageCount_other": "{{count}} messages",
+    "jumpToLatest": "Jump to latest",
     "images": {
       "pasteHint": "Paste an image or screenshot",
       "dropHint": "Drop image here",
@@ -534,6 +566,11 @@
     "description": "Description",
     "rationale": "Rationale",
     "goToTask": "Go to Task",
+    "possibleDuplicate": {
+      "task": "May repeat task {{id}}",
+      "idea": "May repeat idea \"{{title}}\"",
+      "score": "Similarity {{score}}%"
+    },
     "conversionFailed": "Conversion failed",
     "conversionFailedDescription": "Failed to convert idea to task",
     "conversionError": "Conversion error",

@@ -1,7 +1,6 @@
 import { ipcMain } from 'electron';
 import type { BrowserWindow } from 'electron';
 import path from 'path';
-import { existsSync, readFileSync } from 'fs';
 import { IPC_CHANNELS, getSpecsDir } from '../../../shared/constants';
 import type {
   IPCResult,
@@ -9,10 +8,8 @@ import type {
   JiraIssuePage,
   JiraProject,
   JiraSyncStatus,
-  Project,
 } from '../../../shared/types';
 import { projectStore } from '../../project-store';
-import { parseEnvFile } from '../utils';
 import type { AgentManager } from '../../agent';
 import {
   JiraAPIError,
@@ -21,41 +18,13 @@ import {
   isValidIssueKey,
   isValidProjectKey,
   listProjects,
-  normalizeJiraSiteUrl,
   searchIssues,
 } from './jira-client';
 import type { JiraIssueData } from './jira-client';
+import { getJiraConfig } from './jira-config';
 import { createSpecFromJiraIssue, findExistingJiraSpecs } from './jira-spec';
 
-interface JiraConfig {
-  siteUrl: string;
-  email: string;
-  token: string;
-  projectKey?: string;
-}
-
 const MAX_IMPORT_KEYS = 100;
-
-/**
- * Read Jira credentials from the project's .env. Returns null when not configured.
- */
-function getJiraConfig(project: Project): JiraConfig | null {
-  if (!project.autoBuildPath) return null;
-  const envPath = path.join(project.path, project.autoBuildPath, '.env');
-  if (!existsSync(envPath)) return null;
-
-  try {
-    const vars = parseEnvFile(readFileSync(envPath, 'utf-8'));
-    const siteUrl = normalizeJiraSiteUrl(vars['JIRA_SITE_URL']);
-    const email = vars['JIRA_EMAIL'];
-    const token = vars['JIRA_API_TOKEN'];
-    if (!siteUrl || !email || !token) return null;
-    const projectKey = vars['JIRA_PROJECT_KEY'];
-    return { siteUrl, email, token, projectKey: isValidProjectKey(projectKey) ? projectKey : undefined };
-  } catch {
-    return null;
-  }
-}
 
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof JiraAPIError) return error.message;

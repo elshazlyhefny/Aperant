@@ -223,7 +223,8 @@ export async function jiraFetch(
   email: string,
   token: string,
   apiPath: string,
-  query?: Record<string, string | number | undefined>
+  query?: Record<string, string | number | undefined>,
+  options?: { method?: 'GET' | 'POST'; body?: unknown }
 ): Promise<unknown> {
   const site = normalizeJiraSiteUrl(siteUrl);
   if (!site) throw new JiraAPIError('Invalid Jira site URL. Use https://<name>.atlassian.net');
@@ -233,14 +234,19 @@ export async function jiraFetch(
     if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
   }
 
+  const hasBody = options?.body !== undefined;
+  const headers: Record<string, string> = {
+    Authorization: buildAuthHeader(email, token),
+    Accept: 'application/json',
+  };
+  if (hasBody) headers['Content-Type'] = 'application/json';
+
   let response: Response;
   try {
     response = await fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        Authorization: buildAuthHeader(email, token),
-        Accept: 'application/json',
-      },
+      method: options?.method ?? 'GET',
+      headers,
+      ...(hasBody ? { body: JSON.stringify(options?.body) } : {}),
       redirect: 'error',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
@@ -266,9 +272,12 @@ export async function jiraFetch(
     }
   }
 
+  if (response.status === 204) return null;
+
   try {
     return await response.json();
   } catch {
+    if (response.headers?.get?.('content-length') === '0') return null;
     throw new JiraAPIError('Jira returned an invalid response');
   }
 }
@@ -296,6 +305,60 @@ export async function checkConnection(
     userName: str(data.displayName, 200) || str(data.emailAddress, 200),
     siteName: site ? new URL(site).hostname : '',
   };
+}
+
+const MAX_COMMENT_CHARS = 30000;
+const MAX_COMMENT_LINE_CHARS = 5000;
+
+export function buildAdfComment(text: string): {
+  version: 1;
+  type: 'doc';
+  content: Array<{ type: 'paragraph'; content: Array<{ type: 'text'; text: string }> }>;
+} {
+  const capped = stripControlChars(typeof text === 'string' ? text : '', true).slice(0, MAX_COMMENT_CHARS);
+  const content = capped
+    .split(/\r?\n/)
+    .map(line => sanitizeText(line, MAX_COMMENT_LINE_CHARS))
+    .filter(line => line.trim() !== '')
+    .map(line => ({ type: 'paragraph' as const, content: [{ type: 'text' as const, text: line }] }));
+  return { version: 1, type: 'doc', content };
+}
+
+export async function addIssueComment(
+  siteUrl: string,
+  email: string,
+  token: string,
+  issueKey: string,
+  text: string
+): Promise<void> {
+  if (!isValidIssueKey(issueKey)) throw new JiraAPIError('Invalid Jira issue key');
+  await jiraFetch(siteUrl, email, token, `/rest/api/3/issue/${issueKey}/comment`, undefined, {
+    method: 'POST',
+    body: { body: buildAdfComment(text) },
+  });
+}
+
+export async function transitionIssue(
+  siteUrl: string,
+  email: string,
+  token: string,
+  issueKey: string,
+  statusName: string
+): Promise<{ transitioned: boolean; reason?: 'transition_not_available' }> {
+  if (!isValidIssueKey(issueKey)) throw new JiraAPIError('Invalid Jira issue key');
+  const data = asRecord(await jiraFetch(siteUrl, email, token, `/rest/api/3/issue/${issueKey}/transitions`));
+  const target = String(statusName ?? '').trim().toLowerCase();
+  const match = target
+    ? (Array.isArray(data.transitions) ? data.transitions : [])
+        .map(asRecord)
+        .find(t => str(asRecord(t.to).name, 100).trim().toLowerCase() === target && str(t.id, 50))
+    : undefined;
+  if (!match) return { transitioned: false, reason: 'transition_not_available' };
+  await jiraFetch(siteUrl, email, token, `/rest/api/3/issue/${issueKey}/transitions`, undefined, {
+    method: 'POST',
+    body: { transition: { id: str(match.id, 50) } },
+  });
+  return { transitioned: true };
 }
 
 export async function listProjects(siteUrl: string, email: string, token: string): Promise<JiraProject[]> {

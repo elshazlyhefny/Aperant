@@ -78,6 +78,10 @@ export interface RawIdea extends Record<string, unknown> {
 
   // Linked task
   linked_task_id?: string;
+
+  // Possible duplicate flag (validated in transformers.ts)
+  possible_duplicate_of?: unknown;
+  possibleDuplicateOf?: unknown;
 }
 
 export interface RawIdeationData {
