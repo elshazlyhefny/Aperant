@@ -20,6 +20,28 @@ export interface PythonValidation {
 }
 
 /**
+ * Candidate Homebrew Python paths in priority order.
+ * Directories: Apple Silicon (/opt/homebrew/bin), then Intel (/usr/local/bin).
+ * Names: specific versions newest to oldest, then generic python3.
+ * Note: update the list when new Python versions are released.
+ */
+export function getHomebrewPythonPaths(): string[] {
+  const homebrewDirs = [
+    '/opt/homebrew/bin',  // Apple Silicon (M1/M2/M3)
+    '/usr/local/bin'      // Intel Mac
+  ];
+  const pythonNames = [
+    'python3.14',
+    'python3.13',
+    'python3.12',
+    'python3.11',
+    'python3.10',
+    'python3',
+  ];
+  return homebrewDirs.flatMap((dir) => pythonNames.map((name) => path.join(dir, name)));
+}
+
+/**
  * Find the first valid Homebrew Python installation.
  * Checks common Homebrew paths for Python 3, including versioned installations.
  * Prioritizes newer Python versions (3.14, 3.13, 3.12, 3.11, 3.10).
@@ -35,43 +57,24 @@ export function findHomebrewPython(
   validateFn: (pythonPath: string) => PythonValidation,
   logPrefix: string
 ): string | null {
-  const homebrewDirs = [
-    '/opt/homebrew/bin',  // Apple Silicon (M1/M2/M3)
-    '/usr/local/bin'      // Intel Mac
-  ];
-
-  // Check for specific Python versions first (newest to oldest), then fall back to generic python3.
-  // This ensures we find the latest available version that meets our requirements.
-  const pythonNames = [
-    'python3.14',
-    'python3.13',
-    'python3.12',
-    'python3.11',
-    'python3.10',
-    'python3',
-  ];
-
-  for (const dir of homebrewDirs) {
-    for (const name of pythonNames) {
-      const pythonPath = path.join(dir, name);
-      if (existsSync(pythonPath)) {
-        try {
-          // Validate that this Python meets version requirements
-          const validation = validateFn(pythonPath);
-          if (validation.valid) {
-            appLog.info(`${logPrefix} Found valid Homebrew Python: ${pythonPath} (${validation.version})`);
-            return pythonPath;
-          } else {
-            console.warn(`${logPrefix} ${pythonPath} rejected: ${validation.message}`);
-          }
-        } catch (error) {
-          // Version check failed (e.g., timeout, permission issue), try next candidate
-          console.warn(`${logPrefix} Failed to validate ${pythonPath}: ${error}`);
+  for (const pythonPath of getHomebrewPythonPaths()) {
+    if (existsSync(pythonPath)) {
+      try {
+        // Validate that this Python meets version requirements
+        const validation = validateFn(pythonPath);
+        if (validation.valid) {
+          appLog.info(`${logPrefix} Found valid Homebrew Python: ${pythonPath} (${validation.version})`);
+          return pythonPath;
+        } else {
+          console.warn(`${logPrefix} ${pythonPath} rejected: ${validation.message}`);
         }
+      } catch (error) {
+        // Version check failed (e.g., timeout, permission issue), try next candidate
+        console.warn(`${logPrefix} Failed to validate ${pythonPath}: ${error}`);
       }
     }
   }
 
-  appLog.info(`${logPrefix} No valid Homebrew Python found in ${homebrewDirs.join(', ')}`);
+  appLog.info(`${logPrefix} No valid Homebrew Python found in Homebrew directories`);
   return null;
 }
