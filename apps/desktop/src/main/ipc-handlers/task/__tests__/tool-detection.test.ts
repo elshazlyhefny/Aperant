@@ -1,7 +1,14 @@
 import os from 'os';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '../../../../shared/constants';
-import { escapeSingleQuotedPath, isPathSafe } from '../tool-detection/path-safety';
+import {
+  escapeAppleScriptString,
+  escapeBashCommand,
+  escapeGitBashCommand,
+  escapePowerShellCommand,
+  escapeSingleQuotedPath,
+  isPathSafe,
+} from '../tool-detection/path-safety';
 import { CLI_DETECTION, IDE_DETECTION, TERMINAL_DETECTION } from '../tool-detection/tables';
 import { openInIDE, openInTerminal } from '../tool-detection/launch';
 import { registerWorktreeToolHandlers } from '../tool-handlers';
@@ -59,6 +66,28 @@ describe('escapeSingleQuotedPath', () => {
     // Every quote in the output is part of an '\'' sequence
     expect(escaped.replace(/'\\''/g, '')).not.toContain("'");
     expect(escaped.startsWith("/tmp/a'\\''")).toBe(true);
+  });
+});
+
+describe('escapeAppleScriptString', () => {
+  it('escapes backslashes and double quotes, leaves single quotes', () => {
+    expect(escapeAppleScriptString('a\\b"c\'d')).toBe('a\\\\b\\"c\'d');
+  });
+});
+
+describe('escapePowerShellCommand', () => {
+  it('escapes metacharacters and newlines', () => {
+    expect(escapePowerShellCommand('a`b"c$d(e);f&g')).toBe('a``b`"c`$d`(e`)`;f`&g');
+    expect(escapePowerShellCommand('a\r\nb')).toBe('a`r`nb');
+  });
+});
+
+describe('escapeGitBashCommand / escapeBashCommand', () => {
+  it('escapes bash metacharacters', () => {
+    const input = 'a\\b"c$d`e;f|g!h';
+    const expected = 'a\\\\b\\"c\\$d\\`e\\;f\\|g\\!h';
+    expect(escapeGitBashCommand(input)).toBe(expected);
+    expect(escapeBashCommand(input)).toBe(expected);
   });
 });
 
