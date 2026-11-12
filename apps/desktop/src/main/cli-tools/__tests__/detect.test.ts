@@ -233,6 +233,16 @@ describe('validate', () => {
   });
 });
 
+describe('validateClaudeAsync', () => {
+  it('strips surrounding quotes and builds env from getAugmentedEnvAsync', async () => {
+    mockWorld([], 'claude 1.0.0\n');
+    const result = await validateClaudeAsync('"/opt/my bin/claude"');
+    expect(result.valid).toBe(true);
+    expect(vi.mocked(execFileSync).mock.calls[0][0]).toBe('/opt/my bin/claude');
+    expect(getAugmentedEnvAsync).toHaveBeenCalledWith(['/opt/my bin']);
+  });
+});
+
 describe('planVersionCommand', () => {
   it('uses execFile without a shell on non-Windows', () => {
     const plan = planVersionCommand('/usr/bin/git', ['--version']);
