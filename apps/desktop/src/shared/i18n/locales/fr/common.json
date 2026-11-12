@@ -470,6 +470,7 @@
     "starting": "Démarrage..."
   },
   "insights": {
+    "stopped": "Réponse arrêtée",
     "suggestedTask": "Tâche suggérée",
     "creating": "Création...",
     "taskCreated": "Tâche créée",
@@ -1280,6 +1281,7 @@
     }
   },
   "iconButtons": {
+    "stop": "Arrêter la réponse",
     "send": "Envoyer le message",
     "removeFile": "Retirer le fichier",
     "removeImage": "Retirer l'image",

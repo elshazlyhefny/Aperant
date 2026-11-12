@@ -470,6 +470,7 @@
     "starting": "Starting..."
   },
   "insights": {
+    "stopped": "Response stopped",
     "suggestedTask": "Suggested Task",
     "creating": "Creating...",
     "taskCreated": "Task Created",
@@ -1280,6 +1281,7 @@
     }
   },
   "iconButtons": {
+    "stop": "Stop response",
     "send": "Send message",
     "removeFile": "Remove file",
     "removeImage": "Remove image",
