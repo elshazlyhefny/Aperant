@@ -4,14 +4,14 @@
  *
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '../../../../../shared/i18n';
 import { PRDetail } from '../PRDetail';
 import type { PRData, PRReviewResult } from '../../hooks/useGitHubPRs';
-import type { NewCommitsCheck } from '../../../../../preload/api/modules/github-api';
+import type { NewCommitsCheck, PRLogs, PRLogEntry, PRLogsDelta, PRLogsUpdatedPayload } from '../../../../../preload/api/modules/github-api';
 
 // Mock window.electronAPI
 type PostCommentFn = (body: string) => Promise<boolean>;
@@ -822,6 +822,180 @@ describe('PRDetail - Follow-up Review Trigger Integration', () => {
     // Follow-up button should not be visible for unreviewed PR
     expect(screen.queryByRole('button', { name: /run follow-up/i })).not.toBeInTheDocument();
 
+    unmount();
+  });
+});
+
+/**
+ * Delta streaming and cheap polling of PR review logs
+ */
+describe('PRDetail - Log Delta Streaming and Polling', () => {
+  const mockProjectId = 'test-project-id';
+
+  const entry = (content: string): PRLogEntry => ({
+    timestamp: '2026-01-01T00:00:00Z',
+    type: 'text',
+    content,
+    phase: 'analysis'
+  });
+
+  const makeLogs = (): PRLogs => ({
+    pr_number: 123,
+    repo: 'test/repo',
+    created_at: 't0',
+    updated_at: 't1',
+    is_followup: false,
+    phases: {
+      context: { phase: 'context', status: 'completed', started_at: 'a', completed_at: 'b', entries: [] },
+      analysis: { phase: 'analysis', status: 'active', started_at: 'c', completed_at: null, entries: [entry('entry-one'), entry('entry-two')] },
+      synthesis: { phase: 'synthesis', status: 'pending', started_at: null, completed_at: null, entries: [] }
+    }
+  });
+
+  const makeDelta = (baseCount: number): PRLogsDelta => ({
+    pr_number: 123,
+    created_at: 't0',
+    updated_at: 't2',
+    phases: {
+      analysis: { status: 'active', started_at: 'c', completed_at: null, baseCount, entries: [entry('entry-three')] }
+    }
+  });
+
+  function reviewingTree(isReviewing: boolean) {
+    return (
+      <I18nWrapper>
+        <PRDetail
+          pr={createMockPR({ number: 123 })}
+          projectId={mockProjectId}
+          reviewResult={null}
+          previousReviewResult={null}
+          reviewProgress={null}
+          startedAt={null}
+          isReviewing={isReviewing}
+          onRunReview={mockOnRunReview}
+          onRunFollowupReview={mockOnRunFollowupReview}
+          onCheckNewCommits={mockOnCheckNewCommits}
+          onCancelReview={mockOnCancelReview}
+          onPostReview={mockOnPostReview}
+          onPostComment={mockOnPostComment}
+          onMergePR={mockOnMergePR}
+          onAssignPR={mockOnAssignPR}
+          onGetLogs={mockOnGetLogs}
+        />
+      </I18nWrapper>
+    );
+  }
+
+  // Mount idle, then start the review (mounting with isReviewing=true collapses
+  // the logs section via the per-PR reset effect)
+  function renderReviewing() {
+    const result = render(reviewingTree(false));
+    result.rerender(reviewingTree(true));
+    return result;
+  }
+
+  async function advance(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+
+  function pushUpdate(delta: PRLogsDelta) {
+    const calls = (window.electronAPI.github.onPRLogsUpdated as ReturnType<typeof vi.fn>).mock.calls;
+    const callback = calls[calls.length - 1][0] as (projectId: string, data: PRLogsUpdatedPayload) => void;
+    act(() => {
+      callback(mockProjectId, { prNumber: 123, entryCount: 3, delta });
+    });
+  }
+
+  beforeEach(() => {
+    // Only fake intervals so React's scheduler and RTL keep working
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    vi.clearAllMocks();
+    (window.electronAPI.github.onPRLogsUpdated as ReturnType<typeof vi.fn>).mockReturnValue(() => {});
+    mockOnGetLogs.mockResolvedValue(makeLogs());
+    mockOnCheckNewCommits.mockResolvedValue({
+      hasNewCommits: false,
+      hasCommitsAfterPosting: false,
+      newCommitCount: 0
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps displayed logs when onGetLogs resolves "unchanged"', async () => {
+    const { unmount } = renderReviewing();
+    await advance(0);
+    expect(screen.getByText('entry-one')).toBeInTheDocument();
+
+    mockOnGetLogs.mockResolvedValue('unchanged');
+    await advance(1500);
+
+    expect(mockOnGetLogs.mock.calls.length).toBeGreaterThan(1);
+    expect(screen.getByText('entry-one')).toBeInTheDocument();
+    expect(screen.getByText('entry-two')).toBeInTheDocument();
+    unmount();
+  });
+
+  it('appends a pushed delta without an extra onGetLogs call', async () => {
+    const { unmount } = renderReviewing();
+    await advance(0);
+    expect(screen.getByText('entry-two')).toBeInTheDocument();
+    const callsBefore = mockOnGetLogs.mock.calls.length;
+
+    pushUpdate(makeDelta(2));
+
+    expect(screen.getByText('entry-three')).toBeInTheDocument();
+    expect(screen.getByText('entry-one')).toBeInTheDocument();
+    expect(mockOnGetLogs).toHaveBeenCalledTimes(callsBefore);
+    unmount();
+  });
+
+  it('resyncs with a full onGetLogs when the delta baseCount mismatches', async () => {
+    const { unmount } = renderReviewing();
+    await advance(0);
+    const callsBefore = mockOnGetLogs.mock.calls.length;
+
+    pushUpdate(makeDelta(5));
+    await advance(0);
+
+    expect(mockOnGetLogs.mock.calls.length).toBe(callsBefore + 1);
+    expect(screen.queryByText('entry-three')).not.toBeInTheDocument();
+    unmount();
+  });
+
+  it('does not poll while the logs section is collapsed and resumes once expanded', async () => {
+    const { unmount } = renderReviewing();
+    await advance(0);
+
+    // Collapse the logs section (auto-expanded when the review started)
+    const toggle = screen.getByText(/review logs/i);
+    fireEvent.click(toggle);
+    await advance(0);
+
+    const callsCollapsed = mockOnGetLogs.mock.calls.length;
+    await advance(3000);
+    expect(mockOnGetLogs).toHaveBeenCalledTimes(callsCollapsed);
+
+    fireEvent.click(toggle);
+    await advance(1500);
+    expect(mockOnGetLogs.mock.calls.length).toBeGreaterThan(callsCollapsed);
+    unmount();
+  });
+
+  it('passes the known version to onGetLogs once logs have loaded', async () => {
+    const { unmount } = renderReviewing();
+    await advance(0);
+    expect(mockOnGetLogs.mock.calls[0][0]).toBeUndefined();
+
+    await advance(1500);
+    const lastCall = mockOnGetLogs.mock.calls[mockOnGetLogs.mock.calls.length - 1];
+    expect(lastCall[0]).toEqual({ updated_at: 't1', entryCount: 2 });
     unmount();
   });
 });
