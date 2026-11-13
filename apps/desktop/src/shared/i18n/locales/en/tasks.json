@@ -560,5 +560,9 @@
     "none": "No planned file overlap with other active tasks was found.",
     "unknown": "Planned files are unknown because the plan lists no files.",
     "holdFailed": "Could not save the wait setting"
+  },
+  "fileExplorer": {
+    "title": "Project Files",
+    "hint": "Drag a file, or press Enter, to add it as a reference"
   }
 }
