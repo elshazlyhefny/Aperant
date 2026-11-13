@@ -178,6 +178,69 @@ describe('TaskStateManager Jira write-back dispatch', () => {
   });
 });
 
+function toCreatingPr(manager: TaskStateManager) {
+  send(manager, { type: 'PLANNING_STARTED' });
+  send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
+  manager.handleUiEvent('t1', { type: 'CREATE_PR' }, task, project);
+}
+
+describe('TaskStateManager PR opened webhook', () => {
+  it('dispatches pr_created once with the prUrl when the status is set manually', () => {
+    const manager = make();
+    const withPr = { ...task, metadata: { prUrl: 'https://github.com/o/r/pull/1' } } as Task;
+    toCreatingPr(manager);
+    dispatch.mockClear();
+    manager.handleManualStatusChange('t1', 'pr_created', withPr, project);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0]).toMatchObject({
+      status: 'pr_created',
+      prUrl: 'https://github.com/o/r/pull/1'
+    });
+  });
+
+  it('dispatches without a link when the in-memory task has no prUrl yet', () => {
+    const manager = make();
+    toCreatingPr(manager);
+    dispatch.mockClear();
+    manager.handleManualStatusChange('t1', 'pr_created', task, project);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0].prUrl).toBeUndefined();
+  });
+
+  it('does not send a second PR opened message when a PR follow-up run starts', () => {
+    const manager = make();
+    manager.startPRFollowUp('t1', task, project);
+    const prOpened = dispatch.mock.calls.filter((c) => c[0].status === 'pr_created');
+    expect(prOpened).toHaveLength(0);
+    expect(manager.getCurrentState('t1')).toBe('coding');
+  });
+
+  it('dispatches pr_created with the metadata prUrl when driven through CREATE_PR and PR_CREATED', () => {
+    const manager = make();
+    const prUrl = 'https://github.com/o/r/pull/2';
+    const withPr = { ...task, metadata: { prUrl } } as Task;
+    send(manager, { type: 'PLANNING_STARTED' });
+    send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
+    manager.handleUiEvent('t1', { type: 'CREATE_PR' }, withPr, project);
+    dispatch.mockClear();
+    jiraDispatch.mockClear();
+    manager.handleUiEvent('t1', { type: 'PR_CREATED', prUrl }, withPr, project);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0]).toMatchObject({ status: 'pr_created', prUrl });
+    // The state manager forwards pr_opened to the Jira dispatcher, which ignores it.
+    expect(jiraDispatch.mock.calls.every((c) => c[0].event === 'pr_opened')).toBe(true);
+  });
+
+  it('dispatches pr_created with prUrl undefined when the task has no metadata.prUrl', () => {
+    const manager = make();
+    toCreatingPr(manager);
+    dispatch.mockClear();
+    manager.handleUiEvent('t1', { type: 'PR_CREATED', prUrl: 'https://github.com/o/r/pull/3' }, task, project);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0].prUrl).toBeUndefined();
+  });
+});
+
 describe('TaskStateManager issue write-back dispatch', () => {
   it('dispatches failed on error', () => {
     const manager = make();

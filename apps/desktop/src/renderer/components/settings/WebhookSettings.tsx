@@ -38,7 +38,8 @@ type EventKey = keyof WebhookConfig['events'];
 const EVENT_ITEMS: Array<{ key: EventKey; labelKey: string; descriptionKey: string }> = [
   { key: 'reviewReady', labelKey: 'notifications.webhook.events.reviewReady', descriptionKey: 'notifications.webhook.events.reviewReadyDescription' },
   { key: 'failed', labelKey: 'notifications.webhook.events.failed', descriptionKey: 'notifications.webhook.events.failedDescription' },
-  { key: 'blocked', labelKey: 'notifications.webhook.events.blocked', descriptionKey: 'notifications.webhook.events.blockedDescription' }
+  { key: 'blocked', labelKey: 'notifications.webhook.events.blocked', descriptionKey: 'notifications.webhook.events.blockedDescription' },
+  { key: 'prOpened', labelKey: 'notifications.webhook.events.prOpened', descriptionKey: 'notifications.webhook.events.prOpenedDescription' }
 ];
 
 /**

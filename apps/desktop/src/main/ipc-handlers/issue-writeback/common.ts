@@ -10,7 +10,10 @@ import { sanitizeUrl } from '../shared/sanitize';
 
 const MAX_TITLE_LENGTH = 200;
 
-export const EVENT_LABELS: Record<WebhookEvent, string> = {
+// zeenha fork: pr_opened is webhook-only; issue trackers get the PR link in the review_ready comment.
+export type OutcomeEvent = Exclude<WebhookEvent, 'pr_opened'>;
+
+export const EVENT_LABELS: Record<OutcomeEvent, string> = {
   review_ready: 'Aperant: task is ready for review.',
   failed: 'Aperant: task failed.',
   blocked: 'Aperant: task is blocked and needs attention.'
@@ -22,7 +25,7 @@ export function cleanTitle(value: unknown): string {
   return cleaned.length > MAX_TITLE_LENGTH ? `${cleaned.slice(0, MAX_TITLE_LENGTH - 1)}…` : cleaned;
 }
 
-export function buildOutcomeComment(event: WebhookEvent, taskTitle?: string, prUrl?: string): string {
+export function buildOutcomeComment(event: OutcomeEvent, taskTitle?: string, prUrl?: string): string {
   const lines = [EVENT_LABELS[event]];
   const title = cleanTitle(taskTitle);
   if (title) lines.push(`Task: ${title}`);

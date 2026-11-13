@@ -50,7 +50,8 @@ export const DEFAULT_APP_SETTINGS = {
   webhook: {
     enabled: false,
     url: '',
-    events: { reviewReady: true, failed: true, blocked: true }
+    // zeenha fork: prOpened is off by default because it is the only event that sends a link.
+    events: { reviewReady: true, failed: true, blocked: true, prOpened: false }
   },
   // zeenha fork: Jira write-back is opt-in, everything off by default
   jiraWriteback: {

@@ -38,7 +38,8 @@ describe('mapOutcomeToWebhookEvent', () => {
     ['human_review', 'plan_review', null],
     ['human_review', 'stopped', null],
     ['in_progress', undefined, null],
-    ['done', 'completed', null]
+    ['done', 'completed', null],
+    ['pr_created', undefined, 'pr_opened']
   ])('%s/%s -> %s', (s, r, e) => {
     expect(mapOutcomeToWebhookEvent(s, r)).toBe(e);
   });
@@ -95,6 +96,56 @@ describe('buildWebhookPayload', () => {
   });
 });
 
+describe('buildWebhookPayload pr_opened', () => {
+  const PR = 'https://github.com/o/r/pull/1';
+  const build = (prUrl?: string, event: 'pr_opened' | 'failed' | 'review_ready' | 'blocked' = 'pr_opened') =>
+    buildWebhookPayload({ projectName: 'P', taskTitle: 'T', event, prUrl });
+
+  it('adds a View PR button and the url in the text for an https url', () => {
+    const p = build(PR);
+    const actions = (p.blocks as Array<{ type: string; elements?: Array<{ url?: string }> }>).find((b) => b.type === 'actions');
+    expect(actions?.elements?.[0].url).toBe(PR);
+    expect(p.text).toContain(PR);
+  });
+
+  it('labels the event and outcome', () => {
+    const s = JSON.stringify(build(PR));
+    expect(s).toContain('PR opened');
+    expect(s).toContain('Awaiting review');
+  });
+
+  it.each([
+    ['http', 'http://github.com/o/r/pull/1'],
+    ['javascript', 'javascript:alert(1)'],
+    ['credentials', 'https://user:pw@github.com/o/r/pull/1'],
+    ['empty', ''],
+    ['undefined', undefined]
+  ])('has no actions block and no url for %s', (_n, url) => {
+    const p = build(url);
+    const s = JSON.stringify(p);
+    expect((p.blocks as Array<{ type: string }>).some((b) => b.type === 'actions')).toBe(false);
+    if (url) {
+      expect(s).not.toContain(url);
+      expect(s).not.toContain('pw@');
+    }
+  });
+
+  it.each(['failed', 'review_ready', 'blocked'] as const)('ignores prUrl for %s', (event) => {
+    const s = JSON.stringify(build(PR, event));
+    expect(s).not.toContain(PR);
+    expect(s).not.toContain('actions');
+  });
+
+  it('does not include secrets or paths', () => {
+    process.env.WEBHOOK_TEST_SECRET = 'sk-fake-token-123';
+    const s = JSON.stringify(build(PR));
+    for (const bad of ['sk-fake-token-123', 'WEBHOOK_TEST_SECRET', '/home/', 'stack trace']) {
+      expect(s).not.toContain(bad);
+    }
+    delete process.env.WEBHOOK_TEST_SECRET;
+  });
+});
+
 describe('sendWebhook', () => {
   const payload = buildWebhookPayload({ projectName: 'P', taskTitle: 'T', event: 'failed' });
 
@@ -133,7 +184,7 @@ describe('sendWebhook', () => {
 
 describe('dispatchTaskOutcomeWebhook', () => {
   const enabled = (over: Record<string, unknown> = {}) => ({
-    webhook: { enabled: true, url: URL_OK, events: { reviewReady: true, failed: true, blocked: true }, ...over }
+    webhook: { enabled: true, url: URL_OK, events: { reviewReady: true, failed: true, blocked: true, prOpened: false }, ...over }
   });
   const input = { status: 'error', projectName: 'P', taskTitle: 'T' };
 
@@ -144,10 +195,28 @@ describe('dispatchTaskOutcomeWebhook', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   });
 
+  it('sends pr_created with the PR url when prOpened is on', async () => {
+    mocks.settings = enabled({ events: { reviewReady: true, failed: true, blocked: true, prOpened: true } });
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook({ status: 'pr_created', projectName: 'P', taskTitle: 'T', prUrl: 'https://github.com/o/r/pull/1' });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(String(fetchMock.mock.calls[0][1].body)).toContain('https://github.com/o/r/pull/1');
+  });
+
+  it.each([
+    ['prOpened false', { reviewReady: true, failed: true, blocked: true, prOpened: false }],
+    ['settings from an older version', { reviewReady: true, failed: true, blocked: true }]
+  ])('sends nothing for pr_created when %s', async (_n, events) => {
+    mocks.settings = enabled({ events });
+    dispatchTaskOutcomeWebhook({ status: 'pr_created', projectName: 'P', taskTitle: 'T', prUrl: 'https://github.com/o/r/pull/1' });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['disabled', () => ({ webhook: { enabled: false, url: URL_OK } }), input],
     ['no settings', () => undefined, input],
-    ['event off', () => enabled({ events: { reviewReady: true, failed: false, blocked: true } }), input],
+    ['event off', () => enabled({ events: { reviewReady: true, failed: false, blocked: true, prOpened: false } }), input],
     ['invalid url', () => enabled({ url: 'http://example.com' }), input],
     ['unmapped outcome', () => enabled(), { ...input, status: 'in_progress' }]
   ])('sends nothing when %s', async (_n, mk, inp) => {

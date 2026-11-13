@@ -142,6 +142,7 @@ function dispatchLinear(meta: Record<string, unknown>, project: Project, event: 
 export function dispatchIssueOutcome(input: { task: Task; project: Project; event: WebhookEvent }): void {
   try {
     const { task, project, event } = input;
+    if (event === 'pr_opened') return;
     const settings = loadSettings();
     if (!settings.github && !settings.gitlab && !settings.linear) return;
 

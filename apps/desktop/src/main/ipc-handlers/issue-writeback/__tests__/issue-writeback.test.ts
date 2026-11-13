@@ -75,7 +75,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-async function run(event: 'review_ready' | 'failed' | 'blocked' = 'review_ready') {
+async function run(event: 'review_ready' | 'failed' | 'blocked' | 'pr_opened' = 'review_ready') {
   dispatchIssueOutcome({ task, project, event });
   await flush();
 }
@@ -107,6 +107,11 @@ describe('dispatchIssueOutcome', () => {
     });
     expect(gitlabFetch).not.toHaveBeenCalled();
     expect(linearGraphQL).not.toHaveBeenCalled();
+  });
+
+  it('ignores pr_opened, which is webhook-only', async () => {
+    await run('pr_opened');
+    expectNoCalls();
   });
 
   it('posts a GitLab note', async () => {

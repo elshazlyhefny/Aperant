@@ -15,11 +15,11 @@ import { appLog } from '../../app-logger';
 import { readSettingsFile } from '../../settings-utils';
 import { taskSpecDirs } from '../../task-failure-facts';
 import type { WebhookEvent } from '../../task-webhook';
-import { buildOutcomeComment, readMetadata } from '../issue-writeback/common';
+import { type OutcomeEvent, buildOutcomeComment, readMetadata } from '../issue-writeback/common';
 import { JiraAPIError, addIssueComment, isValidIssueKey, normalizeJiraSiteUrl, transitionIssue } from './jira-client';
 import { getJiraConfig } from './jira-config';
 
-export function buildJiraComment(input: { event: WebhookEvent; taskTitle?: string; prUrl?: string }): string {
+export function buildJiraComment(input: { event: OutcomeEvent; taskTitle?: string; prUrl?: string }): string {
   return buildOutcomeComment(input.event, input.taskTitle, input.prUrl);
 }
 
@@ -49,6 +49,7 @@ function warn(event: string, issueKey: string, what: string, err: unknown): void
 export function dispatchJiraOutcome(input: { task: Task; project: Project; event: WebhookEvent }): void {
   try {
     const { task, project, event } = input;
+    if (event === 'pr_opened') return;
     const settings = loadSettings();
     if (settings.enabled !== true) return;
 

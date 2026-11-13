@@ -10,8 +10,9 @@ import type { WebhookSettings } from '../shared/types/settings';
 import { DEFAULT_APP_SETTINGS } from '../shared/constants/config';
 import { appLog } from './app-logger';
 import { readSettingsFile } from './settings-utils';
+import { sanitizeUrl } from './ipc-handlers/shared/sanitize';
 
-export type WebhookEvent = 'review_ready' | 'failed' | 'blocked';
+export type WebhookEvent = 'review_ready' | 'failed' | 'blocked' | 'pr_opened';
 
 export interface WebhookPayload {
   text: string;
@@ -27,7 +28,8 @@ const BASE_DELAY_MS = 500;
 const EVENT_LABELS: Record<WebhookEvent, { event: string; outcome: string }> = {
   review_ready: { event: 'Ready for review', outcome: 'Completed' },
   failed: { event: 'Failed', outcome: 'Error' },
-  blocked: { event: 'Blocked', outcome: 'Needs attention' }
+  blocked: { event: 'Blocked', outcome: 'Needs attention' },
+  pr_opened: { event: 'PR opened', outcome: 'Awaiting review' }
 };
 
 export function mapOutcomeToWebhookEvent(
@@ -39,6 +41,7 @@ export function mapOutcomeToWebhookEvent(
     if (reviewReason === 'completed') return 'review_ready';
     if (reviewReason === 'qa_rejected' || reviewReason === 'errors') return 'blocked';
   }
+  if (status === 'pr_created') return 'pr_opened';
   return null;
 }
 
@@ -75,24 +78,33 @@ export function buildWebhookPayload(input: {
   projectName: string;
   taskTitle: string;
   event: WebhookEvent;
+  prUrl?: string;
 }): WebhookPayload {
   const labels = EVENT_LABELS[input.event];
   const project = escapeMrkdwn(sanitizeText(input.projectName, MAX_TITLE_LENGTH));
   const title = escapeMrkdwn(sanitizeText(input.taskTitle, MAX_TITLE_LENGTH));
-  const text = `Aperant task ${labels.event.toLowerCase()}: ${title} (${project})`;
-  return {
-    text,
-    blocks: [
-      { type: 'section', text: { type: 'mrkdwn', text: `*${labels.event}*\n${title}` } },
-      {
-        type: 'section',
-        fields: [
-          { type: 'mrkdwn', text: `*Project*\n${project}` },
-          { type: 'mrkdwn', text: `*Outcome*\n${labels.outcome}` }
-        ]
-      }
-    ]
-  };
+  // Only the pr_opened event carries a link, and only an https one.
+  const link = input.event === 'pr_opened' ? sanitizeUrl(input.prUrl) : '';
+  const hasLink = link.startsWith('https://');
+  const baseText = `Aperant task ${labels.event.toLowerCase()}: ${title} (${project})`;
+  const text = hasLink ? `${baseText} ${escapeMrkdwn(link)}` : baseText;
+  const blocks: unknown[] = [
+    { type: 'section', text: { type: 'mrkdwn', text: `*${labels.event}*\n${title}` } },
+    {
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Project*\n${project}` },
+        { type: 'mrkdwn', text: `*Outcome*\n${labels.outcome}` }
+      ]
+    }
+  ];
+  if (hasLink) {
+    blocks.push({
+      type: 'actions',
+      elements: [{ type: 'button', text: { type: 'plain_text', text: 'View PR' }, url: link }]
+    });
+  }
+  return { text, blocks };
 }
 
 function defaultDelay(ms: number): Promise<void> {
@@ -160,7 +172,8 @@ function loadWebhookSettings(): WebhookSettings {
 const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
   review_ready: 'reviewReady',
   failed: 'failed',
-  blocked: 'blocked'
+  blocked: 'blocked',
+  pr_opened: 'prOpened'
 };
 
 export function dispatchTaskOutcomeWebhook(input: {
@@ -168,6 +181,7 @@ export function dispatchTaskOutcomeWebhook(input: {
   reviewReason?: ReviewReason | string | null;
   projectName: string;
   taskTitle: string;
+  prUrl?: string;
 }): void {
   try {
     const event = mapOutcomeToWebhookEvent(input.status, input.reviewReason);
@@ -178,7 +192,8 @@ export function dispatchTaskOutcomeWebhook(input: {
     const payload = buildWebhookPayload({
       projectName: input.projectName,
       taskTitle: input.taskTitle,
-      event
+      event,
+      prUrl: input.prUrl
     });
     void sendWebhook(settings.url, payload, { eventName: event }).catch(() => undefined);
   } catch {

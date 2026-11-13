@@ -41,6 +41,10 @@ export class TaskStateManager {
   private lastStateByTask = new Map<string, string>();
   private taskContextById = new Map<string, TaskContextEntry>();
   private terminalEventSeen = new Set<string>();
+  // zeenha fork: tasks inside startPRFollowUp(). The actor is rebuilt in
+  // `pr_created` there, which looks like a fresh transition to the subscriber
+  // but is not a newly opened PR, so the pr_opened webhook is skipped.
+  private prFollowUpInProgress = new Set<string>();
   private getMainWindow: (() => BrowserWindow | null) | null = null;
 
   private statusListeners = new Set<(taskId: string, status: TaskStatus, projectId?: string) => void>();
@@ -238,8 +242,13 @@ export class TaskStateManager {
   startPRFollowUp(taskId: string, task: Task, project: Project): void {
     this.clearTask(taskId);
     const asPrCreated: Task = { ...task, status: 'pr_created' };
-    this.handleUiEvent(taskId, { type: 'PR_CREATED', prUrl: task.metadata?.prUrl ?? '' }, asPrCreated, project);
-    this.handleUiEvent(taskId, { type: 'PR_FOLLOWUP_STARTED' }, asPrCreated, project);
+    this.prFollowUpInProgress.add(taskId);
+    try {
+      this.handleUiEvent(taskId, { type: 'PR_CREATED', prUrl: task.metadata?.prUrl ?? '' }, asPrCreated, project);
+      this.handleUiEvent(taskId, { type: 'PR_FOLLOWUP_STARTED' }, asPrCreated, project);
+    } finally {
+      this.prFollowUpInProgress.delete(taskId);
+    }
   }
 
   clearTask(taskId: string): void {
@@ -353,24 +362,32 @@ export class TaskStateManager {
 
       // zeenha fork: this subscriber is the single funnel for every task state
       // transition, so terminal outcomes (failed / ready for review / blocked)
-      // are reported to the user's webhook from here. Config comes from user
+      // are reported to the user's webhook from here (PR opened too). Config comes from user
       // settings only, never from project files. The same outcome is also
       // written back to the originating Jira issue and to the originating
       // GitHub / GitLab / Linear issue (user settings config only; only that
       // one issue is touched). A failure in any dispatcher must not affect
       // persistence, the renderer event or the other dispatchers, hence the
-      // separate try/catch blocks.
+      // separate try/catch blocks. PR opened is webhook-only: both write-back
+      // dispatchers ignore it.
+      // PR opened: the real status change arrives via renderer updateStatus ->
+      // handleManualStatusChange('pr_created'). worktree-pr.ts writes prUrl to
+      // metadata on disk, so the in-memory task may not have it yet; then the
+      // message goes out without the link (prUrl is optional).
       const outcomeEvent = mapOutcomeToWebhookEvent(status, reviewReason);
       if (outcomeEvent) {
-        try {
-          dispatchTaskOutcomeWebhook({
-            status,
-            reviewReason,
-            projectName: project.name,
-            taskTitle: task.title || task.specId
-          });
-        } catch (error) {
-          console.warn(`[TaskStateManager] Webhook dispatch failed for ${taskId}:`, error);
+        if (!(outcomeEvent === 'pr_opened' && this.prFollowUpInProgress.has(taskId))) {
+          try {
+            dispatchTaskOutcomeWebhook({
+              status,
+              reviewReason,
+              projectName: project.name,
+              taskTitle: task.title || task.specId,
+              prUrl: task.metadata?.prUrl
+            });
+          } catch (error) {
+            console.warn(`[TaskStateManager] Webhook dispatch failed for ${taskId}:`, error);
+          }
         }
         try {
           dispatchJiraOutcome({ task, project, event: outcomeEvent });

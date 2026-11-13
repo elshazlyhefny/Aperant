@@ -35,7 +35,7 @@ describe('WebhookSettings', () => {
   it('renders with undefined webhook settings', () => {
     render(<WebhookSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />);
     expect(screen.getByLabelText(/webhook url/i)).toHaveValue('');
-    expect(screen.getAllByRole('switch')).toHaveLength(4);
+    expect(screen.getAllByRole('switch')).toHaveLength(5);
   });
 
   it('toggling an event calls onSettingsChange with the right shape', () => {
@@ -45,14 +45,23 @@ describe('WebhookSettings', () => {
     expect(next.webhook).toEqual({
       enabled: false,
       url: '',
-      events: { reviewReady: true, failed: false, blocked: true }
+      events: { reviewReady: true, failed: false, blocked: true, prOpened: false }
     });
+  });
+
+  it('PR opened switch is off by default and enables prOpened when clicked', () => {
+    render(<WebhookSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />);
+    const toggle = screen.getByRole('switch', { name: /pr opened/i });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    expect(next.webhook?.events).toEqual({ reviewReady: true, failed: true, blocked: true, prOpened: true });
   });
 
   it('shows a message and disables test for an invalid URL', () => {
     render(
       <WebhookSettings
-        settings={makeSettings({ enabled: true, url: 'http://example.com/x', events: { reviewReady: true, failed: true, blocked: true } })}
+        settings={makeSettings({ enabled: true, url: 'http://example.com/x', events: { reviewReady: true, failed: true, blocked: true, prOpened: false } })}
         onSettingsChange={onSettingsChange}
       />
     );
@@ -64,7 +73,7 @@ describe('WebhookSettings', () => {
     sendTestWebhook.mockResolvedValue({ success: true, data: { success: true } });
     render(
       <WebhookSettings
-        settings={makeSettings({ enabled: true, url: VALID_URL, events: { reviewReady: true, failed: true, blocked: true } })}
+        settings={makeSettings({ enabled: true, url: VALID_URL, events: { reviewReady: true, failed: true, blocked: true, prOpened: false } })}
         onSettingsChange={onSettingsChange}
       />
     );
@@ -78,7 +87,7 @@ describe('WebhookSettings', () => {
     sendTestWebhook.mockResolvedValue({ success: false, error: 'nope' });
     render(
       <WebhookSettings
-        settings={makeSettings({ enabled: true, url: VALID_URL, events: { reviewReady: true, failed: true, blocked: true } })}
+        settings={makeSettings({ enabled: true, url: VALID_URL, events: { reviewReady: true, failed: true, blocked: true, prOpened: false } })}
         onSettingsChange={onSettingsChange}
       />
     );

@@ -1,6 +1,6 @@
 # Notifications and Webhooks
 
-Aperant can post a short message to a webhook URL when a task fails, finishes and is ready for review, or is blocked. The message body is Slack-compatible. This guide covers how to set it up, what is sent, which URLs are accepted, and how delivery behaves. It ends with a short section on native desktop notifications, which are a separate feature.
+Aperant can post a short message to a webhook URL when a task fails, finishes and is ready for review, is blocked, or has a pull or merge request opened. The message body is Slack-compatible. This guide covers how to set it up, what is sent, which URLs are accepted, and how delivery behaves. It ends with a short section on native desktop notifications, which are a separate feature.
 
 ## Turn it on and send a test
 
@@ -8,7 +8,7 @@ Aperant can post a short message to a webhook URL when a task fails, finishes an
 2. Find the **Task outcome webhook** block.
 3. Turn on **Enable webhook**. It is off by default.
 4. Paste the address into **Webhook URL**. The field is masked. Use the show/hide button ("Show URL" / "Hide URL") to see what you typed.
-5. Choose which events to send with the three toggles: **Review ready**, **Task failed** and **Task blocked**. All three are on by default.
+5. Choose which events to send with the four toggles: **Review ready**, **Task failed**, **Task blocked** and **PR opened**. The first three are on by default. **PR opened** is off by default, because it is the only event that sends a link (see [Payload](#payload)).
 6. Press **Send test message**.
 
 The test shows one of two results:
@@ -25,9 +25,10 @@ The failure text gives no reason. The reason is in the app log (see [Delivery](#
 | Status `error` | `failed` | Failed | Error | Task failed |
 | Human review, reason `completed` | `review_ready` | Ready for review | Completed | Review ready |
 | Human review, reason `qa_rejected` or `errors` | `blocked` | Blocked | Needs attention | Task blocked |
+| Status `pr_created` | `pr_opened` | PR opened | Awaiting review | PR opened |
 | Any other state | none | none | none | none |
 
-Every other state sends nothing. A message is sent only when **Enable webhook** is on, the toggle for that event is on, and the saved URL is valid.
+`pr_opened` fires once each time a task moves into the `pr_created` state. A PR follow-up (sending a task with an open PR back to coding) does not send it again while that follow-up starts. Every other state sends nothing. A message is sent only when **Enable webhook** is on, the toggle for that event is on, and the saved URL is valid.
 
 ## Payload
 
@@ -60,12 +61,42 @@ The body is JSON with a `text` line and two Slack `blocks`. This is what a Ready
 
 What is sent, and what is not:
 
-- Only the project name, the task title and the outcome are sent.
+- Only the project name, the task title and the outcome are sent. The one exception is PR opened, which also sends the PR or MR link.
+- The PR link is the one place a link leaves the app. It contains the repository owner and name and the PR number, so anyone who can read the channel can see them. This is why the **PR opened** toggle is off by default.
 - The title and the project name are cut at 200 characters. A cut value ends in an ellipsis.
 - Control characters become spaces.
 - `&`, `<` and `>` are escaped as `&amp;`, `&lt;` and `&gt;`.
 - No task id, file path, branch name, code or error text is sent.
 - If the task title is empty, the spec id is used as the title.
+
+A PR opened event for the same project and a task titled "Add login page" has one extra block and a link at the end of `text`:
+
+```json
+{
+  "text": "Aperant task pr opened: Add login page (My App) https://github.com/acme/my-app/pull/42",
+  "blocks": [
+    {
+      "type": "section",
+      "text": { "type": "mrkdwn", "text": "*PR opened*\nAdd login page" }
+    },
+    {
+      "type": "section",
+      "fields": [
+        { "type": "mrkdwn", "text": "*Project*\nMy App" },
+        { "type": "mrkdwn", "text": "*Outcome*\nAwaiting review" }
+      ]
+    },
+    {
+      "type": "actions",
+      "elements": [
+        { "type": "button", "text": { "type": "plain_text", "text": "View PR" }, "url": "https://github.com/acme/my-app/pull/42" }
+      ]
+    }
+  ]
+}
+```
+
+The link is added only when the PR URL is a valid `https://` URL without embedded credentials. Otherwise the message is sent without the `actions` block and without the URL in `text`.
 
 The test message body is:
 
