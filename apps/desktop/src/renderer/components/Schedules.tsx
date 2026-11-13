@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarClock, Pause, Pencil, Play, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { CalendarClock, Pause, Pencil, Play, Plus, Trash2, AlertTriangle, Zap } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -46,7 +46,10 @@ export function Schedules({ projectId }: SchedulesProps) {
   const setEnabled = useScheduleStore((s) => s.setEnabled);
   const deleteSchedule = useScheduleStore((s) => s.deleteSchedule);
   const acknowledgeReports = useScheduleStore((s) => s.acknowledgeReports);
+  const runNow = useScheduleStore((s) => s.runNow);
 
+  const [runningNowId, setRunningNowId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ scheduleId: string; text: string } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<RecurringSchedule | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RecurringSchedule | null>(null);
@@ -68,8 +71,30 @@ export function Schedules({ projectId }: SchedulesProps) {
     return t('schedules:cadenceSummary.interval', { count: cadence.everyMinutes });
   };
 
-  const recordText = (record: ScheduleRunRecord): string =>
-    t(`schedules:history.${record.kind}`, { count: record.missedCount ?? 0 });
+  const recordText = (record: ScheduleRunRecord): string => {
+    if (record.detail === 'manual') {
+      if (record.kind === 'started') return t('schedules:history.startedManual');
+      if (record.kind === 'skipped_unfinished') return t('schedules:history.skippedManual');
+    }
+    return t(`schedules:history.${record.kind}`, { count: record.missedCount ?? 0 });
+  };
+
+  const handleRunNow = async (scheduleId: string) => {
+    setRunningNowId(scheduleId);
+    setNotice(null);
+    let text: string;
+    try {
+      const result = await runNow(scheduleId);
+      if (!result) text = t('schedules:runNow.failed');
+      else if (result.started) text = t('schedules:runNow.started');
+      else if (result.reason === 'unfinished') text = t('schedules:runNow.unfinished');
+      else text = t('schedules:runNow.failed');
+    } catch {
+      text = t('schedules:runNow.failed');
+    }
+    setNotice({ scheduleId, text });
+    setRunningNowId(null);
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -178,6 +203,15 @@ export function Schedules({ projectId }: SchedulesProps) {
                     <Button
                       size="sm"
                       variant="outline"
+                      disabled={runningNowId === schedule.id}
+                      onClick={() => void handleRunNow(schedule.id)}
+                    >
+                      <Zap className="mr-1 h-4 w-4" />
+                      {t('schedules:buttons.runNow')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => void setEnabled(schedule.id, !schedule.enabled)}
                     >
                       {schedule.enabled ? (
@@ -201,6 +235,11 @@ export function Schedules({ projectId }: SchedulesProps) {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
+                {notice?.scheduleId === schedule.id && (
+                  <p role="status" className="text-muted-foreground">
+                    {notice.text}
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-x-6 gap-y-1 text-muted-foreground">
                   <span>
                     {t('schedules:tokenBudgetSummary', {

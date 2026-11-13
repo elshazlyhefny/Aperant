@@ -157,6 +157,75 @@ describe('schedule service', () => {
     expect(tasks[0].status).toBe('in_progress');
   });
 
+  describe('runNow', () => {
+    it('queues exactly one task and records a manual started entry', async () => {
+      const { deps, service, schedules, tasks } = setup({ maxParallel: 0, schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
+      const result = await service.runNow('s1');
+      expect(result).toEqual({ started: true, taskId: 't1' });
+      expect(deps.createTask).toHaveBeenCalledTimes(1);
+      expect(tasks).toHaveLength(1);
+      expect(schedules[0].lastTaskId).toBe('t1');
+      expect(schedules[0].lastRunAt).toBe(T0);
+      expect(schedules[0].history.map((h) => [h.kind, h.detail])).toEqual([['started', 'manual']]);
+      expect(deps.notifyChanged).toHaveBeenCalledWith('p1');
+    });
+
+    it('promotes the task when a slot is free and leaves it queued otherwise', async () => {
+      const free = setup({ maxParallel: 1, schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
+      await free.service.runNow('s1');
+      expect(free.tasks[0].status).toBe('in_progress');
+      const full = setup({ maxParallel: 0, schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
+      await full.service.runNow('s1');
+      expect(full.tasks[0].status).toBe('queue');
+    });
+
+    it('refuses while the previous task is unfinished', async () => {
+      const { deps, service, schedules } = setup({ maxParallel: 0, schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
+      await service.runNow('s1');
+      const result = await service.runNow('s1');
+      expect(result).toEqual({ started: false, reason: 'unfinished', taskId: 't1' });
+      expect(deps.createTask).toHaveBeenCalledTimes(1);
+      const last = schedules[0].history.at(-1);
+      expect(last?.kind).toBe('skipped_unfinished');
+      expect(last?.detail).toBe('manual');
+    });
+
+    it('leaves nextRunAt unchanged, including null for a paused schedule', async () => {
+      const due = setup({ maxParallel: 0, schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
+      await due.service.runNow('s1');
+      expect(due.schedules[0].nextRunAt).toBe(T0 + DAY);
+      const paused = setup({ maxParallel: 0, schedules: [makeSchedule({ enabled: false, nextRunAt: null })] });
+      await paused.service.runNow('s1');
+      expect(paused.schedules[0].nextRunAt).toBeNull();
+      expect(paused.schedules[0].enabled).toBe(false);
+      expect(paused.tasks).toHaveLength(1);
+    });
+
+    it('returns not_found for an unknown schedule without saving', async () => {
+      const { deps, service } = setup();
+      expect(await service.runNow('nope')).toEqual({ started: false, reason: 'not_found' });
+      expect(deps.saveSchedule).not.toHaveBeenCalled();
+      expect(deps.createTask).not.toHaveBeenCalled();
+    });
+
+    it('records a createTask rejection as failed and does not throw', async () => {
+      const { deps, service, schedules } = setup({ schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
+      (deps.createTask as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('disk full'));
+      await expect(service.runNow('s1')).resolves.toEqual({ started: false });
+      expect(schedules[0].history.map((h) => [h.kind, h.detail])).toEqual([['failed', 'disk full']]);
+      expect(schedules[0].nextRunAt).toBe(T0 + DAY);
+    });
+
+    it('a timed tick at the due time adds no second task while the first is unfinished', async () => {
+      const { deps, service, schedules, tasks } = setup({ maxParallel: 0 });
+      await service.runNow('s1');
+      await service.tick();
+      expect(tasks).toHaveLength(1);
+      expect(deps.createTask).toHaveBeenCalledTimes(1);
+      expect(schedules[0].history.map((h) => h.kind)).toEqual(['started', 'skipped_unfinished']);
+    });
+  });
+
   describe('token budget', () => {
     const runOne = async (metadata: Record<string, unknown> = {}) => {
       const ctx = setup();

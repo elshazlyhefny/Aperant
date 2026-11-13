@@ -63,9 +63,17 @@
     "skipped_unfinished": "Skipped because the previous task is unfinished",
     "missed": "Missed {{count}} runs, one catch-up run was started",
     "budget_exceeded": "Token budget exceeded",
-    "failed": "Failed to start"
+    "failed": "Failed to start",
+    "startedManual": "Started a task manually",
+    "skippedManual": "Manual run skipped because the previous task is unfinished"
+  },
+  "runNow": {
+    "started": "A task was added to the queue",
+    "unfinished": "Not started: the previous task is unfinished",
+    "failed": "Could not run the schedule"
   },
   "buttons": {
+    "runNow": "Run now",
     "new": "New schedule",
     "edit": "Edit",
     "pause": "Pause",

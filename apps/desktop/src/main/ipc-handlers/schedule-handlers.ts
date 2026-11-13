@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { ipcMain, type BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { IPCResult } from '../../shared/types';
-import type { RecurringSchedule, ScheduleInput } from '../../shared/types/schedule';
+import type { RecurringSchedule, ScheduleInput, ScheduleRunNowResult } from '../../shared/types/schedule';
 import { computeNextRun, validateCadence } from '../../shared/utils/schedule-time';
 import type { AgentManager } from '../agent/agent-manager';
 import { projectStore } from '../project-store';
@@ -208,6 +208,22 @@ export function registerScheduleHandlers(
         const saved = scheduleStore.saveSchedule(updated);
         notifyChanged(existing.projectId);
         return { success: true, data: saved };
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.SCHEDULE_RUN_NOW,
+    async (_event, id: string): Promise<IPCResult<ScheduleRunNowResult>> => {
+      try {
+        if (typeof id !== 'string' || !id) return { success: false, error: 'Schedule not found' };
+        if (!scheduleStore.getSchedule(id)) return { success: false, error: 'Schedule not found' };
+        // The service saves the schedule and notifies the renderer itself
+        const result = await service.runNow(id);
+        if (result.reason === 'not_found') return { success: false, error: 'Schedule not found' };
+        return { success: true, data: result };
       } catch (error) {
         return fail(error);
       }

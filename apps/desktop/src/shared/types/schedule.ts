@@ -40,6 +40,13 @@ export interface ScheduleRunRecord {
   acknowledged: boolean;
 }
 
+/** zeenha fork: outcome of a manual "run now" request. */
+export type ScheduleRunNowResult = {
+  started: boolean;
+  taskId?: string;
+  reason?: 'unfinished' | 'not_found';
+};
+
 export interface RecurringSchedule {
   id: string;
   projectId: string;
