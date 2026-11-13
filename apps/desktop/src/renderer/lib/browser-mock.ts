@@ -216,11 +216,6 @@ const browserMockAPI: ElectronAPI = {
     success: true
   }),
 
-  testProviderConnection: async (_provider: string, _config) => ({
-    success: true,
-    data: { success: true }
-  }),
-
   checkEnvCredentials: async () => ({
     success: true,
     data: {}
