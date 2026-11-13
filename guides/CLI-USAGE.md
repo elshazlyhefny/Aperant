@@ -31,7 +31,7 @@ App-wide configuration is done through the app's Settings UI. Two per-project fi
 - Configure multiple provider profiles (Anthropic, OpenAI, Google, etc.)
 - Turn the memory system on or off (the `memoryEnabled` setting; memory is stored locally in the app's data folder)
 - Set default models and thinking budgets
-- Configure Linear/GitHub/GitLab integrations
+- Configure Linear/GitHub/GitLab/Jira/Bitbucket integrations
 
 ## Running a task headlessly
 
