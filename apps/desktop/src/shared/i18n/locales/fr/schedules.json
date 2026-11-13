@@ -63,9 +63,17 @@
     "skipped_unfinished": "Ignorée car la tâche précédente n'est pas terminée",
     "missed": "{{count}} exécutions manquées, une exécution de rattrapage a été lancée",
     "budget_exceeded": "Budget de tokens dépassé",
-    "failed": "Échec du démarrage"
+    "failed": "Échec du démarrage",
+    "startedManual": "Tâche démarrée manuellement",
+    "skippedManual": "Exécution manuelle ignorée car la tâche précédente n'est pas terminée"
+  },
+  "runNow": {
+    "started": "Une tâche a été ajoutée à la file",
+    "unfinished": "Non démarrée : la tâche précédente n'est pas terminée",
+    "failed": "Impossible de lancer la planification"
   },
   "buttons": {
+    "runNow": "Lancer maintenant",
     "new": "Nouvelle planification",
     "edit": "Modifier",
     "pause": "Mettre en pause",
