@@ -28,13 +28,14 @@ import { Progress } from '../../ui/progress';
 
 // Local components
 import { CollapsibleCard } from './CollapsibleCard';
+import { applyPRLogsDelta } from '../utils/applyPRLogsDelta';
 import { ReviewStatusTree } from './ReviewStatusTree';
 import { PRHeader } from './PRHeader';
 import { ReviewFindings } from './ReviewFindings';
 import { PRLogs } from './PRLogs';
 
 import type { PRData, PRReviewResult, PRReviewProgress } from '../hooks/useGitHubPRs';
-import type { NewCommitsCheck, MergeReadiness, PRLogs as PRLogsType, WorkflowsAwaitingApprovalResult } from '../../../../preload/api/modules/github-api';
+import type { NewCommitsCheck, MergeReadiness, PRLogs as PRLogsType, PRLogsKnownVersion, PRLogsUpdatedPayload, WorkflowsAwaitingApprovalResult } from '../../../../preload/api/modules/github-api';
 
 interface PRDetailProps {
   pr: PRData;
@@ -57,7 +58,7 @@ interface PRDetailProps {
   onPostComment: (body: string) => Promise<boolean>;
   onMergePR: (mergeMethod?: 'merge' | 'squash' | 'rebase') => void;
   onAssignPR: (username: string) => void;
-  onGetLogs: () => Promise<PRLogsType | null>;
+  onGetLogs: (known?: PRLogsKnownVersion) => Promise<PRLogsType | null | 'unchanged'>;
   onMarkReviewPosted?: (prNumber: number) => Promise<void>;
 }
 
@@ -122,30 +123,59 @@ export function PRDetail({
   // PR Review Logs State
   // ========================================================================
   // Logs provide real-time visibility into the AI review process through
-  // a hybrid push/pull architecture:
+  // delta push plus a cheap poll:
   //
   // Backend (PRLogCollector in github/pr/review-logs.ts):
   //   - Writes logs to disk every 3 entries: .auto-claude/github/pr/logs_${prNumber}.json
-  //   - Emits GITHUB_PR_LOGS_UPDATED IPC events after each save
+  //   - Emits GITHUB_PR_LOGS_UPDATED IPC events after each save, carrying a
+  //     delta of only the newly appended entries
   //   - Tracks phase status: pending → active → completed/failed
   //
   // Frontend (this component):
-  //   - Subscribes to GITHUB_PR_LOGS_UPDATED push events for instant updates
-  //   - Falls back to polling via onGetLogs() every 1.5s while isReviewing
-  //   - Displays logs in collapsible PRLogs component with phase indicators
+  //   - Applies pushed deltas to the current logs (applyPRLogsDelta)
+  //   - If a delta cannot be applied (gap, other review), resyncs with a full load
+  //   - While reviewing with the logs expanded, polls every 1.5s passing the
+  //     version it already holds; the backend answers 'unchanged' cheaply
   //
   // Data Flow:
   //   1. Backend: PRLogCollector.processLine() → PRLogCollector.save()
-  //   2. Backend: savePRLogs() writes JSON to disk
-  //   3. Backend: Emits GITHUB_PR_LOGS_UPDATED IPC event → triggers immediate refresh
-  //   4. Fallback: Polling interval calls onGetLogs() every 1.5s during review
-  //   5. Frontend: setPrLogs() triggers UI update with new log content
+  //   2. Backend: Emits GITHUB_PR_LOGS_UPDATED with a delta
+  //   3. Frontend: applyPRLogsDelta() merges it into prLogs
+  //   4. Fallback: refreshLogs() poll replaces prLogs only when something changed
   //
   // ========================================================================
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [prLogs, setPrLogs] = useState<PRLogsType | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const logsLoadedRef = useRef(false);
+  // Mirror of prLogs for use in callbacks without re-subscribing
+  const prLogsRef = useRef<PRLogsType | null>(null);
+  prLogsRef.current = prLogs;
+  const logsRequestSeqRef = useRef(0);
+  const logsExpandedRef = useRef(false);
+  logsExpandedRef.current = logsExpanded;
+
+  /**
+   * Fetch logs, sending the version we already hold so the backend can reply
+   * 'unchanged'. Out-of-order responses are ignored. Rejects on failure.
+   */
+  const refreshLogs = useCallback(async () => {
+    const seq = ++logsRequestSeqRef.current;
+    const current = prLogsRef.current;
+    const known: PRLogsKnownVersion | undefined = current
+      ? {
+          updated_at: current.updated_at,
+          entryCount: Object.values(current.phases).reduce(
+            (sum, phase) => sum + (phase?.entries.length ?? 0),
+            0
+          )
+        }
+      : undefined;
+    const logs = await onGetLogs(known);
+    if (seq !== logsRequestSeqRef.current || logs === 'unchanged') return;
+    prLogsRef.current = logs;
+    setPrLogs(logs);
+  }, [onGetLogs]);
 
   // Merge readiness state (real-time validation of AI verdict freshness)
   const [mergeReadiness, setMergeReadiness] = useState<MergeReadiness | null>(null);
@@ -286,21 +316,30 @@ export function PRDetail({
     }
   }, [reviewResult?.success, isReviewing]);
 
-  // Subscribe to push-based log updates from backend for instant refresh
+  // Subscribe to push-based log updates (deltas) from backend for instant refresh
   useEffect(() => {
     if (!isReviewing) return;
 
     const cleanup = window.electronAPI.github.onPRLogsUpdated(
-      (_projectId: string, data: { prNumber: number; entryCount: number }) => {
+      (_projectId: string, data: PRLogsUpdatedPayload) => {
         if (data.prNumber !== pr.number) return;
-        onGetLogs()
-          .then(logs => setPrLogs(logs))
-          .catch(() => {});
+        if (data.delta && logsExpandedRef.current) {
+          const next = applyPRLogsDelta(prLogsRef.current, data.delta);
+          if (next) {
+            // Invalidate in-flight full loads that would overwrite newer data
+            logsRequestSeqRef.current++;
+            prLogsRef.current = next;
+            setPrLogs(next);
+            return;
+          }
+        }
+        // No delta, or it could not be applied: resync
+        refreshLogs().catch(() => {});
       }
     );
 
     return cleanup;
-  }, [isReviewing, pr.number, onGetLogs]);
+  }, [isReviewing, pr.number, refreshLogs]);
 
   /**
    * Initial log load when user expands the logs section
@@ -316,50 +355,37 @@ export function PRDetail({
     if (logsExpanded && !logsLoadedRef.current && !isLoadingLogs) {
       logsLoadedRef.current = true;
       setIsLoadingLogs(true);
-      onGetLogs()
-        .then(logs => {
-          setPrLogs(logs);
-        })
+      refreshLogs()
         .catch((err) => {
           console.error('Failed to load initial PR review logs:', err);
+          prLogsRef.current = null;
           setPrLogs(null);
         })
         .finally(() => setIsLoadingLogs(false));
     }
-  }, [logsExpanded, onGetLogs, isLoadingLogs]);
+  }, [logsExpanded, refreshLogs, isLoadingLogs]);
 
   // Track previous reviewing state to detect transitions
   const wasReviewingRef = useRef(false);
 
   /**
-   * Active polling mechanism for real-time log streaming during PR review
+   * Cheap polling mechanism for log streaming during PR review
    *
-   * This is the CORE of the log polling system. It handles three scenarios:
+   * Pushed deltas do most of the work; this poll is a safety net. It handles:
    *
    * 1. Review Start (wasReviewing=false → isReviewing=true):
    *    - Clears stale logs from previous reviews
-   *    - Prepares for new log stream
    *
-   * 2. Active Review (isReviewing=true):
-   *    - Polls onGetLogs() every 1.5 seconds
-   *    - Immediate initial poll, then setInterval for subsequent polls
-   *    - Backend writes logs every 3 entries, so 1.5s polling ensures
-   *      near-real-time updates without overwhelming the file system
+   * 2. Active Review (isReviewing && logsExpanded):
+   *    - Calls refreshLogs() immediately, then every 1.5 seconds
+   *    - refreshLogs() sends the version already held, so the backend replies
+   *      'unchanged' without re-sending the whole log file
+   *    - Does not run while the logs section is collapsed
    *
    * 3. Review End (wasReviewing=true → isReviewing=false):
-   *    - One final poll to capture the last phase status
-   *    - Ensures "completed" status is displayed even if polling interval
-   *      missed the final write
+   *    - One final refresh to capture the last phase status
    *
-   * Why 1.5 seconds?
-   * ----------------
-   * - Backend saves every 3 log entries (PRLogCollector.saveInterval)
-   * - Typical review generates 2-5 entries/second during active phases
-   * - 1.5s interval balances responsiveness vs. file I/O overhead
-   * - Faster than 1.5s risks reading incomplete writes on slow disks
-   * - Slower than 1.5s makes progress feel laggy to users
-   *
-   * Error Handling:
+   *    * Error Handling:
    * ---------------
    * - Errors during polling are logged but don't stop the interval
    * - This ensures transient file read errors don't break the UI
@@ -371,36 +397,35 @@ export function PRDetail({
 
     // Do one final refresh when review just completed to get final phase status
     if (wasReviewing && !isReviewing) {
-      onGetLogs()
-        .then(logs => setPrLogs(logs))
-        .catch(err => console.error('Failed to fetch final logs:', err));
+      refreshLogs().catch(err => console.error('Failed to fetch final logs:', err));
       return;
     }
 
     // Clear old logs when a new review starts to avoid showing stale status
     if (!wasReviewing && isReviewing) {
+      logsRequestSeqRef.current++;
+      prLogsRef.current = null;
       setPrLogs(null);
     }
 
-    if (!isReviewing) return;
+    if (!isReviewing || !logsExpanded) return;
 
-    const refreshLogs = async () => {
+    const poll = async () => {
       try {
-        const logs = await onGetLogs();
-        setPrLogs(logs);
+        await refreshLogs();
       } catch (err) {
         console.error('Failed to refresh PR review logs during polling:', err);
         // Ignore errors during refresh - don't stop polling
       }
     };
 
-    // Refresh immediately, then every 1.5 seconds while reviewing for smoother streaming
-    refreshLogs();
-    const interval = setInterval(refreshLogs, 1500);
+    // Refresh immediately, then every 1.5 seconds while reviewing
+    poll();
+    const interval = setInterval(poll, 1500);
     return () => {
       clearInterval(interval);
     };
-  }, [isReviewing, onGetLogs]);
+  }, [isReviewing, logsExpanded, refreshLogs]);
 
   /**
    * Completion detection for external (in-progress) reviews
@@ -510,10 +535,7 @@ export function PRDetail({
     // Add a small delay to ensure backend has written the logs file
     const timer = setTimeout(() => {
       setIsLoadingLogs(true);
-      onGetLogs()
-        .then(logs => {
-          setPrLogs(logs);
-        })
+      refreshLogs()
         .catch(err => {
           console.error('Failed to load fallback PR review logs:', err);
         })
@@ -523,7 +545,7 @@ export function PRDetail({
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [reviewResult, isReviewing, prLogs, onGetLogs]);
+  }, [reviewResult, isReviewing, prLogs, refreshLogs]);
 
   /**
    * Reset logs state when PR changes
@@ -541,6 +563,8 @@ export function PRDetail({
    */
   useEffect(() => {
     logsLoadedRef.current = false;
+    logsRequestSeqRef.current++;
+    prLogsRef.current = null;
     setPrLogs(null);
     setLogsExpanded(false);
     setCleanReviewPosted(false);
