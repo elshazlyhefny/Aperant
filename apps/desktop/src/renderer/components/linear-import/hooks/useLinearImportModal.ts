@@ -10,7 +10,7 @@ import { useLinearIssues } from './useLinearIssues';
 import { useIssueFiltering } from './useIssueFiltering';
 import { useIssueSelection } from './useIssueSelection';
 import { useLinearImport } from './useLinearImport';
-import type { LinearImportResult } from '../types';
+import type { LinearImportResult, LinearImportErrorCode } from '../types';
 
 export interface UseLinearImportModalProps {
   projectId: string;
@@ -87,7 +87,7 @@ export function useLinearImportModal({
 
   // Combined error state (prioritize errors in order of importance)
   const error = importError || issuesError || projectsError || teamsError;
-  const setError = useCallback((err: string | null) => {
+  const setError = useCallback((err: LinearImportErrorCode | null) => {
     setImportError(err);
     setIssuesError(err);
     setProjectsError(err);

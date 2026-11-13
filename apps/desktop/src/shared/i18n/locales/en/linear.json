@@ -1,0 +1,62 @@
+{
+  "import": {
+    "title": "Import Linear Tasks",
+    "description": "Select tasks from Linear to import into Aperant",
+    "cancel": "Cancel",
+    "done": "Done",
+    "importing": "Importing...",
+    "importButton_one": "Import {{count}} task",
+    "importButton_other": "Import {{count}} tasks",
+    "team": {
+      "label": "Team",
+      "placeholder": "Select a team",
+      "loading": "Loading..."
+    },
+    "project": {
+      "label": "Project (Optional)",
+      "placeholder": "All projects",
+      "all": "All projects"
+    },
+    "searchPlaceholder": "Search tasks...",
+    "searchLabel": "Search Linear tasks",
+    "stateFilter": {
+      "label": "State",
+      "all": "All states",
+      "types": {
+        "backlog": "Backlog",
+        "unstarted": "Unstarted",
+        "started": "Started",
+        "completed": "Completed",
+        "canceled": "Canceled"
+      }
+    },
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
+    "selectedCount": "{{selected}} of {{total}} selected",
+    "refresh": "Refresh",
+    "empty": {
+      "selectTeam": "Select a team to view issues",
+      "noMatch": "No issues match your filters",
+      "noIssues": "No issues found"
+    },
+    "successImported_one": "Successfully imported {{count}} task",
+    "successImported_other": "Successfully imported {{count}} tasks",
+    "successHint": "Tasks are being processed. Check your Kanban board for progress.",
+    "close": "Close",
+    "errors": {
+      "loadTeams": "Failed to load Linear teams",
+      "loadProjects": "Failed to load Linear projects",
+      "loadIssues": "Failed to load Linear issues",
+      "import": "Failed to import tasks",
+      "unknown": "An unknown error occurred"
+    }
+  },
+  "issue": {
+    "moreLabels": "+{{count}} more",
+    "showDescription": "Show description",
+    "hideDescription": "Hide description",
+    "assignedTo": "Assigned to {{name}}",
+    "project": "Project: {{name}}",
+    "viewInLinear": "View in Linear"
+  }
+}

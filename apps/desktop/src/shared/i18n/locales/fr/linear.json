@@ -1,0 +1,62 @@
+{
+  "import": {
+    "title": "Importer des tâches Linear",
+    "description": "Sélectionnez des tâches Linear à importer dans Aperant",
+    "cancel": "Annuler",
+    "done": "Terminé",
+    "importing": "Importation...",
+    "importButton_one": "Importer {{count}} tâche",
+    "importButton_other": "Importer {{count}} tâches",
+    "team": {
+      "label": "Équipe",
+      "placeholder": "Sélectionner une équipe",
+      "loading": "Chargement..."
+    },
+    "project": {
+      "label": "Projet (facultatif)",
+      "placeholder": "Tous les projets",
+      "all": "Tous les projets"
+    },
+    "searchPlaceholder": "Rechercher des tâches...",
+    "searchLabel": "Rechercher des tâches Linear",
+    "stateFilter": {
+      "label": "État",
+      "all": "Tous les états",
+      "types": {
+        "backlog": "Backlog",
+        "unstarted": "Non démarré",
+        "started": "En cours",
+        "completed": "Terminé",
+        "canceled": "Annulé"
+      }
+    },
+    "selectAll": "Tout sélectionner",
+    "deselectAll": "Tout désélectionner",
+    "selectedCount": "{{selected}} sur {{total}} sélectionnée(s)",
+    "refresh": "Actualiser",
+    "empty": {
+      "selectTeam": "Sélectionnez une équipe pour afficher les tickets",
+      "noMatch": "Aucun ticket ne correspond à vos filtres",
+      "noIssues": "Aucun ticket trouvé"
+    },
+    "successImported_one": "{{count}} tâche importée avec succès",
+    "successImported_other": "{{count}} tâches importées avec succès",
+    "successHint": "Les tâches sont en cours de traitement. Consultez votre tableau Kanban pour suivre l'avancement.",
+    "close": "Fermer",
+    "errors": {
+      "loadTeams": "Échec du chargement des équipes Linear",
+      "loadProjects": "Échec du chargement des projets Linear",
+      "loadIssues": "Échec du chargement des tickets Linear",
+      "import": "Échec de l'importation des tâches",
+      "unknown": "Une erreur inconnue s'est produite"
+    }
+  },
+  "issue": {
+    "moreLabels": "+{{count}} de plus",
+    "showDescription": "Afficher la description",
+    "hideDescription": "Masquer la description",
+    "assignedTo": "Assigné à {{name}}",
+    "project": "Projet : {{name}}",
+    "viewInLinear": "Voir dans Linear"
+  }
+}
