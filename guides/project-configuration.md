@@ -99,6 +99,27 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `JIRA_API_TOKEN` | Atlassian API token. A secret, see [Secrets](#secrets). | Yes |
 | `JIRA_PROJECT_KEY` | Default project key, for example `PROJ` | Yes |
 
+### Bitbucket
+
+| Key | Purpose or example | Settings UI writes it |
+|-----|--------------------|-----------------------|
+| `BITBUCKET_ENABLED` | `true` or `false`. With `BITBUCKET_TOKEN` present, the integration is on unless this is `false` (compared case-insensitively). When unset it is written as the commented line `# BITBUCKET_ENABLED=true`. | Yes |
+| `BITBUCKET_USERNAME` | Bitbucket username, used with the token for Basic auth. `:` characters are removed. | Yes |
+| `BITBUCKET_TOKEN` | Bitbucket access token. A secret, see [Secrets](#secrets). | Yes |
+| `BITBUCKET_REPOSITORY` | `workspace/repo_slug`. Each side starts with a letter or digit and may contain letters, digits, `.`, `_` and `-`. At most 256 characters. | Yes |
+
+Only Bitbucket Cloud (bitbucket.org, API `https://api.bitbucket.org/2.0`) is supported. Bitbucket Server and Data Center are not. The **Detect** button reads the `origin` remote and only matches bitbucket.org ssh and https remotes. The Bitbucket Pull Requests view can list pull requests, show a pull request and its diff, and post a comment.
+
+#### Troubleshooting
+
+If the Bitbucket Pull Requests view says Bitbucket is not configured, `getBitbucketConfig()` returned `null`. This happens when:
+
+1. `BITBUCKET_ENABLED` is `false`.
+2. `BITBUCKET_USERNAME`, `BITBUCKET_TOKEN` or `BITBUCKET_REPOSITORY` is missing, or empty after cleanup.
+3. The repository does not match `workspace/repo_slug`.
+
+The project also needs an `autoBuildPath` and an existing `.auto-claude/.env`. Requests time out after 30 seconds (`BITBUCKET_API_TIMEOUT_MS`).
+
 ### MCP servers
 
 | Key | Purpose or example | Settings UI writes it |
@@ -164,4 +185,4 @@ Rules:
 
 ## Secrets
 
-`.auto-claude/.env` can hold API keys and tokens, such as `GITHUB_TOKEN`, `GITLAB_TOKEN`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` and the embedding provider keys. Do not commit it to version control.
+`.auto-claude/.env` can hold API keys and tokens, such as `BITBUCKET_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` and the embedding provider keys. Do not commit it to version control.
