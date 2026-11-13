@@ -127,12 +127,82 @@ The project also needs an `autoBuildPath` and an existing `.auto-claude/.env`. R
 | `CONTEXT7_ENABLED` | Documentation lookup. On unless set to `false`. | Yes |
 | `ELECTRON_MCP_ENABLED` | Electron desktop automation for QA agents. Default off. It applies only to projects detected as Electron. | Yes |
 | `CHROME_DEVTOOLS_MCP_ENABLED` | Chrome DevTools browser automation for QA agents. Default off. | Yes |
-| `CHROME_DEVTOOLS_EXECUTABLE` | Absolute path of the Chrome to launch. Default is the installed Chrome. | Yes |
+| `CHROME_DEVTOOLS_EXECUTABLE` | Absolute path of the Chrome to launch. Default is the installed Chrome. Needs approval, see [Approving project MCP servers](#approving-project-mcp-servers). | Yes |
 | `CHROME_DEVTOOLS_SECURE_ORIGINS` | Comma-separated `http://` dev origins that the QA browser treats as secure contexts. Full Chrome only. | Yes |
 | `CHROME_DEVTOOLS_WEBMCP` | Expose pages' WebMCP tools to QA agents. Needs Chrome 150 or later. Default off. | Yes |
-| `CUSTOM_MCP_SERVERS` | JSON array of user-defined servers, for example `[{"id":"...","name":"...","type":"command|http",...}]` | Yes |
+| `CUSTOM_MCP_SERVERS` | JSON array of user-defined servers, for example `[{"id":"...","name":"...","type":"command|http",...}]`. Needs approval, see [Approving project MCP servers](#approving-project-mcp-servers). | Yes |
 
 Per-agent overrides use the `AGENT_MCP_` prefix and are described in the next section.
+
+### Approving project MCP servers
+
+Some servers start a process or call a URL that the project's `.env` names. These need your approval before any agent can use them.
+
+**What needs approval**
+
+- Every entry in `CUSTOM_MCP_SERVERS`.
+- A `CHROME_DEVTOOLS_EXECUTABLE` path. Relative paths are ignored.
+
+Built-in switches such as `CONTEXT7_ENABLED` are not affected.
+
+**Why**
+
+The project `.env` can be committed. Without approval, a cloned repository could start any process on your machine. The MCP Overview page shows a warning when the `.env` is tracked by git.
+
+**How to approve**
+
+1. Open the **MCP Overview** page for the project.
+2. Find the server marked **Not approved - will not run**.
+3. Press **Approve**.
+4. Check the command line or URL in the dialog.
+5. Confirm.
+
+Until you approve, the server is not started for any agent. Other states:
+
+| What you see | Meaning |
+|--------------|---------|
+| **Cannot run: invalid definition** | The entry cannot be validated, so it cannot be approved. Fix it in `CUSTOM_MCP_SERVERS`. |
+| Chrome warning with **Approve executable** | The `CHROME_DEVTOOLS_EXECUTABLE` path is not approved. |
+
+> **Note:** Approval is checked again when you confirm. If the `.env` changed while the dialog was open, it is refused with a "changed since shown" message. Review the new definition and approve again.
+
+**What cancels an approval**
+
+An approval matches the `id`, `type`, `command`, `args` and `url` of the server, after `${VAR}` references are expanded. A change to any of them means you must approve again. This includes a changed value behind a `${VAR}` used in `args`.
+
+These do not cancel it:
+
+- `headers`. A rotated token needs no new approval, as long as `url` is unchanged.
+- Display fields such as `name`.
+
+Rules for `${VAR}`:
+
+- It is expanded in `args` and `headers` only.
+- The value comes from the same project `.env`, never from the process environment.
+- A reference to a missing or empty variable drops the server. It is not listed at all.
+
+Example: with `API_DIR=/srv/a` in the `.env`, the server below is approved. Changing it to `API_DIR=/srv/b` cancels the approval, because the expanded `args` differ. Changing a token used only in `headers` does not.
+
+```json
+{"id":"api","type":"command","command":"node","args":["${API_DIR}/server.js"]}
+```
+
+**Where approvals are stored**
+
+In `<userData>/mcp-approvals.json`.
+
+- It is outside the repo, because a hostile repo could pre-approve itself.
+- It is outside `settings.json`, because renderer saves rewrite that file.
+- It is keyed by the resolved project path. Moving the folder or cloning again means approving again.
+- A missing or unreadable file means nothing is approved.
+
+**Chrome**
+
+Approval is for the exact path. If the path is not approved, the installed Chrome is used instead.
+
+**Headless CLI**
+
+Headless runs never approve anything and do not read the store. See [CLI-USAGE.md](CLI-USAGE.md).
 
 ### Memory and embeddings
 
