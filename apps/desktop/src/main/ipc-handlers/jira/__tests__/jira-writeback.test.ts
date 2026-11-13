@@ -55,6 +55,13 @@ async function run(event: 'review_ready' | 'failed' | 'blocked' = 'review_ready'
 }
 
 describe('dispatchJiraOutcome', () => {
+  it('sends nothing for the webhook-only pr_opened event', async () => {
+    dispatchJiraOutcome({ task, project, event: 'pr_opened' });
+    await flush();
+    expect(addIssueComment).not.toHaveBeenCalled();
+    expect(transitionIssue).not.toHaveBeenCalled();
+  });
+
   it('does nothing when disabled', async () => {
     settings({ enabled: false });
     await run();
