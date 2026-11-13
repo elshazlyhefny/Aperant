@@ -4,12 +4,27 @@
  * This module provides low-level settings file operations used by both
  * the main process startup (index.ts) and the IPC handlers (settings-handlers.ts).
  *
+ * Guarantees: settings.json is written atomically (temp file + fsync + rename)
+ * and is readable/writable by the owner only (0o600), since it may hold
+ * credentials such as API keys.
+ *
  * NOTE: This module intentionally does NOT perform migrations or auto-detection.
  * Those are handled by the IPC handlers where they have full context.
  */
 
 import { app } from 'electron';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeSync,
+} from 'fs';
 import { promises as fsPromises } from 'fs';
 import path from 'path';
 import type { AppSettings } from '../shared/types/settings';
@@ -45,7 +60,11 @@ export function readSettingsFile(): Partial<AppSettings> | undefined {
 }
 
 /**
- * Write settings to disk.
+ * Write settings to disk atomically with owner-only permissions.
+ *
+ * The data is written to a unique temp file (mode 0o600) in the same directory,
+ * fsynced, then renamed over settings.json. A failed write never leaves a
+ * truncated settings.json or a stray temp file behind; the error is rethrown.
  *
  * @param settings - The settings object to write
  */
@@ -58,7 +77,40 @@ export function writeSettingsFile(settings: Record<string, unknown>): void {
     mkdirSync(dir, { recursive: true });
   }
 
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+  const tmpPath = `${settingsPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    const data = JSON.stringify(settings, null, 2);
+    const fd = openSync(tmpPath, 'w', 0o600);
+    try {
+      writeSync(fd, data, 0, 'utf-8');
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    // Guard against umask quirks; no-op on platforms without POSIX modes
+    chmodSync(tmpPath, 0o600);
+    renameSync(tmpPath, settingsPath);
+  } catch (error) {
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      // Temp file may not exist; ignore
+    }
+    throw error;
+  }
+}
+
+/**
+ * Tighten an existing settings.json to owner-only (0o600).
+ * Migration for files created earlier with default permissions.
+ * Never throws: a missing file or unsupported platform is ignored.
+ */
+export function secureSettingsFilePermissions(): void {
+  try {
+    chmodSync(getSettingsPath(), 0o600);
+  } catch {
+    // ENOENT or chmod unsupported on this platform; nothing to do
+  }
 }
 
 /**
