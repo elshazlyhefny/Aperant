@@ -20,8 +20,7 @@ import { getToolPath } from '../../cli-tool-manager';
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
 import { taskStateManager } from '../../task-state-manager';
 import { pushBranch } from '../../ai/runners/github/pr-creator';
-import { getGitHubConfig } from '../github/utils';
-import { fetchPRFeedback } from '../github/pr/task-feedback';
+import { loadPRFeedback, resolvePRRef } from './pr-feedback-source';
 import { updateTaskStatusAfterPRCreation } from './worktree-pr';
 
 const MARKER_FILE = 'PR_FOLLOWUP.json';
@@ -52,7 +51,7 @@ export interface PRFollowUpFinalizerDeps {
   /** Returns an error string, or undefined on success. */
   pushBranch(worktreePath: string, branch: string): Promise<string | undefined>;
   findWorktree(projectPath: string, specId: string): string | null;
-  getPRState(project: Project, prNumber: number): Promise<{ state: string; headRef: string }>;
+  getPRState(project: Project, prNumber: number, prUrl: string): Promise<{ state: string; headRef: string }>;
   persistPRDone(
     specDir: string,
     worktreePath: string,
@@ -98,11 +97,13 @@ export function createDefaultFinalizerDeps(
     git: gitAsync,
     pushBranch: (wt, branch) => pushBranch(wt, getToolPath('git'), branch),
     findWorktree: findTaskWorktree,
-    getPRState: async (project, prNumber) => {
-      const config = getGitHubConfig(project);
-      if (!config) throw new Error('GitHub is not configured for this project');
-      const fetched = await fetchPRFeedback(config, prNumber);
-      return { state: fetched.prState, headRef: fetched.headRef };
+    // zeenha fork: the PR may live on GitHub or GitLab; the marker URL decides.
+    getPRState: async (project, _prNumber, prUrl) => {
+      const ref = resolvePRRef(prUrl);
+      if (!ref) throw new Error('The pull request link is not valid');
+      const result = await loadPRFeedback(project, prUrl, ref);
+      if (!result.ok) throw new Error(result.error);
+      return { state: result.fetched.prState, headRef: result.fetched.headRef };
     },
     persistPRDone: async (specDir, wt, prUrl, autoBuildPath, specId) => {
       await updateTaskStatusAfterPRCreation(specDir, wt, prUrl, autoBuildPath, specId, () => {});
@@ -210,7 +211,7 @@ export async function finalizePRFollowUp(args: FinalizePRFollowUpArgs): Promise<
 
   // 3. The PR must still be open on the same branch.
   try {
-    const pr = await deps.getPRState(project, marker.prNumber);
+    const pr = await deps.getPRState(project, marker.prNumber, marker.prUrl);
     if (pr.state !== 'open') {
       return finish('failed', { reason: 'The pull request is no longer open. Nothing was pushed.' });
     }
