@@ -6,6 +6,7 @@
  */
 
 import { ipcMain, type BrowserWindow } from 'electron';
+import { installIpcSenderGuard } from '../ipc-sender-validation';
 import { AgentManager } from '../agent';
 import { TerminalManager } from '../terminal-manager';
 
@@ -60,6 +61,11 @@ export function setupIpcHandlers(
   terminalManager: TerminalManager,
   getMainWindow: () => BrowserWindow | null
 ): ScheduleService {
+  // Every channel registered through ipcMain is now checked for a trusted sender
+  // before dispatch, so new handlers are guarded by default. The per-handler
+  // assertTrustedSender calls in terminal/file/settings handlers stay as belt-and-braces.
+  installIpcSenderGuard(ipcMain);
+
   // Initialize notification service
   notificationService.initialize(getMainWindow);
 

@@ -42,7 +42,7 @@ const possibleEnvPaths = [
 
 // Must stay above every import that reads app.getPath('userData') while loading.
 import './dev-instance-isolation';
-import { app, BrowserWindow, nativeImage, session, screen, Menu, MenuItem } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, session, screen, Menu, MenuItem } from 'electron';
 import { join } from 'path';
 import { accessSync, readFileSync, writeFileSync, rmSync, cpSync } from 'fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
@@ -61,6 +61,7 @@ import { projectStore } from './project-store';
 import { registerSettingsAccessor } from './ai/auth/resolver';
 import { appLog, setupErrorLogging } from './app-logger';
 import { initSentryMain } from './sentry';
+import { installIpcSenderGuard } from './ipc-sender-validation';
 import { preWarmToolCache } from './cli-tool-manager';
 import { initializeClaudeProfileManager, getClaudeProfileManager } from './claude-profile-manager';
 import { isProfileAuthenticated } from './claude-profile/profile-utils';
@@ -118,6 +119,10 @@ const DEFAULT_SCREEN_HEIGHT: number = 1080;
 
 // Setup error logging early (captures uncaught exceptions)
 setupErrorLogging();
+
+// sentry.ts registers SENTRY_STATE_CHANGED, GET_SENTRY_DSN and GET_SENTRY_CONFIG at import
+// time, before setupIpcHandlers runs, so the sender guard must be installed here as well.
+installIpcSenderGuard(ipcMain);
 
 // Initialize Sentry for error tracking (respects user's sentryEnabled setting)
 initSentryMain();
