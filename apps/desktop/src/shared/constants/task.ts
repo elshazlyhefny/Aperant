@@ -78,19 +78,6 @@ export const SUBTASK_STATUS_COLORS: Record<string, string> = {
 // Execution Phases
 // ============================================
 
-// Execution phase labels
-export const EXECUTION_PHASE_LABELS: Record<string, string> = {
-  idle: 'Idle',
-  planning: 'Planning',
-  coding: 'Coding',
-  rate_limit_paused: 'Rate Limited',
-  auth_failure_paused: 'Auth Required',
-  qa_review: 'AI Review',
-  qa_fixing: 'Fixing Issues',
-  complete: 'Complete',
-  failed: 'Failed'
-};
-
 // Execution phase label translation keys (tasks namespace).
 // Note: qa_review/qa_fixing map to 'reviewing'/'fixing' keys (naming mismatch is intentional).
 export const EXECUTION_PHASE_LABEL_KEYS: Record<ExecutionPhase, string> = {
