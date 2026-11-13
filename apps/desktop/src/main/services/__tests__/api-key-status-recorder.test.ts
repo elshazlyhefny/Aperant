@@ -5,12 +5,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ProfilesFile } from '@shared/types/profile';
 
-const { mockRead, mockWrite } = vi.hoisted(() => ({ mockRead: vi.fn(), mockWrite: vi.fn() }));
+const { mockRead, mockWrite, MockUnreadable } = vi.hoisted(() => ({
+  mockRead: vi.fn(),
+  mockWrite: vi.fn(),
+  MockUnreadable: class extends Error {}
+}));
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn(() => '/mock') } }));
 vi.mock('../../settings-utils', () => ({
-  readSettingsFile: mockRead,
-  writeSettingsFile: mockWrite
+  updateSettingsFile: vi.fn(async (mutator: (s: Record<string, unknown>) => unknown) => {
+    const settings = (mockRead() ?? {}) as Record<string, unknown>;
+    const before = JSON.stringify(settings);
+    const result = await mutator(settings);
+    if (JSON.stringify(settings) !== before) mockWrite(settings);
+    return result;
+  }),
+  SettingsUnreadableError: MockUnreadable
 }));
 
 let file: ProfilesFile;
@@ -90,6 +100,15 @@ describe('recordApiKeyOutcome', () => {
     });
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     await expect(recordApiKeyOutcome('p1', 'rejected')).resolves.toBe(false);
+  });
+
+  it('returns false and warns when settings.json is unreadable', async () => {
+    mockRead.mockImplementation(() => {
+      throw new MockUnreadable('unreadable');
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(recordApiKeyOutcome('pa_1', 'rejected')).resolves.toBe(false);
+    expect(warn).toHaveBeenCalled();
   });
 });
 

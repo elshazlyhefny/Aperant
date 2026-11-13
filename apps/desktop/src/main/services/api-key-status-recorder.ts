@@ -8,7 +8,7 @@
  * Never throws: it runs inside agent result handling.
  */
 
-import { readSettingsFile, writeSettingsFile } from '../settings-utils';
+import { updateSettingsFile } from '../settings-utils';
 import { atomicModifyProfiles } from './profile/api-profile-store';
 import { extractProfileId } from '../../shared/utils/unified-account';
 import { getKeyStatus, withKeyStatus } from '../../shared/utils/api-key-status';
@@ -24,20 +24,22 @@ export function outcomeFromConnectionError(errorType?: ConnectionErrorType): 're
   return errorType === 'auth' ? 'rejected' : null;
 }
 
-function recordForProviderAccount(accountId: string, status: ApiKeyStatus): boolean | null {
-  const settings = readSettingsFile();
-  const accounts = settings?.providerAccounts;
-  const index = accounts?.findIndex((a) => a.id === accountId) ?? -1;
-  if (!settings || !accounts || index === -1) return null;
+async function recordForProviderAccount(
+  accountId: string,
+  status: ApiKeyStatus
+): Promise<boolean | null> {
+  return updateSettingsFile((settings) => {
+    const accounts = settings.providerAccounts;
+    const index = accounts?.findIndex((a) => a.id === accountId) ?? -1;
+    if (!accounts || index === -1) return null;
 
-  const account = accounts[index];
-  if (account.authType !== 'api-key') return false;
-  if (getKeyStatus(account) === status) return false;
+    const account = accounts[index];
+    if (account.authType !== 'api-key') return false;
+    if (getKeyStatus(account) === status) return false;
 
-  accounts[index] = withKeyStatus(account, status);
-  settings.providerAccounts = accounts;
-  writeSettingsFile(settings);
-  return true;
+    accounts[index] = withKeyStatus(account, status);
+    return true;
+  });
 }
 
 /**
@@ -49,7 +51,7 @@ export async function recordApiKeyOutcome(
   outcome: ApiKeyOutcome
 ): Promise<boolean> {
   try {
-    const providerResult = recordForProviderAccount(accountId, outcome);
+    const providerResult = await recordForProviderAccount(accountId, outcome);
     if (providerResult !== null) return providerResult;
     if (accountId.startsWith('pa_')) return false;
 
