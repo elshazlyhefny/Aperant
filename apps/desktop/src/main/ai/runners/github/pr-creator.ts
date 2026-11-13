@@ -32,6 +32,12 @@ import {
   GitLabAPIError,
 } from '../../../ipc-handlers/gitlab/utils';
 import type { GitLabConfig } from '../../../ipc-handlers/gitlab/types';
+import {
+  BitbucketAPIError,
+  createBitbucketPullRequest,
+  findOpenPullRequestForBranch,
+} from '../../../ipc-handlers/bitbucket/utils';
+import type { BitbucketConfig } from '../../../ipc-handlers/bitbucket/types';
 
 // =============================================================================
 // Constants
@@ -1016,4 +1022,64 @@ export async function createMR(
   }
 
   return { success: false, errorCode: 'MR_FAILED', error: 'Merge request creation failed after 3 attempts' };
+}
+
+// =============================================================================
+// Bitbucket pull request finisher
+// =============================================================================
+
+/**
+ * zeenha fork: push a worktree branch and open a Bitbucket Cloud pull request
+ * with an AI-generated description. Shares every step before the API call with
+ * createPR. Bitbucket has no draft PRs, so a draft only gets a "Draft:" title
+ * prefix. MR_FAILED is reused so the shared error codes and i18n stay as is.
+ */
+export async function createBitbucketPR(
+  config: Omit<CreatePRConfig, 'ghPath'> & { bitbucket: BitbucketConfig },
+): Promise<CreatePRResult> {
+  const { branchName, draft = false, bitbucket } = config;
+
+  const prepared = await prepareBranch(config);
+  if (!prepared.ok) return prepared.result;
+  const { title, body, effectiveBase } = prepared;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const pr = await createBitbucketPullRequest(bitbucket, {
+        sourceBranch: branchName,
+        destinationBranch: effectiveBase,
+        title: draft ? `Draft: ${title}` : title,
+        description: body,
+      });
+      return { success: true, prUrl: pr.links?.html?.href, alreadyExists: false };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const statusCode = err instanceof BitbucketAPIError ? err.statusCode : undefined;
+
+      const duplicate =
+        ((statusCode === 400 || statusCode === 409) && /already|existing|open pull request/i.test(message)) ||
+        message.toLowerCase().includes('already exists');
+      if (duplicate) {
+        try {
+          const existing = await findOpenPullRequestForBranch(bitbucket, branchName);
+          return { success: true, prUrl: existing?.links?.html?.href, alreadyExists: true };
+        } catch {
+          return { success: true, prUrl: undefined, alreadyExists: true };
+        }
+      }
+
+      // A timeout (statusCode 0) is ambiguous (the PR may exist), so it is not retried.
+      const retryable =
+        statusCode === undefined ? /timeout|connection|network|ECONNRESET|ECONNREFUSED|fetch failed/i.test(message)
+          : statusCode >= 500;
+      if (retryable && attempt < 2 && statusCode !== 0) {
+        await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 2000));
+        continue;
+      }
+
+      return { success: false, errorCode: 'MR_FAILED', error: message || 'Failed to create pull request' };
+    }
+  }
+
+  return { success: false, errorCode: 'MR_FAILED', error: 'Pull request creation failed after 3 attempts' };
 }
