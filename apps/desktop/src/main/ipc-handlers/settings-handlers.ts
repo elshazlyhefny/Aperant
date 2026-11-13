@@ -491,6 +491,16 @@ export function registerSettingsHandlers(
           };
         }
 
+        // zeenha fork: issue write-back settings, rebuilt from strictly-typed booleans.
+        if (safeSettings.issueWriteback !== undefined) {
+          const raw = (safeSettings.issueWriteback ?? {}) as Partial<NonNullable<AppSettings['issueWriteback']>>;
+          newSettings.issueWriteback = {
+            github: raw.github === true,
+            gitlab: raw.gitlab === true,
+            linear: raw.linear === true,
+          };
+        }
+
         // Sync defaultModel when agent profile changes (#414)
         if (settings.selectedAgentProfile) {
           const profile = DEFAULT_AGENT_PROFILES.find(p => p.id === settings.selectedAgentProfile);
