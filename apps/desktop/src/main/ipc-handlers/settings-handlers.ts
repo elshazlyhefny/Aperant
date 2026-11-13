@@ -471,6 +471,8 @@ export function registerSettingsHandlers(
               reviewReady: raw.events?.reviewReady === true,
               failed: raw.events?.failed === true,
               blocked: raw.events?.blocked === true,
+              // zeenha fork: must be listed here, otherwise the rebuilt events object drops the toggle on every save.
+              prOpened: raw.events?.prOpened === true,
             },
           };
         }

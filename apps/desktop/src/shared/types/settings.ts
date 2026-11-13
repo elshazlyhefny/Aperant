@@ -269,7 +269,7 @@ export interface JiraWritebackSettings {
 export interface WebhookSettings {
   enabled: boolean;
   url: string;
-  events: { reviewReady: boolean; failed: boolean; blocked: boolean };
+  events: { reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean };
 }
 
 export interface AppSettings {

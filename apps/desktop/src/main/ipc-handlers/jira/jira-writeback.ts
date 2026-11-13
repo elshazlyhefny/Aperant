@@ -23,7 +23,10 @@ import { getJiraConfig } from './jira-config';
 
 const MAX_TITLE_LENGTH = 200;
 
-const EVENT_LABELS: Record<WebhookEvent, string> = {
+// zeenha fork: pr_opened is webhook-only; Jira already gets the PR link in review comments.
+type JiraEvent = Exclude<WebhookEvent, 'pr_opened'>;
+
+const EVENT_LABELS: Record<JiraEvent, string> = {
   review_ready: 'Aperant: task is ready for review.',
   failed: 'Aperant: task failed.',
   blocked: 'Aperant: task is blocked and needs attention.'
@@ -35,7 +38,7 @@ function cleanTitle(value: unknown): string {
   return cleaned.length > MAX_TITLE_LENGTH ? `${cleaned.slice(0, MAX_TITLE_LENGTH - 1)}…` : cleaned;
 }
 
-export function buildJiraComment(input: { event: WebhookEvent; taskTitle?: string; prUrl?: string }): string {
+export function buildJiraComment(input: { event: JiraEvent; taskTitle?: string; prUrl?: string }): string {
   const lines = [EVENT_LABELS[input.event]];
   const title = cleanTitle(input.taskTitle);
   if (title) lines.push(`Task: ${title}`);
@@ -84,6 +87,7 @@ function warn(event: string, issueKey: string, what: string, err: unknown): void
 export function dispatchJiraOutcome(input: { task: Task; project: Project; event: WebhookEvent }): void {
   try {
     const { task, project, event } = input;
+    if (event === 'pr_opened') return;
     const settings = loadSettings();
     if (settings.enabled !== true) return;
 
