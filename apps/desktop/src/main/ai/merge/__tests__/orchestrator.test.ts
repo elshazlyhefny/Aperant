@@ -114,7 +114,7 @@ describe('MergeOrchestrator (real git repo)', () => {
   });
 
   describe('previewMerge', () => {
-    it('lists files and flags a file edited by two tasks', () => {
+    it('lists files and flags a file edited by two tasks', async () => {
       const wtA = addWorktree(fx, 'wt-a', 'task-a');
       const wtB = addWorktree(fx, 'wt-b', 'task-b');
 
@@ -125,8 +125,8 @@ describe('MergeOrchestrator (real git repo)', () => {
       commitAll(wtB, 'task b');
 
       const orchestrator = makeOrchestrator(fx, true);
-      orchestrator.evolutionTracker.refreshFromGit('task-a', wtA, 'main');
-      orchestrator.evolutionTracker.refreshFromGit('task-b', wtB, 'main');
+      await orchestrator.evolutionTracker.refreshFromGit('task-a', wtA, 'main');
+      await orchestrator.evolutionTracker.refreshFromGit('task-b', wtB, 'main');
 
       const preview = orchestrator.previewMerge(['task-a', 'task-b']) as {
         tasks: string[];
@@ -153,7 +153,7 @@ describe('MergeOrchestrator (real git repo)', () => {
       }
     });
 
-    it('reports no potential conflicts when tasks touch different files', () => {
+    it('reports no potential conflicts when tasks touch different files', async () => {
       const wtA = addWorktree(fx, 'wt-a', 'task-a');
       const wtB = addWorktree(fx, 'wt-b', 'task-b');
 
@@ -163,8 +163,8 @@ describe('MergeOrchestrator (real git repo)', () => {
       commitAll(wtB, 'task b');
 
       const orchestrator = makeOrchestrator(fx, true);
-      orchestrator.evolutionTracker.refreshFromGit('task-a', wtA, 'main');
-      orchestrator.evolutionTracker.refreshFromGit('task-b', wtB, 'main');
+      await orchestrator.evolutionTracker.refreshFromGit('task-a', wtA, 'main');
+      await orchestrator.evolutionTracker.refreshFromGit('task-b', wtB, 'main');
 
       const preview = orchestrator.previewMerge(['task-a', 'task-b']) as {
         files_to_merge: string[];

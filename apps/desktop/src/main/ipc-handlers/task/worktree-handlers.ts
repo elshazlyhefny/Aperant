@@ -402,7 +402,7 @@ export function registerWorktreeHandlers(
         const worktreePath = findTaskWorktree(project.path, task.specId);
         if (worktreePath) {
           console.warn('[IPC] Refreshing evolution data from worktree:', worktreePath);
-          orchestrator.evolutionTracker.refreshFromGit(task.specId, worktreePath, effectiveBaseBranch);
+          await orchestrator.evolutionTracker.refreshFromGit(task.specId, worktreePath, effectiveBaseBranch);
         } else {
           console.warn('[IPC] No worktree found for preview — evolution data may be stale');
         }
