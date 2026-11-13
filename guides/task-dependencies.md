@@ -66,6 +66,75 @@ A failed dependency leaves its dependents held and labelled. They stay held unti
 
 Dependencies only gate the automatic start from the queue. If you drag a held task straight to In Progress, that is an explicit action by you, and it is not blocked.
 
+## Planned file overlap warnings
+
+A warning appears when tasks in the same project plan to change the same files. Two such tasks that run at the same time are likely to cause merge conflicts later. The warning is advisory: it tells you early, and you decide what to do.
+
+### Which tasks are compared
+
+Only tasks in the same project are compared with each other.
+
+| Task state | Compared? |
+|------------|-----------|
+| Backlog | Yes |
+| Queue | Yes |
+| In Progress | Yes |
+| AI Review | Yes |
+| Human Review | Yes |
+| Done | No |
+| PR Created | No |
+| Failed | No |
+| Archived (any state) | No |
+
+### Where planned files come from
+
+Planned files come from the task's implementation plan. For each subtask, the list is the union of its `files_to_modify` and `files_to_create`. Blank entries and entries that are not text are ignored. The task's list is the deduplicated union over all its subtasks.
+
+Paths are normalized before they are compared: surrounding spaces are trimmed, `\` becomes `/`, and a leading `./` is removed. After that, two files match only when the paths are exactly equal:
+
+- No case folding.
+- No folder or wildcard matching.
+- `../` and absolute paths are not resolved.
+
+The list is only as good as the plan. Plans are written by an AI, so they can miss files or list extra ones. Plan files are created when the planner runs, so a task that has not been planned yet has no files.
+
+### Unknown planned files
+
+A task with no subtasks, or none of whose subtasks lists a file, has unknown planned files. The detail view says "Planned files are unknown because the plan lists no files."
+
+An unknown task never overlaps with anything, in either direction, so the warning only fires on real evidence. **No warning is not a guarantee that there will be no conflict.**
+
+### What you see
+
+- **On the card.** A warning badge shows "Overlaps with *title*", or "Overlaps with *title* +N" when several tasks overlap. Hovering shows "*title*: N shared file(s)" for each task. The badge is hidden for Done and archived tasks.
+- **In the detail view.** The box "Planned files overlap with another task" lists each other task with its shared files (sorted alphabetically, in a scrollable list) and a "Wait for *title*" button.
+- **Without overlap.** The detail view says "No planned file overlap with other active tasks was found."
+
+### Waiting for the other task
+
+"Wait for *title*" does **not** add an entry to the task's "Depends on" list or to `metadata.taskDependencies`. It sets a separate hold, `metadata.holdUntilTaskId`, on the task. A task has one such blocker at a time. The hold shows as the "Waiting for *title*" badge on the card and in the detail view, which also has a "Stop waiting" button. The "Wait for" button is shown only while no hold is active.
+
+While the hold is active:
+
+- The queue skips the task, like a held dependency, and starts the next eligible one.
+- If you start the task by hand or drag it to In Progress, it goes to Queue instead, with the message "Task "*title*" is held in the queue until the overlapping task finishes."
+- The task starts once the hold ends.
+
+### When the hold ends
+
+The hold ends when the other task:
+
+- reaches Human Review, Done or PR Created, or
+- is deleted or archived.
+
+> **This differs from task dependencies.** A dependency is finished only in Done. A hold ends earlier, at Human Review, because the question here is whether the other task has finished writing code, not whether it has landed on the base branch.
+
+If the other task fails, the hold stays active, because Failed is not one of the finishing states. Click "Stop waiting", or move the other task on.
+
+### The merge step is the final check
+
+Nothing stops two overlapping tasks from running at the same time unless you choose to wait. The merge step still detects and resolves conflicts (`apps/desktop/src/main/ai/merge/conflict-detector.ts`), and that is the final check. The warning only helps you avoid conflicts early.
+
 ## `taskDependencies` and `dependencies`
 
 Task metadata has two separate fields:
@@ -76,3 +145,5 @@ Task metadata has two separate fields:
 ## Keeping the code and this guide in sync
 
 The rules are implemented once, in `apps/desktop/src/shared/utils/task-dependencies.ts`. The main process (queue and save validation) and the renderer (picker and badges) both use it. If you change what counts as finished, update this guide too.
+
+The overlap rules live in `apps/desktop/src/shared/utils/file-overlap.ts`. Update this guide if the compared statuses, the file sources or `FINISHED_TASK_STATUSES` change.
