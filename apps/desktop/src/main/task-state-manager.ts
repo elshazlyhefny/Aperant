@@ -17,6 +17,7 @@ import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDir
 import { appLog } from './app-logger';
 import { dispatchTaskOutcomeWebhook, mapOutcomeToWebhookEvent } from './task-webhook';
 import { dispatchJiraOutcome } from './ipc-handlers/jira/jira-writeback';
+import { dispatchIssueOutcome } from './ipc-handlers/issue-writeback/issue-writeback';
 type TaskActor = ActorRefFrom<typeof taskMachine>;
 
 interface TaskContextEntry {
@@ -354,10 +355,11 @@ export class TaskStateManager {
       // transition, so terminal outcomes (failed / ready for review / blocked)
       // are reported to the user's webhook from here. Config comes from user
       // settings only, never from project files. The same outcome is also
-      // written back to the originating Jira issue (user settings config only;
-      // only that one issue is touched). A webhook or Jira problem must not
-      // affect persistence, the renderer event or the other dispatcher, hence
-      // the separate try/catch blocks.
+      // written back to the originating Jira issue and to the originating
+      // GitHub / GitLab / Linear issue (user settings config only; only that
+      // one issue is touched). A failure in any dispatcher must not affect
+      // persistence, the renderer event or the other dispatchers, hence the
+      // separate try/catch blocks.
       const outcomeEvent = mapOutcomeToWebhookEvent(status, reviewReason);
       if (outcomeEvent) {
         try {
@@ -374,6 +376,11 @@ export class TaskStateManager {
           dispatchJiraOutcome({ task, project, event: outcomeEvent });
         } catch (error) {
           console.warn(`[TaskStateManager] Jira write-back failed for ${taskId}:`, error);
+        }
+        try {
+          dispatchIssueOutcome({ task, project, event: outcomeEvent });
+        } catch (error) {
+          console.warn(`[TaskStateManager] Issue write-back failed for ${taskId}:`, error);
         }
       }
     });

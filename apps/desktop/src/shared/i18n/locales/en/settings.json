@@ -388,6 +388,17 @@
       "statusNameLabel": "Target status name",
       "statusNamePlaceholder": "In Review",
       "note": "Only the Jira issue the task was imported from is updated, using the project's existing Jira credentials. This setting is stored only in this app's settings."
+    },
+    "issueWriteback": {
+      "title": "Issue write-back",
+      "description": "Report a task's outcome back to the issue it was imported from. Off by default.",
+      "github": "GitHub issues",
+      "githubDescription": "Comment on the originating GitHub issue when a task finishes",
+      "gitlab": "GitLab issues",
+      "gitlabDescription": "Comment on the originating GitLab issue when a task finishes",
+      "linear": "Linear issues",
+      "linearDescription": "Comment on the originating Linear issue when a task finishes",
+      "note": "Only the one issue the task was imported from is commented on, using the project's existing credentials. These settings are stored only in this app's settings and are off by default."
     }
   },
   "actions": {
