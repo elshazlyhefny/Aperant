@@ -19,6 +19,7 @@ import type { Project } from '../../../shared/types';
 import { createContextLogger } from './utils/logger';
 import { withProjectOrNull } from './utils/project-middleware';
 import { createIPCCommunicators } from '../shared/ipc-communicator';
+import { createAutoFixStore } from '../shared/autofix-store';
 import { AgentManager } from '../../agent/agent-manager';
 import { BatchProcessor, safeBatchId } from '../../ai/runners/github/batch-processor';
 import type { GitHubIssue } from '../../ai/runners/github/duplicate-detector';
@@ -95,112 +96,39 @@ export interface BatchProgress {
   batchCount: number;
 }
 
-/**
- * Get the GitHub directory for a project
- */
-function getGitHubDir(project: Project): string {
-  return path.join(project.path, '.auto-claude', 'github');
-}
+const autoFixStore = createAutoFixStore<{ botToken?: string }, AutoFixQueueItem, IssueBatch>({
+  providerDir: 'github',
+  extraConfigKeys: { botToken: 'bot_token' },
+  mapQueueItem: (data) => ({
+    issueNumber: data.issue_number,
+    repo: data.repo,
+    status: data.status,
+    specId: data.spec_id,
+    prNumber: data.pr_number,
+    error: data.error,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  }),
+  mapBatch: (data) => ({
+    batchId: data.batch_id,
+    repo: data.repo,
+    primaryIssue: data.primary_issue,
+    issues: data.issues.map((i: Record<string, unknown>) => ({
+      issueNumber: i.issue_number,
+      title: i.title,
+      similarityToPrimary: i.similarity_to_primary,
+    })),
+    commonThemes: data.common_themes ?? [],
+    status: data.status,
+    specId: data.spec_id,
+    prNumber: data.pr_number,
+    error: data.error,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  }),
+  compareBatches: (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+});
 
-/**
- * Get the auto-fix config for a project
- */
-function getAutoFixConfig(project: Project): AutoFixConfig {
-  const configPath = path.join(getGitHubDir(project), 'config.json');
-
-  // Use try/catch instead of existsSync to avoid TOCTOU race condition
-  try {
-    const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    return {
-      enabled: data.auto_fix_enabled ?? false,
-      labels: data.auto_fix_labels ?? ['auto-fix'],
-      requireHumanApproval: data.require_human_approval ?? true,
-      botToken: data.bot_token,
-      model: data.model ?? 'claude-sonnet-4-6',
-      thinkingLevel: data.thinking_level ?? 'medium',
-    };
-  } catch {
-    // File doesn't exist or is invalid - return defaults
-  }
-
-  return {
-    enabled: false,
-    labels: ['auto-fix'],
-    requireHumanApproval: true,
-    model: 'claude-sonnet-4-6',
-    thinkingLevel: 'medium',
-  };
-}
-
-/**
- * Save the auto-fix config for a project
- */
-function saveAutoFixConfig(project: Project, config: AutoFixConfig): void {
-  const githubDir = getGitHubDir(project);
-  fs.mkdirSync(githubDir, { recursive: true });
-
-  const configPath = path.join(githubDir, 'config.json');
-  let existingConfig: Record<string, unknown> = {};
-
-  // Use try/catch instead of existsSync to avoid TOCTOU race condition
-  try {
-    existingConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  } catch {
-    // File doesn't exist or is invalid - use empty config
-  }
-
-  const updatedConfig = {
-    ...existingConfig,
-    auto_fix_enabled: config.enabled,
-    auto_fix_labels: config.labels,
-    require_human_approval: config.requireHumanApproval,
-    bot_token: config.botToken,
-    model: config.model,
-    thinking_level: config.thinkingLevel,
-  };
-
-  fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2), 'utf-8');
-}
-
-/**
- * Get the auto-fix queue for a project
- */
-function getAutoFixQueue(project: Project): AutoFixQueueItem[] {
-  const issuesDir = path.join(getGitHubDir(project), 'issues');
-
-  // Use try/catch instead of existsSync to avoid TOCTOU race condition
-  let files: string[];
-  try {
-    files = fs.readdirSync(issuesDir);
-  } catch {
-    // Directory doesn't exist or can't be read
-    return [];
-  }
-
-  const queue: AutoFixQueueItem[] = [];
-
-  for (const file of files) {
-    if (file.startsWith('autofix_') && file.endsWith('.json')) {
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(issuesDir, file), 'utf-8'));
-        queue.push({
-          issueNumber: data.issue_number,
-          repo: data.repo,
-          status: data.status,
-          specId: data.spec_id,
-          prNumber: data.pr_number,
-          error: data.error,
-          createdAt: data.created_at,
-          updatedAt: data.updated_at,
-        });
-      } catch {
-        // Skip invalid files
-      }
-    }
-  }
-
-  return queue.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-}
 
 // IPC communication helpers removed - using createIPCCommunicators instead
 
@@ -208,7 +136,7 @@ function getAutoFixQueue(project: Project): AutoFixQueueItem[] {
  * Check for issues with auto-fix labels
  */
 async function checkAutoFixLabels(project: Project): Promise<number[]> {
-  const config = getAutoFixConfig(project);
+  const config = autoFixStore.getConfig(project);
   if (!config.enabled || config.labels.length === 0) {
     return [];
   }
@@ -229,7 +157,7 @@ async function checkAutoFixLabels(project: Project): Promise<number[]> {
   }>;
 
   // Filter for issues (not PRs) with matching labels
-  const queue = getAutoFixQueue(project);
+  const queue = autoFixStore.getQueue(project);
   const pendingIssues = new Set(queue.map(q => q.issueNumber));
 
   const matchingIssues: number[] = [];
@@ -260,7 +188,7 @@ async function checkAutoFixLabels(project: Project): Promise<number[]> {
  * Uses GitHub API directly instead of Python subprocess.
  */
 async function checkNewIssues(project: Project): Promise<Array<{ number: number }>> {
-  const config = getAutoFixConfig(project);
+  const config = autoFixStore.getConfig(project);
   if (!config.enabled) {
     return [];
   }
@@ -280,7 +208,7 @@ async function checkNewIssues(project: Project): Promise<Array<{ number: number 
   }>;
 
   // Get current queue to exclude already-tracked issues
-  const queue = getAutoFixQueue(project);
+  const queue = autoFixStore.getQueue(project);
   const queuedIssueNumbers = new Set(queue.map(q => q.issueNumber));
 
   return issues
@@ -364,7 +292,7 @@ async function startAutoFix(
   );
 
   // Save auto-fix state
-  const issuesDir = path.join(getGitHubDir(project), 'issues');
+  const issuesDir = path.join(autoFixStore.getDir(project), 'issues');
   fs.mkdirSync(issuesDir, { recursive: true });
 
   const state: AutoFixQueueItem = {
@@ -434,7 +362,7 @@ export function registerAutoFixHandlers(
     async (_, projectId: string): Promise<AutoFixConfig | null> => {
       debugLog('getAutoFixConfig handler called', { projectId });
       return withProjectOrNull(projectId, async (project) => {
-        const config = getAutoFixConfig(project);
+        const config = autoFixStore.getConfig(project);
         debugLog('AutoFix config loaded', { enabled: config.enabled, labels: config.labels });
         return config;
       });
@@ -447,7 +375,7 @@ export function registerAutoFixHandlers(
     async (_, projectId: string, config: AutoFixConfig): Promise<boolean> => {
       debugLog('saveAutoFixConfig handler called', { projectId, enabled: config.enabled });
       const result = await withProjectOrNull(projectId, async (project) => {
-        saveAutoFixConfig(project, config);
+        autoFixStore.saveConfig(project, config);
         debugLog('AutoFix config saved');
         return true;
       });
@@ -461,7 +389,7 @@ export function registerAutoFixHandlers(
     async (_, projectId: string): Promise<AutoFixQueueItem[]> => {
       debugLog('getAutoFixQueue handler called', { projectId });
       const result = await withProjectOrNull(projectId, async (project) => {
-        const queue = getAutoFixQueue(project);
+        const queue = autoFixStore.getQueue(project);
         debugLog('AutoFix queue loaded', { count: queue.length });
         return queue;
       });
@@ -603,7 +531,7 @@ export function registerAutoFixHandlers(
           const engineBatches = batchProcessor.buildBatches(issuesToBatch, suggestions);
 
           // Persist batches to disk in the format expected by getBatches()
-          const batchesDir = path.join(getGitHubDir(project), 'batches');
+          const batchesDir = path.join(autoFixStore.getDir(project), 'batches');
           fs.mkdirSync(batchesDir, { recursive: true });
 
           const savedBatches: IssueBatch[] = [];
@@ -677,7 +605,7 @@ export function registerAutoFixHandlers(
     async (_, projectId: string): Promise<IssueBatch[]> => {
       debugLog('getBatches handler called', { projectId });
       const result = await withProjectOrNull(projectId, async (project) => {
-        const batches = getBatches(project);
+        const batches = autoFixStore.getBatches(project);
         debugLog('Batches loaded', { count: batches.length });
         return batches;
       });
@@ -748,7 +676,7 @@ export function registerAutoFixHandlers(
           }
 
           // Already batched issues
-          const existingBatches = getBatches(project);
+          const existingBatches = autoFixStore.getBatches(project);
           const batchedIssueNumbers = new Set(
             existingBatches.flatMap(b => b.issues.map(i => i.issueNumber))
           );
@@ -836,7 +764,7 @@ export function registerAutoFixHandlers(
           }
 
           // Save approved batches directly to disk
-          const batchesDir = path.join(getGitHubDir(project), 'batches');
+          const batchesDir = path.join(autoFixStore.getDir(project), 'batches');
           fs.mkdirSync(batchesDir, { recursive: true });
 
           for (const b of approvedBatches) {
@@ -868,7 +796,7 @@ export function registerAutoFixHandlers(
             );
           }
 
-          const batches = getBatches(project);
+          const batches = autoFixStore.getBatches(project);
           debugLog('Batches approved and created', { count: batches.length });
 
           return { success: true, batches };
@@ -914,51 +842,4 @@ export interface AnalyzePreviewResult {
   }>;
   message: string;
   error?: string;
-}
-
-/**
- * Get batches from disk
- */
-function getBatches(project: Project): IssueBatch[] {
-  const batchesDir = path.join(getGitHubDir(project), 'batches');
-
-  // Use try/catch instead of existsSync to avoid TOCTOU race condition
-  let files: string[];
-  try {
-    files = fs.readdirSync(batchesDir);
-  } catch {
-    // Directory doesn't exist or can't be read
-    return [];
-  }
-
-  const batches: IssueBatch[] = [];
-
-  for (const file of files) {
-    if (file.startsWith('batch_') && file.endsWith('.json')) {
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(batchesDir, file), 'utf-8'));
-        batches.push({
-          batchId: data.batch_id,
-          repo: data.repo,
-          primaryIssue: data.primary_issue,
-          issues: data.issues.map((i: Record<string, unknown>) => ({
-            issueNumber: i.issue_number,
-            title: i.title,
-            similarityToPrimary: i.similarity_to_primary,
-          })),
-          commonThemes: data.common_themes ?? [],
-          status: data.status,
-          specId: data.spec_id,
-          prNumber: data.pr_number,
-          error: data.error,
-          createdAt: data.created_at,
-          updatedAt: data.updated_at,
-        });
-      } catch {
-        // Skip invalid files
-      }
-    }
-  }
-
-  return batches.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
