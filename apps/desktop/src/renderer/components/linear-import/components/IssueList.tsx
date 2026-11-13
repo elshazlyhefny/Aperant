@@ -43,7 +43,7 @@ export function IssueList({
     return (
       <ScrollArea className="flex-1 -mx-6 px-6 min-h-0">
         <div className="text-center py-12 text-muted-foreground">
-          <p className="text-sm">{t('empty.selectTeam')}</p>
+          <p className="text-sm">{t('import.empty.selectTeam')}</p>
         </div>
       </ScrollArea>
     );
@@ -55,8 +55,8 @@ export function IssueList({
         <div className="text-center py-12 text-muted-foreground">
           <p className="text-sm">
             {searchQuery || filterState !== 'all'
-              ? t('empty.noMatch')
-              : t('empty.noIssues')}
+              ? t('import.empty.noMatch')
+              : t('import.empty.noIssues')}
           </p>
         </div>
       </ScrollArea>
