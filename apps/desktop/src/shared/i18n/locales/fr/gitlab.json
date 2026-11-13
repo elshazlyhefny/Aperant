@@ -128,6 +128,32 @@
       "closed": "Fermées",
       "merged": "Fusionnées",
       "all": "Toutes"
+    },
+    "listTitle": "Merge Requests",
+    "searchPlaceholder": "Rechercher des merge requests...",
+    "noMatching": "Aucune merge request correspondante",
+    "noneFound": "Aucune merge request trouvée",
+    "filterGroupLabel": "Filtrer les merge requests par état",
+    "openInGitLab": "Ouvrir la merge request !{{iid}} dans GitLab",
+    "byAuthor": "par {{username}}",
+    "create": {
+      "title": "Nouvelle Merge Request",
+      "description": "Créez une nouvelle merge request dans GitLab.",
+      "titleLabel": "Titre",
+      "titlePlaceholder": "Titre de la merge request",
+      "sourceBranch": "Branche source",
+      "sourceBranchPlaceholder": "feature/ma-branche",
+      "targetBranch": "Branche cible",
+      "targetBranchPlaceholder": "main",
+      "descriptionLabel": "Description (facultative)",
+      "descriptionPlaceholder": "Décrivez vos modifications...",
+      "cancel": "Annuler",
+      "submit": "Créer la merge request",
+      "creating": "Création...",
+      "errors": {
+        "required": "Le titre, la branche source et la branche cible sont requis",
+        "failed": "Échec de la création de la merge request"
+      }
     }
   },
   "mrReview": {
