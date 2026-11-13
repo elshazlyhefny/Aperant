@@ -3,10 +3,12 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { FileTreeItem } from './FileTreeItem';
 import { useFileExplorerStore } from '../stores/file-explorer-store';
 import { useVirtualizedTree } from '../hooks/useVirtualizedTree';
+import type { FileReferenceData } from './task-form/useImageUpload';
 import { Loader2, AlertCircle, FolderOpen } from 'lucide-react';
 
 interface FileTreeProps {
   rootPath: string;
+  onFileActivate?: (data: FileReferenceData) => void;
 }
 
 // Estimated height of each tree item in pixels
@@ -14,7 +16,7 @@ const ITEM_HEIGHT = 28;
 // Number of items to render outside the visible area for smoother scrolling
 const OVERSCAN = 10;
 
-export function FileTree({ rootPath }: FileTreeProps) {
+export function FileTree({ rootPath, onFileActivate }: FileTreeProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -123,6 +125,7 @@ export function FileTree({ rootPath }: FileTreeProps) {
                 isExpanded={item.isExpanded}
                 isLoading={item.isLoading}
                 onToggle={createToggleHandler(virtualItem.index)}
+                onFileActivate={onFileActivate}
               />
             </div>
           );
