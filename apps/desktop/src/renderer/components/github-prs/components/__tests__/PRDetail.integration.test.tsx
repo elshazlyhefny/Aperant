@@ -988,6 +988,33 @@ describe('PRDetail - Log Delta Streaming and Polling', () => {
     unmount();
   });
 
+  it('ignores pushed updates while collapsed and resyncs once on expand', async () => {
+    const { unmount } = renderReviewing();
+    await advance(0);
+    expect(screen.getByText('entry-two')).toBeInTheDocument();
+
+    // Collapse the logs section
+    const toggle = screen.getByText(/review logs/i);
+    fireEvent.click(toggle);
+    await advance(0);
+
+    const callsCollapsed = mockOnGetLogs.mock.calls.length;
+
+    // Matching delta and mismatching delta: neither may fetch or change state
+    pushUpdate(makeDelta(2));
+    pushUpdate(makeDelta(9));
+    await advance(0);
+    expect(mockOnGetLogs).toHaveBeenCalledTimes(callsCollapsed);
+
+    // Re-expand: exactly one immediate resync, and the pushed entry was never applied
+    mockOnGetLogs.mockResolvedValue(makeLogs());
+    fireEvent.click(toggle);
+    await advance(0);
+    expect(mockOnGetLogs).toHaveBeenCalledTimes(callsCollapsed + 1);
+    expect(screen.queryByText('entry-three')).not.toBeInTheDocument();
+    unmount();
+  });
+
   it('passes the known version to onGetLogs once logs have loaded', async () => {
     const { unmount } = renderReviewing();
     await advance(0);

@@ -169,15 +169,18 @@ export function registerPRQueryHandlers(stateManager: PRReviewStateManager): voi
    * Polling Strategy (Frontend):
    * ============================
    * 1. **Initial Load**: When logs section expands, loads logs once via this handler
-   * 2. **Active Review Polling**: Every 1.5s while review is running (isReviewing = true)
+   * 2. **Active Review Polling**: Every 1.5s while review is running AND the logs
+   *    section is expanded (no polling or pushed-update handling while collapsed)
    * 3. **Final Refresh**: One final poll when review completes to capture final status
    * 4. **Fallback Load**: 500ms delayed load after completion if polling missed final logs
    *
    * Why Polling + Push Hybrid?
    * ===========================
-   * - Push (IPC events): Fast notifications when logs are saved by PRLogCollector
-   * - Pull (polling): Guarantees logs are fetched even if IPC events are missed
-   * - File-based: Simple, debuggable, survives app crashes/restarts
+   * - Push (IPC deltas): Only newly appended entries, sent by PRLogCollector
+   * - Pull (cheap poll): Safety net if a push is missed; replies 'unchanged' when
+   *   the held version is current
+   * - Logs are held in memory while live and persisted to disk (throttled), so
+   *   they survive app restarts
    *
    * Returns null if logs file doesn't exist yet (review hasn't started).
    */

@@ -126,7 +126,8 @@ export function PRDetail({
   // delta push plus a cheap poll:
   //
   // Backend (PRLogCollector in github/pr/review-logs.ts):
-  //   - Writes logs to disk every 3 entries: .auto-claude/github/pr/logs_${prNumber}.json
+  //   - Writes logs to disk on a time throttle (~1s, and on phase change/finalize):
+  //     .auto-claude/github/pr/logs_${prNumber}.json
   //   - Emits GITHUB_PR_LOGS_UPDATED IPC events after each save, carrying a
   //     delta of only the newly appended entries
   //   - Tracks phase status: pending → active → completed/failed
@@ -323,7 +324,10 @@ export function PRDetail({
     const cleanup = window.electronAPI.github.onPRLogsUpdated(
       (_projectId: string, data: PRLogsUpdatedPayload) => {
         if (data.prNumber !== pr.number) return;
-        if (data.delta && logsExpandedRef.current) {
+        // Collapsed: ignore pushes entirely. Expanding re-runs the poll effect,
+        // whose immediate refreshLogs() resyncs from the (now stale) held version.
+        if (!logsExpandedRef.current) return;
+        if (data.delta) {
           const next = applyPRLogsDelta(prLogsRef.current, data.delta);
           if (next) {
             // Invalidate in-flight full loads that would overwrite newer data
@@ -385,7 +389,7 @@ export function PRDetail({
    * 3. Review End (wasReviewing=true → isReviewing=false):
    *    - One final refresh to capture the last phase status
    *
-   *    * Error Handling:
+   * Error Handling:
    * ---------------
    * - Errors during polling are logged but don't stop the interval
    * - This ensures transient file read errors don't break the UI
