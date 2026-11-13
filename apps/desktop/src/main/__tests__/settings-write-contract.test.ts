@@ -1,9 +1,11 @@
 /**
  * zeenha fork: settings.json is written only through settings-utils.ts.
  *
- * writeSettingsFile() writes atomically with owner-only permissions (0o600)
- * because settings.json may hold credentials. A direct writeFileSync to the
- * settings path elsewhere would bypass that, so this scans the main sources.
+ * updateSettingsFile() is the only sanctioned write entry point: it locks,
+ * re-reads, and writes atomically with owner-only permissions (0o600) because
+ * settings.json may hold credentials. A direct write or a read-modify-write via
+ * writeSettingsFile() elsewhere could clobber concurrent updates or an
+ * unreadable file, so this scans the main sources.
  */
 import { readdirSync, readFileSync, statSync } from 'fs';
 import path from 'path';
@@ -47,6 +49,9 @@ function scan(source: string): string[] {
   return found;
 }
 
+/** True if the source mentions the raw writer, which only settings-utils.ts may use. */
+const usesRawWriter = (source: string) => /\bwriteSettingsFile\b/.test(stripComments(source));
+
 const files = sourceFiles(MAIN);
 
 describe('settings.json write contract', () => {
@@ -73,6 +78,41 @@ describe('settings.json write contract', () => {
       scan("const p = path.join(app.getPath('userData'), 'settings.json');\nwriteFileSync(p, d)")
     ).not.toEqual([]);
     expect(scan('// writeFileSync(settingsPath, data)')).toEqual([]);
+  });
+
+  it('writeSettingsFile is not used outside settings-utils.ts (use updateSettingsFile)', () => {
+    const offenders = files
+      .filter((f) => path.basename(f) !== HELPER)
+      .filter((f) => usesRawWriter(readFileSync(f, 'utf-8')))
+      .map((f) => path.relative(MAIN, f));
+    expect(offenders, 'the only write entry point is updateSettingsFile()').toEqual([]);
+  });
+
+  it('files importing updateSettingsFile do not also use writeSettingsFile', () => {
+    const offenders = files
+      .filter((f) => path.basename(f) !== HELPER)
+      .filter((f) => {
+        const code = stripComments(readFileSync(f, 'utf-8'));
+        return /\bupdateSettingsFile\b/.test(code) && /\bwriteSettingsFile\b/.test(code);
+      })
+      .map((f) => path.relative(MAIN, f));
+    expect(offenders).toEqual([]);
+  });
+
+  it('raw-writer scanner flags synthetic offending snippets', () => {
+    expect(usesRawWriter("import { writeSettingsFile } from './settings-utils';")).toBe(true);
+    expect(usesRawWriter('writeSettingsFile({ ...readSettingsFile() ?? {}, a: 1 });')).toBe(true);
+    expect(usesRawWriter('await updateSettingsFile((s) => s);')).toBe(false);
+    expect(usesRawWriter('// writeSettingsFile(x)')).toBe(false);
+  });
+
+  it('settings-utils.ts is lock-protected and exports SettingsUnreadableError', () => {
+    const helper = files.find((f) => path.basename(f) === HELPER);
+    expect(helper).toBeDefined();
+    const code = stripComments(readFileSync(helper as string, 'utf-8'));
+    expect(code).toMatch(/proper-lockfile/);
+    expect(code).toMatch(/lockfile\.lock\s*\(/);
+    expect(code).toMatch(/export\s+class\s+SettingsUnreadableError\b/);
   });
 
   it('settings-utils.ts writes via temp file, rename and mode 0o600', () => {
