@@ -631,5 +631,6 @@ export const IPC_CHANNELS = {
   SCHEDULE_DELETE: 'schedule:delete',
   SCHEDULE_SET_ENABLED: 'schedule:setEnabled',
   SCHEDULE_ACK_REPORTS: 'schedule:ackReports',
+  SCHEDULE_RUN_NOW: 'schedule:runNow',
   SCHEDULE_CHANGED: 'schedule:changed' // main -> renderer push
 } as const;
