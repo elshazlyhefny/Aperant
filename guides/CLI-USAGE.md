@@ -134,7 +134,7 @@ These match the app:
 - The task runs in the worktree `.auto-claude/worktrees/tasks/<id>` on branch `auto-claude/<id>`. If the worktree cannot be created the task does not start; there is no fallback to the project root.
 - Landing is pull-request only, and this cannot be turned off. There is no merge command. The CI job pushes and opens the PR itself, for example with `gh pr create`.
 - The Bash validator, path containment and credential scrubbing run in the same worker as in the app.
-- Project MCP servers stay unapproved, so a cloned repository cannot start processes in CI.
+- Project MCP servers stay unapproved, so a cloned repository cannot start processes in CI. See [Approving project MCP servers](project-configuration.md#approving-project-mcp-servers).
 
 Differences from the app:
 
