@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import type { LinearIssue } from '../types';
+import type { LinearIssue, LinearImportErrorCode } from '../types';
 
 export function useLinearIssues(
   projectId: string,
@@ -13,7 +13,7 @@ export function useLinearIssues(
 ) {
   const [issues, setIssues] = useState<LinearIssue[]>([]);
   const [isLoadingIssues, setIsLoadingIssues] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LinearImportErrorCode | null>(null);
 
   // Use ref to store the callback to avoid unnecessary re-renders
   const onIssuesChangeRef = useRef(onIssuesChange);
@@ -39,10 +39,10 @@ export function useLinearIssues(
           setIssues(result.data);
           onIssuesChangeRef.current?.();
         } else {
-          setError(result.error || 'Failed to load issues');
+          setError('loadIssues');
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
+        setError('unknown');
       } finally {
         setIsLoadingIssues(false);
       }
