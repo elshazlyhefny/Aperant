@@ -9,7 +9,7 @@ import { withProjectOrNull } from "../utils/project-middleware";
 import type { PRReviewStateManager } from "../../../pr-review-state-manager";
 import type { PRData, PRListResult, PRReviewResult } from "./types";
 import { debugLog } from "./shared";
-import { loadPRLogs, type PRLogs } from "./review-logs";
+import { loadPRLogsIfChanged, type PRLogs, type PRLogsKnownVersion } from "./review-logs";
 import { getReviewResult } from "./review-results";
 import { fetchPRsFromGraphQL } from "./graphql";
 
@@ -161,8 +161,10 @@ export function registerPRQueryHandlers(stateManager: PRReviewStateManager): voi
   /**
    * Get PR review logs (IPC Handler)
    *
-   * This handler is called by the frontend's polling mechanism to retrieve
-   * the latest log data from disk.
+   * Polling is a cheap change check: the frontend passes the version it already
+   * holds ({updated_at, entryCount}) and receives 'unchanged' when nothing new
+   * exists, so no log data is read or serialized. Live updates arrive as deltas
+   * via GITHUB_PR_LOGS_UPDATED; this handler is the initial load / fallback.
    *
    * Polling Strategy (Frontend):
    * ============================
@@ -181,9 +183,14 @@ export function registerPRQueryHandlers(stateManager: PRReviewStateManager): voi
    */
   ipcMain.handle(
     IPC_CHANNELS.GITHUB_PR_GET_LOGS,
-    async (_, projectId: string, prNumber: number): Promise<PRLogs | null> => {
+    async (
+      _,
+      projectId: string,
+      prNumber: number,
+      known?: PRLogsKnownVersion
+    ): Promise<PRLogs | null | "unchanged"> => {
       return withProjectOrNull(projectId, async (project) => {
-        return loadPRLogs(project, prNumber);
+        return loadPRLogsIfChanged(project, prNumber, known);
       });
     }
   );
