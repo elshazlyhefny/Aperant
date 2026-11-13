@@ -41,11 +41,24 @@ const createPR = vi.hoisted(() => vi.fn());
 // zeenha fork: with no title sent (the bulk dialog), the handler asks for an AI title.
 const suggestPRTitleForWorktree = vi.hoisted(() => vi.fn(async () => null as string | null));
 const createMR = vi.hoisted(() => vi.fn());
-vi.mock('../../../ai/runners/github/pr-creator', () => ({ createPR, createMR, suggestPRTitleForWorktree }));
+const createBitbucketPR = vi.hoisted(() => vi.fn());
+vi.mock('../../../ai/runners/github/pr-creator', () => ({
+  createPR,
+  createMR,
+  createBitbucketPR,
+  suggestPRTitleForWorktree,
+}));
 const getGitLabConfig = vi.hoisted(() => vi.fn(async () => null as unknown));
 vi.mock('../../gitlab/utils', () => ({ getGitLabConfig }));
+const getBitbucketConfig = vi.hoisted(() => vi.fn(async () => null as unknown));
+vi.mock('../../bitbucket/utils', () => ({ getBitbucketConfig }));
 
 const PR_URL = 'https://github.com/owner/repo/pull/7';
+
+function setOrigin(url: string) {
+  execFileSync('git', ['init', '-q'], { cwd: ref.path });
+  execFileSync('git', ['remote', 'add', 'origin', url], { cwd: ref.path });
+}
 
 function specFile(name: string) {
   return path.join(ref.path, '.auto-claude', 'specs', '001-x', name);
@@ -74,6 +87,9 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
     createMR.mockReset();
     getGitLabConfig.mockReset();
     getGitLabConfig.mockResolvedValue(null);
+    createBitbucketPR.mockReset();
+    getBitbucketConfig.mockReset();
+    getBitbucketConfig.mockResolvedValue(null);
     ref.path = fs.mkdtempSync(path.join(os.tmpdir(), 'create-pr-'));
     ref.worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'create-pr-wt-'));
     ref.settings = {};
@@ -209,11 +225,6 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
     const MR_URL = 'https://gitlab.example.com/group/repo/-/merge_requests/3';
     const gitlab = { token: 't', instanceUrl: 'https://gitlab.example.com', project: 'group/repo' };
 
-    function setOrigin(url: string) {
-      execFileSync('git', ['init', '-q'], { cwd: ref.path });
-      execFileSync('git', ['remote', 'add', 'origin', url], { cwd: ref.path });
-    }
-
     it('opens a merge request when GitLab is configured and origin matches', async () => {
       setOrigin('git@gitlab.example.com:group/repo.git');
       getGitLabConfig.mockResolvedValue(gitlab);
@@ -260,6 +271,107 @@ describe('Create PR when the PR already exists (zeenha fork)', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('nope');
       expect(result.data?.errorCode).toBe('MR_FAILED');
+    });
+  });
+
+  describe('Bitbucket provider', () => {
+    const BB_URL = 'https://bitbucket.org/ws/repo/pull-requests/4';
+    const bitbucket = { token: 't', workspace: 'ws', repoSlug: 'repo' };
+
+    it('opens a pull request via Bitbucket when configured and origin matches', async () => {
+      setOrigin('git@bitbucket.org:ws/repo.git');
+      getBitbucketConfig.mockResolvedValue(bitbucket);
+      createBitbucketPR.mockResolvedValue({ success: true, prUrl: BB_URL, alreadyExists: false });
+
+      const result = await (await createPrHandler())({}, 't1');
+
+      expect(createPR).not.toHaveBeenCalled();
+      expect(createMR).not.toHaveBeenCalled();
+      expect(createBitbucketPR.mock.calls[0][0].bitbucket).toEqual(bitbucket);
+      expect(createBitbucketPR.mock.calls[0][0].ghPath).toBeUndefined();
+      expect(result.data).toMatchObject({ success: true, prUrl: BB_URL });
+      expect(JSON.parse(fs.readFileSync(specFile('task_metadata.json'), 'utf-8')).prUrl).toBe(BB_URL);
+      expect(JSON.parse(fs.readFileSync(specFile('implementation_plan.json'), 'utf-8')).status).toBe('done');
+    });
+
+    it('works for an https origin with a user', async () => {
+      setOrigin('https://user@bitbucket.org/ws/repo.git');
+      getBitbucketConfig.mockResolvedValue(bitbucket);
+      createBitbucketPR.mockResolvedValue({ success: true, prUrl: BB_URL, alreadyExists: false });
+
+      await (await createPrHandler())({}, 't1');
+
+      expect(createBitbucketPR).toHaveBeenCalledTimes(1);
+      expect(createPR).not.toHaveBeenCalled();
+    });
+
+    it('still uses gh when origin is github.com', async () => {
+      setOrigin('git@github.com:owner/repo.git');
+      getBitbucketConfig.mockResolvedValue(bitbucket);
+      createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+
+      await (await createPrHandler())({}, 't1');
+
+      expect(createBitbucketPR).not.toHaveBeenCalled();
+      expect(createPR).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses gh when Bitbucket is not configured', async () => {
+      setOrigin('git@bitbucket.org:ws/repo.git');
+      createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+
+      await (await createPrHandler())({}, 't1');
+
+      expect(createBitbucketPR).not.toHaveBeenCalled();
+      expect(createPR).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not use Bitbucket for a gitlab.example.com origin', async () => {
+      setOrigin('git@gitlab.example.com:group/repo.git');
+      getBitbucketConfig.mockResolvedValue(bitbucket);
+      createPR.mockResolvedValue({ success: true, prUrl: PR_URL, alreadyExists: false });
+
+      await (await createPrHandler())({}, 't1');
+
+      expect(createBitbucketPR).not.toHaveBeenCalled();
+      expect(createPR).toHaveBeenCalledTimes(1);
+    });
+
+    it('wins over GitLab when both are configured and origin is bitbucket.org', async () => {
+      setOrigin('git@bitbucket.org:ws/repo.git');
+      getBitbucketConfig.mockResolvedValue(bitbucket);
+      getGitLabConfig.mockResolvedValue({ token: 't', instanceUrl: 'https://gitlab.example.com', project: 'g/r' });
+      createBitbucketPR.mockResolvedValue({ success: true, prUrl: BB_URL, alreadyExists: false });
+
+      await (await createPrHandler())({}, 't1');
+
+      expect(createBitbucketPR).toHaveBeenCalledTimes(1);
+      expect(createMR).not.toHaveBeenCalled();
+      expect(createPR).not.toHaveBeenCalled();
+    });
+
+    it('surfaces an MR_FAILED failure', async () => {
+      setOrigin('git@bitbucket.org:ws/repo.git');
+      getBitbucketConfig.mockResolvedValue(bitbucket);
+      createBitbucketPR.mockResolvedValue({ success: false, errorCode: 'MR_FAILED', error: 'nope' });
+
+      const result = await (await createPrHandler())({}, 't1');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('nope');
+      expect(result.data?.errorCode).toBe('MR_FAILED');
+    });
+
+    it('records alreadyExists with a URL as done', async () => {
+      setOrigin('git@bitbucket.org:ws/repo.git');
+      getBitbucketConfig.mockResolvedValue(bitbucket);
+      createBitbucketPR.mockResolvedValue({ success: true, prUrl: BB_URL, alreadyExists: true });
+
+      const result = await (await createPrHandler())({}, 't1');
+
+      expect(result.data).toMatchObject({ success: true, prUrl: BB_URL, alreadyExists: true });
+      expect(JSON.parse(fs.readFileSync(specFile('task_metadata.json'), 'utf-8')).prUrl).toBe(BB_URL);
+      expect(JSON.parse(fs.readFileSync(specFile('implementation_plan.json'), 'utf-8')).status).toBe('done');
     });
   });
 

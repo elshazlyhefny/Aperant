@@ -7,7 +7,7 @@ import { execFileSync } from 'child_process';
 import path from 'path';
 import type { Project } from '../../../shared/types';
 import { parseEnvFile } from '../utils';
-import type { BitbucketConfig } from './types';
+import type { BitbucketConfig, BitbucketAPIPullRequest, BitbucketAPIPage } from './types';
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
 
 export const BITBUCKET_API_BASE = 'https://api.bitbucket.org/2.0';
@@ -192,6 +192,41 @@ export async function bitbucketFetchText(
 ): Promise<string> {
   const response = await bitbucketRequest(config, endpoint, options, 'text/plain');
   return response.text();
+}
+
+/**
+ * Create a pull request from sourceBranch into destinationBranch.
+ * The returned PR's links.html.href is its web URL.
+ */
+export async function createBitbucketPullRequest(
+  config: BitbucketConfig,
+  params: { sourceBranch: string; destinationBranch: string; title: string; description: string }
+): Promise<BitbucketAPIPullRequest> {
+  return (await bitbucketFetch(config, `/repositories/${config.repository}/pullrequests`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title: params.title,
+      description: params.description,
+      source: { branch: { name: params.sourceBranch } },
+      destination: { branch: { name: params.destinationBranch } }
+    })
+  })) as BitbucketAPIPullRequest;
+}
+
+/**
+ * Find an open pull request whose source branch is `sourceBranch`, or null.
+ */
+export async function findOpenPullRequestForBranch(
+  config: BitbucketConfig,
+  sourceBranch: string
+): Promise<BitbucketAPIPullRequest | null> {
+  const escaped = sourceBranch.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const q = encodeURIComponent(`source.branch.name="${escaped}" AND state="OPEN"`);
+  const page = (await bitbucketFetch(
+    config,
+    `/repositories/${config.repository}/pullrequests?q=${q}&pagelen=1`
+  )) as BitbucketAPIPage<BitbucketAPIPullRequest>;
+  return page.values?.[0] ?? null;
 }
 
 /**
