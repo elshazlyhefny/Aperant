@@ -25,7 +25,8 @@ import { refreshGitIndex } from '../../utils/git-isolation';
 import { cleanupWorktree } from '../../utils/worktree-cleanup';
 import { taskStateManager } from '../../task-state-manager';
 import { handleWorktreeMerge } from './worktree-merge';
-import { isGitWorkTree, getTaskBaseBranch, getEffectiveBaseBranch, GIT_BRANCH_REGEX } from './worktree-git-utils';
+import { isGitWorkTree, GIT_BRANCH_REGEX } from './worktree-git-utils';
+import { resolveTaskBaseBranch, resolveTaskBaseBranchWithSource } from '../../base-branch';
 
 export { GIT_BRANCH_REGEX } from './worktree-git-utils';
 
@@ -145,7 +146,7 @@ export function registerWorktreeHandlers(
 
           // Get base branch using proper fallback chain:
           // 1. Task metadata baseBranch, 2. Project settings mainBranch, 3. main/master detection
-          const baseBranch = getEffectiveBaseBranch(project.path, task.specId, project.settings?.mainBranch);
+          const baseBranch = resolveTaskBaseBranch({ project, specId: task.specId });
 
           // Get user's current branch in main project (this is where changes will merge INTO)
           let currentProjectBranch: string | undefined;
@@ -251,7 +252,7 @@ export function registerWorktreeHandlers(
         // Get base branch using proper fallback chain:
         // 1. Task metadata baseBranch, 2. Project settings mainBranch, 3. main/master detection
         // Note: We do NOT use current HEAD as that may be a feature branch
-        const baseBranch = getEffectiveBaseBranch(project.path, task.specId, project.settings?.mainBranch);
+        const baseBranch = resolveTaskBaseBranch({ project, specId: task.specId });
 
         // Get the diff with file stats
         const files: WorktreeDiffFile[] = [];
@@ -377,16 +378,12 @@ export function registerWorktreeHandlers(
           console.warn('[IPC] Project is a bare repository - skipping uncommitted changes check');
         }
 
-        // Determine base branch with proper priority:
-        // 1. Task metadata baseBranch (explicit task-level override)
-        // 2. Project settings mainBranch (project-level default)
-        // 3. Default to 'main'
-        const specDir = path.join(project.path, project.autoBuildPath || '.auto-claude', 'specs', task.specId);
-        const taskBaseBranch = getTaskBaseBranch(specDir);
-        const projectMainBranch = project.settings?.mainBranch;
-        const effectiveBaseBranch = taskBaseBranch || projectMainBranch || 'main';
+        const { branch: effectiveBaseBranch, source: baseBranchSource } = resolveTaskBaseBranchWithSource({
+          project,
+          specId: task.specId,
+        });
         console.warn('[IPC] Using base branch for preview:', effectiveBaseBranch,
-          `(source: ${taskBaseBranch ? 'task metadata' : projectMainBranch ? 'project settings' : 'default'})`);
+          `(source: ${baseBranchSource})`);
 
         // Run preview using the TypeScript MergeOrchestrator in dry-run mode
         // (no AI resolver needed for preview — only conflict detection and analysis)
@@ -685,7 +682,7 @@ export function registerWorktreeHandlers(
             // Get base branch using proper fallback chain:
             // 1. Task metadata baseBranch, 2. Project settings mainBranch, 3. main/master detection
             // Note: We do NOT use current HEAD as that may be a feature branch
-            const baseBranch = getEffectiveBaseBranch(project.path, entry, project.settings?.mainBranch);
+            const baseBranch = resolveTaskBaseBranch({ project, specId: entry });
 
 // Get commit count (async, cross-platform - no shell syntax)
             let commitCount = 0;
@@ -892,8 +889,7 @@ export function registerWorktreeHandlers(
         const worktreePath = findTaskWorktree(project.path, task.specId);
         if (!worktreePath) return { success: true, data: null };
 
-        const specDir = path.join(project.path, project.autoBuildPath || '.auto-claude', 'specs', task.specId);
-        const baseBranch = targetBranch || getTaskBaseBranch(specDir) || project.settings?.mainBranch || 'main';
+        const baseBranch = resolveTaskBaseBranch({ project, specId: task.specId, override: targetBranch });
 
         const title = await suggestPRTitleForWorktree({
           worktreePath,
@@ -978,8 +974,7 @@ export function registerWorktreeHandlers(
         }
 
         // Determine base branch and branch name
-        const taskBaseBranch = getTaskBaseBranch(specDir);
-        const baseBranch = options?.targetBranch || taskBaseBranch || project.settings?.mainBranch || 'main';
+        const baseBranch = resolveTaskBaseBranch({ project, specId: task.specId, override: options?.targetBranch });
         const branchName = `auto-claude/${task.specId}`;
         // zeenha fork: no title sent (the bulk dialog) -> createPR asks the model
         // once the pending work is committed, then falls back to the task title.
@@ -989,9 +984,7 @@ export function registerWorktreeHandlers(
         // is capped to its first sentence / lead clause (≤ 100, shared/utils/pr-title).
         const fallbackTitle = capPRTitle(task.title) || `auto-claude: ${task.specId}`;
 
-        if (taskBaseBranch) {
-          debug('Using stored base branch:', taskBaseBranch);
-        }
+        debug('Using base branch for PR:', baseBranch);
 
         // Get tool paths
         const gitPath = getToolPath('git');

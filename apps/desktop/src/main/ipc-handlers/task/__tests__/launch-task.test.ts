@@ -117,10 +117,17 @@ describe('buildExecutionOptions', () => {
 });
 
 describe('resolveBaseBranch', () => {
-  it('prefers the task override, then project setting', () => {
-    expect(resolveBaseBranch(makeTask({ metadata: { baseBranch: 'feat' } }), makeProject())).toBe('feat');
-    expect(resolveBaseBranch(makeTask(), makeProject())).toBe('main');
-    expect(resolveBaseBranch(makeTask(), makeProject({ settings: undefined }))).toBeUndefined();
+  it('prefers task_metadata.json, then project setting, then main', () => {
+    fs.writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({ baseBranch: 'feat' }));
+    expect(resolveBaseBranch(makeTask(), makeProject())).toBe('feat');
+    fs.rmSync(path.join(specDir, 'task_metadata.json'));
+    expect(resolveBaseBranch(makeTask(), makeProject({ settings: { mainBranch: 'dev' } }))).toBe('dev');
+    expect(resolveBaseBranch(makeTask(), makeProject({ settings: undefined }))).toBe('main');
+  });
+
+  it('strips a leading origin/ from the stored base branch', () => {
+    fs.writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({ baseBranch: 'origin/feat/x' }));
+    expect(resolveBaseBranch(makeTask(), makeProject())).toBe('feat/x');
   });
 });
 
@@ -129,6 +136,7 @@ describe('launchTask', () => {
     launchTask({ task, project: makeProject(), agentManager, logTag: '[TEST]', ...extra });
 
   it('starts spec creation when there is no spec', () => {
+    fs.writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({ baseBranch: 'feat' }));
     const task = makeTask({ metadata: { baseBranch: 'feat' } });
     const result = run(task);
     expect(agentManager.startSpecCreation).toHaveBeenCalledWith(

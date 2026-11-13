@@ -17,7 +17,8 @@ import { getIsolatedGitEnv } from '../../utils/git-isolation';
 import { cleanupWorktree } from '../../utils/worktree-cleanup';
 import { landsThroughPullRequestsOnly, PR_ONLY_LANDING_MESSAGE } from '../../../shared/utils/landing-policy';
 import { taskStateManager } from '../../task-state-manager';
-import { getUtilitySettings, fixMisconfiguredBareRepo, isGitWorkTree, getTaskBaseBranch } from './worktree-git-utils';
+import { getUtilitySettings, fixMisconfiguredBareRepo, isGitWorkTree } from './worktree-git-utils';
+import { resolveTaskBaseBranchWithSource } from '../../base-branch';
 
 const execFileAsync = promisify(execFile);
 
@@ -60,15 +61,12 @@ export function resolveMergeContext(project: Project, task: Task, debug: DebugFn
     debug('Fixed misconfigured bare repository at:', project.path);
   }
 
-  // Determine base branch with proper priority:
-  // 1. Task metadata baseBranch (explicit task-level override)
-  // 2. Project settings mainBranch (project-level default)
-  // 3. Default to 'main'
-  const taskBaseBranch = getTaskBaseBranch(specDir);
-  const projectMainBranch = project.settings?.mainBranch;
-  const effectiveBaseBranch = taskBaseBranch || projectMainBranch || 'main';
-  debug('Using base branch:', effectiveBaseBranch,
-    `(source: ${taskBaseBranch ? 'task metadata' : projectMainBranch ? 'project settings' : 'default'})`);
+  // Single source of truth for the task's base branch (see base-branch.ts)
+  const { branch: effectiveBaseBranch, source } = resolveTaskBaseBranchWithSource({
+    project,
+    specId: task.specId,
+  });
+  debug('Using base branch:', effectiveBaseBranch, `(source: ${source})`);
 
   return { specDir, worktreePath, effectiveBaseBranch };
 }

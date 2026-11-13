@@ -14,6 +14,7 @@ import { fileWatcher } from '../../file-watcher';
 import { checkGitStatus } from '../../project-initializer';
 import { initializeClaudeProfileManager, type ClaudeProfileManager } from '../../claude-profile-manager';
 import { findTaskWorktree } from '../../worktree-paths';
+import { resolveTaskBaseBranch } from '../../base-branch';
 import { hasUsableAuth } from '../../services/profile/provider-account-check';
 
 /**
@@ -103,9 +104,12 @@ export function planHasSubtasks(specDir: string): boolean {
   }
 }
 
-/** Task-level base branch override takes precedence over project settings. */
-export function resolveBaseBranch(task: Task, project: Project): string | undefined {
-  return task.metadata?.baseBranch || project.settings?.mainBranch;
+/**
+ * Base branch for a launch. Delegates to the shared resolver (task_metadata.json,
+ * then project settings, then detected trunk, then 'main'), so it is never undefined.
+ */
+export function resolveBaseBranch(task: Task, project: Project): string {
+  return resolveTaskBaseBranch({ project, specId: task.specId });
 }
 
 /** Options passed to startTaskExecution. Note: parallelism is handled inside the agent. */
