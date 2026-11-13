@@ -171,3 +171,41 @@ describe('TaskStateManager Jira write-back dispatch', () => {
     expect(jiraDispatch).toHaveBeenCalledTimes(1);
   });
 });
+
+function toCreatingPr(manager: TaskStateManager) {
+  send(manager, { type: 'PLANNING_STARTED' });
+  send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
+  manager.handleUiEvent('t1', { type: 'CREATE_PR' }, task, project);
+}
+
+describe('TaskStateManager PR opened webhook', () => {
+  it('dispatches pr_created once with the prUrl when the status is set manually', () => {
+    const manager = make();
+    const withPr = { ...task, metadata: { prUrl: 'https://github.com/o/r/pull/1' } } as Task;
+    toCreatingPr(manager);
+    dispatch.mockClear();
+    manager.handleManualStatusChange('t1', 'pr_created', withPr, project);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0]).toMatchObject({
+      status: 'pr_created',
+      prUrl: 'https://github.com/o/r/pull/1'
+    });
+  });
+
+  it('dispatches without a link when the in-memory task has no prUrl yet', () => {
+    const manager = make();
+    toCreatingPr(manager);
+    dispatch.mockClear();
+    manager.handleManualStatusChange('t1', 'pr_created', task, project);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0].prUrl).toBeUndefined();
+  });
+
+  it('does not send a second PR opened message when a PR follow-up run starts', () => {
+    const manager = make();
+    manager.startPRFollowUp('t1', task, project);
+    const prOpened = dispatch.mock.calls.filter((c) => c[0].status === 'pr_created');
+    expect(prOpened).toHaveLength(0);
+    expect(manager.getCurrentState('t1')).toBe('coding');
+  });
+});
