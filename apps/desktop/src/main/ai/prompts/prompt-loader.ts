@@ -326,6 +326,10 @@ function readJsonObject(filePath: string): Record<string, unknown> | null {
  * Build the REFERENCE IMAGES section listing images the user attached to the task.
  * Reads task_metadata.json `attachedImages` first, falling back to
  * requirements.json `attached_images`. Returns '' when there are no usable images.
+ * Spec-level prompts (injectContext) pass absolute paths; subtask prompts pass
+ * `relativeTo` = projectDir. Paths escaping specDir or missing on disk are skipped.
+ * The agent opens the images via the Read tool, which only returns the image
+ * content for vision-capable models.
  *
  * @param specDir - Spec directory containing the `attachments/` folder
  * @param relativeTo - Optional base directory; when given, paths are listed relative to it

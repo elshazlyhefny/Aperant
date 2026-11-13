@@ -75,6 +75,39 @@ await service.sendMessage(projectId, projectPath, message);
 4. Executor emits streaming events (status, chunks, tools)
 5. Service saves assistant response via `SessionManager`
 
+## Attaching images
+
+### In Insights chat
+
+- Images that carry data are sent inline on the current turn to vision-capable models (`InsightsExecutor.execute` -> `runInsightsQuery` in `ai/runners/insights.ts`).
+- For a text-only model, the images are dropped and the note `[User attached N image(s); this model cannot view images]` is appended to the message. The request still succeeds.
+- Before sending, the renderer shows a notice (`insights.images.analysisUnsupported`) when images are pending and the selected model is text-only. After sending, the message shows "not analyzed" (`insights.images.notAnalyzed`).
+
+### How vision support is decided
+
+`modelSupportsVision()` in `shared/constants/models.ts` reads the `capabilities.vision` flag from the model catalog:
+
+- No model id, or an id that is not in the catalog (a custom model), is assumed vision-capable.
+- Only catalog entries marked `vision: false` are text-only, for example `llama-3.3-70b-versatile`, `grok-3`, `grok-3-mini`, `glm-5`, `glm-4.7` and `glm-4.5-flash`.
+
+Caveat: a custom text-only model is assumed capable. Images are sent to it and the provider may reject them. No pre-send warning appears for it, because `Insights.tsx` only shows the warning when `modelSupportsVision()` returns false, which only happens for catalog text-only models.
+
+### Persistence and follow-up questions
+
+Saved Insights history keeps image metadata (`id`, `filename`, `mimeType`, `size`, `thumbnail`) but drops the image `data` and `path` (`stripImageDataForPersistence` in `session-storage.ts`). The history passed to the model is text-only (`role: content` lines). A follow-up question in the same session therefore cannot refer back to an earlier image; attach it again.
+
+### In tasks
+
+- Attachments are saved in the spec's `attachments/` folder (`<specDir>/attachments/`) and recorded in `task_metadata.json` under `attachedImages`.
+- Planner and coder prompts get a `## REFERENCE IMAGES` section that lists the image paths (`buildReferenceImagesSection` in `ai/prompts/prompt-loader.ts`). Spec-level prompts list absolute paths; subtask prompts list paths relative to the project directory. The agent opens them with the `Read` tool. The images are not inlined into the prompt.
+- The coder only sees an image if its model can read images through `Read`. For a text-only model, `Read` returns a "cannot view images" message. For an SVG it suggests using `cat`, and it reports files over the size limit as too large. In those cases the agent relies on the task description.
+
+### Metadata fields
+
+- `attachedImages` in `task_metadata.json` is read first. `attached_images` in `requirements.json` is used if the first is missing or empty.
+- Each entry has a `path` field relative to the spec directory.
+- Entries whose file is missing, or whose path escapes the spec directory, are skipped.
+
 ## Benefits of This Architecture
 
 - **Maintainability**: Each module has a single, clear responsibility
