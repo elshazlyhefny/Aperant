@@ -60,6 +60,17 @@ import {
   type AgentSettingsSource,
 } from '../hooks';
 import { useActiveProvider } from '../hooks/useActiveProvider';
+import { useToast } from '../hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 import type { ThinkingLevel } from '../../shared/types/settings';
 
 // Agent configuration data - mirrors AGENT_CONFIGS from backend
@@ -637,7 +648,7 @@ export function formatLaunchLine(command: string | undefined, args: string[] | u
 }
 
 export function AgentTools() {
-  const { t } = useTranslation(['settings']);
+  const { t } = useTranslation(['settings', 'common']);
   const settings = useSettingsStore((state) => state.settings);
   const projects = useProjectStore((state) => state.projects);
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId);
@@ -652,6 +663,9 @@ export function AgentTools() {
   // Custom MCP server dialog state
   const [showCustomMcpDialog, setShowCustomMcpDialog] = useState(false);
   const [editingCustomServer, setEditingCustomServer] = useState<CustomMcpServer | null>(null);
+  // zeenha fork: server awaiting delete confirmation
+  const [pendingDeleteServer, setPendingDeleteServer] = useState<CustomMcpServer | null>(null);
+  const { toast } = useToast();
 
   // zeenha fork: approval flow state
   const [approvingServer, setApprovingServer] = useState<CustomMcpServer | null>(null);
@@ -884,14 +898,28 @@ export function AgentTools() {
 
     // Save to backend
     try {
-      await window.electronAPI.updateProjectEnv(selectedProjectId, {
+      // zeenha fork: the handler returns { success: false } instead of throwing
+      const result = await window.electronAPI.updateProjectEnv(selectedProjectId, {
         customMcpServers: newServers,
       });
+      if (!result.success) throw new Error(result.error);
     } catch (error) {
       console.error('Failed to save custom MCP server:', error);
       setEnvConfig((prev) => prev ? { ...prev, customMcpServers: currentServers } : null);
+      toast({
+        variant: 'destructive',
+        title: t('settings:mcp.saveFailed'),
+        description: error instanceof Error ? error.message : undefined,
+      });
     }
-  }, [selectedProjectId, envConfig]);
+  }, [selectedProjectId, envConfig, toast, t]);
+
+  // zeenha fork: agents that reference the server pending deletion
+  const pendingDeleteAgents = pendingDeleteServer
+    ? Object.entries(envConfig?.agentMcpOverrides ?? {})
+        .filter(([, override]) => override.add?.includes(pendingDeleteServer.id))
+        .map(([agentId]) => AGENT_CONFIGS[agentId]?.label ?? agentId)
+    : [];
 
   // Handle deleting a custom MCP server
   const handleDeleteCustomServer = useCallback(async (serverId: string) => {
@@ -928,15 +956,22 @@ export function AgentTools() {
 
     // Save to backend
     try {
-      await window.electronAPI.updateProjectEnv(selectedProjectId, {
+      // zeenha fork: the handler returns { success: false } instead of throwing
+      const result = await window.electronAPI.updateProjectEnv(selectedProjectId, {
         customMcpServers: newServers,
         agentMcpOverrides: newOverrides,
       });
+      if (!result.success) throw new Error(result.error);
     } catch (error) {
       console.error('Failed to delete custom MCP server:', error);
       setEnvConfig((prev) => prev ? { ...prev, customMcpServers: currentServers, agentMcpOverrides: currentOverrides } : null);
+      toast({
+        variant: 'destructive',
+        title: t('settings:mcp.deleteFailed'),
+        description: error instanceof Error ? error.message : undefined,
+      });
     }
-  }, [selectedProjectId, envConfig]);
+  }, [selectedProjectId, envConfig, toast, t]);
 
   // Check health of all custom MCP servers
   const checkAllServersHealth = useCallback(async () => {
@@ -1402,14 +1437,14 @@ export function AgentTools() {
                                 onClick={() => handleTestConnection(server)}
                                 disabled={isTesting}
                                 className="h-7 px-2 text-xs"
-                                title="Test Connection"
+                                title={t('settings:mcp.testConnectionTitle')}
                               >
                                 {isTesting ? (
                                   <Loader2 className="h-3 w-3 animate-spin" />
                                 ) : (
                                   <RefreshCw className="h-3 w-3" />
                                 )}
-                                <span className="ml-1">Test</span>
+                                <span className="ml-1">{t('settings:mcp.testConnection')}</span>
                               </Button>
                               {/* Edit/Delete - show on hover */}
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
@@ -1417,15 +1452,18 @@ export function AgentTools() {
                                   type="button"
                                   onClick={() => { setEditingCustomServer(server); setShowCustomMcpDialog(true); }}
                                   className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                                  title="Edit"
+                                  title={t('settings:mcp.editServer')}
+                                  aria-label={t('settings:mcp.editServer')}
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleDeleteCustomServer(server.id)}
+                                  onClick={() => setPendingDeleteServer(server)}
                                   className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
-                                  title="Delete"
+                                  title={t('settings:mcp.deleteServer')}
+                                  aria-label={t('settings:mcp.deleteServer')}
+                                  data-testid={`mcp-delete-${server.id}`}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
@@ -1552,6 +1590,43 @@ export function AgentTools() {
         existingIds={(envConfig?.customMcpServers || []).map(s => s.id)}
         onSave={handleSaveCustomServer}
       />
+
+      {/* zeenha fork: confirm before deleting a custom MCP server */}
+      <AlertDialog
+        open={pendingDeleteServer !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteServer(null);
+        }}
+      >
+        <AlertDialogContent data-testid="mcp-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('settings:mcp.delete.title', { name: pendingDeleteServer?.name ?? '' })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settings:mcp.delete.description')}{' '}
+              {pendingDeleteAgents.length > 0
+                ? t('settings:mcp.delete.agentsHeading', { agents: pendingDeleteAgents.join(', ') })
+                : t('settings:mcp.delete.noAgents')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:buttons.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="mcp-delete-confirm"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!pendingDeleteServer) return;
+                const serverId = pendingDeleteServer.id;
+                setPendingDeleteServer(null);
+                void handleDeleteCustomServer(serverId);
+              }}
+            >
+              {t('settings:mcp.delete.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
