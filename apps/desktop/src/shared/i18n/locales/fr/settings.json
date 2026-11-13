@@ -388,6 +388,17 @@
       "statusNameLabel": "Nom du statut cible",
       "statusNamePlaceholder": "In Review",
       "note": "Seul le ticket Jira d'où la tâche a été importée est mis à jour, avec les identifiants Jira existants du projet. Ce paramètre est stocké uniquement dans les paramètres de cette application."
+    },
+    "issueWriteback": {
+      "title": "Retour vers les tickets",
+      "description": "Reporter le résultat d'une tâche sur le ticket d'où elle a été importée. Désactivé par défaut.",
+      "github": "Tickets GitHub",
+      "githubDescription": "Commenter le ticket GitHub d'origine lorsqu'une tâche se termine",
+      "gitlab": "Tickets GitLab",
+      "gitlabDescription": "Commenter le ticket GitLab d'origine lorsqu'une tâche se termine",
+      "linear": "Tickets Linear",
+      "linearDescription": "Commenter le ticket Linear d'origine lorsqu'une tâche se termine",
+      "note": "Seul le ticket d'où la tâche a été importée est commenté, avec les identifiants existants du projet. Ces paramètres sont stockés uniquement dans les paramètres de cette application et sont désactivés par défaut."
     }
   },
   "actions": {
