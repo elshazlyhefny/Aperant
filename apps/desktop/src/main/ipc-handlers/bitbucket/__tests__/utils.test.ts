@@ -15,8 +15,68 @@ import {
   parseBitbucketRemoteUrl,
   getBitbucketConfig,
   getSafeNextEndpoint,
+  createBitbucketPullRequest,
+  findOpenPullRequestForBranch,
   BitbucketAPIError
 } from '../utils';
+
+describe('createBitbucketPullRequest / findOpenPullRequestForBranch', () => {
+  const config = { username: 'alice', token: 'tok', repository: 'ws/repo' };
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  const jsonResponse = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+
+  it('POSTs the expected body and returns the PR', async () => {
+    const pr = { id: 7, links: { html: { href: 'https://bitbucket.org/ws/repo/pull-requests/7' } } };
+    fetchMock.mockResolvedValue(jsonResponse(pr));
+    const result = await createBitbucketPullRequest(config, {
+      sourceBranch: 'feat', destinationBranch: 'main', title: 'T', description: 'D'
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.bitbucket.org/2.0/repositories/ws/repo/pullrequests');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({
+      title: 'T',
+      description: 'D',
+      source: { branch: { name: 'feat' } },
+      destination: { branch: { name: 'main' } }
+    });
+    expect(result.links?.html?.href).toBe('https://bitbucket.org/ws/repo/pull-requests/7');
+  });
+
+  it('surfaces a 400 as BitbucketAPIError', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 400, statusText: 'Bad Request', text: async () => 'nope' });
+    await expect(
+      createBitbucketPullRequest(config, { sourceBranch: 'a', destinationBranch: 'b', title: 't', description: '' })
+    ).rejects.toMatchObject({ name: 'BitbucketAPIError', statusCode: 400 });
+  });
+
+  it('find returns the first value', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ values: [{ id: 1 }, { id: 2 }] }));
+    expect(await findOpenPullRequestForBranch(config, 'feat')).toEqual({ id: 1 });
+  });
+
+  it('find returns null when none', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ values: [] }));
+    expect(await findOpenPullRequestForBranch(config, 'feat')).toBeNull();
+  });
+
+  it('find URL-encodes q and escapes quotes/backslashes', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ values: [] }));
+    await findOpenPullRequestForBranch(config, 'a"b\\c');
+    const url = fetchMock.mock.calls[0][0] as string;
+    const q = new URL(url).searchParams.get('q');
+    expect(q).toBe('source.branch.name="a\\"b\\\\c" AND state="OPEN"');
+    expect(url).toContain('pagelen=1');
+    expect(url).not.toContain(' ');
+    expect(url).not.toContain('"');
+  });
+});
 
 describe('sanitizeToken', () => {
   it('strips control characters and trims', () => {
