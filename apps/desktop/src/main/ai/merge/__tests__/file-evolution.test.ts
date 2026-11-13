@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { FileEvolutionTracker } from '../file-evolution';
+import { FileEvolutionTracker, pruneFinishedTask } from '../file-evolution';
 
 describe('FileEvolutionTracker', () => {
   let root: string;
@@ -161,5 +161,87 @@ describe('FileEvolutionTracker', () => {
     expect(
       tracker.recordModification('t1', path.join(projectDir, 'src/a.ts'), 'a', 'b', undefined, true),
     ).toBeDefined();
+  });
+  describe('pruning', () => {
+    const evoJson = () => fs.readFileSync(path.join(storageDir, 'file_evolution.json'), 'utf8');
+
+    it('pruning a merged task removes its entries and keeps other tasks', () => {
+      write('src/only1.ts', 'export const o = 1;\n');
+      const tracker = make();
+      tracker.captureBaselines('t1', ['src/a.ts', 'src/b.ts', 'src/only1.ts']);
+      tracker.captureBaselines('t2', ['src/a.ts', 'src/b.ts']);
+      tracker.recordModification('t1', 'src/a.ts', 'export const a = 1;\n', 'export const a = 2;\n', 'D1');
+      tracker.recordModification('t2', 'src/a.ts', 'export const a = 1;\n', 'export const a = 3;\n', 'D2');
+
+      pruneFinishedTask(projectDir, storageDir, 't1');
+
+      const reloaded = make();
+      const evo = reloaded.getFileEvolution('src/a.ts')!;
+      expect(evo.taskSnapshots.map((s) => s.taskId)).toEqual(['t2']);
+      expect(evo.taskSnapshots[0].rawDiff).toBe('D2');
+      expect(reloaded.getFileEvolution('src/only1.ts')).toBeUndefined();
+      expect(fs.existsSync(path.join(storageDir, 'baselines', 't1'))).toBe(false);
+      expect(fs.existsSync(path.join(storageDir, 'baselines', 't2'))).toBe(true);
+      expect(evoJson()).not.toContain('only1.ts');
+    });
+
+    it('pruneFinishedTask is a no-op when nothing is stored', () => {
+      expect(() => pruneFinishedTask(projectDir, storageDir, 't1')).not.toThrow();
+      expect(fs.existsSync(storageDir)).toBe(false);
+    });
+
+    it('pruneFinishedTask swallows errors', () => {
+      fs.writeFileSync(storageDir, 'i am a file', 'utf8');
+      expect(() => pruneFinishedTask(projectDir, storageDir, 't1')).not.toThrow();
+      fs.rmSync(storageDir, { force: true });
+      fs.mkdirSync(storageDir, { recursive: true });
+      fs.writeFileSync(path.join(storageDir, 'file_evolution.json'), '{not json', 'utf8');
+      expect(() => pruneFinishedTask(projectDir, storageDir, 't1')).not.toThrow();
+    });
+
+    it('pruneOrphanedTasks drops tasks with no spec folder', () => {
+      const tracker = make();
+      tracker.captureBaselines('t1', ['src/a.ts']);
+      tracker.captureBaselines('t2', ['src/a.ts']);
+      fs.mkdirSync(path.join(storageDir, 'specs', 't2'), { recursive: true });
+
+      const fresh = make();
+      const evo = fresh.getFileEvolution('src/a.ts')!;
+      expect(evo.taskSnapshots.map((s) => s.taskId)).toEqual(['t2']);
+      expect(fs.existsSync(path.join(storageDir, 'baselines', 't1'))).toBe(false);
+      expect(fs.existsSync(path.join(storageDir, 'baselines', 't2'))).toBe(true);
+      expect(evoJson()).not.toContain('"t1"');
+    });
+
+    it('orphan pass keeps tasks that only have a worktree folder', () => {
+      const tracker = make();
+      tracker.captureBaselines('t2', ['src/a.ts']);
+      tracker.captureBaselines('t3', ['src/a.ts']);
+      fs.mkdirSync(path.join(storageDir, 'specs', 't2'), { recursive: true });
+      fs.mkdirSync(path.join(storageDir, 'worktrees', 'tasks', 't3'), { recursive: true });
+
+      const ids = make().getFileEvolution('src/a.ts')!.taskSnapshots.map((s) => s.taskId);
+      expect(ids.sort()).toEqual(['t2', 't3']);
+    });
+
+    it('orphan pass is skipped when there is no specs directory', () => {
+      make().captureBaselines('t1', ['src/a.ts']);
+      const ids = make().getFileEvolution('src/a.ts')!.taskSnapshots.map((s) => s.taskId);
+      expect(ids).toEqual(['t1']);
+    });
+
+    it('orphan pass does not rewrite the file when nothing is orphaned', () => {
+      make().captureBaselines('t1', ['src/a.ts']);
+      fs.mkdirSync(path.join(storageDir, 'specs', 't1'), { recursive: true });
+      const file = path.join(storageDir, 'file_evolution.json');
+      const old = new Date(2020, 0, 1);
+      fs.utimesSync(file, old, old);
+      const before = fs.readFileSync(file, 'utf8');
+
+      make();
+
+      expect(fs.statSync(file).mtimeMs).toBe(old.getTime());
+      expect(fs.readFileSync(file, 'utf8')).toBe(before);
+    });
   });
 });
