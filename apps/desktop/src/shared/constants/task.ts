@@ -3,7 +3,7 @@
  * Includes status, categories, complexity, priority, and execution phases
  */
 
-import type { TaskStatus } from '@shared/types/task';
+import type { ExecutionPhase, TaskStatus } from '@shared/types/task';
 
 // ============================================
 // Task Status (Kanban columns)
@@ -89,6 +89,20 @@ export const EXECUTION_PHASE_LABELS: Record<string, string> = {
   qa_fixing: 'Fixing Issues',
   complete: 'Complete',
   failed: 'Failed'
+};
+
+// Execution phase label translation keys (tasks namespace).
+// Note: qa_review/qa_fixing map to 'reviewing'/'fixing' keys (naming mismatch is intentional).
+export const EXECUTION_PHASE_LABEL_KEYS: Record<ExecutionPhase, string> = {
+  idle: 'execution.phases.idle',
+  planning: 'execution.phases.planning',
+  coding: 'execution.phases.coding',
+  rate_limit_paused: 'execution.phases.rate_limit_paused',
+  auth_failure_paused: 'execution.phases.auth_failure_paused',
+  qa_review: 'execution.phases.reviewing',
+  qa_fixing: 'execution.phases.fixing',
+  complete: 'execution.phases.complete',
+  failed: 'execution.phases.failed'
 };
 
 // Execution phase colors (for progress bars and indicators)
