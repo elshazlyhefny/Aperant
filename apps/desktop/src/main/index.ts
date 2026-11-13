@@ -56,7 +56,7 @@ import { initializeUsageMonitorForwarding } from './ipc-handlers/terminal-handle
 import { initializeAppUpdater, stopPeriodicUpdates } from './app-updater';
 import { DEFAULT_APP_SETTINGS, IPC_CHANNELS, SPELL_CHECK_LANGUAGE_MAP, DEFAULT_SPELL_CHECK_LANGUAGE, ADD_TO_DICTIONARY_LABELS } from '../shared/constants';
 import { getAppLanguage, initAppLanguage } from './app-language';
-import { readSettingsFile } from './settings-utils';
+import { readSettingsFile, writeSettingsFile, secureSettingsFilePermissions } from './settings-utils';
 import { projectStore } from './project-store';
 import { registerSettingsAccessor } from './ai/auth/resolver';
 import { appLog, setupErrorLogging } from './app-logger';
@@ -442,6 +442,12 @@ app.whenReady().then(() => {
 
   // Load settings and configure agent manager with Python and auto-claude paths
   // Uses EAFP pattern (try/catch) instead of LBYL (existsSync) to avoid TOCTOU race conditions
+  // zeenha fork: tighten permissions on an existing settings.json (may hold secrets) even if never saved
+  try {
+    secureSettingsFilePermissions();
+  } catch {
+    // Best effort; a missing file or unsupported platform is fine
+  }
   const settingsPath = join(app.getPath('userData'), 'settings.json');
   try {
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
@@ -486,7 +492,7 @@ app.whenReady().then(() => {
 
             // Save the corrected setting - we're the only process modifying settings at startup
             try {
-              writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+              writeSettingsFile(settings);
               appLog.info('[main] Successfully saved migrated autoBuildPath to settings');
             } catch (writeError) {
               console.warn('[main] Failed to save migrated autoBuildPath:', writeError);
@@ -502,7 +508,7 @@ app.whenReady().then(() => {
           // Clear the stale setting so this warning doesn't repeat every startup
           try {
             delete settings.autoBuildPath;
-            writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+            writeSettingsFile(settings);
             appLog.info('[main] Cleared stale autoBuildPath from settings');
           } catch {
             // Non-critical - warning will just repeat next startup
