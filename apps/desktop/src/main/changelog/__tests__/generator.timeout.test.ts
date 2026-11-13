@@ -12,6 +12,7 @@ mockChildProcess.pid = 12345;
 mockChildProcess.kill = vi.fn();
 mockChildProcess.stdout = new EventEmitter();
 mockChildProcess.stderr = new EventEmitter();
+mockChildProcess.stdin = { write: vi.fn(), end: vi.fn(), on: vi.fn() };
 
 const mockSpawn = vi.fn(() => mockChildProcess);
 
@@ -132,8 +133,8 @@ describe('ChangelogGenerator - Subprocess Timeout', () => {
 
     // Verify process was spawned
     expect(mockSpawn).toHaveBeenCalledWith(
-      '/usr/bin/python3',
-      expect.arrayContaining(['-c', expect.any(String)]),
+      '/usr/bin/claude',
+      ['-p', '--output-format', 'text', '--model', 'haiku'],
       expect.objectContaining({
         cwd: '/tmp/auto-build',
         env: expect.any(Object)
@@ -345,6 +346,7 @@ describe('ChangelogGenerator - Subprocess Timeout', () => {
     mockChildProcess2.kill = vi.fn(() => true);
     mockChildProcess2.stdout = new EventEmitter();
     mockChildProcess2.stderr = new EventEmitter();
+    mockChildProcess2.stdin = { write: vi.fn(), end: vi.fn(), on: vi.fn() };
     mockSpawn.mockReturnValueOnce(mockChildProcess2);
 
     // Start second generation with different projectId (starts 2 minutes after first)
