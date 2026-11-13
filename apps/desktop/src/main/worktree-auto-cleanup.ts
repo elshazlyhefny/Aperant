@@ -65,6 +65,8 @@ export interface MergedCleanupDeps {
   /** Delete a local task branch whose worktree folder is already gone. */
   deleteBranch(projectPath: string, branch: string): Promise<{ success: boolean; detail?: string }>;
   invalidate(projectId: string): void;
+  /** Drop the removed task from the file-evolution tracking data. Best effort. */
+  pruneEvolution?(project: Project, specId: string): void;
 }
 
 /**
@@ -83,6 +85,14 @@ export async function cleanupMergedWorktrees(
 
   for (const project of projects) {
     let removedAny = false;
+    // A failing prune must never turn a removed worktree into cleanup_failed.
+    const prune = (specId: string) => {
+      try {
+        deps.pruneEvolution?.(project, specId);
+      } catch {
+        // best effort
+      }
+    };
 
     for (const task of deps.listTasks(project.id)) {
       const prUrl = task.metadata?.prUrl;
@@ -111,6 +121,7 @@ export async function cleanupMergedWorktrees(
           const deleted = await deps.deleteBranch(project.path, branchName);
           if (deleted.success) {
             removedAny = true;
+            prune(task.specId);
             outcomes.push({ ...base, status: 'removed' });
           } else {
             keep('cleanup_failed', deleted.detail);
@@ -200,6 +211,7 @@ export async function cleanupMergedWorktrees(
         }
         await deps.removeDockerVolumes(volumes);
         removedAny = true;
+        prune(task.specId);
         outcomes.push({ ...base, status: 'removed' });
       } catch (error) {
         keep('cleanup_failed', error instanceof Error ? error.message : String(error));

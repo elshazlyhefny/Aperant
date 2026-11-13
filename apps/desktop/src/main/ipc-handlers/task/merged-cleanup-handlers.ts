@@ -6,7 +6,9 @@
  * the checks are in main/worktree-auto-cleanup.ts.
  */
 
+import path from 'node:path';
 import { ipcMain } from 'electron';
+import { pruneFinishedTask } from '../../ai/merge/file-evolution';
 import type { AgentManager } from '../../agent';
 import { IPC_CHANNELS } from '../../../shared/constants';
 import type { IPCResult, MergedCleanupOutcome } from '../../../shared/types';
@@ -56,6 +58,8 @@ export function createMergedCleanupDeps(agentManager: AgentManager): MergedClean
     removeDockerVolumes,
     deleteBranch: deleteTaskBranch,
     invalidate: (projectId) => projectStore.invalidateTasksCache(projectId),
+    pruneEvolution: (project, specId) =>
+      pruneFinishedTask(project.path, path.join(project.path, project.autoBuildPath || '.auto-claude'), specId),
   };
 }
 

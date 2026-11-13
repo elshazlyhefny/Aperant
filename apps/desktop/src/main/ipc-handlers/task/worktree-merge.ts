@@ -6,6 +6,7 @@ import type { BrowserWindow } from 'electron';
 import { IPC_CHANNELS, AUTO_BUILD_PATHS } from '../../../shared/constants';
 import type { IPCResult, Project, Task, WorktreeMergeResult } from '../../../shared/types';
 import { MergeOrchestrator } from '../../ai/merge/orchestrator';
+import { pruneFinishedTask } from '../../ai/merge/file-evolution';
 import { createMergeResolverFn } from '../../ai/runners/merge-resolver';
 import type { ModelShorthand } from '../../ai/config/types';
 import { findTaskAndProject } from './shared';
@@ -567,6 +568,11 @@ export async function handleWorktreeMerge(
         specId: task.specId,
         debug
       });
+      pruneFinishedTask(
+        project.path,
+        path.join(project.path, project.autoBuildPath || '.auto-claude'),
+        task.specId
+      );
     }
 
     debug('Merge result. isStageOnly:', isStageOnly, 'newStatus:', newStatus, 'staged:', staged);

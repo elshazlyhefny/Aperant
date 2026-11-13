@@ -7,6 +7,7 @@ import { execFileSync, execFile } from 'child_process';
 import { projectStore } from '../../project-store';
 
 import { MergeOrchestrator } from '../../ai/merge/orchestrator';
+import { pruneFinishedTask } from '../../ai/merge/file-evolution';
 import { createPR, createMR, createBitbucketPR, suggestPRTitleForWorktree } from '../../ai/runners/github/pr-creator';
 import { capPRTitle } from '../../../shared/utils/pr-title';
 import { findTaskAndProject } from './shared';
@@ -512,6 +513,11 @@ export function registerWorktreeHandlers(
           console.warn('[TASK_WORKTREE_DISCARD] Cleanup warnings:', cleanupResult.warnings);
         }
 
+        pruneFinishedTask(
+          project.path,
+          path.join(project.path, project.autoBuildPath || '.auto-claude'),
+          task.specId
+        );
 
         // Only send status change to backlog if not skipped
         // (skip when caller will set a different status, e.g., 'done')
@@ -597,6 +603,12 @@ export function registerWorktreeHandlers(
             error: cleanupResult.warnings.join(', ') || 'Failed to cleanup orphaned worktree'
           };
         }
+
+        pruneFinishedTask(
+          project.path,
+          path.join(project.path, project.autoBuildPath || '.auto-claude'),
+          specName
+        );
 
         return {
           success: true,

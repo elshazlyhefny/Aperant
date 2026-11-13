@@ -219,6 +219,24 @@ function detectTargetBranch(worktreePath: string): string {
   return 'main';
 }
 
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isSafeTaskId(taskId: string): boolean {
+  return (
+    taskId !== '' &&
+    taskId !== '.' &&
+    taskId !== '..' &&
+    !taskId.includes('/') &&
+    !taskId.includes('\\')
+  );
+}
+
 // =============================================================================
 // FileEvolutionTracker
 // =============================================================================
@@ -246,6 +264,24 @@ export class FileEvolutionTracker {
     this.storage = new EvolutionStorage(projectDir, resolvedStorageDir);
     this.analyzer = semanticAnalyzer ?? new SemanticAnalyzer();
     this.evolutions = this.storage.loadEvolutions();
+
+    // zeenha fork: file_evolution.json used to grow forever because finished
+    // tasks were never removed. Drop snapshots of tasks that have neither a spec
+    // folder nor a task worktree. Skipped when there is no specs directory
+    // (tests, fresh storage). Must never make construction fail.
+    try {
+      const specsDir = path.join(this.storage.storageDir, 'specs');
+      if (isDirectory(specsDir)) {
+        const worktreesDir = path.join(this.storage.storageDir, 'worktrees', 'tasks');
+        this.pruneOrphanedTasks(
+          (taskId) =>
+            fs.existsSync(path.join(specsDir, taskId)) ||
+            fs.existsSync(path.join(worktreesDir, taskId)),
+        );
+      }
+    } catch {
+      // Pruning is best-effort
+    }
   }
 
   private saveEvolutions(): void {
@@ -546,6 +582,14 @@ export class FileEvolutionTracker {
    * Clean up data for a completed/cancelled task.
    */
   cleanupTask(taskId: string, removeBaselines = true): void {
+    this.removeTaskInMemory(taskId, removeBaselines);
+    this.saveEvolutions();
+  }
+
+  /**
+   * Remove snapshots (and optionally baselines) for a task without saving.
+   */
+  private removeTaskInMemory(taskId: string, removeBaselines: boolean): void {
     for (const evolution of this.evolutions.values()) {
       evolution.taskSnapshots = evolution.taskSnapshots.filter((ts) => ts.taskId !== taskId);
     }
@@ -563,8 +607,29 @@ export class FileEvolutionTracker {
         this.evolutions.delete(filePath);
       }
     }
+  }
 
-    this.saveEvolutions();
+  /**
+   * Remove all data for task ids that are no longer known.
+   * Ids containing path separators or equal to '.'/'..' are skipped.
+   * Saves once, only if something was removed. Returns removed task id count.
+   */
+  pruneOrphanedTasks(isKnownTask: (taskId: string) => boolean): number {
+    const taskIds = new Set<string>();
+    for (const evolution of this.evolutions.values()) {
+      for (const snapshot of evolution.taskSnapshots) taskIds.add(snapshot.taskId);
+    }
+
+    let removed = 0;
+    for (const taskId of taskIds) {
+      if (!isSafeTaskId(taskId)) continue;
+      if (isKnownTask(taskId)) continue;
+      this.removeTaskInMemory(taskId, true);
+      removed++;
+    }
+
+    if (removed > 0) this.saveEvolutions();
+    return removed;
   }
 
   /**
@@ -603,5 +668,25 @@ export class FileEvolutionTracker {
       total_semantic_changes: totalChanges,
       active_tasks: this.getActiveTasks().size,
     };
+  }
+}
+
+/**
+ * Remove a finished (merged/discarded) task from file evolution tracking.
+ * Best-effort: callers have already completed the merge/discard, so failures
+ * are logged and swallowed.
+ */
+export function pruneFinishedTask(projectDir: string, storageDir: string, taskId: string): void {
+  try {
+    if (!isSafeTaskId(taskId)) return;
+    const resolved = path.resolve(storageDir);
+    const hasEvolutionFile = fs.existsSync(path.join(resolved, 'file_evolution.json'));
+    const hasBaselines = fs.existsSync(path.join(resolved, 'baselines', taskId));
+    if (!hasEvolutionFile && !hasBaselines) return;
+    new FileEvolutionTracker(projectDir, resolved).cleanupTask(taskId);
+  } catch (err) {
+    console.warn(
+      `[FileEvolutionTracker] prune failed for task ${taskId}: ${err instanceof Error ? err.message : err}`,
+    );
   }
 }

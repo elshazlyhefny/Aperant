@@ -51,8 +51,9 @@ function setup(f: Fixture = {}) {
     deleteBranch: vi.fn(async () => ({ success: true })),
     remove: vi.fn(async () => ({ success: f.removeOk ?? true, warnings: f.removeOk === false ? ['locked'] : [] })),
     invalidate: vi.fn(),
+    pruneEvolution: vi.fn(),
   };
-  return { deps, run: () => cleanupMergedWorktrees(deps) };
+  return { deps, project, run: () => cleanupMergedWorktrees(deps) };
 }
 
 describe('cleanupMergedWorktrees', () => {
@@ -196,6 +197,45 @@ describe('cleanupMergedWorktrees', () => {
     const { deps } = setup();
     expect(await cleanupMergedWorktrees(deps, { projectId: 'other' })).toEqual([]);
     expect(deps.remove).not.toHaveBeenCalled();
+  });
+
+  describe('file-evolution pruning', () => {
+    it('prunes once with the project and specId when a merged worktree is removed', async () => {
+      const { deps, project, run } = setup();
+      expect((await run())[0].status).toBe('removed');
+      expect(deps.pruneEvolution).toHaveBeenCalledTimes(1);
+      expect(deps.pruneEvolution).toHaveBeenCalledWith(project, '016-keep-focus');
+    });
+
+    it('prunes once when an orphan branch is deleted', async () => {
+      const { deps, project, run } = setup({ worktree: null });
+      expect((await run())[0].status).toBe('removed');
+      expect(deps.pruneEvolution).toHaveBeenCalledTimes(1);
+      expect(deps.pruneEvolution).toHaveBeenCalledWith(project, '016-keep-focus');
+    });
+
+    it.each<[string, Fixture]>([
+      ['uncommitted changes', { dirty: true }],
+      ['an agent is running', { running: [true] }],
+      ['the removal fails', { removeOk: false }],
+      ['the PR is not merged', { pr: { state: 'OPEN', headRefOid: HEAD } }],
+      ['an orphan branch is kept', { worktree: null, inPr: false }],
+    ])('does not prune when %s', async (_name, fixture) => {
+      const { deps, run } = setup(fixture);
+      await run();
+      expect(deps.pruneEvolution).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, Fixture]>([
+      ['worktree', {}],
+      ['orphan branch', { worktree: null }],
+    ])('still reports removed when pruning throws (%s)', async (_name, fixture) => {
+      const { deps, run } = setup(fixture);
+      vi.mocked(deps.pruneEvolution as NonNullable<MergedCleanupDeps['pruneEvolution']>).mockImplementation(() => {
+        throw new Error('prune boom');
+      });
+      expect((await run())[0].status).toBe('removed');
+    });
   });
 
   it('turns an unexpected error into a kept outcome instead of throwing', async () => {

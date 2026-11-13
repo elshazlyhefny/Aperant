@@ -58,6 +58,8 @@ const generateCommitMessage = vi.hoisted(() => vi.fn());
 vi.mock('../../../ai/runners/commit-message', () => ({ generateCommitMessage }));
 const cleanupWorktree = vi.hoisted(() => vi.fn());
 vi.mock('../../../utils/worktree-cleanup', () => ({ cleanupWorktree }));
+const pruneFinishedTask = vi.hoisted(() => vi.fn());
+vi.mock('../../../ai/merge/file-evolution', () => ({ pruneFinishedTask }));
 const handleManualStatusChange = vi.hoisted(() => vi.fn());
 vi.mock('../../../task-state-manager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../task-state-manager')>();
@@ -152,6 +154,8 @@ describe('TASK_WORKTREE_MERGE characterization', () => {
     expect(cleanupWorktree).toHaveBeenCalledWith(
       expect.objectContaining({ worktreePath: ref.worktree, projectPath: ref.path, specId: '001-x', deleteBranch: true })
     );
+    expect(pruneFinishedTask).toHaveBeenCalledTimes(1);
+    expect(pruneFinishedTask).toHaveBeenCalledWith(ref.path, path.join(ref.path, '.auto-claude'), '001-x');
     const plan = readJson(mainPlan());
     expect(plan.status).toBe('done');
     expect(plan.planStatus).toBe('completed');
@@ -173,6 +177,7 @@ describe('TASK_WORKTREE_MERGE characterization', () => {
     expect(plan.stagedInMainProject).toBe(true);
     expect(typeof plan.stagedAt).toBe('string');
     expect(cleanupWorktree).not.toHaveBeenCalled();
+    expect(pruneFinishedTask).not.toHaveBeenCalled();
     expect(handleManualStatusChange).toHaveBeenCalledWith('t1', 'human_review', expect.anything(), expect.anything());
   });
 
@@ -210,6 +215,7 @@ describe('TASK_WORKTREE_MERGE characterization', () => {
     expect(fs.readFileSync(mainPlan(), 'utf-8')).toBe(before);
     expect(handleManualStatusChange).not.toHaveBeenCalled();
     expect(cleanupWorktree).not.toHaveBeenCalled();
+    expect(pruneFinishedTask).not.toHaveBeenCalled();
   });
 
   it('a throwing mergeTask is reported as a failure and emits an error progress event', async () => {
