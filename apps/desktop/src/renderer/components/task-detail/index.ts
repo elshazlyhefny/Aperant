@@ -1,6 +1,5 @@
 export { TaskDetailModal } from './TaskDetailModal';
 export { TaskHeader } from './TaskHeader';
-export { TaskProgress } from './TaskProgress';
 export { TaskMetadata } from './TaskMetadata';
 export { TaskActions } from './TaskActions';
 export { TaskWarnings } from './TaskWarnings';

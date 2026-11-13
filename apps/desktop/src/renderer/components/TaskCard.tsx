@@ -25,7 +25,7 @@ import {
   TASK_IMPACT_LABELS,
   TASK_PRIORITY_COLORS,
   TASK_PRIORITY_LABELS,
-  EXECUTION_PHASE_LABELS,
+  EXECUTION_PHASE_LABEL_KEYS,
   EXECUTION_PHASE_BADGE_COLORS,
   TASK_STATUS_COLUMNS,
   TASK_STATUS_LABELS,
@@ -552,7 +552,7 @@ export const TaskCard = memo(function TaskCard({
                 )}
               >
                 <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                {EXECUTION_PHASE_LABELS[executionPhase]}
+                {t(EXECUTION_PHASE_LABEL_KEYS[executionPhase])}
               </Badge>
             )}
              {/* Status badge - hide when execution phase badge is showing */}
