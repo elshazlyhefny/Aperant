@@ -105,15 +105,18 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     if (!schedule.enabled || schedule.nextRunAt === null || schedule.nextRunAt > now) return false;
     inFlight.add(schedule.id);
     try {
-      return await processDue(schedule, project, now);
+      return await processDue(schedule, schedule.nextRunAt, project, now);
     } finally {
       inFlight.delete(schedule.id);
     }
   }
 
-  async function processDue(schedule: RecurringSchedule, project: Project, now: number): Promise<boolean> {
-
-    const firstDue = schedule.nextRunAt;
+  async function processDue(
+    schedule: RecurringSchedule,
+    firstDue: number,
+    project: Project,
+    now: number
+  ): Promise<boolean> {
     const { dueCount, nextRunAt } = advancePast(schedule.cadence, firstDue, now);
     if (dueCount === 0) return false;
 
