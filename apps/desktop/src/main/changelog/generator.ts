@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { spawn } from 'child_process';
+import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 import type {
@@ -8,7 +8,8 @@ import type {
   ChangelogGenerationProgress,
   TaskSpecContent
 } from '../../shared/types';
-import { buildChangelogPrompt, buildGitPrompt, createGenerationScript } from './formatter';
+import { buildChangelogPrompt, buildGitPrompt } from './formatter';
+import { spawnClaudeWithPrompt } from './claude-cli';
 import { extractChangelog } from './parser';
 import { getCommits, getBranchDiffCommits } from './git-integration';
 import { detectRateLimit, createSDKRateLimitInfo, getBestAvailableProfileEnv } from '../rate-limit-detector';
@@ -21,12 +22,12 @@ import { isWindows } from '../platform';
  * Handles AI generation via Claude CLI subprocess
  */
 export class ChangelogGenerator extends EventEmitter {
-  private generationProcesses: Map<string, ReturnType<typeof spawn>> = new Map();
+  private generationProcesses: Map<string, ChildProcess> = new Map();
   private generationTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private debugEnabled: boolean;
 
   constructor(
-    private pythonPath: string,
+    _pythonPath: string,
     private claudePath: string,
     private autoBuildSourcePath: string,
     private autoBuildEnv: Record<string, string>,
@@ -127,10 +128,6 @@ export class ChangelogGenerator extends EventEmitter {
       promptPreview: prompt.substring(0, 500) + '...'
     });
 
-    // Create Python script
-    const script = createGenerationScript(prompt, this.claudePath);
-    this.debug('Python script created', { scriptLength: script.length });
-
     this.emitProgress(projectId, {
       stage: 'generating',
       progress: 30,
@@ -138,17 +135,24 @@ export class ChangelogGenerator extends EventEmitter {
     });
 
     const startTime = Date.now();
-    this.debug('Spawning Python process...');
+    this.debug('Spawning Claude CLI...');
 
     // Build environment with explicit critical variables
     const spawnEnv = this.buildSpawnEnvironment();
 
-    // Use python3/python as fallback command (Python subprocess path removed in Vercel AI SDK migration)
-    const pythonCommand = this.pythonPath || 'python3';
-    const childProcess = spawn(pythonCommand, ['-c', script], {
-      cwd: this.autoBuildSourcePath,
-      env: spawnEnv
-    });
+    // zeenha fork: the prompt goes to the CLI via stdin, never on the command line
+    let childProcess: ChildProcess;
+    try {
+      childProcess = spawnClaudeWithPrompt({
+        claudePath: this.claudePath,
+        prompt,
+        cwd: this.autoBuildSourcePath,
+        env: spawnEnv
+      });
+    } catch (err) {
+      this.emitError(projectId, err instanceof Error ? err.message : String(err));
+      return;
+    }
 
     this.generationProcesses.set(projectId, childProcess);
     this.debug('Process spawned with PID:', childProcess.pid);
@@ -311,10 +315,7 @@ export class ChangelogGenerator extends EventEmitter {
       // Ensure critical env vars are set for claude CLI
       // Use USERPROFILE on Windows, HOME on Unix
       ...(isWindows() ? { USERPROFILE: homeDir } : { HOME: homeDir }),
-      USER: process.env.USER || process.env.USERNAME || 'user',
-      PYTHONUNBUFFERED: '1',
-      PYTHONIOENCODING: 'utf-8',
-      PYTHONUTF8: '1'
+      USER: process.env.USER || process.env.USERNAME || 'user'
     };
 
     this.debug('Spawn environment', {
