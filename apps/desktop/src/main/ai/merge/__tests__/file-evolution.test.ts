@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { execFileSync } from 'child_process';
 
 import { FileEvolutionTracker } from '../file-evolution';
 
@@ -162,4 +163,176 @@ describe('FileEvolutionTracker', () => {
       tracker.recordModification('t1', path.join(projectDir, 'src/a.ts'), 'a', 'b', undefined, true),
     ).toBeDefined();
   });
+});
+
+// =============================================================================
+// refreshFromGit — real git repo + worktree
+// =============================================================================
+
+const GIT_ENV: NodeJS.ProcessEnv = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: os.devNull,
+  GIT_CONFIG_SYSTEM: os.devNull,
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_AUTHOR_NAME: 'Test',
+  GIT_AUTHOR_EMAIL: 'test@example.com',
+  GIT_COMMITTER_NAME: 'Test',
+  GIT_COMMITTER_EMAIL: 'test@example.com',
+};
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+    cwd,
+    env: GIT_ENV,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function writeIn(dir: string, rel: string, content: string): void {
+  const full = path.join(dir, rel);
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  fs.writeFileSync(full, content, 'utf8');
+}
+
+function commitAll(dir: string, message: string): void {
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-m', message);
+}
+
+describe('FileEvolutionTracker.refreshFromGit', () => {
+  let root: string;
+  let projectDir: string;
+  let storageDir: string;
+  let worktree: string;
+
+  const make = () => new FileEvolutionTracker(projectDir, storageDir);
+  const spySave = (tracker: FileEvolutionTracker) =>
+    // biome-ignore lint/suspicious/noExplicitAny: accessing private storage for spying
+    vi.spyOn((tracker as any).storage, 'saveEvolutions');
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'file-evolution-git-'));
+    projectDir = path.join(root, 'project');
+    storageDir = path.join(root, 'storage');
+    worktree = path.join(root, 'wt');
+    fs.mkdirSync(projectDir, { recursive: true });
+    git(projectDir, 'init', '-b', 'main');
+    git(projectDir, 'config', 'user.name', 'Test');
+    git(projectDir, 'config', 'user.email', 'test@example.com');
+    writeIn(projectDir, 'src/a.ts', 'export const a = 1;\n');
+    writeIn(projectDir, 'src/b.ts', 'export const b = 1;\n');
+    writeIn(projectDir, 'src/c.ts', 'export const c = 1;\n');
+    commitAll(projectDir, 'baseline');
+    git(projectDir, 'worktree', 'add', worktree, '-b', 'task-branch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  /** Committed modification (a), new committed file (new.ts), uncommitted edit (b). */
+  const changeSeveralFiles = () => {
+    writeIn(worktree, 'src/a.ts', 'import x from "x";\nexport const a = 2;\n');
+    writeIn(worktree, 'src/new.ts', 'import y from "y";\nexport const n = 1;\n');
+    commitAll(worktree, 'task work');
+    writeIn(worktree, 'src/b.ts', 'import z from "z";\nexport const b = 5;\n');
+  };
+
+  it('persists exactly once per refresh and records every changed file', async () => {
+    changeSeveralFiles();
+    const tracker = make();
+    const save = spySave(tracker);
+
+    await tracker.refreshFromGit('t1', worktree, 'main');
+
+    expect(save).toHaveBeenCalledTimes(1);
+    const mods = tracker.getTaskModifications('t1');
+    expect(mods.map(([f]) => f).sort()).toEqual(['src/a.ts', 'src/b.ts', 'src/new.ts']);
+
+    const byFile = new Map(mods);
+    expect(byFile.get('src/a.ts')!.rawDiff).toBeTruthy();
+    expect(byFile.get('src/new.ts')!.contentHashBefore).not.toBe('');
+    expect(byFile.get('src/new.ts')!.contentHashAfter).not.toBe('');
+
+    await tracker.refreshFromGit('t1', worktree, 'main');
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it('writes file_evolution.json once per refresh', async () => {
+    changeSeveralFiles();
+    const tracker = make();
+    const spy = vi.spyOn(fs, 'writeFileSync');
+    try {
+      await tracker.refreshFromGit('t1', worktree, 'main');
+      const evoWrites = spy.mock.calls.filter((c) => String(c[0]).endsWith('file_evolution.json'));
+      expect(evoWrites).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('skips semantic analysis for files outside analyzeOnlyFiles', async () => {
+    changeSeveralFiles();
+    const tracker = make();
+    await tracker.refreshFromGit('t1', worktree, 'main', new Set(['src/a.ts']));
+
+    const byFile = new Map(tracker.getTaskModifications('t1'));
+    expect(byFile.size).toBe(3);
+    expect(byFile.get('src/a.ts')!.semanticChanges.length).toBeGreaterThan(0);
+    expect(byFile.get('src/b.ts')!.semanticChanges).toEqual([]);
+    expect(byFile.get('src/new.ts')!.semanticChanges).toEqual([]);
+  });
+
+  it('writes compact JSON that a new tracker reloads', async () => {
+    changeSeveralFiles();
+    const tracker = make();
+    await tracker.refreshFromGit('t1', worktree, 'main');
+
+    const raw = fs.readFileSync(tracker.evolutionFile, 'utf8');
+    expect(raw).not.toContain('\n  ');
+    expect(JSON.stringify(JSON.parse(raw))).toBe(raw);
+
+    const reloaded = make();
+    expect(reloaded.getTaskModifications('t1').map(([f]) => f).sort()).toEqual(
+      tracker.getTaskModifications('t1').map(([f]) => f).sort(),
+    );
+  });
+
+  it('still loads a pretty-printed legacy evolution file', async () => {
+    changeSeveralFiles();
+    const tracker = make();
+    await tracker.refreshFromGit('t1', worktree, 'main');
+    const parsed = JSON.parse(fs.readFileSync(tracker.evolutionFile, 'utf8'));
+    fs.writeFileSync(tracker.evolutionFile, JSON.stringify(parsed, null, 2), 'utf8');
+
+    const reloaded = make();
+    expect(reloaded.getTaskModifications('t1')).toHaveLength(3);
+  });
+
+  it('recordModification still saves once per call', () => {
+    const tracker = make();
+    tracker.captureBaselines('t1', ['src/a.ts']);
+    const save = spySave(tracker);
+
+    tracker.recordModification('t1', 'src/a.ts', 'export const a = 1;\n', 'export const a = 2;\n');
+    expect(save).toHaveBeenCalledTimes(1);
+    tracker.recordModification('t1', 'src/a.ts', 'export const a = 1;\n', 'export const a = 3;\n');
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it('records all files when more than the concurrency bound changed', async () => {
+    for (let i = 0; i < 20; i++) writeIn(worktree, `src/gen/f${i}.ts`, `export const v${i} = ${i};\n`);
+    commitAll(worktree, 'many files');
+    const tracker = make();
+    const save = spySave(tracker);
+
+    await tracker.refreshFromGit('t1', worktree, 'main');
+
+    const files = tracker.getTaskModifications('t1').map(([f]) => f);
+    expect(files).toHaveLength(20);
+    expect(new Set(files).size).toBe(20);
+    expect(save).toHaveBeenCalledTimes(1);
+  }, 30000);
 });
