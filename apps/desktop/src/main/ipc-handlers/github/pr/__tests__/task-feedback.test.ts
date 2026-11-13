@@ -16,6 +16,9 @@ import {
   PRFeedbackError,
   MAX_FEEDBACK_ITEMS,
   MAX_SUMMARY_LENGTH,
+  redactSecrets,
+  clip,
+  clipTail,
 } from "../task-feedback";
 
 const mockFetch = vi.mocked(githubFetch);
@@ -214,5 +217,22 @@ describe("fetchPRFeedback", () => {
     await expect(fetchPRFeedback({ token: "t", repo: "a/b/c" }, 7)).rejects.toMatchObject({
       code: "invalid_repo",
     });
+  });
+});
+
+describe("redactSecrets / clip / clipTail", () => {
+  it("redacts GitLab tokens", () => {
+    expect(redactSecrets("t glpat-abcdefghij1234567890 x")).toBe("t [redacted] x");
+    expect(redactSecrets("t glcbt-abcdefghij1234567890 x")).toBe("t [redacted] x");
+  });
+
+  it("clip keeps the head", () => {
+    expect(clip("abcdef", 3)).toEqual({ text: "abc…", truncated: true });
+  });
+
+  it("clipTail keeps the end, strips ANSI and redacts", () => {
+    expect(clipTail("abcdef", 3)).toEqual({ text: "…def", truncated: true });
+    expect(clipTail("\u001b[31mred\u001b[0m", 10)).toEqual({ text: "red", truncated: false });
+    expect(clipTail("glpat-abcdefghij1234567890", 100).text).toBe("[redacted]");
   });
 });
