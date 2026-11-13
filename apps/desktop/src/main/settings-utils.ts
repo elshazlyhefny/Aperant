@@ -68,7 +68,7 @@ export function readSettingsFile(): Partial<AppSettings> | undefined {
  *
  * @param settings - The settings object to write
  */
-export function writeSettingsFile(settings: Record<string, unknown>): void {
+export function writeSettingsFile(settings: object): void {
   const settingsPath = getSettingsPath();
 
   // Ensure the directory exists
