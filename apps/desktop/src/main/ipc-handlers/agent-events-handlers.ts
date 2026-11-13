@@ -16,6 +16,7 @@ import { fileWatcher } from "../file-watcher";
 import { notificationService } from "../notification-service";
 import { persistPlanLastEventSync, getPlanPath, persistPlanPhaseSync, persistPlanStatusAndReasonSync, hasPlanWithSubtasks, syncPlanPhasesToMainSync } from "./task/plan-file-utils";
 import { findTaskWorktree } from "../worktree-paths";
+import { resolveTaskBaseBranch } from "../base-branch";
 import { findTaskAndProject } from "./task/shared";
 import { safeSendToRenderer } from "./utils";
 import { getClaudeProfileManager } from "../claude-profile-manager";
@@ -215,7 +216,7 @@ export function registerAgenteventsHandlers(
             fileWatcher.watch(taskId, specDir).catch((err) => {
               console.error(`[agent-events-handlers] Failed to re-watch spec dir for ${taskId}:`, err);
             });
-            const baseBranch = specTask.metadata?.baseBranch || specProject.settings?.mainBranch;
+            const baseBranch = resolveTaskBaseBranch({ project: specProject, specId: specTask.specId });
             agentManager.startTaskExecution(
               taskId,
               specProject.path,
