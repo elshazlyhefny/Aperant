@@ -84,7 +84,7 @@ AI-assisted feature planning with competitor analysis and audience targeting.
 ![Roadmap](.github/assets/Auto-Claude-roadmap.png)
 
 ### Additional Features
-- **Insights** - Chat interface for exploring your codebase
+- **Insights** - Chat interface for exploring your codebase. You can attach images (paste, drop or screenshot) and send them to vision-capable models; see [Attaching images](apps/desktop/src/main/insights/README.md#attaching-images)
 - **Ideation** - Discover improvements, performance issues, and vulnerabilities
 - **Changelog** - Generate release notes from completed tasks
 
