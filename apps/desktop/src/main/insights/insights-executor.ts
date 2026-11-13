@@ -120,7 +120,9 @@ export class InsightsExecutor extends EventEmitter {
     const canSeeImages = modelSupportsVision(modelConfig?.model);
     let effectiveMessage = message;
     if (deliverable.length > 0 && !canSeeImages) {
-      // Text-only model: drop the images but still let the request succeed
+      // Text-only model: drop the images and add a note to the message instead, so the
+      // request still succeeds. Unknown/custom model ids are assumed vision-capable
+      // (see modelSupportsVision), so only catalog models marked vision: false land here.
       effectiveMessage = `${message}\n[User attached ${deliverable.length} image(s); this model cannot view images]`;
     }
     const imagePayload =
