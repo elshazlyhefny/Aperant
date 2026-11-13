@@ -99,6 +99,13 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/preload/index.ts')
+        },
+        // zeenha fork: sandboxed preloads must be CommonJS and single-file (they
+        // can only require 'electron'). package.json is "type": "module", so the
+        // explicit .cjs extension is required.
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].cjs'
         }
       }
     }

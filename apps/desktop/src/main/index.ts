@@ -255,8 +255,9 @@ function createWindow(): void {
     trafficLightPosition: { x: 15, y: 10 },
     icon: getIconPath(),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: false,
+      // zeenha fork: Chromium renderer sandbox on; the preload is a single CJS file
+      preload: join(__dirname, '../preload/index.cjs'),
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false, // Prevent terminal lag when window loses focus
