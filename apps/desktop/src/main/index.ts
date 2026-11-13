@@ -66,7 +66,6 @@ import { preWarmToolCache } from './cli-tool-manager';
 import { initializeClaudeProfileManager, getClaudeProfileManager } from './claude-profile-manager';
 import { isProfileAuthenticated } from './claude-profile/profile-utils';
 import { isMacOS, isWindows } from './platform';
-import { ptyDaemonClient } from './terminal/pty-daemon-client';
 import type { AppSettings, AuthFailureInfo } from '../shared/types';
 
 // Load .env. ES imports are hoisted and evaluated before any statement in this
@@ -711,11 +710,6 @@ app.on('before-quit', (event) => {
       if (terminalManager) {
         await terminalManager.killAll();
       }
-
-      // Shut down PTY daemon client AFTER terminal cleanup completes,
-      // ensuring all kill commands reach PTY processes before the daemon disconnects
-      ptyDaemonClient.shutdown();
-      console.warn('[main] PTY daemon client shutdown complete');
     } catch (error) {
       console.error('[main] Error during pre-quit cleanup:', error);
     } finally {
