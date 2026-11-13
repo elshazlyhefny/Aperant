@@ -25,6 +25,7 @@ import {
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
 import { getToolPath } from '../../cli-tool-manager';
 import { cleanupWorktree } from '../../utils/worktree-cleanup';
+import { detectTrunkBranch } from '../../base-branch';
 
 // Promisify execFile for async operations
 const execFileAsync = promisify(execFile);
@@ -209,19 +210,10 @@ function getDefaultBranch(projectPath: string): string {
     }
   }
 
-  for (const branch of ['main', 'master']) {
-    try {
-      execFileSync(getToolPath('git'), ['rev-parse', '--verify', branch], {
-        cwd: projectPath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: getIsolatedGitEnv(),
-      });
-      debugLog('[TerminalWorktree] Auto-detected branch:', branch);
-      return branch;
-    } catch {
-      // Branch doesn't exist, try next
-    }
+  const trunk = detectTrunkBranch(projectPath);
+  if (trunk) {
+    debugLog('[TerminalWorktree] Auto-detected branch:', trunk);
+    return trunk;
   }
 
   // Fallback to current branch - wrap in try-catch

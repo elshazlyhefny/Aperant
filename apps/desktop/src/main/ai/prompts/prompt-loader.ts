@@ -12,7 +12,6 @@
 
 import { readFileSync, existsSync, readFile as readFileAsync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { execSync } from 'node:child_process';
 
 import type { ProjectCapabilities, PromptContext, PromptValidationResult } from './types';
 
@@ -425,77 +424,6 @@ function getMcpToolFilesForCapabilities(capabilities: ProjectCapabilities): stri
   }
 
   return tools;
-}
-
-// =============================================================================
-// Base Branch Detection
-// =============================================================================
-
-/**
- * Detect the base branch for a project.
- *
- * Priority:
- * 1. task_metadata.json baseBranch field
- * 2. DEFAULT_BRANCH environment variable
- * 3. Auto-detect: main / master / develop
- * 4. Fall back to "main"
- */
-export function detectBaseBranch(specDir: string, projectDir: string): string {
-  // 1. Check task_metadata.json
-  const metadataPath = join(specDir, 'task_metadata.json');
-  if (existsSync(metadataPath)) {
-    try {
-      const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8')) as { baseBranch?: string };
-      const branch = validateBranchName(metadata.baseBranch);
-      if (branch) return branch;
-    } catch {
-      // Continue
-    }
-  }
-
-  // 2. Check DEFAULT_BRANCH env var
-  const envBranch = validateBranchName(process.env.DEFAULT_BRANCH);
-  if (envBranch) {
-    try {
-      execSync(`git rev-parse --verify ${envBranch}`, {
-        cwd: projectDir,
-        stdio: 'pipe',
-        timeout: 3000,
-      });
-      return envBranch;
-    } catch {
-      // Branch doesn't exist
-    }
-  }
-
-  // 3. Auto-detect
-  for (const branch of ['main', 'master', 'develop']) {
-    try {
-      execSync(`git rev-parse --verify ${branch}`, {
-        cwd: projectDir,
-        stdio: 'pipe',
-        timeout: 3000,
-      });
-      return branch;
-    } catch {
-      // Try next
-    }
-  }
-
-  // 4. Fallback
-  return 'main';
-}
-
-/**
- * Validate a git branch name for safety (mirrors Python _validate_branch_name).
- */
-function validateBranchName(branch: string | null | undefined): string | null {
-  if (!branch || typeof branch !== 'string') return null;
-  const trimmed = branch.trim();
-  if (!trimmed || trimmed.length > 255) return null;
-  if (!/[a-zA-Z0-9]/.test(trimmed)) return null;
-  if (!/^[A-Za-z0-9._/-]+$/.test(trimmed)) return null;
-  return trimmed;
 }
 
 // =============================================================================
