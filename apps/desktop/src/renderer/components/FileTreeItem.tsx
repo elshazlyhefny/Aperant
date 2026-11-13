@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronRight, ChevronDown, Folder, File, FileCode, FileJson, FileText, FileImage, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { FileNode } from '../../shared/types';
+import type { FileReferenceData } from './task-form/useImageUpload';
 
 interface FileTreeItemProps {
   node: FileNode;
@@ -10,6 +11,7 @@ interface FileTreeItemProps {
   isExpanded: boolean;
   isLoading: boolean;
   onToggle: () => void;
+  onFileActivate?: (data: FileReferenceData) => void;
 }
 
 // Get appropriate icon based on file extension
@@ -70,6 +72,7 @@ export function FileTreeItem({
   isExpanded,
   isLoading,
   onToggle,
+  onFileActivate,
 }: FileTreeItemProps) {
   const { t } = useTranslation('common');
   const [isDragging, setIsDragging] = useState(false);
@@ -86,6 +89,17 @@ export function FileTreeItem({
     };
   }, []);
 
+  const isActivatableFile = !node.isDirectory && !!onFileActivate;
+
+  const activateFile = () => {
+    onFileActivate?.({
+      type: 'file-reference',
+      path: node.path,
+      name: node.name,
+      isDirectory: false
+    });
+  };
+
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (node.isDirectory) {
@@ -97,6 +111,8 @@ export function FileTreeItem({
     e.stopPropagation();
     if (node.isDirectory) {
       onToggle();
+    } else if (isActivatableFile) {
+      activateFile();
     }
   };
 
@@ -106,6 +122,8 @@ export function FileTreeItem({
       e.stopPropagation();
       if (node.isDirectory) {
         onToggle();
+      } else if (isActivatableFile) {
+        activateFile();
       }
     }
   };
@@ -159,22 +177,28 @@ export function FileTreeItem({
 
   return (
     <div
-      role={node.isDirectory ? 'button' : undefined}
-      tabIndex={node.isDirectory ? 0 : undefined}
+      role={node.isDirectory || isActivatableFile ? 'button' : undefined}
+      tabIndex={node.isDirectory || isActivatableFile ? 0 : undefined}
       draggable
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onKeyDown={node.isDirectory ? handleKeyDown : undefined}
+      onKeyDown={node.isDirectory || isActivatableFile ? handleKeyDown : undefined}
       className={cn(
         'flex items-center gap-1 py-1 px-2 rounded cursor-grab select-none',
         'hover:bg-accent/50 transition-colors',
-        node.isDirectory && 'focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1',
+        (node.isDirectory || isActivatableFile) && 'focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1',
         isDragging && 'opacity-50 bg-accent ring-2 ring-primary'
       )}
       style={{ paddingLeft: `${depth * 12 + 8}px` }}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
-      aria-label={node.isDirectory ? t('accessibility.toggleFolder', { name: node.name }) : undefined}
+      aria-label={
+        node.isDirectory
+          ? t('accessibility.toggleFolder', { name: node.name })
+          : isActivatableFile
+            ? t('accessibility.addFileReference', { name: node.name })
+            : undefined
+      }
       aria-expanded={node.isDirectory ? isExpanded : undefined}
     >
       {/* Expand/collapse chevron for directories */}

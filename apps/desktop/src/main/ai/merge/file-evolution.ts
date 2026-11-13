@@ -14,7 +14,8 @@
 
 import fs from 'fs';
 import path from 'path';
-import { spawnSync } from 'child_process';
+import { execFile, spawnSync } from 'child_process';
+import { promisify } from 'util';
 
 import { SemanticAnalyzer } from './semantic-analyzer';
 import {
@@ -81,7 +82,7 @@ class EvolutionStorage {
       for (const [filePath, evolution] of evolutions) {
         data[filePath] = fileEvolutionToDict(evolution);
       }
-      fs.writeFileSync(this.evolutionFile, JSON.stringify(data, null, 2), 'utf8');
+      fs.writeFileSync(this.evolutionFile, JSON.stringify(data), 'utf8');
     } catch {
       // Non-fatal persistence failure
     }
@@ -152,6 +153,49 @@ function tryRunGit(args: string[], cwd: string): string | null {
   } catch {
     return null;
   }
+}
+
+const execFileAsync = promisify(execFile);
+const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+const GIT_CONCURRENCY = 8;
+
+async function runGitAsync(args: string[], cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: GIT_MAX_BUFFER,
+  });
+  return stdout.trim();
+}
+
+async function tryRunGitAsync(args: string[], cwd: string): Promise<string | null> {
+  try {
+    return await runGitAsync(args, cwd);
+  } catch {
+    return null;
+  }
+}
+
+/** Run `fn` over items with at most `limit` in flight; results keep input order (undefined on failure). */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<(R | undefined)[]> {
+  const results: (R | undefined)[] = new Array(items.length).fill(undefined);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const idx = next++;
+      try {
+        results[idx] = await fn(items[idx]);
+      } catch {
+        results[idx] = undefined;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 function getCurrentCommit(cwd: string): string {
@@ -270,6 +314,21 @@ export class FileEvolutionTracker {
     rawDiff?: string,
     skipSemanticAnalysis = false,
   ): TaskSnapshot | undefined {
+    const snapshot = this.recordModificationNoSave(
+      taskId, filePath, oldContent, newContent, rawDiff, skipSemanticAnalysis,
+    );
+    if (snapshot) this.saveEvolutions();
+    return snapshot;
+  }
+
+  private recordModificationNoSave(
+    taskId: string,
+    filePath: string,
+    oldContent: string,
+    newContent: string,
+    rawDiff?: string,
+    skipSemanticAnalysis = false,
+  ): TaskSnapshot | undefined {
     const relPath = this.storage.getRelativePath(filePath);
 
     if (!this.evolutions.has(relPath)) return undefined;
@@ -298,31 +357,30 @@ export class FileEvolutionTracker {
     snapshot.rawDiff = rawDiff;
 
     addTaskSnapshot(evolution, snapshot);
-    this.saveEvolutions();
     return snapshot;
   }
 
   /**
    * Refresh task snapshots by analyzing git diff from worktree.
    */
-  refreshFromGit(
+  async refreshFromGit(
     taskId: string,
     worktreePath: string,
     targetBranch?: string,
     analyzeOnlyFiles?: Set<string>,
-  ): void {
+  ): Promise<void> {
     const branch = targetBranch ?? detectTargetBranch(worktreePath);
 
     let mergeBase: string;
     try {
-      mergeBase = runGit(['merge-base', branch, 'HEAD'], worktreePath);
+      mergeBase = await runGitAsync(['merge-base', branch, 'HEAD'], worktreePath);
     } catch (err) {
       // merge-base failed — the target branch may not exist in this repo.
       // Fallback: use the main project's HEAD as the comparison base.
       // This works because worktrees share the same git object store.
       console.warn(`[FileEvolutionTracker] merge-base '${branch}' failed in ${worktreePath}: ${err instanceof Error ? err.message : err}`);
       try {
-        mergeBase = runGit(['rev-parse', 'HEAD'], this.storage.projectDir);
+        mergeBase = await runGitAsync(['rev-parse', 'HEAD'], this.storage.projectDir);
         console.warn(`[FileEvolutionTracker] Falling back to project HEAD: ${mergeBase.slice(0, 8)}`);
       } catch (fallbackErr) {
         console.warn(`[FileEvolutionTracker] Fallback also failed:`, fallbackErr);
@@ -336,47 +394,56 @@ export class FileEvolutionTracker {
     const changedFileSet = new Set<string>();
 
     // 1. Committed changes between merge base and HEAD
-    const committedOutput = tryRunGit(['diff', '--name-only', `${mergeBase}..HEAD`], worktreePath);
+    const committedOutput = await tryRunGitAsync(['diff', '--name-only', `${mergeBase}..HEAD`], worktreePath);
     if (committedOutput) {
       for (const f of committedOutput.split('\n')) { if (f) changedFileSet.add(f); }
     }
 
     // 2. Uncommitted changes (working tree vs HEAD)
-    const unstaged = tryRunGit(['diff', '--name-only', 'HEAD'], worktreePath);
+    const unstaged = await tryRunGitAsync(['diff', '--name-only', 'HEAD'], worktreePath);
     if (unstaged) {
       for (const f of unstaged.split('\n')) { if (f) changedFileSet.add(f); }
     }
 
     // 3. Staged but not yet committed changes
-    const staged = tryRunGit(['diff', '--name-only', '--cached', 'HEAD'], worktreePath);
+    const staged = await tryRunGitAsync(['diff', '--name-only', '--cached', 'HEAD'], worktreePath);
     if (staged) {
       for (const f of staged.split('\n')) { if (f) changedFileSet.add(f); }
     }
 
     const changedFiles = [...changedFileSet];
 
-    for (const filePath of changedFiles) {
+    // Fetch per-file data in parallel (bounded); mutation of the evolutions map
+    // happens afterwards, sequentially, in the original order.
+    const fetched = await mapWithConcurrency(changedFiles, GIT_CONCURRENCY, async (filePath) => {
+      // Use mergeBase comparison against working tree to capture all changes
+      const diffOutput = (await tryRunGitAsync(['diff', mergeBase, '--', filePath], worktreePath)) ?? '';
+
+      let oldContent = '';
       try {
-        // Use mergeBase comparison against working tree to capture all changes
-        const diffOutput = tryRunGit(['diff', mergeBase, '--', filePath], worktreePath) ?? '';
+        oldContent = await runGitAsync(['show', `${mergeBase}:${filePath}`], worktreePath);
+      } catch {
+        // File is new
+      }
 
-        let oldContent = '';
+      const fullPath = path.join(worktreePath, filePath);
+      let newContent = '';
+      if (fs.existsSync(fullPath)) {
         try {
-          oldContent = runGit(['show', `${mergeBase}:${filePath}`], worktreePath);
+          newContent = fs.readFileSync(fullPath, 'utf8');
         } catch {
-          // File is new
+          newContent = '';
         }
+      }
+      return { diffOutput, oldContent, newContent };
+    });
 
-        const fullPath = path.join(worktreePath, filePath);
-        let newContent = '';
-        if (fs.existsSync(fullPath)) {
-          try {
-            newContent = fs.readFileSync(fullPath, 'utf8');
-          } catch {
-            newContent = '';
-          }
-        }
-
+    for (let i = 0; i < changedFiles.length; i++) {
+      const filePath = changedFiles[i];
+      const data = fetched[i];
+      if (!data) continue;
+      try {
+        const { diffOutput, oldContent, newContent } = data;
         const relPath = this.storage.getRelativePath(filePath);
         if (!this.evolutions.has(relPath)) {
           this.evolutions.set(relPath, {
@@ -391,7 +458,7 @@ export class FileEvolutionTracker {
 
         const skipAnalysis = analyzeOnlyFiles !== undefined && !analyzeOnlyFiles.has(relPath);
 
-        this.recordModification(taskId, filePath, oldContent, newContent, diffOutput, skipAnalysis);
+        this.recordModificationNoSave(taskId, filePath, oldContent, newContent, diffOutput, skipAnalysis);
       } catch {
         // Skip failed file
       }

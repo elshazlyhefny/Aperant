@@ -53,7 +53,8 @@ jobs:
       fail-fast: false
       matrix:
         # zeenha fork: only Linux is shipped, and Windows has unported test failures.
-        os: [ubuntu-latest, macos-latest]
+        # macOS runs in test-frontend-macos below so it does not gate CI Complete.
+        os: [ubuntu-latest]
 
     steps:
       - name: Checkout repository
@@ -72,11 +73,6 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         working-directory: apps/desktop
         run: npm run test:coverage
-
-      - name: Run unit tests
-        if: matrix.os != 'ubuntu-latest'
-        working-directory: apps/desktop
-        run: npm run test:unit
 
       - name: Run integration tests
         working-directory: apps/desktop
@@ -97,6 +93,43 @@ jobs:
           working-directory: apps/desktop
           json-summary-path: coverage/coverage-summary.json
           json-final-path: coverage/coverage-final.json
+
+      - name: Build application
+        working-directory: apps/desktop
+        run: npm run build
+
+  # --------------------------------------------------------------------------
+  # Frontend Tests - macOS (advisory)
+  # --------------------------------------------------------------------------
+  # zeenha fork: hosted macOS arm64 runners are capacity-constrained, and jobs are
+  # often cancelled with "The job was not acquired by Runner of type hosted even
+  # after multiple attempts". That turned CI Complete red on PRs that had no macOS
+  # test failures. The job still runs and reports, but CI Complete does not need it.
+  test-frontend-macos:
+    name: test-frontend (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js frontend
+        uses: ./.github/actions/setup-node-frontend
+        with:
+          ignore-scripts: 'true'
+
+      - name: Run TypeScript type check
+        working-directory: apps/desktop
+        run: npm run typecheck
+
+      - name: Run unit tests
+        working-directory: apps/desktop
+        run: npm run test:unit
+
+      - name: Run integration tests
+        working-directory: apps/desktop
+        run: npm run test:integration
 
       - name: Build application
         working-directory: apps/desktop

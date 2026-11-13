@@ -390,6 +390,17 @@
       "statusNameLabel": "Nom du statut cible",
       "statusNamePlaceholder": "In Review",
       "note": "Seul le ticket Jira d'où la tâche a été importée est mis à jour, avec les identifiants Jira existants du projet. Ce paramètre est stocké uniquement dans les paramètres de cette application."
+    },
+    "issueWriteback": {
+      "title": "Retour vers les tickets",
+      "description": "Reporter le résultat d'une tâche sur le ticket d'où elle a été importée. Désactivé par défaut.",
+      "github": "Tickets GitHub",
+      "githubDescription": "Commenter le ticket GitHub d'origine lorsqu'une tâche se termine",
+      "gitlab": "Tickets GitLab",
+      "gitlabDescription": "Commenter le ticket GitLab d'origine lorsqu'une tâche se termine",
+      "linear": "Tickets Linear",
+      "linearDescription": "Commenter le ticket Linear d'origine lorsqu'une tâche se termine",
+      "note": "Seul le ticket d'où la tâche a été importée est commenté, avec les identifiants existants du projet. Ces paramètres sont stockés uniquement dans les paramètres de cette application et sont désactivés par défaut."
     }
   },
   "actions": {
@@ -1163,7 +1174,19 @@
     "errorCommandRequired": "La commande est requise pour les serveurs basés sur commande",
     "errorUrlRequired": "L'URL est requise pour les serveurs basés sur HTTP",
     "testConnection": "Test",
+    "testConnectionTitle": "Tester la connexion",
     "testing": "Test en cours...",
+    "saveFailed": "Impossible d'enregistrer les modifications du serveur MCP",
+    "deleteFailed": "Impossible de supprimer le serveur MCP",
+    "editServer": "Modifier",
+    "deleteServer": "Supprimer",
+    "delete": {
+      "title": "Supprimer {{name}} ?",
+      "description": "Cela supprime le serveur ainsi que sa commande, ses arguments et ses paramètres d'environnement. Cette action est irréversible.",
+      "agentsHeading": "Il sera aussi retiré de ces agents : {{agents}}",
+      "noAgents": "Aucun agent n'utilise ce serveur.",
+      "confirm": "Supprimer le serveur"
+    },
     "authToken": "Jeton d'authentification",
     "authTokenPlaceholder": "Collez votre jeton API ou PAT ici",
     "authTokenHint": "Utilisé comme jeton Bearer dans l'en-tête Authorization",

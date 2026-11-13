@@ -3,12 +3,12 @@
  */
 
 import { useState, useEffect } from 'react';
-import type { LinearTeam } from '../types';
+import type { LinearTeam, LinearImportErrorCode } from '../types';
 
 export function useLinearTeams(projectId: string, open: boolean) {
   const [teams, setTeams] = useState<LinearTeam[]>([]);
   const [isLoadingTeams, setIsLoadingTeams] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LinearImportErrorCode | null>(null);
 
   useEffect(() => {
     const loadTeams = async () => {
@@ -22,10 +22,10 @@ export function useLinearTeams(projectId: string, open: boolean) {
         if (result.success && result.data) {
           setTeams(result.data);
         } else {
-          setError(result.error || 'Failed to load teams');
+          setError('loadTeams');
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
+        setError('unknown');
       } finally {
         setIsLoadingTeams(false);
       }

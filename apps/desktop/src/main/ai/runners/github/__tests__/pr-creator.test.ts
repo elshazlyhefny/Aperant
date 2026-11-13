@@ -71,10 +71,23 @@ vi.mock('../../../../ipc-handlers/gitlab/utils', () => ({
   createGitLabMergeRequest: gitlab.create,
   findOpenMergeRequestForBranch: gitlab.find,
 }));
+const bitbucket = vi.hoisted(() => {
+  class BitbucketAPIError extends Error {
+    constructor(message: string, readonly statusCode: number) {
+      super(message);
+    }
+  }
+  return { BitbucketAPIError, create: vi.fn(), find: vi.fn() };
+});
+vi.mock('../../../../ipc-handlers/bitbucket/utils', () => ({
+  BitbucketAPIError: bitbucket.BitbucketAPIError,
+  createBitbucketPullRequest: bitbucket.create,
+  findOpenPullRequestForBranch: bitbucket.find,
+}));
 vi.mock('ai', () => ({ generateText: vi.fn(async () => ({ text: '## Summary\n- body' })) }));
 
 import { generateText } from 'ai';
-import { createMR, createPR, GH_TIMEOUT_MS, NO_CHANGES_MESSAGE, PUSH_TIMEOUT_MS, unfinishedTaskMessage } from '../pr-creator';
+import { createBitbucketPR, createMR, createPR, GH_TIMEOUT_MS, NO_CHANGES_MESSAGE, PUSH_TIMEOUT_MS, unfinishedTaskMessage } from '../pr-creator';
 
 const PR_URL = 'https://github.com/o/r/pull/7';
 
@@ -510,5 +523,108 @@ describe('createMR', () => {
     const result = await createMR(mrConfig());
     expect(result).toEqual({ success: false, errorCode: 'MR_FAILED', error: '403 Forbidden' });
     expect(gitlab.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createBitbucketPR', () => {
+  const PR_HREF = 'https://bitbucket.org/o/r/pull-requests/3';
+  const bbConfig = { username: 'u', token: 't', repository: 'o/r' };
+  const bbPr = { links: { html: { href: PR_HREF } } };
+  const prConfig = (overrides: Record<string, unknown> = {}) => {
+    const { ghPath: _gh, ...rest } = config();
+    return { ...rest, bitbucket: bbConfig, ...overrides };
+  };
+
+  beforeEach(() => {
+    bitbucket.create.mockReset();
+    bitbucket.find.mockReset();
+    bitbucket.create.mockResolvedValue(bbPr);
+  });
+
+  it('pushes once, never calls gh, and creates the pull request', async () => {
+    const result = await createBitbucketPR(prConfig());
+    expect(result).toEqual({ success: true, prUrl: PR_HREF, alreadyExists: false });
+    expect(pushCalls()).toHaveLength(1);
+    expect(pushCalls()[0].args[1]).toBe('--force-with-lease');
+    expect(state.calls.filter((c) => c.command === 'gh')).toHaveLength(0);
+    expect(bitbucket.create).toHaveBeenCalledWith(bbConfig, {
+      sourceBranch: 'auto-claude/001-x',
+      destinationBranch: 'main',
+      title: 'auto-claude: 001-x',
+      description: '## Summary\n- body',
+    });
+  });
+
+  it('prefixes the title with Draft: for a draft', async () => {
+    await createBitbucketPR(prConfig({ draft: true }));
+    expect(bitbucket.create.mock.calls[0][1].title).toBe('Draft: auto-claude: 001-x');
+  });
+
+  it('short-circuits on NO_CHANGES without reaching the API', async () => {
+    state.respond = (call) => (call.args[0] === 'rev-list' ? { stdout: '0\n' } : { stdout: '' });
+    const result = await createBitbucketPR(prConfig());
+    expect(result.errorCode).toBe('NO_CHANGES');
+    expect(pushCalls()).toHaveLength(0);
+    expect(bitbucket.create).not.toHaveBeenCalled();
+  });
+
+  it('short-circuits on PUSH_FAILED without reaching the API', async () => {
+    state.respond = (call) =>
+      call.args[0] === 'push' ? { error: { message: 'Command failed' }, stderr: 'rejected' } : { stdout: '' };
+    const result = await createBitbucketPR(prConfig());
+    expect(result.errorCode).toBe('PUSH_FAILED');
+    expect(bitbucket.create).not.toHaveBeenCalled();
+  });
+
+  it('recovers the existing pull request on a 400 already-open error', async () => {
+    bitbucket.create.mockRejectedValue(
+      new bitbucket.BitbucketAPIError('You already has an open pull request for this branch', 400),
+    );
+    bitbucket.find.mockResolvedValue(bbPr);
+    const result = await createBitbucketPR(prConfig());
+    expect(result).toEqual({ success: true, prUrl: PR_HREF, alreadyExists: true });
+    expect(bitbucket.find).toHaveBeenCalledWith(bbConfig, 'auto-claude/001-x');
+  });
+
+  it('still reports alreadyExists when the lookup fails', async () => {
+    bitbucket.create.mockRejectedValue(
+      new bitbucket.BitbucketAPIError('This branch already has an open pull request', 400),
+    );
+    bitbucket.find.mockRejectedValue(new Error('lookup failed'));
+    const result = await createBitbucketPR(prConfig());
+    expect(result).toEqual({ success: true, prUrl: undefined, alreadyExists: true });
+  });
+
+  it('reports MR_FAILED for a 403 without retrying', async () => {
+    bitbucket.create.mockRejectedValue(new bitbucket.BitbucketAPIError('403 Forbidden', 403));
+    const result = await createBitbucketPR(prConfig());
+    expect(result).toEqual({ success: false, errorCode: 'MR_FAILED', error: '403 Forbidden' });
+    expect(bitbucket.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a timeout (statusCode 0)', async () => {
+    bitbucket.create.mockRejectedValue(new bitbucket.BitbucketAPIError('Request timeout', 0));
+    const result = await createBitbucketPR(prConfig());
+    expect(result.errorCode).toBe('MR_FAILED');
+    expect(bitbucket.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a 500 and succeeds on the next attempt', async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const delays: number[] = [];
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
+      delays.push(ms ?? 0);
+      return realSetTimeout(fn, 0);
+    }) as typeof setTimeout);
+    try {
+      bitbucket.create
+        .mockRejectedValueOnce(new bitbucket.BitbucketAPIError('Internal error', 500))
+        .mockResolvedValueOnce(bbPr);
+      expect(await createBitbucketPR(prConfig())).toEqual({ success: true, prUrl: PR_HREF, alreadyExists: false });
+      expect(bitbucket.create).toHaveBeenCalledTimes(2);
+      expect(delays).toContain(2000);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

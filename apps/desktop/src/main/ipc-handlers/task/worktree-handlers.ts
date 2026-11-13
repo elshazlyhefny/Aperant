@@ -7,7 +7,7 @@ import { execFileSync, execFile } from 'child_process';
 import { projectStore } from '../../project-store';
 
 import { MergeOrchestrator } from '../../ai/merge/orchestrator';
-import { createPR, createMR, suggestPRTitleForWorktree } from '../../ai/runners/github/pr-creator';
+import { createPR, createMR, createBitbucketPR, suggestPRTitleForWorktree } from '../../ai/runners/github/pr-creator';
 import { capPRTitle } from '../../../shared/utils/pr-title';
 import { findTaskAndProject } from './shared';
 import { updateRoadmapFeatureOutcome } from '../../utils/roadmap-utils';
@@ -19,6 +19,7 @@ import {
 } from '../../worktree-paths';
 import { updateTaskStatusAfterPRCreation, originMatchesInstance, MAX_PR_TITLE_LENGTH, PRINTABLE_CHARS_REGEX } from './worktree-pr';
 import { getGitLabConfig } from '../gitlab/utils';
+import { getBitbucketConfig } from '../bitbucket/utils';
 import { refreshGitIndex } from '../../utils/git-isolation';
 import { cleanupWorktree } from '../../utils/worktree-cleanup';
 import { taskStateManager } from '../../task-state-manager';
@@ -402,7 +403,7 @@ export function registerWorktreeHandlers(
         const worktreePath = findTaskWorktree(project.path, task.specId);
         if (worktreePath) {
           console.warn('[IPC] Refreshing evolution data from worktree:', worktreePath);
-          orchestrator.evolutionTracker.refreshFromGit(task.specId, worktreePath, effectiveBaseBranch);
+          await orchestrator.evolutionTracker.refreshFromGit(task.specId, worktreePath, effectiveBaseBranch);
         } else {
           console.warn('[IPC] No worktree found for preview — evolution data may be stale');
         }
@@ -986,8 +987,10 @@ export function registerWorktreeHandlers(
         // zeenha fork: open a GitLab merge request only when GitLab is configured
         // AND origin is on that instance's host. A project may keep GitLab
         // configured for issues while its origin lives on GitHub; that stays a gh PR.
+        // Bitbucket works the same way and is checked first.
         let gitlabConfig = await getGitLabConfig(project);
-        if (gitlabConfig) {
+        let bitbucketConfig = await getBitbucketConfig(project);
+        if (gitlabConfig || bitbucketConfig) {
           let originUrl = '';
           try {
             const { stdout } = await promisify(execFile)(gitPath, ['remote', 'get-url', 'origin'], {
@@ -998,7 +1001,10 @@ export function registerWorktreeHandlers(
           } catch (err) {
             debug('Could not read origin URL; using GitHub:', err);
           }
-          if (!originUrl || !originMatchesInstance(originUrl, gitlabConfig.instanceUrl)) {
+          if (!originUrl || !bitbucketConfig || !originMatchesInstance(originUrl, 'https://bitbucket.org')) {
+            bitbucketConfig = null;
+          }
+          if (!originUrl || !gitlabConfig || !originMatchesInstance(originUrl, gitlabConfig.instanceUrl)) {
             gitlabConfig = null;
           }
         }
@@ -1020,10 +1026,12 @@ export function registerWorktreeHandlers(
           ]),
         };
 
-        debug('Creating PR via TypeScript runner:', { branchName, baseBranch, typedTitle, gitlab: !!gitlabConfig });
+        debug('Creating PR via TypeScript runner:', { branchName, baseBranch, typedTitle, gitlab: !!gitlabConfig, bitbucket: !!bitbucketConfig });
 
         // Run the TypeScript PR/MR creator
-        const result = gitlabConfig
+        const result = bitbucketConfig
+          ? await createBitbucketPR({ ...prConfig, bitbucket: bitbucketConfig })
+          : gitlabConfig
           ? await createMR({ ...prConfig, gitlab: gitlabConfig })
           : await createPR({ ...prConfig, ghPath: getToolPath('gh') });
 

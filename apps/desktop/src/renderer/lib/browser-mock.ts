@@ -337,6 +337,7 @@ const browserMockAPI: ElectronAPI = {
   deleteSchedule: async () => ({ success: true }),
   setScheduleEnabled: async () => ({ success: false, error: 'Not available in browser mode' }),
   acknowledgeScheduleReports: async () => ({ success: false, error: 'Not available in browser mode' }),
+  runScheduleNow: async () => ({ success: false, error: 'Not available in browser mode' }),
   onSchedulesChanged: () => () => {},
 
   queue: {

@@ -2,15 +2,15 @@
  * Individual issue card component
  */
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
-  CheckSquare,
-  Square,
   ExternalLink,
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
 import { Badge } from '../../ui/badge';
+import { Checkbox } from '../../ui/checkbox';
 import { PRIORITY_COLORS, STATE_TYPE_COLORS } from '../types';
 import type { LinearIssue } from '../types';
 
@@ -21,9 +21,14 @@ interface IssueCardProps {
 }
 
 export function IssueCard({ issue, isSelected, onToggle }: IssueCardProps) {
+  const { t } = useTranslation('linear');
   const [isExpanded, setIsExpanded] = useState(false);
+  const titleId = useId();
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: row click is a mouse shortcut; the Checkbox is the keyboard and screen-reader control
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: row click is a mouse shortcut; the Checkbox is the keyboard and screen-reader control
+    // biome-ignore lint/a11y/useKeyWithClickEvents: row click is a mouse shortcut; the Checkbox is the keyboard and screen-reader control
     <div
       className={`
         rounded-lg border border-border p-3 cursor-pointer transition-colors
@@ -32,14 +37,13 @@ export function IssueCard({ issue, isSelected, onToggle }: IssueCardProps) {
       onClick={() => onToggle(issue.id)}
     >
       <div className="flex items-start gap-3">
-        {/* Checkbox */}
-        <div className="mt-0.5">
-          {isSelected ? (
-            <CheckSquare className="h-5 w-5 text-primary" />
-          ) : (
-            <Square className="h-5 w-5 text-muted-foreground" />
-          )}
-        </div>
+        <Checkbox
+          className="mt-0.5"
+          checked={isSelected}
+          onCheckedChange={() => onToggle(issue.id)}
+          aria-labelledby={titleId}
+          onClick={(e) => e.stopPropagation()}
+        />
 
         {/* Issue Content */}
         <div className="flex-1 min-w-0">
@@ -74,18 +78,20 @@ export function IssueCard({ issue, isSelected, onToggle }: IssueCardProps) {
             ))}
             {issue.labels.length > 2 && (
               <span className="text-xs text-muted-foreground">
-                +{issue.labels.length - 2} more
+                {t('issue.moreLabels', { count: issue.labels.length - 2 })}
               </span>
             )}
           </div>
 
-          <h4 className="text-sm font-medium text-foreground mt-1 line-clamp-2">
+          <h4 id={titleId} className="text-sm font-medium text-foreground mt-1 line-clamp-2">
             {issue.title}
           </h4>
 
           {/* Expandable description */}
           {issue.description && (
             <button
+              type="button"
+              aria-expanded={isExpanded}
               onClick={(e) => {
                 e.stopPropagation();
                 setIsExpanded(!isExpanded);
@@ -95,12 +101,12 @@ export function IssueCard({ issue, isSelected, onToggle }: IssueCardProps) {
               {isExpanded ? (
                 <>
                   <ChevronUp className="h-3 w-3" />
-                  Hide description
+                  {t('issue.hideDescription')}
                 </>
               ) : (
                 <>
                   <ChevronDown className="h-3 w-3" />
-                  Show description
+                  {t('issue.showDescription')}
                 </>
               )}
             </button>
@@ -115,10 +121,10 @@ export function IssueCard({ issue, isSelected, onToggle }: IssueCardProps) {
           {/* Meta info */}
           <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
             {issue.assignee && (
-              <span>Assigned to {issue.assignee.name}</span>
+              <span>{t('issue.assignedTo', { name: issue.assignee.name })}</span>
             )}
             {issue.project && (
-              <span>Project: {issue.project.name}</span>
+              <span>{t('issue.project', { name: issue.project.name })}</span>
             )}
             <a
               href={issue.url}
@@ -128,7 +134,7 @@ export function IssueCard({ issue, isSelected, onToggle }: IssueCardProps) {
               className="flex items-center gap-1 hover:text-primary"
             >
               <ExternalLink className="h-3 w-3" />
-              View in Linear
+              {t('issue.viewInLinear')}
             </a>
           </div>
         </div>

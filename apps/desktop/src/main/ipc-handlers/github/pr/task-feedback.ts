@@ -9,6 +9,7 @@
 import { githubFetch, normalizeRepoReference } from "../utils";
 import { githubGraphQL } from "./graphql";
 import type { PRFeedbackItem, PRFeedbackResult } from "../../../../shared/types/pr-feedback";
+import { stripAnsiCodes } from "../../../../shared/utils/ansi-sanitizer";
 
 /** Max items returned per category. */
 export const MAX_FEEDBACK_ITEMS = 50;
@@ -30,7 +31,8 @@ export type PRFeedbackErrorCode =
   | "not_found"
   | "forbidden"
   | "unauthorized"
-  | "github_error";
+  | "github_error"
+  | "gitlab_error";
 
 /** Typed error so the IPC handler can map failures to a clear message. */
 export class PRFeedbackError extends Error {
@@ -69,18 +71,36 @@ export function parsePRNumberFromUrl(prUrl: string): number | null {
 }
 
 /** Redact common credential shapes from third-party text before it reaches an agent. */
-function redactSecrets(text: string): string {
+export function redactSecrets(text: string): string {
   return text
     .replace(/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b/g, "[redacted]")
     .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, "[redacted]")
     .replace(/\bsk-[A-Za-z0-9_-]{20,}\b/g, "[redacted]")
+    .replace(/\bglpat-[A-Za-z0-9_-]{20,}/g, "[redacted]")
+    .replace(/\bgl[a-z]{2,4}-[A-Za-z0-9_-]{20,}/g, "[redacted]")
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/g, "Bearer [redacted]");
 }
 
-function clip(text: string | null | undefined, max: number): { text: string; truncated: boolean } {
+export function clip(
+  text: string | null | undefined,
+  max: number
+): { text: string; truncated: boolean } {
   const clean = redactSecrets((text ?? "").trim());
   if (clean.length <= max) return { text: clean, truncated: false };
   return { text: `${clean.slice(0, max)}…`, truncated: true };
+}
+
+/**
+ * Like clip, but keeps the END of the text (job logs matter at the end).
+ * Strips ANSI escapes and redacts secrets first.
+ */
+export function clipTail(
+  text: string | null | undefined,
+  max: number
+): { text: string; truncated: boolean } {
+  const clean = redactSecrets(stripAnsiCodes(text ?? "").trim());
+  if (clean.length <= max) return { text: clean, truncated: false };
+  return { text: `…${clean.slice(clean.length - max)}`, truncated: true };
 }
 
 function mapGitHubError(error: unknown, what: string): PRFeedbackError {

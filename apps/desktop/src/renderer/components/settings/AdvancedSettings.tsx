@@ -22,6 +22,7 @@ import { Progress } from '../ui/progress';
 import { SettingsSection } from './SettingsSection';
 import { WebhookSettings } from './WebhookSettings';
 import { JiraWritebackSettings } from './JiraWritebackSettings';
+import { IssueWritebackSettings } from './IssueWritebackSettings';
 import type {
   AppSettings,
   AppUpdateAvailableEvent,
@@ -592,6 +593,7 @@ export function AdvancedSettings({ settings, onSettingsChange, section, version 
         ))}
         <WebhookSettings settings={settings} onSettingsChange={onSettingsChange} />
         <JiraWritebackSettings settings={settings} onSettingsChange={onSettingsChange} />
+        <IssueWritebackSettings settings={settings} onSettingsChange={onSettingsChange} />
       </div>
     </SettingsSection>
   );

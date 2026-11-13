@@ -7,6 +7,10 @@
  * anything, so the warning only fires on real evidence.
  *
  * Pure functions only, so the renderer and the main process share one rule.
+ *
+ * User-facing description: guides/task-dependencies.md ('Planned file overlap
+ * warnings'). Update the guide when the compared statuses, the file sources or
+ * FINISHED_TASK_STATUSES change.
  */
 import type { Task, TaskStatus } from '../types';
 

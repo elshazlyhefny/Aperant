@@ -631,6 +631,7 @@ export function TaskCreationWizard({
             isOpen={showFileExplorer}
             onClose={() => setShowFileExplorer(false)}
             projectPath={projectPath}
+            onFileActivate={(data) => handleFileReferenceDrop(`@${data.name}`, data)}
           />
         )
       }

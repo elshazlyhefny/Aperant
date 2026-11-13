@@ -49,7 +49,8 @@ export interface InsightsConfig {
   thinkingLevel?: ThinkingLevel;
   /** Abort signal for cancellation */
   abortSignal?: AbortSignal;
-  /** Images attached to the current message (base64 data, no data: prefix). Current turn only. */
+  /** Images attached to the current message (base64 data, no data: prefix). Current turn only (history is text-only).
+   * Only pass for vision-capable models; a text-only model may make the provider reject the request. */
   images?: Array<{ data: string; mimeType: string }>;
 }
 
@@ -217,9 +218,15 @@ function extractTaskSuggestion(text: string): TaskSuggestion | null {
 /**
  * Run an insights chat query with streaming.
  *
- * @param config - Insights query configuration
+ * Images in `config.images` are sent as image parts on the current user turn
+ * only; history stays text-only, so later turns cannot see them.
+ *
+ * @param config - Insights query configuration. `images` must be base64 data
+ *   without a `data:` prefix, and the caller must already have checked vision
+ *   support (InsightsExecutor does this).
  * @param onStream - Optional callback for streaming events
  * @returns Insights result with text, task suggestion, and tool call info
+ * @throws If a text-only model is passed images, the provider may reject the request
  */
 export async function runInsightsQuery(
   config: InsightsConfig,

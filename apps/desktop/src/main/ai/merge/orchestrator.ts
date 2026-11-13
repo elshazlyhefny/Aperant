@@ -303,7 +303,7 @@ export class MergeOrchestrator {
       }
 
       emit('analyzing', 5, 'Loading file evolution data');
-      this.evolutionTracker.refreshFromGit(taskId, resolvedWorktreePath, targetBranch);
+      await this.evolutionTracker.refreshFromGit(taskId, resolvedWorktreePath, targetBranch);
 
       emit('analyzing', 15, 'Running semantic analysis');
       const modifications = this.evolutionTracker.getTaskModifications(taskId);
@@ -408,7 +408,7 @@ export class MergeOrchestrator {
       emit('analyzing', 5, 'Loading file evolution data');
       for (const request of sorted) {
         if (request.worktreePath && fs.existsSync(request.worktreePath)) {
-          this.evolutionTracker.refreshFromGit(request.taskId, request.worktreePath, targetBranch);
+          await this.evolutionTracker.refreshFromGit(request.taskId, request.worktreePath, targetBranch);
         }
       }
 

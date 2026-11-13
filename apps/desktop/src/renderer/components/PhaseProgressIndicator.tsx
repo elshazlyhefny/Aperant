@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { memo, useRef, useState, useEffect } from 'react';
 import { cn } from '../lib/utils';
 import type { ExecutionPhase, TaskLogs, Subtask } from '../../shared/types';
+import { EXECUTION_PHASE_LABEL_KEYS } from '../../shared/constants';
 
 interface PhaseProgressIndicatorProps {
   phase?: ExecutionPhase;
@@ -27,19 +28,6 @@ const PHASE_COLORS: Record<ExecutionPhase, { color: string; bgColor: string }> =
   qa_fixing: { color: 'bg-orange-500', bgColor: 'bg-orange-500/20' },
   complete: { color: 'bg-success', bgColor: 'bg-success/20' },
   failed: { color: 'bg-destructive', bgColor: 'bg-destructive/20' },
-};
-
-// Phase label translation keys
-const PHASE_LABEL_KEYS: Record<ExecutionPhase, string> = {
-  idle: 'execution.phases.idle',
-  planning: 'execution.phases.planning',
-  coding: 'execution.phases.coding',
-  rate_limit_paused: 'execution.phases.rate_limit_paused',
-  auth_failure_paused: 'execution.phases.auth_failure_paused',
-  qa_review: 'execution.phases.reviewing',
-  qa_fixing: 'execution.phases.fixing',
-  complete: 'execution.phases.complete',
-  failed: 'execution.phases.failed',
 };
 
 /**
@@ -114,7 +102,7 @@ export const PhaseProgressIndicator = memo(function PhaseProgressIndicator({
   const showSubtaskProgress = totalSubtasks > 0;
 
   const colors = PHASE_COLORS[phase] || PHASE_COLORS.idle;
-  const phaseLabel = t(PHASE_LABEL_KEYS[phase] || PHASE_LABEL_KEYS.idle);
+  const phaseLabel = t(EXECUTION_PHASE_LABEL_KEYS[phase] || EXECUTION_PHASE_LABEL_KEYS.idle);
   const activeEntries = getActivePhaseEntries();
 
   return (

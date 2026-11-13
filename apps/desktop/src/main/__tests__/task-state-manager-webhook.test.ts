@@ -35,6 +35,11 @@ vi.mock('../ipc-handlers/jira/jira-writeback', () => ({
   dispatchJiraOutcome: (...args: unknown[]) => jiraDispatch(...args),
 }));
 
+const issueDispatch = vi.fn();
+vi.mock('../ipc-handlers/issue-writeback/issue-writeback', () => ({
+  dispatchIssueOutcome: (...args: unknown[]) => issueDispatch(...args),
+}));
+
 import { TaskStateManager } from '../task-state-manager';
 
 const task = { id: 't1', specId: '001-x', projectId: 'p1', title: 'My task', description: '', status: 'backlog', subtasks: [], logs: [], createdAt: new Date(), updatedAt: new Date() } as Task;
@@ -56,6 +61,7 @@ beforeEach(() => {
   seq = 0;
   dispatch.mockReset();
   jiraDispatch.mockReset();
+  issueDispatch.mockReset();
 });
 
 describe('TaskStateManager webhook dispatch', () => {
@@ -232,5 +238,70 @@ describe('TaskStateManager PR opened webhook', () => {
     manager.handleUiEvent('t1', { type: 'PR_CREATED', prUrl: 'https://github.com/o/r/pull/3' }, task, project);
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(dispatch.mock.calls[0][0].prUrl).toBeUndefined();
+  });
+});
+
+describe('TaskStateManager issue write-back dispatch', () => {
+  it('dispatches failed on error', () => {
+    const manager = make();
+    send(manager, { type: 'PLANNING_STARTED' });
+    send(manager, { type: 'PLANNING_FAILED', error: 'boom', recoverable: true });
+    expect(issueDispatch).toHaveBeenCalledTimes(1);
+    expect(issueDispatch).toHaveBeenCalledWith({ task, project, event: 'failed' });
+  });
+
+  it('dispatches review_ready on completed human_review', () => {
+    const manager = make();
+    send(manager, { type: 'PLANNING_STARTED' });
+    send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
+    expect(issueDispatch).toHaveBeenCalledTimes(1);
+    expect(issueDispatch).toHaveBeenCalledWith({ task, project, event: 'review_ready' });
+  });
+
+  it('dispatches blocked on qa_rejected', () => {
+    const manager = make();
+    send(manager, { type: 'PLANNING_STARTED' });
+    send(manager, { type: 'QA_STARTED', iteration: 1, maxIterations: 3 });
+    send(manager, { type: 'QA_FAILED', iteration: 1, issueCount: 1, issues: ['x'] });
+    send(manager, { type: 'QA_FAILED', iteration: 2, issueCount: 1, issues: ['x'] });
+    expect(issueDispatch).toHaveBeenCalledTimes(1);
+    expect(issueDispatch).toHaveBeenCalledWith({ task, project, event: 'blocked' });
+  });
+
+  it('does not dispatch for in_progress, plan_review or stopped', () => {
+    const manager = make();
+    send(manager, { type: 'PLANNING_STARTED' });
+    send(manager, { type: 'PLANNING_COMPLETE', hasSubtasks: true, subtaskCount: 1, requireReviewBeforeCoding: true });
+    send(manager, { type: 'PLAN_APPROVED' });
+    send(manager, { type: 'CODING_STARTED', subtaskId: 's', subtaskDescription: 'd' });
+    manager.handleUiEvent('t1', { type: 'USER_STOPPED', hasPlan: true }, task, project);
+    expect(issueDispatch).not.toHaveBeenCalled();
+  });
+
+  it('a throwing issue dispatcher does not block persistence, the renderer event, the webhook or Jira', () => {
+    issueDispatch.mockImplementation(() => {
+      throw new Error('issue down');
+    });
+    const manager = make();
+    send(manager, { type: 'PLANNING_STARTED' });
+    send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
+    expect(issueDispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(jiraDispatch).toHaveBeenCalledTimes(1);
+    expect(persisted[persisted.length - 1]?.[1]).toBe('human_review');
+    expect(sends[sends.length - 1]?.[2]).toBe('human_review');
+  });
+
+  it('a throwing webhook or Jira dispatcher does not skip the issue dispatcher', () => {
+    dispatch.mockImplementation(() => {
+      throw new Error('webhook down');
+    });
+    jiraDispatch.mockImplementation(() => {
+      throw new Error('jira down');
+    });
+    const manager = make();
+    send(manager, { type: 'PLANNING_STARTED' });
+    send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
+    expect(issueDispatch).toHaveBeenCalledTimes(1);
   });
 });

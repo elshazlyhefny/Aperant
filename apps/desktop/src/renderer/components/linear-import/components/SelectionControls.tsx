@@ -3,6 +3,7 @@
  */
 
 import { CheckSquare, Square, Minus, RefreshCw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface SelectionControlsProps {
   isAllSelected: boolean;
@@ -25,10 +26,12 @@ export function SelectionControls({
   onDeselectAll,
   onRefresh
 }: SelectionControlsProps) {
+  const { t } = useTranslation('linear');
   return (
     <div className="flex items-center justify-between py-2 border-b border-border shrink-0">
       <div className="flex items-center gap-3">
         <button
+          type="button"
           onClick={isAllSelected ? onDeselectAll : onSelectAll}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
         >
@@ -39,20 +42,21 @@ export function SelectionControls({
           ) : (
             <Square className="h-4 w-4" />
           )}
-          {isAllSelected ? 'Deselect all' : 'Select all'}
+          {isAllSelected ? t('import.deselectAll') : t('import.selectAll')}
         </button>
         <span className="text-xs text-muted-foreground">
-          {selectedCount} of {filteredCount} selected
+          {t('import.selectedCount', { selected: selectedCount, total: filteredCount })}
         </span>
       </div>
 
       <button
+        type="button"
         onClick={onRefresh}
         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
         disabled={isLoadingIssues}
       >
         <RefreshCw className={`h-3 w-3 ${isLoadingIssues ? 'animate-spin' : ''}`} />
-        Refresh
+        {t('import.refresh')}
       </button>
     </div>
   );

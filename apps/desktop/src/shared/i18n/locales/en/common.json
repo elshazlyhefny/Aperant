@@ -39,6 +39,7 @@
     "upgradeSubscriptionAriaLabel": "Upgrade subscription (opens in new window)",
     "learnMoreAriaLabel": "Learn more (opens in new window)",
     "toggleFolder": "Toggle {{name}} folder",
+    "addFileReference": "Add {{name}} as a reference",
     "expandFolder": "Expand {{name}} folder",
     "collapseFolder": "Collapse {{name}} folder",
     "newConversationAriaLabel": "New conversation",

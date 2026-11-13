@@ -253,6 +253,7 @@ export class SessionStorage {
   /**
    * Strip full-resolution image data from a session for persistence.
    * Keeps only thumbnail, id, filename, mimeType, and size to prevent bloated JSON files.
+   * Image data and path are removed, so follow-up turns cannot reference earlier images.
    */
   private stripImageDataForPersistence(session: InsightsSession): InsightsSession {
     return {

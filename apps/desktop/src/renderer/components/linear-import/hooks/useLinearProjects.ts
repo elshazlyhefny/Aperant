@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import type { LinearProject } from '../types';
+import type { LinearProject, LinearImportErrorCode } from '../types';
 
 export function useLinearProjects(
   projectId: string,
@@ -11,7 +11,7 @@ export function useLinearProjects(
 ) {
   const [projects, setProjects] = useState<LinearProject[]>([]);
   const [isLoadingProjects, setIsLoadingProjects] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LinearImportErrorCode | null>(null);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -31,10 +31,10 @@ export function useLinearProjects(
         if (result.success && result.data) {
           setProjects(result.data);
         } else {
-          setError(result.error || 'Failed to load projects');
+          setError('loadProjects');
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
+        setError('unknown');
       } finally {
         setIsLoadingProjects(false);
       }

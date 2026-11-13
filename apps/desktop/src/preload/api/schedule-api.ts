@@ -7,7 +7,7 @@
 import { ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { IPCResult } from '../../shared/types';
-import type { RecurringSchedule, ScheduleInput } from '../../shared/types/schedule';
+import type { RecurringSchedule, ScheduleInput, ScheduleRunNowResult } from '../../shared/types/schedule';
 
 export interface ScheduleChangedEvent {
   projectId: string;
@@ -21,6 +21,8 @@ export interface ScheduleAPI {
   setScheduleEnabled: (id: string, enabled: boolean) => Promise<IPCResult<RecurringSchedule>>;
   /** Acknowledge run reports; omit recordIds to acknowledge all. */
   acknowledgeScheduleReports: (scheduleId: string, recordIds?: string[]) => Promise<IPCResult<RecurringSchedule>>;
+  /** Start the schedule's task now, without changing its next run or paused state. */
+  runScheduleNow: (id: string) => Promise<IPCResult<ScheduleRunNowResult>>;
   /** Fired when schedules change in the main process. Returns an unsubscribe function. */
   onSchedulesChanged: (callback: (event: ScheduleChangedEvent) => void) => () => void;
 }
@@ -43,6 +45,9 @@ export const createScheduleAPI = (): ScheduleAPI => ({
 
   acknowledgeScheduleReports: (scheduleId: string, recordIds?: string[]): Promise<IPCResult<RecurringSchedule>> =>
     ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_ACK_REPORTS, scheduleId, recordIds),
+
+  runScheduleNow: (id: string): Promise<IPCResult<ScheduleRunNowResult>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_RUN_NOW, id),
 
   onSchedulesChanged: (callback: (event: ScheduleChangedEvent) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: ScheduleChangedEvent) => callback(data);

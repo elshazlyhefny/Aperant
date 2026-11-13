@@ -390,6 +390,17 @@
       "statusNameLabel": "Target status name",
       "statusNamePlaceholder": "In Review",
       "note": "Only the Jira issue the task was imported from is updated, using the project's existing Jira credentials. This setting is stored only in this app's settings."
+    },
+    "issueWriteback": {
+      "title": "Issue write-back",
+      "description": "Report a task's outcome back to the issue it was imported from. Off by default.",
+      "github": "GitHub issues",
+      "githubDescription": "Comment on the originating GitHub issue when a task finishes",
+      "gitlab": "GitLab issues",
+      "gitlabDescription": "Comment on the originating GitLab issue when a task finishes",
+      "linear": "Linear issues",
+      "linearDescription": "Comment on the originating Linear issue when a task finishes",
+      "note": "Only the one issue the task was imported from is commented on, using the project's existing credentials. These settings are stored only in this app's settings and are off by default."
     }
   },
   "actions": {
@@ -1163,7 +1174,19 @@
     "errorCommandRequired": "Command is required for command-based servers",
     "errorUrlRequired": "URL is required for HTTP-based servers",
     "testConnection": "Test",
+    "testConnectionTitle": "Test Connection",
     "testing": "Testing...",
+    "saveFailed": "Could not save MCP server changes",
+    "deleteFailed": "Could not delete the MCP server",
+    "editServer": "Edit",
+    "deleteServer": "Delete",
+    "delete": {
+      "title": "Delete {{name}}?",
+      "description": "This removes the server and its command, arguments and environment settings. This cannot be undone.",
+      "agentsHeading": "It will also be removed from these agents: {{agents}}",
+      "noAgents": "No agents use this server.",
+      "confirm": "Delete server"
+    },
     "authToken": "Authentication Token",
     "authTokenPlaceholder": "Paste your API token or PAT here",
     "authTokenHint": "Used as Bearer token in the Authorization header",

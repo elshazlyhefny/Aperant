@@ -312,7 +312,7 @@ Multi-profile credential management for switching between Claude accounts:
 ### Terminal System (`src/main/terminal/`)
 
 Full PTY-based terminal integration:
-- **`pty-daemon.ts`** / **`pty-manager.ts`** — Background PTY process management
+- **`pty-manager.ts`** — PTY process management
 - **`terminal-lifecycle.ts`** — Session creation, cleanup, event handling
 - **`cli-integration-handler.ts`** — Claude CLI integration within terminals: profile switching, rate limiting, OAuth token detection
 - Renderer: xterm.js 6 with WebGL, fit, web-links, serialize addons. Store: `terminal-store.ts`

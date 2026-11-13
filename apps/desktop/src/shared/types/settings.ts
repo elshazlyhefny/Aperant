@@ -266,6 +266,12 @@ export interface JiraWritebackSettings {
   transitionStatusName: string;
 }
 
+export interface IssueWritebackSettings {
+  github: boolean;
+  gitlab: boolean;
+  linear: boolean;
+}
+
 export interface WebhookSettings {
   enabled: boolean;
   url: string;
@@ -290,6 +296,8 @@ export interface AppSettings {
   webhook?: WebhookSettings;
   // zeenha fork: Jira write-back of task outcomes (app-wide, user settings only)
   jiraWriteback?: JiraWritebackSettings;
+  // zeenha fork: write task outcomes back to the source GitHub/GitLab/Linear issue (opt-in per provider)
+  issueWriteback?: IssueWritebackSettings;
   // Global API keys (used as defaults for all projects)
   globalOpenAIApiKey?: string;
   globalAnthropicApiKey?: string;

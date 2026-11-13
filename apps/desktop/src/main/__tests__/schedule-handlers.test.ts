@@ -40,8 +40,9 @@ vi.mock('../project-store', () => ({
 
 vi.mock('../ipc-handlers/task/create-task', () => ({ createTaskSpec: vi.fn() }));
 vi.mock('../ipc-handlers/task/execution-handlers', () => ({ applyTaskStatusUpdate: vi.fn(), stopTask: vi.fn() }));
+const runNow = vi.fn();
 vi.mock('../schedule-service', () => ({
-  createScheduleService: () => ({ start: vi.fn(), stop: vi.fn(), tick: vi.fn(), onAgentExit: vi.fn() }),
+  createScheduleService: () => ({ start: vi.fn(), stop: vi.fn(), tick: vi.fn(), onAgentExit: vi.fn(), runNow }),
   readTaskTokensFromDisk: () => 0,
 }));
 
@@ -67,6 +68,7 @@ describe('schedule handlers', () => {
     stored = [];
     send.mockClear();
     deleteTask.mockClear();
+    runNow.mockReset();
     const win = { isDestroyed: () => false, webContents: { send } };
     registerScheduleHandlers({ isRunning: () => false } as never, () => win as never);
   });
@@ -159,6 +161,32 @@ describe('schedule handlers', () => {
     expect((await call(IPC_CHANNELS.SCHEDULE_LIST, 'p1')).data).toHaveLength(1);
     stored.push({ ...stored[0], id: 'orphan', projectId: 'gone' });
     expect((await call(IPC_CHANNELS.SCHEDULE_LIST, 'gone')).data).toEqual([]);
+  });
+
+  describe('run now', () => {
+    it('delegates to the service and returns its result', async () => {
+      const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input());
+      runNow.mockResolvedValue({ started: true, taskId: 't1' });
+      const res = await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, data.id);
+      expect(runNow).toHaveBeenCalledWith(data.id);
+      expect(res).toEqual({ success: true, data: { started: true, taskId: 't1' } });
+    });
+
+    it('rejects an unknown id without calling the service', async () => {
+      const res = await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, 'nope');
+      expect(res).toEqual({ success: false, error: 'Schedule not found' });
+      expect((await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, '')).success).toBe(false);
+      expect(runNow).not.toHaveBeenCalled();
+    });
+
+    it('returns an unfinished result as success with started false', async () => {
+      const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input());
+      runNow.mockResolvedValue({ started: false, reason: 'unfinished', taskId: 't1' });
+      const res = await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, data.id);
+      expect(res.success).toBe(true);
+      expect(res.data.started).toBe(false);
+      expect(res.data.reason).toBe('unfinished');
+    });
   });
 
   it('acknowledges all or selected reports', async () => {

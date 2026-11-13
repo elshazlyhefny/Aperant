@@ -535,6 +535,7 @@
       "agent_running": "The agent is already running for this task. Wait for it to finish.",
       "auth_required": "GitHub authentication is required to send feedback. Sign in to GitHub and refresh.",
       "no_github_config": "GitHub is not configured for this project.",
+      "no_gitlab_config": "GitLab is not configured for this project.",
       "branch_mismatch": "The task's worktree is not on the pull request's branch, so no follow-up can run here."
     }
   },
@@ -560,5 +561,9 @@
     "none": "No planned file overlap with other active tasks was found.",
     "unknown": "Planned files are unknown because the plan lists no files.",
     "holdFailed": "Could not save the wait setting"
+  },
+  "fileExplorer": {
+    "title": "Project Files",
+    "hint": "Drag a file, or press Enter, to add it as a reference"
   }
 }

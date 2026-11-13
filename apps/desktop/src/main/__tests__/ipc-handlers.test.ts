@@ -101,6 +101,10 @@ vi.mock("electron", () => {
       this.handlers.set(channel, handler);
     }
 
+    handleOnce(channel: string, handler: Function): void {
+      this.handlers.set(channel, handler);
+    }
+
     removeHandler(channel: string): void {
       this.handlers.delete(channel);
     }
@@ -155,6 +159,9 @@ function cleanupTestDirs(): void {
 
 // Increase timeout for all tests in this file due to dynamic imports and setup overhead.
 // Windows requires longer timeout due to slower file system operations and module loading.
+const TRUSTED_EVENT = { senderFrame: { url: "http://localhost:5173" } };
+process.env.ELECTRON_RENDERER_URL = "http://localhost:5173";
+
 describe("IPC Handlers", { timeout: 30000 }, () => {
   let ipcMain: EventEmitter & {
     handlers: Map<string, Function>;
@@ -230,7 +237,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
         () => mockMainWindow as never
       );
 
-      const result = await ipcMain.invokeHandler("project:add", {}, "/nonexistent/path");
+      const result = await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, "/nonexistent/path");
 
       expect(result).toEqual({
         success: false,
@@ -246,7 +253,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
         () => mockMainWindow as never
       );
 
-      const result = await ipcMain.invokeHandler("project:add", {}, TEST_PROJECT_PATH);
+      const result = await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, TEST_PROJECT_PATH);
 
       expect(result).toHaveProperty("success", true);
       expect(result).toHaveProperty("data");
@@ -264,8 +271,8 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
       );
 
       // Add project twice
-      const result1 = await ipcMain.invokeHandler("project:add", {}, TEST_PROJECT_PATH);
-      const result2 = await ipcMain.invokeHandler("project:add", {}, TEST_PROJECT_PATH);
+      const result1 = await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, TEST_PROJECT_PATH);
+      const result2 = await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, TEST_PROJECT_PATH);
 
       const data1 = (result1 as { data: { id: string } }).data;
       const data2 = (result2 as { data: { id: string } }).data;
@@ -282,7 +289,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
         () => mockMainWindow as never
       );
 
-      const result = await ipcMain.invokeHandler("project:list", {});
+      const result = await ipcMain.invokeHandler("project:list", TRUSTED_EVENT);
 
       expect(result).toEqual({
         success: true,
@@ -299,9 +306,9 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
       );
 
       // Add a project
-      await ipcMain.invokeHandler("project:add", {}, TEST_PROJECT_PATH);
+      await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, TEST_PROJECT_PATH);
 
-      const result = await ipcMain.invokeHandler("project:list", {});
+      const result = await ipcMain.invokeHandler("project:list", TRUSTED_EVENT);
 
       expect(result).toHaveProperty("success", true);
       const data = (result as { data: unknown[] }).data;
@@ -318,7 +325,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
         () => mockMainWindow as never
       );
 
-      const result = await ipcMain.invokeHandler("project:remove", {}, "nonexistent-id");
+      const result = await ipcMain.invokeHandler("project:remove", TRUSTED_EVENT, "nonexistent-id");
 
       expect(result).toEqual({ success: false });
     });
@@ -332,16 +339,16 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
       );
 
       // Add a project first
-      const addResult = await ipcMain.invokeHandler("project:add", {}, TEST_PROJECT_PATH);
+      const addResult = await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, TEST_PROJECT_PATH);
       const projectId = (addResult as { data: { id: string } }).data.id;
 
       // Remove it
-      const removeResult = await ipcMain.invokeHandler("project:remove", {}, projectId);
+      const removeResult = await ipcMain.invokeHandler("project:remove", TRUSTED_EVENT, projectId);
 
       expect(removeResult).toEqual({ success: true });
 
       // Verify it's gone
-      const listResult = await ipcMain.invokeHandler("project:list", {});
+      const listResult = await ipcMain.invokeHandler("project:list", TRUSTED_EVENT);
       const data = (listResult as { data: unknown[] }).data;
       expect(data).toHaveLength(0);
     });
@@ -356,7 +363,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
         () => mockMainWindow as never
       );
 
-      const result = await ipcMain.invokeHandler("project:updateSettings", {}, "nonexistent-id", {
+      const result = await ipcMain.invokeHandler("project:updateSettings", TRUSTED_EVENT, "nonexistent-id", {
         model: "sonnet",
       });
 
@@ -375,11 +382,11 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
       );
 
       // Add a project first
-      const addResult = await ipcMain.invokeHandler("project:add", {}, TEST_PROJECT_PATH);
+      const addResult = await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, TEST_PROJECT_PATH);
       const projectId = (addResult as { data: { id: string } }).data.id;
 
       // Update settings
-      const result = await ipcMain.invokeHandler("project:updateSettings", {}, projectId, {
+      const result = await ipcMain.invokeHandler("project:updateSettings", TRUSTED_EVENT, projectId, {
         model: "sonnet",
         linearSync: true,
       });
@@ -398,10 +405,10 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
       );
 
       // Add a project first
-      const addResult = await ipcMain.invokeHandler("project:add", {}, TEST_PROJECT_PATH);
+      const addResult = await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, TEST_PROJECT_PATH);
       const projectId = (addResult as { data: { id: string } }).data.id;
 
-      const result = await ipcMain.invokeHandler("task:list", {}, projectId);
+      const result = await ipcMain.invokeHandler("task:list", TRUSTED_EVENT, projectId);
 
       expect(result).toEqual({
         success: true,
@@ -421,7 +428,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
       mkdirSync(path.join(TEST_PROJECT_PATH, ".auto-claude", "specs"), { recursive: true });
 
       // Add a project - it will detect .auto-claude
-      const addResult = await ipcMain.invokeHandler("project:add", {}, TEST_PROJECT_PATH);
+      const addResult = await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, TEST_PROJECT_PATH);
       const projectId = (addResult as { data: { id: string } }).data.id;
 
       // Create a spec directory with implementation plan in .auto-claude/specs
@@ -448,7 +455,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
         })
       );
 
-      const result = await ipcMain.invokeHandler("task:list", {}, projectId);
+      const result = await ipcMain.invokeHandler("task:list", TRUSTED_EVENT, projectId);
 
       expect(result).toHaveProperty("success", true);
       const data = (result as { data: unknown[] }).data;
@@ -467,7 +474,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
 
       const result = await ipcMain.invokeHandler(
         "task:create",
-        {},
+        TRUSTED_EVENT,
         "nonexistent-id",
         "Test Task",
         "Test description"
@@ -491,12 +498,12 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
       mkdirSync(path.join(TEST_PROJECT_PATH, ".auto-claude", "specs"), { recursive: true });
 
       // Add a project first
-      const addResult = await ipcMain.invokeHandler("project:add", {}, TEST_PROJECT_PATH);
+      const addResult = await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, TEST_PROJECT_PATH);
       const projectId = (addResult as { data: { id: string } }).data.id;
 
       const result = await ipcMain.invokeHandler(
         "task:create",
-        {},
+        TRUSTED_EVENT,
         projectId,
         "Test Task",
         "Test description"
@@ -518,7 +525,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
         () => mockMainWindow as never
       );
 
-      const result = await ipcMain.invokeHandler("settings:get", {});
+      const result = await ipcMain.invokeHandler("settings:get", TRUSTED_EVENT);
 
       expect(result).toHaveProperty("success", true);
       const data = (result as { data: { theme: string } }).data;
@@ -537,14 +544,14 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
 
       const result = await ipcMain.invokeHandler(
         "settings:save",
-        {},
+        TRUSTED_EVENT,
         { theme: "dark", defaultModel: "opus" }
       );
 
       expect(result).toEqual({ success: true });
 
       // Verify settings were saved
-      const getResult = await ipcMain.invokeHandler("settings:get", {});
+      const getResult = await ipcMain.invokeHandler("settings:get", TRUSTED_EVENT);
       const data = (getResult as { data: { theme: string; defaultModel: string } }).data;
       expect(data.theme).toBe("dark");
       expect(data.defaultModel).toBe("opus");
@@ -558,7 +565,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
         () => mockMainWindow as never
       );
 
-      await ipcMain.invokeHandler("settings:save", {}, { pythonPath: "/usr/bin/python3" });
+      await ipcMain.invokeHandler("settings:save", TRUSTED_EVENT, { pythonPath: "/usr/bin/python3" });
 
       expect(mockAgentManager.configure).toHaveBeenCalledWith("/usr/bin/python3", undefined);
     });
@@ -573,7 +580,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
         () => mockMainWindow as never
       );
 
-      const result = await ipcMain.invokeHandler("app:version", {});
+      const result = await ipcMain.invokeHandler("app:version", TRUSTED_EVENT);
 
       expect(result).toBe("0.1.0");
     });
@@ -625,7 +632,7 @@ describe("IPC Handlers", { timeout: 30000 }, () => {
       );
 
       // Add project first
-      await ipcMain.invokeHandler("project:add", {}, TEST_PROJECT_PATH);
+      await ipcMain.invokeHandler("project:add", TRUSTED_EVENT, TEST_PROJECT_PATH);
 
       // Create a spec/task directory with implementation_plan.json
       const specDir = path.join(TEST_PROJECT_PATH, ".auto-claude", "specs", "task-1");

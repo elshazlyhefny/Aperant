@@ -26,6 +26,7 @@ export type PRFeedbackBlockedReason =
   | 'agent_running'
   | 'auth_required'
   | 'no_github_config'
+  | 'no_gitlab_config'
   | 'branch_mismatch';
 
 export interface PRFeedbackResult {

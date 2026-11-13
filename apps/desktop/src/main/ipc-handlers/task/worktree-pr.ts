@@ -60,9 +60,10 @@ function remoteHost(remoteUrl: string): string | null {
 }
 
 /**
- * zeenha fork: true when a git remote URL points at the given GitLab instance.
- * Compares hosts case-insensitively and ignores ports on the remote, so a
- * project with GitLab configured but a GitHub origin still opens a GitHub PR.
+ * zeenha fork: true when a git remote URL points at the given git host
+ * instance (GitLab or Bitbucket). Compares hosts case-insensitively and
+ * ignores ports on the remote, so a project with GitLab or Bitbucket
+ * configured but a GitHub origin still opens a GitHub PR.
  */
 export function originMatchesInstance(remoteUrl: string, instanceUrl: string): boolean {
   let instanceHost: string;
