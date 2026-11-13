@@ -369,7 +369,9 @@
         "failed": "Task failed",
         "failedDescription": "A task stopped because of an error",
         "blocked": "Task blocked",
-        "blockedDescription": "QA rejected the task or found errors that need your attention"
+        "blockedDescription": "QA rejected the task or found errors that need your attention",
+        "prOpened": "PR opened",
+        "prOpenedDescription": "A pull or merge request was created for a task. The message includes a link to it."
       },
       "sendTest": "Send test message",
       "sending": "Sending...",

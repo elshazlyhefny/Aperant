@@ -133,7 +133,7 @@ describe('sendWebhook', () => {
 
 describe('dispatchTaskOutcomeWebhook', () => {
   const enabled = (over: Record<string, unknown> = {}) => ({
-    webhook: { enabled: true, url: URL_OK, events: { reviewReady: true, failed: true, blocked: true }, ...over }
+    webhook: { enabled: true, url: URL_OK, events: { reviewReady: true, failed: true, blocked: true, prOpened: false }, ...over }
   });
   const input = { status: 'error', projectName: 'P', taskTitle: 'T' };
 
@@ -147,7 +147,7 @@ describe('dispatchTaskOutcomeWebhook', () => {
   it.each([
     ['disabled', () => ({ webhook: { enabled: false, url: URL_OK } }), input],
     ['no settings', () => undefined, input],
-    ['event off', () => enabled({ events: { reviewReady: true, failed: false, blocked: true } }), input],
+    ['event off', () => enabled({ events: { reviewReady: true, failed: false, blocked: true, prOpened: false } }), input],
     ['invalid url', () => enabled({ url: 'http://example.com' }), input],
     ['unmapped outcome', () => enabled(), { ...input, status: 'in_progress' }]
   ])('sends nothing when %s', async (_n, mk, inp) => {
