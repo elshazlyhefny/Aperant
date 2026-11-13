@@ -10,7 +10,12 @@ import { getSpecsDir } from '../shared/constants/config';
 import { readRunMetrics } from './ai/logging/run-metrics';
 import { findTaskWorktree } from './worktree-paths';
 import type { Project, Task } from '../shared/types';
-import type { RecurringSchedule, ScheduleRunRecord, ScheduleTemplate } from '../shared/types/schedule';
+import type {
+  RecurringSchedule,
+  ScheduleRunNowResult,
+  ScheduleRunRecord,
+  ScheduleTemplate,
+} from '../shared/types/schedule';
 import { advancePast, computeNextRun } from '../shared/utils/schedule-time';
 
 /** Same default as the renderer queue (renderer/stores/task-store.ts). */
@@ -65,6 +70,8 @@ export interface ScheduleService {
   stop(): void;
   tick(): Promise<void>;
   onAgentExit(taskId: string): void;
+  /** zeenha fork: manual run; leaves nextRunAt and enabled untouched. */
+  runNow(scheduleId: string): Promise<ScheduleRunNowResult>;
 }
 
 function record(kind: ScheduleRunRecord['kind'], at: number, extra: Partial<ScheduleRunRecord> = {}): ScheduleRunRecord {
@@ -82,6 +89,8 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
   let rerun = false;
   const starting = new Set<string>();
   const budgetStopped = new Set<string>();
+  /** Schedule ids with a manual run in progress; processSchedule skips them. */
+  const inFlight = new Set<string>();
 
   function isUnfinished(projectId: string, taskId: string | undefined): boolean {
     if (!taskId) return false;
@@ -92,9 +101,22 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
   }
 
   async function processSchedule(schedule: RecurringSchedule, project: Project, now: number): Promise<boolean> {
+    if (inFlight.has(schedule.id)) return false;
     if (!schedule.enabled || schedule.nextRunAt === null || schedule.nextRunAt > now) return false;
+    inFlight.add(schedule.id);
+    try {
+      return await processDue(schedule, schedule.nextRunAt, project, now);
+    } finally {
+      inFlight.delete(schedule.id);
+    }
+  }
 
-    const firstDue = schedule.nextRunAt;
+  async function processDue(
+    schedule: RecurringSchedule,
+    firstDue: number,
+    project: Project,
+    now: number
+  ): Promise<boolean> {
     const { dueCount, nextRunAt } = advancePast(schedule.cadence, firstDue, now);
     if (dueCount === 0) return false;
 
@@ -271,7 +293,49 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     }
   }
 
+  async function runNow(scheduleId: string): Promise<ScheduleRunNowResult> {
+    let schedule: RecurringSchedule | undefined;
+    try {
+      schedule = deps.listSchedules().find((s) => s.id === scheduleId);
+    } catch {
+      return { started: false, reason: 'not_found' };
+    }
+    if (!schedule) return { started: false, reason: 'not_found' };
+    const project = deps.getProject(schedule.projectId);
+    if (!project) return { started: false, reason: 'not_found' };
+    if (inFlight.has(schedule.id)) return { started: false, reason: 'unfinished' };
+
+    inFlight.add(schedule.id);
+    let result: ScheduleRunNowResult;
+    try {
+      const now = deps.now();
+      const history = [...schedule.history];
+      if (isUnfinished(project.id, schedule.lastTaskId)) {
+        history.push(record('skipped_unfinished', now, { taskId: schedule.lastTaskId, detail: 'manual' }));
+        deps.saveSchedule({ ...schedule, history });
+        result = { started: false, reason: 'unfinished', taskId: schedule.lastTaskId };
+      } else {
+        try {
+          const taskId = await deps.createTask(project.id, schedule.template, schedule.id, now);
+          history.push(record('started', now, { taskId, detail: 'manual' }));
+          deps.saveSchedule({ ...schedule, lastRunAt: now, lastTaskId: taskId, history });
+          result = { started: true, taskId };
+        } catch (error) {
+          history.push(record('failed', now, { detail: errorMessage(error) }));
+          deps.saveSchedule({ ...schedule, history });
+          result = { started: false };
+        }
+      }
+      deps.notifyChanged(project.id);
+    } finally {
+      inFlight.delete(schedule.id);
+    }
+    await tick();
+    return result;
+  }
+
   return {
+    runNow,
     start() {
       if (timer) return;
       firstTimer = setTimeout(() => void tick(), FIRST_TICK_DELAY_MS);

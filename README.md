@@ -63,6 +63,7 @@ Then either:
 | **GitHub/GitLab Integration** | Import issues, investigate with AI, create merge requests |
 | **Linear Integration** | Sync tasks with Linear for team progress tracking |
 | **Jira Import** | Import Jira issues as tasks. Keys are set in the project's `.auto-claude/.env`, see [Jira configuration](guides/project-configuration.md#jira) |
+| **Bitbucket Pull Requests** | List Bitbucket Cloud pull requests, view their diffs and post comments. Keys are set in the project's `.auto-claude/.env`, see [Bitbucket configuration](guides/project-configuration.md#bitbucket) |
 | **Cross-Platform** | Native desktop apps for Windows, macOS, and Linux |
 | **Controlled Updates** | In-app updates are disabled. An update is a deliberate pull of the `zeenha` branch plus a rebuild with `scripts/zeenha-release.sh`; `--rollback` restores the previous install |
 
@@ -84,7 +85,7 @@ AI-assisted feature planning with competitor analysis and audience targeting.
 ![Roadmap](.github/assets/Auto-Claude-roadmap.png)
 
 ### Additional Features
-- **Insights** - Chat interface for exploring your codebase
+- **Insights** - Chat interface for exploring your codebase. You can attach images (paste, drop or screenshot) and send them to vision-capable models; see [Attaching images](apps/desktop/src/main/insights/README.md#attaching-images)
 - **Ideation** - Discover improvements, performance issues, and vulnerabilities
 - **Changelog** - Generate release notes from completed tasks
 

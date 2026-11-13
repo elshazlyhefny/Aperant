@@ -10,7 +10,6 @@ task-detail/
 │   └── useTaskDetail.ts         # Custom hook for state management and side effects
 ├── TaskDetailPanel.tsx           # Main container component (slim, orchestrates children)
 ├── TaskHeader.tsx                # Task title, status badges, and header actions
-├── TaskProgress.tsx              # Execution phase indicator and progress bars
 ├── TaskMetadata.tsx              # Classification badges, description, and metadata
 ├── TaskActions.tsx               # Primary action buttons and delete dialog
 ├── TaskWarnings.tsx              # Stuck/incomplete task warning banners
@@ -34,12 +33,6 @@ task-detail/
 - Spec ID badge
 - Status badges (Running, Stuck, Incomplete, etc.)
 - Edit and close buttons
-
-### `TaskProgress`
-- Execution phase indicator (Planning, Coding, Validation)
-- Progress bar with animation
-- Phase progress segments visualization
-- Subtask completion counter
 
 ### `TaskMetadata`
 - Classification badges (Category, Priority, Complexity, Impact, etc.)

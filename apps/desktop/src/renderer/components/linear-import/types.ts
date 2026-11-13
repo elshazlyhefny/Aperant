@@ -11,6 +11,13 @@ import type {
 
 export type { LinearIssue, LinearTeam, LinearProject, LinearImportResult };
 
+export type LinearImportErrorCode =
+  | 'loadTeams'
+  | 'loadProjects'
+  | 'loadIssues'
+  | 'import'
+  | 'unknown';
+
 export interface LinearTaskImportModalProps {
   projectId: string;
   open: boolean;
@@ -34,7 +41,7 @@ export interface LinearImportState {
   isLoadingProjects: boolean;
   isLoadingIssues: boolean;
   isImporting: boolean;
-  error: string | null;
+  error: LinearImportErrorCode | null;
   searchQuery: string;
   expandedIssueId: string | null;
   importResult: LinearImportResult | null;

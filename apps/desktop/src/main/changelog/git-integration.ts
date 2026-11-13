@@ -19,6 +19,14 @@ function debug(enabled: boolean, ...args: unknown[]): void {
 }
 
 /**
+ * A ref is safe to place in a git revision range when it is a non-empty string
+ * that cannot be parsed as an option (leading dash) and has no NUL/newline.
+ */
+function isSafeRef(ref: unknown): ref is string {
+  return typeof ref === 'string' && ref.length > 0 && !ref.startsWith('-') && !/[\0\r\n]/.test(ref);
+}
+
+/**
  * Get list of branches for changelog git mode
  */
 export function getBranches(projectPath: string, debugEnabled = false): GitBranchInfo[] {
@@ -200,12 +208,20 @@ export function getCommits(
       case 'tag-range':
         if (options.fromTag) {
           const toRef = options.toTag || 'HEAD';
+          if (!isSafeRef(options.fromTag) || !isSafeRef(toRef)) {
+            debug(debugEnabled, 'Rejecting unsafe tag ref:', options.fromTag, toRef);
+            return [];
+          }
           args.push(`${options.fromTag}..${toRef}`);
         }
         break;
       case 'since-version':
         // Get all commits since the specified version/tag up to HEAD
         if (options.fromTag) {
+          if (!isSafeRef(options.fromTag)) {
+            debug(debugEnabled, 'Rejecting unsafe tag ref:', options.fromTag);
+            return [];
+          }
           args.push(`${options.fromTag}..HEAD`);
         }
         break;
@@ -235,6 +251,10 @@ export function getBranchDiffCommits(
   debugEnabled = false
 ): GitCommit[] {
   try {
+    if (!isSafeRef(options.baseBranch) || !isSafeRef(options.compareBranch)) {
+      debug(debugEnabled, 'Rejecting unsafe branch ref:', options.baseBranch, options.compareBranch);
+      return [];
+    }
     const format = '%h|%H|%s|%an|%ae|%aI';
     // Get commits in compareBranch that are not in baseBranch
     const args = ['log', `--pretty=format:${format}`, '--no-merges', `${options.baseBranch}..${options.compareBranch}`];

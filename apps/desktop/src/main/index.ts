@@ -42,7 +42,7 @@ const possibleEnvPaths = [
 
 // Must stay above every import that reads app.getPath('userData') while loading.
 import './dev-instance-isolation';
-import { app, BrowserWindow, nativeImage, session, screen, Menu, MenuItem } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, session, screen, Menu, MenuItem } from 'electron';
 import { join } from 'path';
 import { accessSync, readFileSync, writeFileSync, rmSync, cpSync } from 'fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
@@ -56,16 +56,16 @@ import { initializeUsageMonitorForwarding } from './ipc-handlers/terminal-handle
 import { initializeAppUpdater, stopPeriodicUpdates } from './app-updater';
 import { DEFAULT_APP_SETTINGS, IPC_CHANNELS, SPELL_CHECK_LANGUAGE_MAP, DEFAULT_SPELL_CHECK_LANGUAGE, ADD_TO_DICTIONARY_LABELS } from '../shared/constants';
 import { getAppLanguage, initAppLanguage } from './app-language';
-import { readSettingsFile } from './settings-utils';
+import { readSettingsFile, writeSettingsFile, secureSettingsFilePermissions } from './settings-utils';
 import { projectStore } from './project-store';
 import { registerSettingsAccessor } from './ai/auth/resolver';
 import { appLog, setupErrorLogging } from './app-logger';
 import { initSentryMain } from './sentry';
+import { installIpcSenderGuard } from './ipc-sender-validation';
 import { preWarmToolCache } from './cli-tool-manager';
 import { initializeClaudeProfileManager, getClaudeProfileManager } from './claude-profile-manager';
 import { isProfileAuthenticated } from './claude-profile/profile-utils';
 import { isMacOS, isWindows } from './platform';
-import { ptyDaemonClient } from './terminal/pty-daemon-client';
 import type { AppSettings, AuthFailureInfo } from '../shared/types';
 
 // Load .env. ES imports are hoisted and evaluated before any statement in this
@@ -118,6 +118,10 @@ const DEFAULT_SCREEN_HEIGHT: number = 1080;
 
 // Setup error logging early (captures uncaught exceptions)
 setupErrorLogging();
+
+// sentry.ts registers SENTRY_STATE_CHANGED, GET_SENTRY_DSN and GET_SENTRY_CONFIG at import
+// time, before setupIpcHandlers runs, so the sender guard must be installed here as well.
+installIpcSenderGuard(ipcMain);
 
 // Initialize Sentry for error tracking (respects user's sentryEnabled setting)
 initSentryMain();
@@ -255,8 +259,9 @@ function createWindow(): void {
     trafficLightPosition: { x: 15, y: 10 },
     icon: getIconPath(),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: false,
+      // zeenha fork: Chromium renderer sandbox on; the preload is a single CJS file
+      preload: join(__dirname, '../preload/index.cjs'),
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false, // Prevent terminal lag when window loses focus
@@ -442,6 +447,12 @@ app.whenReady().then(() => {
 
   // Load settings and configure agent manager with Python and auto-claude paths
   // Uses EAFP pattern (try/catch) instead of LBYL (existsSync) to avoid TOCTOU race conditions
+  // zeenha fork: tighten permissions on an existing settings.json (may hold secrets) even if never saved
+  try {
+    secureSettingsFilePermissions();
+  } catch {
+    // Best effort; a missing file or unsupported platform is fine
+  }
   const settingsPath = join(app.getPath('userData'), 'settings.json');
   try {
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
@@ -486,7 +497,7 @@ app.whenReady().then(() => {
 
             // Save the corrected setting - we're the only process modifying settings at startup
             try {
-              writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+              writeSettingsFile(settings);
               appLog.info('[main] Successfully saved migrated autoBuildPath to settings');
             } catch (writeError) {
               console.warn('[main] Failed to save migrated autoBuildPath:', writeError);
@@ -502,7 +513,7 @@ app.whenReady().then(() => {
           // Clear the stale setting so this warning doesn't repeat every startup
           try {
             delete settings.autoBuildPath;
-            writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+            writeSettingsFile(settings);
             appLog.info('[main] Cleared stale autoBuildPath from settings');
           } catch {
             // Non-critical - warning will just repeat next startup
@@ -699,11 +710,6 @@ app.on('before-quit', (event) => {
       if (terminalManager) {
         await terminalManager.killAll();
       }
-
-      // Shut down PTY daemon client AFTER terminal cleanup completes,
-      // ensuring all kill commands reach PTY processes before the daemon disconnects
-      ptyDaemonClient.shutdown();
-      console.warn('[main] PTY daemon client shutdown complete');
     } catch (error) {
       console.error('[main] Error during pre-quit cleanup:', error);
     } finally {

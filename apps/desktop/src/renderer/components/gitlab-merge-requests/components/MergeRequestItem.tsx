@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { GitMerge, GitPullRequest, Lock, ExternalLink } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import type { GitLabMergeRequest } from '../../../../shared/types';
@@ -9,6 +10,7 @@ interface MergeRequestItemProps {
 }
 
 export function MergeRequestItem({ mr, isSelected, onClick }: MergeRequestItemProps) {
+  const { t, i18n } = useTranslation(['gitlab']);
   const stateColors = {
     opened: 'text-success',
     closed: 'text-destructive',
@@ -27,22 +29,28 @@ export function MergeRequestItem({ mr, isSelected, onClick }: MergeRequestItemPr
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString(i18n.language, { month: 'short', day: 'numeric' });
   };
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
       className={cn(
-        'w-full text-left p-3 rounded-lg border transition-colors',
+        'w-full flex items-start gap-3 p-3 rounded-lg border transition-colors',
         isSelected
           ? 'border-primary bg-primary/5'
           : 'border-transparent hover:bg-muted/50'
       )}
     >
-      <div className="flex items-start gap-3">
-        <StateIcon className={cn('h-5 w-5 mt-0.5 shrink-0', stateColors[mr.state])} />
+      <button
+        type="button"
+        onClick={onClick}
+        aria-current={isSelected || undefined}
+        className="flex-1 min-w-0 text-left flex items-start gap-3 rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        <StateIcon
+          aria-hidden="true"
+          className={cn('h-5 w-5 mt-0.5 shrink-0', stateColors[mr.state])}
+        />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">!{mr.iid}</span>
@@ -69,21 +77,21 @@ export function MergeRequestItem({ mr, isSelected, onClick }: MergeRequestItemPr
             )}
           </div>
           <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-            <span>by {mr.author.username}</span>
+            <span>{t('gitlab:mergeRequests.byAuthor', { username: mr.author.username })}</span>
             <span>•</span>
             <span>{formatDate(mr.createdAt)}</span>
           </div>
         </div>
-        <a
-          href={mr.webUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <ExternalLink className="h-4 w-4" />
-        </a>
-      </div>
-    </button>
+      </button>
+      <a
+        href={mr.webUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={t('gitlab:mergeRequests.openInGitLab', { iid: mr.iid })}
+        className="text-muted-foreground hover:text-foreground rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        <ExternalLink className="h-4 w-4" aria-hidden="true" />
+      </a>
+    </div>
   );
 }

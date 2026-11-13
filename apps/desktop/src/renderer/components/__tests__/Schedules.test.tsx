@@ -38,7 +38,8 @@ const api = {
   listSchedules: vi.fn(),
   setScheduleEnabled: vi.fn(),
   acknowledgeScheduleReports: vi.fn(),
-  deleteSchedule: vi.fn()
+  deleteSchedule: vi.fn(),
+  runScheduleNow: vi.fn()
 };
 
 describe('Schedules', () => {
@@ -64,6 +65,35 @@ describe('Schedules', () => {
     expect(await screen.findByText('Nightly audit')).toBeTruthy();
     expect(screen.getByText('schedules:status.paused')).toBeTruthy();
     expect(screen.getByText('schedules:buttons.resume')).toBeTruthy();
+  });
+
+  it('runs a schedule now and shows the started notice', async () => {
+    api.listSchedules.mockResolvedValue({ success: true, data: [makeSchedule()] });
+    api.runScheduleNow.mockResolvedValue({ success: true, data: { started: true, taskId: 't1' } });
+    render(<Schedules projectId="p1" />);
+    fireEvent.click(await screen.findByText('schedules:buttons.runNow'));
+    expect(await screen.findByText('schedules:runNow.started')).toBeTruthy();
+    expect(api.runScheduleNow).toHaveBeenCalledWith('s1');
+  });
+
+  it('shows the unfinished notice when run now is skipped', async () => {
+    api.listSchedules.mockResolvedValue({ success: true, data: [makeSchedule()] });
+    api.runScheduleNow.mockResolvedValue({
+      success: true,
+      data: { started: false, reason: 'unfinished' }
+    });
+    render(<Schedules projectId="p1" />);
+    fireEvent.click(await screen.findByText('schedules:buttons.runNow'));
+    expect(await screen.findByText('schedules:runNow.unfinished')).toBeTruthy();
+  });
+
+  it('offers run now for a paused schedule', async () => {
+    api.listSchedules.mockResolvedValue({
+      success: true,
+      data: [makeSchedule({ enabled: false, nextRunAt: null })]
+    });
+    render(<Schedules projectId="p1" />);
+    expect(await screen.findByText('schedules:buttons.runNow')).toBeTruthy();
   });
 
   it('dismisses a missed-run banner', async () => {

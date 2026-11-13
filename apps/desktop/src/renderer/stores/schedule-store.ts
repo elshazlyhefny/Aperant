@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import type { RecurringSchedule, ScheduleInput, ScheduleRunRecord } from '../../shared/types/schedule';
+import type {
+  RecurringSchedule,
+  ScheduleInput,
+  ScheduleRunNowResult,
+  ScheduleRunRecord
+} from '../../shared/types/schedule';
 import { debugLog } from '@shared/utils/debug-logger';
 
 // zeenha fork: renderer state for recurring task schedules.
@@ -16,6 +21,7 @@ interface ScheduleState {
   deleteSchedule: (id: string) => Promise<boolean>;
   setEnabled: (id: string, enabled: boolean) => Promise<boolean>;
   acknowledgeReports: (scheduleId: string, recordIds?: string[]) => Promise<boolean>;
+  runNow: (id: string) => Promise<ScheduleRunNowResult | null>;
 }
 
 function replaceSchedule(list: RecurringSchedule[], updated: RecurringSchedule): RecurringSchedule[] {
@@ -101,6 +107,18 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     }
     set({ error: result.error ?? 'Failed to acknowledge reports' });
     return false;
+  },
+
+  runNow: async (id) => {
+    const result = await window.electronAPI.runScheduleNow(id);
+    if (result.success && result.data) {
+      set({ error: null });
+      const projectId = get().activeProjectId;
+      if (projectId) void get().loadSchedules(projectId);
+      return result.data;
+    }
+    set({ error: result.error ?? 'Failed to run schedule' });
+    return null;
   }
 }));
 

@@ -99,6 +99,27 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `JIRA_API_TOKEN` | Atlassian API token. A secret, see [Secrets](#secrets). | Yes |
 | `JIRA_PROJECT_KEY` | Default project key, for example `PROJ` | Yes |
 
+### Bitbucket
+
+| Key | Purpose or example | Settings UI writes it |
+|-----|--------------------|-----------------------|
+| `BITBUCKET_ENABLED` | `true` or `false`. With `BITBUCKET_TOKEN` present, the integration is on unless this is `false` (compared case-insensitively). When unset it is written as the commented line `# BITBUCKET_ENABLED=true`. | Yes |
+| `BITBUCKET_USERNAME` | Bitbucket username, used with the token for Basic auth. `:` characters are removed. | Yes |
+| `BITBUCKET_TOKEN` | Bitbucket access token. A secret, see [Secrets](#secrets). | Yes |
+| `BITBUCKET_REPOSITORY` | `workspace/repo_slug`. Each side starts with a letter or digit and may contain letters, digits, `.`, `_` and `-`. At most 256 characters. | Yes |
+
+Only Bitbucket Cloud (bitbucket.org, API `https://api.bitbucket.org/2.0`) is supported. Bitbucket Server and Data Center are not. The **Detect** button reads the `origin` remote and only matches bitbucket.org ssh and https remotes. The Bitbucket Pull Requests view can list pull requests, show a pull request and its diff, and post a comment.
+
+#### Troubleshooting
+
+If the Bitbucket Pull Requests view says Bitbucket is not configured, `getBitbucketConfig()` returned `null`. This happens when:
+
+1. `BITBUCKET_ENABLED` is `false`.
+2. `BITBUCKET_USERNAME`, `BITBUCKET_TOKEN` or `BITBUCKET_REPOSITORY` is missing, or empty after cleanup.
+3. The repository does not match `workspace/repo_slug`.
+
+The project also needs an `autoBuildPath` and an existing `.auto-claude/.env`. Requests time out after 30 seconds (`BITBUCKET_API_TIMEOUT_MS`).
+
 ### MCP servers
 
 | Key | Purpose or example | Settings UI writes it |
@@ -106,12 +127,82 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `CONTEXT7_ENABLED` | Documentation lookup. On unless set to `false`. | Yes |
 | `ELECTRON_MCP_ENABLED` | Electron desktop automation for QA agents. Default off. It applies only to projects detected as Electron. | Yes |
 | `CHROME_DEVTOOLS_MCP_ENABLED` | Chrome DevTools browser automation for QA agents. Default off. | Yes |
-| `CHROME_DEVTOOLS_EXECUTABLE` | Absolute path of the Chrome to launch. Default is the installed Chrome. | Yes |
+| `CHROME_DEVTOOLS_EXECUTABLE` | Absolute path of the Chrome to launch. Default is the installed Chrome. Needs approval, see [Approving project MCP servers](#approving-project-mcp-servers). | Yes |
 | `CHROME_DEVTOOLS_SECURE_ORIGINS` | Comma-separated `http://` dev origins that the QA browser treats as secure contexts. Full Chrome only. | Yes |
 | `CHROME_DEVTOOLS_WEBMCP` | Expose pages' WebMCP tools to QA agents. Needs Chrome 150 or later. Default off. | Yes |
-| `CUSTOM_MCP_SERVERS` | JSON array of user-defined servers, for example `[{"id":"...","name":"...","type":"command|http",...}]` | Yes |
+| `CUSTOM_MCP_SERVERS` | JSON array of user-defined servers, for example `[{"id":"...","name":"...","type":"command|http",...}]`. Needs approval, see [Approving project MCP servers](#approving-project-mcp-servers). | Yes |
 
 Per-agent overrides use the `AGENT_MCP_` prefix and are described in the next section.
+
+### Approving project MCP servers
+
+Some servers start a process or call a URL that the project's `.env` names. These need your approval before any agent can use them.
+
+**What needs approval**
+
+- Every entry in `CUSTOM_MCP_SERVERS`.
+- A `CHROME_DEVTOOLS_EXECUTABLE` path. Relative paths are ignored.
+
+Built-in switches such as `CONTEXT7_ENABLED` are not affected.
+
+**Why**
+
+The project `.env` can be committed. Without approval, a cloned repository could start any process on your machine. The MCP Overview page shows a warning when the `.env` is tracked by git.
+
+**How to approve**
+
+1. Open the **MCP Overview** page for the project.
+2. Find the server marked **Not approved - will not run**.
+3. Press **Approve**.
+4. Check the command line or URL in the dialog.
+5. Confirm.
+
+Until you approve, the server is not started for any agent. Other states:
+
+| What you see | Meaning |
+|--------------|---------|
+| **Cannot run: invalid definition** | The entry cannot be validated, so it cannot be approved. Fix it in `CUSTOM_MCP_SERVERS`. |
+| Chrome warning with **Approve executable** | The `CHROME_DEVTOOLS_EXECUTABLE` path is not approved. |
+
+> **Note:** Approval is checked again when you confirm. If the `.env` changed while the dialog was open, it is refused with a "changed since shown" message. Review the new definition and approve again.
+
+**What cancels an approval**
+
+An approval matches the `id`, `type`, `command`, `args` and `url` of the server, after `${VAR}` references are expanded. A change to any of them means you must approve again. This includes a changed value behind a `${VAR}` used in `args`.
+
+These do not cancel it:
+
+- `headers`. A rotated token needs no new approval, as long as `url` is unchanged.
+- Display fields such as `name`.
+
+Rules for `${VAR}`:
+
+- It is expanded in `args` and `headers` only.
+- The value comes from the same project `.env`, never from the process environment.
+- A reference to a missing or empty variable drops the server. It is not listed at all.
+
+Example: with `API_DIR=/srv/a` in the `.env`, the server below is approved. Changing it to `API_DIR=/srv/b` cancels the approval, because the expanded `args` differ. Changing a token used only in `headers` does not.
+
+```json
+{"id":"api","type":"command","command":"node","args":["${API_DIR}/server.js"]}
+```
+
+**Where approvals are stored**
+
+In `<userData>/mcp-approvals.json`.
+
+- It is outside the repo, because a hostile repo could pre-approve itself.
+- It is outside `settings.json`, because renderer saves rewrite that file.
+- It is keyed by the resolved project path. Moving the folder or cloning again means approving again.
+- A missing or unreadable file means nothing is approved.
+
+**Chrome**
+
+Approval is for the exact path. If the path is not approved, the installed Chrome is used instead.
+
+**Headless CLI**
+
+Headless runs never approve anything and do not read the store. See [CLI-USAGE.md](CLI-USAGE.md).
 
 ### Memory and embeddings
 
@@ -164,4 +255,4 @@ Rules:
 
 ## Secrets
 
-`.auto-claude/.env` can hold API keys and tokens, such as `GITHUB_TOKEN`, `GITLAB_TOKEN`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` and the embedding provider keys. Do not commit it to version control.
+`.auto-claude/.env` can hold API keys and tokens, such as `BITBUCKET_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` and the embedding provider keys. Do not commit it to version control.

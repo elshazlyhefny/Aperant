@@ -598,6 +598,9 @@ export function resolveModelEquivalent(
  * Whether a model can receive image input.
  * Only models explicitly marked `vision: false` in the catalog are text-only;
  * unknown/custom ids and undefined are assumed to support vision.
+ * Caveat: a custom text-only model id is not detected, so images will be sent and
+ * the provider may reject them. The renderer pre-send notice therefore only appears
+ * for catalog models marked `vision: false`.
  */
 export function modelSupportsVision(
   modelId?: string,

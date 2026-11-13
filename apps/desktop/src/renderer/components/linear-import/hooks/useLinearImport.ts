@@ -3,7 +3,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import type { LinearImportResult } from '../types';
+import type { LinearImportResult, LinearImportErrorCode } from '../types';
 
 export function useLinearImport(
   projectId: string,
@@ -11,7 +11,7 @@ export function useLinearImport(
 ) {
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<LinearImportResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LinearImportErrorCode | null>(null);
 
   const handleImport = useCallback(
     async (selectedIssueIds: Set<string>) => {
@@ -33,10 +33,10 @@ export function useLinearImport(
             onImportComplete?.(result.data);
           }
         } else {
-          setError(result.error || 'Failed to import issues');
+          setError('import');
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
+        setError('unknown');
       } finally {
         setIsImporting(false);
       }

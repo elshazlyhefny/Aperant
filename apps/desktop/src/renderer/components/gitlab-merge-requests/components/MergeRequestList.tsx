@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, RefreshCw, GitPullRequest } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
@@ -25,6 +26,7 @@ export function MergeRequestList({
   stateFilter,
   onStateFilterChange
 }: MergeRequestListProps) {
+  const { t } = useTranslation(['gitlab', 'common']);
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredMrs = mergeRequests.filter((mr) => {
@@ -44,36 +46,42 @@ export function MergeRequestList({
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
             <GitPullRequest className="h-4 w-4" />
-            Merge Requests
+            {t('gitlab:mergeRequests.listTitle')}
           </h3>
           <Button
             variant="ghost"
             size="sm"
             onClick={onRefresh}
             disabled={isLoading}
+            aria-label={t('common:buttons.refresh')}
             className="h-7 px-2"
           >
-            <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              aria-hidden="true"
+              className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`}
+            />
           </Button>
         </div>
 
         <Input
-          placeholder="Search merge requests..."
+          placeholder={t('gitlab:mergeRequests.searchPlaceholder')}
+          aria-label={t('gitlab:mergeRequests.searchPlaceholder')}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="h-8 text-sm"
         />
 
-        <div className="flex gap-1">
+        <div role="group" aria-label={t('gitlab:mergeRequests.filterGroupLabel')} className="flex gap-1">
           {(['opened', 'merged', 'closed', 'all'] as const).map((state) => (
             <Button
               key={state}
               variant={stateFilter === state ? 'default' : 'ghost'}
               size="sm"
               onClick={() => onStateFilterChange(state)}
-              className="h-7 text-xs capitalize"
+              aria-pressed={stateFilter === state}
+              className="h-7 text-xs"
             >
-              {state}
+              {t(`gitlab:mergeRequests.filters.${state}`)}
             </Button>
           ))}
         </div>
@@ -87,7 +95,9 @@ export function MergeRequestList({
           </div>
         ) : filteredMrs.length === 0 ? (
           <div className="py-8 text-center text-sm text-muted-foreground">
-            {searchQuery ? 'No matching merge requests' : 'No merge requests found'}
+            {searchQuery
+              ? t('gitlab:mergeRequests.noMatching')
+              : t('gitlab:mergeRequests.noneFound')}
           </div>
         ) : (
           <div className="p-2 space-y-1">
