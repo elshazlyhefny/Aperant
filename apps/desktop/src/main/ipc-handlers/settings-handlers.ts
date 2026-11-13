@@ -1,6 +1,6 @@
 import { ipcMain, dialog, app, shell, session } from 'electron';
 import { withKeyStatusReset } from '../../shared/utils/api-key-status';
-import { existsSync, writeFileSync, mkdirSync, statSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, statSync, readFileSync } from 'fs';
 import { execFileSync } from 'node:child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -21,7 +21,7 @@ import type {
 import { AgentManager } from '../agent';
 import type { BrowserWindow } from 'electron';
 import { setUpdateChannel, setUpdateChannelWithDowngradeCheck } from '../app-updater';
-import { getSettingsPath, readSettingsFile } from '../settings-utils';
+import { readSettingsFile, writeSettingsFile } from '../settings-utils';
 import { resetMemoryService } from './context/memory-service-factory';
 import { configureTools, getToolPath, getToolInfo, isPathFromWrongPlatform, preWarmToolCache } from '../cli-tool-manager';
 import type { ProviderAccount } from '../../shared/types/provider-account';
@@ -30,8 +30,6 @@ import type { ClaudeProfile } from '../../shared/types/agent';
 import { loadProfilesFile } from '../services/profile';
 import { loadProfileStore } from '../claude-profile/profile-storage';
 import { isMacOS, isWindows } from '../platform';
-
-const settingsPath = getSettingsPath();
 
 async function migrateToProviderAccounts(settings: AppSettings): Promise<{ changed: boolean; settings: AppSettings }> {
   if (settings._migratedProviderAccounts) {
@@ -405,7 +403,7 @@ export function registerSettingsHandlers(
       // Persist migration changes
       if (needsSave) {
         try {
-          writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+          writeSettingsFile(settings);
         } catch (error) {
           console.error('[SETTINGS_GET] Failed to persist migration:', error);
           // Continue anyway - settings will be migrated in-memory for this session
@@ -499,7 +497,7 @@ export function registerSettingsHandlers(
           }
         }
 
-        writeFileSync(settingsPath, JSON.stringify(newSettings, null, 2), 'utf-8');
+        writeSettingsFile(newSettings);
 
         // Apply Python path if changed
         if (settings.pythonPath || settings.autoBuildPath) {
@@ -959,8 +957,7 @@ export function registerSettingsHandlers(
   function writeProviderAccounts(accounts: ProviderAccount[]): void {
     const settings = readSettingsFile() ?? {};
     settings.providerAccounts = accounts;
-    const settingsPath = getSettingsPath();
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+    writeSettingsFile(settings);
   }
 
   // GET all provider accounts
@@ -1015,8 +1012,7 @@ export function registerSettingsHandlers(
         queue.unshift(newAccount.id);
         settings.globalPriorityOrder = queue;
 
-        const settingsPath = getSettingsPath();
-        writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+        writeSettingsFile(settings);
         console.warn('[PROVIDER_ACCOUNTS_SAVE] Created account:', newAccount.id, newAccount.name, newAccount.provider, '| Queue position: #1 of', queue.length);
         return { success: true, data: newAccount };
       } catch (error) {
@@ -1082,8 +1078,7 @@ export function registerSettingsHandlers(
           settings.crossProviderPriorityOrder = cpQueue.filter(qid => qid !== id);
         }
 
-        const settingsPath = getSettingsPath();
-        writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+        writeSettingsFile(settings);
         console.warn('[PROVIDER_ACCOUNTS_DELETE] Deleted account:', id);
         return { success: true };
       } catch (error) {
@@ -1100,8 +1095,7 @@ export function registerSettingsHandlers(
       try {
         const settings = readSettingsFile() ?? {};
         settings.globalPriorityOrder = order;
-        const currentSettingsPath = getSettingsPath();
-        writeFileSync(currentSettingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+        writeSettingsFile(settings);
 
         // Sync to claude-profiles.json so usage-monitor (which reads from profileManager) stays in sync
         try {
@@ -1128,8 +1122,7 @@ export function registerSettingsHandlers(
       try {
         const settings = readSettingsFile() ?? {};
         settings.crossProviderPriorityOrder = order;
-        const currentSettingsPath = getSettingsPath();
-        writeFileSync(currentSettingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+        writeSettingsFile(settings);
         return { success: true };
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : 'Failed to set cross-provider queue order' };
@@ -1144,8 +1137,7 @@ export function registerSettingsHandlers(
       try {
         const settings = readSettingsFile() ?? {};
         settings.modelOverrides = overrides;
-        const currentSettingsPath = getSettingsPath();
-        writeFileSync(currentSettingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+        writeSettingsFile(settings);
         console.warn('[MODEL_OVERRIDES_SAVE] Model overrides saved');
         return { success: true };
       } catch (error) {
