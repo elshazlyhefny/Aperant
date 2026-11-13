@@ -20,7 +20,7 @@ import type {
 import { AgentManager } from '../agent';
 import type { BrowserWindow } from 'electron';
 import { setUpdateChannel, setUpdateChannelWithDowngradeCheck } from '../app-updater';
-import { readSettingsFile, writeSettingsFile } from '../settings-utils';
+import { readSettingsFile, updateSettingsFile } from '../settings-utils';
 import { resetMemoryService } from './context/memory-service-factory';
 import { configureTools, getToolPath, getToolInfo, isPathFromWrongPlatform, preWarmToolCache } from '../cli-tool-manager';
 import type { ProviderAccount } from '../../shared/types/provider-account';
@@ -380,6 +380,7 @@ export function registerSettingsHandlers(
       // when settings were synced/transferred between platforms
       // See: https://github.com/AndyMik90/Auto-Claude/issues/XXX
       const pathFields = ['pythonPath', 'gitPath', 'githubCLIPath', 'gitlabCLIPath', 'claudePath', 'autoBuildPath'] as const;
+      const clearedPathFields: Array<(typeof pathFields)[number]> = [];
       for (const field of pathFields) {
         const pathValue = settings[field];
         if (pathValue && isPathFromWrongPlatform(pathValue)) {
@@ -387,6 +388,7 @@ export function registerSettingsHandlers(
             `[SETTINGS_GET] Clearing ${field} - path from different platform: ${pathValue}`
           );
           delete settings[field];
+          clearedPathFields.push(field);
           needsSave = true;
         }
       }
@@ -402,7 +404,10 @@ export function registerSettingsHandlers(
       // Persist migration changes
       if (needsSave) {
         try {
-          writeSettingsFile(settings);
+          await updateSettingsFile((s) => {
+            for (const field of clearedPathFields) delete s[field];
+            Object.assign(s, settings);
+          });
         } catch (error) {
           console.error('[SETTINGS_GET] Failed to persist migration:', error);
           // Continue anyway - settings will be migrated in-memory for this session
@@ -444,71 +449,77 @@ export function registerSettingsHandlers(
     IPC_CHANNELS.SETTINGS_SAVE,
     async (_, settings: Partial<AppSettings>): Promise<IPCResult> => {
       try {
-        // Load current settings using shared helper
-        const savedSettings = readSettingsFile();
-        const currentSettings = { ...DEFAULT_APP_SETTINGS, ...savedSettings };
+        const INVALID_WEBHOOK = Symbol('invalid_webhook_url');
+        const result = await updateSettingsFile((s) => {
+          const currentSettings = { ...DEFAULT_APP_SETTINGS, ...s };
 
-        // Strip providerAccounts and globalPriorityOrder — these are managed
-        // exclusively by their dedicated IPC handlers (PROVIDER_ACCOUNTS_*)
-        // to prevent the general settings save from clobbering them.
-        const { providerAccounts: _pa, globalPriorityOrder: _gpo, ...safeSettings } = settings;
-        const newSettings = { ...currentSettings, ...safeSettings };
+          // Strip providerAccounts and globalPriorityOrder — these are managed
+          // exclusively by their dedicated IPC handlers (PROVIDER_ACCOUNTS_*)
+          // to prevent the general settings save from clobbering them.
+          const { providerAccounts: _pa, globalPriorityOrder: _gpo, ...safeSettings } = settings;
+          const newSettings = { ...currentSettings, ...safeSettings };
 
-        if (safeSettings.webhook !== undefined) {
-          const raw = (safeSettings.webhook ?? {}) as Partial<NonNullable<AppSettings['webhook']>>;
-          const url = typeof raw.url === 'string' ? raw.url.trim() : '';
-          const enabled = raw.enabled === true;
-          if (enabled && !validateWebhookUrl(url).ok) {
-            return { success: false, error: 'invalid_webhook_url' };
+          if (safeSettings.webhook !== undefined) {
+            const raw = (safeSettings.webhook ?? {}) as Partial<NonNullable<AppSettings['webhook']>>;
+            const url = typeof raw.url === 'string' ? raw.url.trim() : '';
+            const enabled = raw.enabled === true;
+            if (enabled && !validateWebhookUrl(url).ok) {
+              return INVALID_WEBHOOK;
+            }
+            newSettings.webhook = {
+              enabled,
+              url,
+              events: {
+                reviewReady: raw.events?.reviewReady === true,
+                failed: raw.events?.failed === true,
+                blocked: raw.events?.blocked === true,
+                // zeenha fork: must be listed here, otherwise the rebuilt events object drops the toggle on every save.
+                prOpened: raw.events?.prOpened === true,
+              },
+            };
           }
-          newSettings.webhook = {
-            enabled,
-            url,
-            events: {
-              reviewReady: raw.events?.reviewReady === true,
-              failed: raw.events?.failed === true,
-              blocked: raw.events?.blocked === true,
-              // zeenha fork: must be listed here, otherwise the rebuilt events object drops the toggle on every save.
-              prOpened: raw.events?.prOpened === true,
-            },
-          };
-        }
 
-        // zeenha fork: Jira write-back settings, rebuilt from strictly-typed fields.
-        if (safeSettings.jiraWriteback !== undefined) {
-          const raw = (safeSettings.jiraWriteback ?? {}) as Partial<NonNullable<AppSettings['jiraWriteback']>>;
-          const defaults = DEFAULT_APP_SETTINGS.jiraWriteback;
-          const statusName = typeof raw.transitionStatusName === 'string'
-            // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars on purpose
-            ? raw.transitionStatusName.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 100).trim()
-            : '';
-          newSettings.jiraWriteback = {
-            enabled: raw.enabled === true,
-            comment: raw.comment === true,
-            transitionOnReview: raw.transitionOnReview === true,
-            transitionStatusName: statusName || defaults?.transitionStatusName || 'In Review',
-          };
-        }
-
-        // zeenha fork: issue write-back settings, rebuilt from strictly-typed booleans.
-        if (safeSettings.issueWriteback !== undefined) {
-          const raw = (safeSettings.issueWriteback ?? {}) as Partial<NonNullable<AppSettings['issueWriteback']>>;
-          newSettings.issueWriteback = {
-            github: raw.github === true,
-            gitlab: raw.gitlab === true,
-            linear: raw.linear === true,
-          };
-        }
-
-        // Sync defaultModel when agent profile changes (#414)
-        if (settings.selectedAgentProfile) {
-          const profile = DEFAULT_AGENT_PROFILES.find(p => p.id === settings.selectedAgentProfile);
-          if (profile) {
-            newSettings.defaultModel = profile.model;
+          // zeenha fork: Jira write-back settings, rebuilt from strictly-typed fields.
+          if (safeSettings.jiraWriteback !== undefined) {
+            const raw = (safeSettings.jiraWriteback ?? {}) as Partial<NonNullable<AppSettings['jiraWriteback']>>;
+            const defaults = DEFAULT_APP_SETTINGS.jiraWriteback;
+            const statusName = typeof raw.transitionStatusName === 'string'
+              // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars on purpose
+              ? raw.transitionStatusName.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 100).trim()
+              : '';
+            newSettings.jiraWriteback = {
+              enabled: raw.enabled === true,
+              comment: raw.comment === true,
+              transitionOnReview: raw.transitionOnReview === true,
+              transitionStatusName: statusName || defaults?.transitionStatusName || 'In Review',
+            };
           }
-        }
 
-        writeSettingsFile(newSettings);
+          // zeenha fork: issue write-back settings, rebuilt from strictly-typed booleans.
+          if (safeSettings.issueWriteback !== undefined) {
+            const raw = (safeSettings.issueWriteback ?? {}) as Partial<NonNullable<AppSettings['issueWriteback']>>;
+            newSettings.issueWriteback = {
+              github: raw.github === true,
+              gitlab: raw.gitlab === true,
+              linear: raw.linear === true,
+            };
+          }
+
+          // Sync defaultModel when agent profile changes (#414)
+          if (settings.selectedAgentProfile) {
+            const profile = DEFAULT_AGENT_PROFILES.find(p => p.id === settings.selectedAgentProfile);
+            if (profile) {
+              newSettings.defaultModel = profile.model;
+            }
+          }
+          Object.assign(s, newSettings);
+          return newSettings;
+        });
+        if (result === INVALID_WEBHOOK) {
+          return { success: false, error: 'invalid_webhook_url' };
+        }
+        const newSettings = result;
+
 
         // Apply Python path if changed
         if (settings.pythonPath || settings.autoBuildPath) {

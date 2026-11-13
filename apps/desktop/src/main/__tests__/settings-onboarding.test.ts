@@ -82,6 +82,7 @@ vi.mock('../cli-tool-manager', () => ({
 vi.mock('../settings-utils', () => ({
   readSettingsFile: vi.fn(() => ({})),
   writeSettingsFile: vi.fn(),
+  updateSettingsFile: vi.fn(async (mutator: (s: Record<string, unknown>) => unknown) => mutator({})),
   getSettingsPath: vi.fn(() => join(mockHomeDir, 'settings.json')),
 }));
 
