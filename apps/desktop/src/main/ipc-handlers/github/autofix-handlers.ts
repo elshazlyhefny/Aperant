@@ -18,7 +18,7 @@ import { createSpecForIssue, buildIssueContext, buildInvestigationTask, updateIm
 import type { Project } from '../../../shared/types';
 import { createContextLogger } from './utils/logger';
 import { withProjectOrNull } from './utils/project-middleware';
-import { createIPCCommunicators } from './utils/ipc-communicator';
+import { createIPCCommunicators } from '../shared/ipc-communicator';
 import { AgentManager } from '../../agent/agent-manager';
 import { BatchProcessor, safeBatchId } from '../../ai/runners/github/batch-processor';
 import type { GitHubIssue } from '../../ai/runners/github/duplicate-detector';
