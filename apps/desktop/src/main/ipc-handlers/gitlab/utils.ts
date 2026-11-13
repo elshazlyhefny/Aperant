@@ -292,6 +292,55 @@ export async function gitlabFetch(
 }
 
 /**
+ * Like gitlabFetch, but returns the response body as text (e.g. job traces).
+ */
+export async function gitlabFetchText(
+  token: string,
+  instanceUrl: string,
+  endpoint: string
+): Promise<string> {
+  const baseUrl = parseInstanceUrl(instanceUrl);
+  if (!baseUrl) {
+    throw new Error('Invalid GitLab instance URL');
+  }
+  if (!endpoint.startsWith('/')) {
+    throw new Error('GitLab endpoint must be a relative path');
+  }
+  const url = `${baseUrl}/api/v4${endpoint}`;
+  const safeToken = sanitizeToken(token);
+  if (!safeToken) {
+    throw new Error('Invalid GitLab token');
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GITLAB_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'PRIVATE-TOKEN': safeToken }
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new GitLabAPIError(
+        `GitLab API error: ${response.status} ${response.statusText} - ${errorBody}`,
+        response.status
+      );
+    }
+
+    return await response.text();
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new GitLabAPIError(`GitLab API timeout after ${GITLAB_API_TIMEOUT_MS / 1000}s: ${url}`, 0);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
  * Create a merge request via the GitLab API
  */
 export async function createGitLabMergeRequest(

@@ -535,6 +535,7 @@
       "agent_running": "L'agent est déjà en cours d'exécution pour cette tâche. Attendez qu'il termine.",
       "auth_required": "Une authentification GitHub est requise pour envoyer les retours. Connectez-vous à GitHub puis actualisez.",
       "no_github_config": "GitHub n'est pas configuré pour ce projet.",
+      "no_gitlab_config": "GitLab n'est pas configuré pour ce projet.",
       "branch_mismatch": "Le worktree de la tâche n'est pas sur la branche de la pull request : aucun suivi ne peut s'exécuter ici."
     }
   },

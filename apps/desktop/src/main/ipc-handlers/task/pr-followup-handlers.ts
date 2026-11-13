@@ -25,13 +25,8 @@ import type {
   StartPRFollowUpResult,
 } from '../../../shared/types';
 import { findTaskAndProject } from './shared';
-import { getGitHubConfig } from '../github/utils';
-import {
-  fetchPRFeedback,
-  parsePRNumberFromUrl,
-  PRFeedbackError,
-  type PRFeedbackFetchResult,
-} from '../github/pr/task-feedback';
+import type { PRFeedbackFetchResult } from '../github/pr/task-feedback';
+import { loadPRFeedback, resolvePRRef, type PRRef } from './pr-feedback-source';
 import { buildFollowUpRequest } from './pr-followup-request';
 import { findTaskWorktree } from '../../worktree-paths';
 import { getToolPath } from '../../cli-tool-manager';
@@ -55,6 +50,7 @@ const BLOCKED_MESSAGES: Record<PRFeedbackBlockedReason, string> = {
   agent_running: 'An agent is already running for this task. Wait for it to finish, then try again. Nothing was started.',
   auth_required: 'Authentication required. Add an account in Settings > Accounts, then try again. Nothing was started.',
   no_github_config: 'GitHub is not configured for this project (token or repository missing). Nothing was started.',
+  no_gitlab_config: 'GitLab is not configured for this project (token or project missing). Nothing was started.',
   branch_mismatch:
     "The task's worktree is not on the pull request branch, so the follow-up cannot push to the same PR. Nothing was started.",
 };
@@ -63,7 +59,9 @@ interface TaskPRContext {
   task: Task;
   project: Project;
   prUrl: string;
-  prNumber: number;
+  provider: PRRef['provider'];
+  /** GitHub PR number or GitLab MR iid. */
+  number: number;
 }
 
 type Resolved =
@@ -77,9 +75,9 @@ function resolveTask(taskId: string): Resolved {
   if ((task.status !== 'pr_created' && task.status !== 'done') || !prUrl) {
     return { ok: false, code: 'no_open_pr', error: 'This task has no open pull request.' };
   }
-  const prNumber = parsePRNumberFromUrl(prUrl);
-  if (!prNumber) return { ok: false, code: 'no_open_pr', error: 'The pull request link of this task is not valid.' };
-  return { ok: true, ctx: { task, project, prUrl, prNumber } };
+  const ref = resolvePRRef(prUrl);
+  if (!ref) return { ok: false, code: 'no_open_pr', error: 'The pull request link of this task is not valid.' };
+  return { ok: true, ctx: { task, project, prUrl, provider: ref.provider, number: ref.number } };
 }
 
 type WorktreeCheck =
@@ -134,10 +132,6 @@ function firstBlock(args: {
   return undefined;
 }
 
-function feedbackErrorMessage(error: unknown): string {
-  return error instanceof PRFeedbackError ? error.message : 'Failed to load pull request feedback from GitHub';
-}
-
 function allItems(f: Pick<PRFeedbackFetchResult, 'checks' | 'threads' | 'reviews'>): PRFeedbackItem[] {
   return [...f.checks, ...f.threads, ...f.reviews];
 }
@@ -158,17 +152,17 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
     async (_, taskId: string): Promise<PRFollowUpIPCResult<PRFeedbackResult>> => {
       const resolved = resolveTask(String(taskId));
       if (!resolved.ok) return { success: false, code: resolved.code, error: resolved.error };
-      const { task, project, prNumber } = resolved.ctx;
+      const { task, project, prUrl, provider, number } = resolved.ctx;
 
-      const config = getGitHubConfig(project);
-      if (!config) return { success: false, code: 'no_github_config', error: BLOCKED_MESSAGES.no_github_config };
-
-      let fetched: PRFeedbackFetchResult;
-      try {
-        fetched = await fetchPRFeedback(config, prNumber);
-      } catch (error) {
-        return { success: false, code: 'fetch_failed', error: feedbackErrorMessage(error) };
+      const loaded = await loadPRFeedback(project, prUrl, { provider, number });
+      if (!loaded.ok) {
+        return {
+          success: false,
+          code: loaded.code,
+          error: loaded.code === 'fetch_failed' ? loaded.error : BLOCKED_MESSAGES[loaded.code],
+        };
       }
+      const fetched = loaded.fetched;
 
       const worktree = checkWorktree(project, task);
       const blockedReason = firstBlock({
@@ -210,7 +204,7 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
       // 2. Re-run the preconditions. Nothing is written or changed before they pass.
       const resolved = resolveTask(String(taskId));
       if (!resolved.ok) return { success: false, code: resolved.code, error: resolved.error };
-      const { task, project, prUrl, prNumber } = resolved.ctx;
+      const { task, project, prUrl, provider, number: prNumber } = resolved.ctx;
 
       const worktree = checkWorktree(project, task);
       if (!worktree.available) {
@@ -219,16 +213,16 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
       }
       const worktreePath = worktree.path;
 
-      const config = getGitHubConfig(project);
-      if (!config) return { success: false, code: 'no_github_config', error: BLOCKED_MESSAGES.no_github_config };
-
       // 3. Re-fetch in main. Only selected items are kept; unknown ids are rejected.
-      let fetched: PRFeedbackFetchResult;
-      try {
-        fetched = await fetchPRFeedback(config, prNumber);
-      } catch (error) {
-        return { success: false, code: 'fetch_failed', error: feedbackErrorMessage(error) };
+      const loaded = await loadPRFeedback(project, prUrl, { provider, number: prNumber });
+      if (!loaded.ok) {
+        return {
+          success: false,
+          code: loaded.code,
+          error: loaded.code === 'fetch_failed' ? loaded.error : BLOCKED_MESSAGES[loaded.code],
+        };
       }
+      const fetched = loaded.fetched;
 
       const blocked = firstBlock({
         worktree,
