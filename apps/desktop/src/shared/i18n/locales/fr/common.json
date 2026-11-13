@@ -39,6 +39,7 @@
     "upgradeSubscriptionAriaLabel": "Mettre à niveau l'abonnement (s'ouvre dans une nouvelle fenêtre)",
     "learnMoreAriaLabel": "En savoir plus (s'ouvre dans une nouvelle fenêtre)",
     "toggleFolder": "Basculer le dossier {{name}}",
+    "addFileReference": "Ajouter {{name}} comme référence",
     "expandFolder": "Déplier le dossier {{name}}",
     "collapseFolder": "Replier le dossier {{name}}",
     "newConversationAriaLabel": "Nouvelle conversation",

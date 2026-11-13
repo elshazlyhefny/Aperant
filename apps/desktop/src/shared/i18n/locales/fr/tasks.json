@@ -561,5 +561,9 @@
     "none": "Aucun chevauchement de fichiers prévus avec les autres tâches actives.",
     "unknown": "Les fichiers prévus sont inconnus car le plan ne liste aucun fichier.",
     "holdFailed": "Impossible d'enregistrer l'attente"
+  },
+  "fileExplorer": {
+    "title": "Fichiers du projet",
+    "hint": "Faites glisser un fichier, ou appuyez sur Entrée, pour l'ajouter comme référence"
   }
 }
