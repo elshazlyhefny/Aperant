@@ -2,7 +2,11 @@
 
 When a task has a pull request, the task detail modal shows a **PR feedback** panel. It lists the failed CI checks and the open review feedback on that pull request. You pick the items you want fixed and send them to the task's agent. The agent fixes them in the task's own worktree. After QA approves the fix, Aperant pushes it to the same branch, so the existing pull request updates. No new pull request is created.
 
-This works for GitHub only. The panel reads feedback through the GitHub API. GitLab, Bitbucket and the headless CLI are not covered. See [Not covered](#not-covered).
+This works for GitHub and Azure DevOps. The sections below describe GitHub; see [Azure DevOps](#azure-devops) for the differences. GitLab, Bitbucket and the headless CLI are not covered. See [Not covered](#not-covered).
+
+### Azure DevOps
+
+For a pull request on Azure DevOps, the panel sends two kinds of feedback: failed build validations, with log excerpts, and active threads, with the file and line they refer to. Azure DevOps must be configured for the project, see [Azure DevOps](project-configuration.md#azure-devops). If it is not, the panel shows a not-configured message. A pull request on a repository other than the configured one is refused.
 
 ## When the panel appears
 
