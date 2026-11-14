@@ -25,6 +25,9 @@ import { projectStore } from '../../project-store';
 import type { TaskEventPayload } from '../../agent/task-event-schema';
 import { writeFileAtomicSync } from '../../utils/atomic-file';
 import { safeParseJson } from '../../utils/json-repair';
+import { mapStatusToPlanStatus } from '../../../shared/utils/plan-status';
+
+export { mapStatusToPlanStatus };
 
 import { appLog } from '../../app-logger';
 // In-memory locks for plan file operations
@@ -73,25 +76,6 @@ export function getPlanPath(project: Project, task: Task): string {
   const specsBaseDir = getSpecsDir(project.autoBuildPath);
   const specDir = path.join(project.path, specsBaseDir, task.specId);
   return path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
-}
-
-/**
- * Map UI TaskStatus to Python-compatible planStatus
- */
-export function mapStatusToPlanStatus(status: TaskStatus): string {
-  switch (status) {
-    case 'queue':
-      return 'queued';
-    case 'in_progress':
-      return 'in_progress';
-    case 'ai_review':
-    case 'human_review':
-      return 'review';
-    case 'done':
-      return 'completed';
-    default:
-      return 'pending';
-  }
 }
 
 /**
