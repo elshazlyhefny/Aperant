@@ -96,6 +96,10 @@ The command never reads the desktop app's settings. Credentials come from the en
   "providerAccounts": [],
   "globalPriorityOrder": ["account-id"],
   "providerAgentConfig": {},
+  "webhook": {
+    "url": "https://hooks.example.com/services/XXX",
+    "events": { "reviewReady": true, "failed": true, "blocked": true, "prOpened": false }
+  },
   "project": {
     "mainBranch": "main",
     "pushNewBranches": true,
@@ -106,6 +110,8 @@ The command never reads the desktop app's settings. Credentials come from the en
 ```
 
 `providerAccounts` uses the same account objects as the app. `globalPriorityOrder` lists account ids in the order to try them. When both are set, the account queue is tried first, then the environment. `project` overrides the main branch, whether to push, extra environment variable names passed to Bash, and the sandbox mode. A config file that is missing or invalid stops the run with exit code 1.
+
+`webhook` sends a Slack-compatible message when the run ends: `review_ready` on exit 0, `blocked` on exit 2, `failed` on exit 1. The `APERANT_WEBHOOK_URL` environment variable overrides `webhook.url`. A webhook problem never changes the exit code. See [notifications-and-webhooks.md](notifications-and-webhooks.md#headless-runs-clijs-run).
 
 ### Token budget
 
@@ -208,5 +214,9 @@ Exit code 1:
 - `Spec not found: .../spec.md does not exist`: create `.auto-claude/specs/<id>/spec.md` first.
 - `... is not inside a git repository`: pass `--project` or run from the repository.
 - `Cannot read config file ...`: the `--config` file is missing or not valid JSON.
+
+Any exit code:
+
+- `warning: webhook ...` on stderr: the webhook URL was rejected or delivery failed. The exit code is not affected. Check the URL rules in [notifications-and-webhooks.md](notifications-and-webhooks.md#url-rules).
 
 Exit code 2: QA did not pass. Read `qa_report.md` in the worktree's spec directory, `.auto-claude/worktrees/tasks/<id>/.auto-claude/specs/<id>/qa_report.md`, for the remaining issues.
