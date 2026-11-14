@@ -26,6 +26,7 @@ import { registerJiraHandlers } from './jira/jira-handlers';
 import { registerGithubHandlers } from './github-handlers';
 import { registerGitlabHandlers } from './gitlab-handlers';
 import { registerBitbucketHandlers } from './bitbucket-handlers';
+import { registerAzureDevOpsHandlers } from './azuredevops-handlers';
 import { registerIdeationHandlers } from './ideation-handlers';
 import { registerChangelogHandlers } from './changelog-handlers';
 import { registerInsightsHandlers } from './insights-handlers';
@@ -142,6 +143,9 @@ export function setupIpcHandlers(
   // Bitbucket integration handlers
   registerBitbucketHandlers(getMainWindow);
 
+  // Azure DevOps integration handlers
+  registerAzureDevOpsHandlers();
+
   // Ideation handlers
   registerIdeationHandlers(agentManager, getMainWindow);
 
@@ -203,6 +207,7 @@ export {
   registerGithubHandlers,
   registerGitlabHandlers,
   registerBitbucketHandlers,
+  registerAzureDevOpsHandlers,
   registerIdeationHandlers,
   registerChangelogHandlers,
   registerInsightsHandlers,

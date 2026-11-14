@@ -14,8 +14,8 @@ to the registry here. They never name a provider.
   (`resolvePR`), loads CI and review feedback (`loadFeedback`) and has a
   `notConfiguredMessage`.
 - `Forge`: a `PRHost` that is also an `OutcomeWriter` (GitHub, GitLab).
-  Bitbucket is a `PRHost` only: it has PR feedback but no issue writeback, so
-  the registry does not list it as a writer.
+  Bitbucket and Azure DevOps are `PRHost` only: they have PR feedback but no
+  issue writeback, so the registry does not list them as writers.
 
 ## Adding a provider
 
@@ -32,7 +32,8 @@ to the registry here. They never name a provider.
 When a forge has no usable credentials, `loadFeedback` returns
 `{ ok: false, code: 'not_configured', error }`. The IPC layer maps it with
 `notConfiguredBlockedReason(provider)` (`shared/types/pr-feedback.ts`): if a
-per-provider code `no_<provider>_config` exists (GitHub, GitLab, Bitbucket) that
+per-provider code `no_<provider>_config` exists (GitHub, GitLab, Bitbucket,
+Azure DevOps) that
 is returned so existing UI keeps working; otherwise the generic `not_configured`
 is used. The error text is the forge's own (`error`), so a PR on another
 repository gets its specific message.

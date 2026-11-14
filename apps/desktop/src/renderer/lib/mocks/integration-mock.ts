@@ -15,6 +15,7 @@ export const integrationMock = {
       githubEnabled: false,
       gitlabEnabled: false,
       bitbucketEnabled: false,
+      azureDevOpsEnabled: false,
       memoryEnabled: false,
       enableFancyUi: true
     }
@@ -196,6 +197,20 @@ export const integrationMock = {
         { login: 'another-org', avatarUrl: 'https://avatars.githubusercontent.com/u/2?v=4' }
       ]
     }
+  }),
+
+  // Azure DevOps Integration Operations
+  checkAzureDevOpsConnection: async () => ({
+    success: true,
+    data: {
+      connected: false,
+      error: 'Not available in browser mock'
+    }
+  }),
+
+  detectAzureDevOpsRepository: async () => ({
+    success: true,
+    data: null
   }),
 
   // Bitbucket Integration Operations

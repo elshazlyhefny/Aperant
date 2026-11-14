@@ -2,7 +2,7 @@
 
 When a task has a pull request, the task detail modal shows a **PR feedback** panel. It lists the failed CI checks and the open review feedback on that pull request. You pick the items you want fixed and send them to the task's agent. The agent fixes them in the task's own worktree. After QA approves the fix, Aperant pushes it to the same branch, so the existing pull request updates. No new pull request is created.
 
-This works for GitHub, GitLab and Bitbucket Cloud. The panel reads feedback through the API of the forge that hosts the pull request (merge request on GitLab). The headless CLI is not covered. See [Not covered](#not-covered). The panel text is available in English and French.
+This works for GitHub, GitLab, Bitbucket Cloud and Azure DevOps. The panel reads feedback through the API of the forge that hosts the pull request (merge request on GitLab). The headless CLI is not covered. See [Not covered](#not-covered). The panel text is available in English and French.
 
 ## When the panel appears
 
@@ -89,6 +89,7 @@ The panel can show the feedback but keep **Send selected to agent** disabled. It
 | `no_github_config` | "GitHub is not configured for this project." | The project has no GitHub token or repository set. | Configure GitHub for the project, then click **Refresh**. |
 | `no_gitlab_config` | "GitLab is not configured for this project." | The project has no GitLab token or project set, or the merge request is not on the configured GitLab project. | Configure GitLab for the project, then click **Refresh**. |
 | `no_bitbucket_config` | "Bitbucket is not configured for this project." | `BITBUCKET_ENABLED`, `BITBUCKET_USERNAME`, `BITBUCKET_TOKEN` or `BITBUCKET_REPOSITORY` is missing in the project `.env`, or the pull request is not on the configured repository. | See [Bitbucket Cloud](#bitbucket-cloud). |
+| `no_azuredevops_config` | "Azure DevOps is not configured for this project." | The project has no Azure DevOps organization, project, repository or token set, or the pull request is not on the configured repository. | See [Azure DevOps](#azure-devops). |
 
 ### A missing worktree
 
@@ -126,6 +127,10 @@ What is listed:
 The pull request must be on the repository set in `BITBUCKET_REPOSITORY`. Otherwise it is refused with "This pull request is not on the Bitbucket repository configured for this project." and nothing is started. If Bitbucket is not configured, you get "Bitbucket is not configured for this project (username, token or repository missing)." Fix it by completing the four variables, then click **Refresh**.
 
 The limits are the same as above: 50 items per group and 4000 characters per item.
+
+## Azure DevOps
+
+For a pull request on Azure DevOps, the panel sends two kinds of feedback: failed build validations, with log excerpts, and active threads, with the file and line they refer to. Azure DevOps must be configured for the project, see [Azure DevOps](project-configuration.md#azure-devops). If it is not, the panel shows a not-configured message. A pull request on a repository other than the configured one is refused.
 
 ## Untrusted input
 

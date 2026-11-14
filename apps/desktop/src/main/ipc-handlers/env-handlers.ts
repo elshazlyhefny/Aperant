@@ -21,6 +21,15 @@ const BITBUCKET_ENV_KEYS = {
   REPOSITORY: 'BITBUCKET_REPOSITORY'
 } as const;
 
+// Azure DevOps environment variable keys (must match azuredevops/utils.ts)
+const AZURE_DEVOPS_ENV_KEYS = {
+  ENABLED: 'AZURE_DEVOPS_ENABLED',
+  ORGANIZATION: 'AZURE_DEVOPS_ORGANIZATION',
+  PROJECT: 'AZURE_DEVOPS_PROJECT',
+  REPOSITORY: 'AZURE_DEVOPS_REPOSITORY',
+  PAT: 'AZURE_DEVOPS_PAT'
+} as const;
+
 // GitLab environment variable keys
 const GITLAB_ENV_KEYS = {
   ENABLED: 'GITLAB_ENABLED',
@@ -107,6 +116,23 @@ export function registerEnvHandlers(
     }
     if (config.bitbucketRepository !== undefined) {
       existingVars[BITBUCKET_ENV_KEYS.REPOSITORY] = config.bitbucketRepository;
+    }
+
+    // Azure DevOps Integration
+    if (config.azureDevOpsEnabled !== undefined) {
+      existingVars[AZURE_DEVOPS_ENV_KEYS.ENABLED] = config.azureDevOpsEnabled ? 'true' : 'false';
+    }
+    if (config.azureDevOpsOrganization !== undefined) {
+      existingVars[AZURE_DEVOPS_ENV_KEYS.ORGANIZATION] = config.azureDevOpsOrganization;
+    }
+    if (config.azureDevOpsProject !== undefined) {
+      existingVars[AZURE_DEVOPS_ENV_KEYS.PROJECT] = config.azureDevOpsProject;
+    }
+    if (config.azureDevOpsRepository !== undefined) {
+      existingVars[AZURE_DEVOPS_ENV_KEYS.REPOSITORY] = config.azureDevOpsRepository;
+    }
+    if (config.azureDevOpsPat !== undefined) {
+      existingVars[AZURE_DEVOPS_ENV_KEYS.PAT] = config.azureDevOpsPat;
     }
 
     // GitLab Integration
@@ -306,6 +332,15 @@ ${existingVars[BITBUCKET_ENV_KEYS.ENABLED] !== undefined ? `${BITBUCKET_ENV_KEYS
 ${envLine(existingVars, BITBUCKET_ENV_KEYS.USERNAME)}
 ${envLine(existingVars, BITBUCKET_ENV_KEYS.TOKEN)}
 ${envLine(existingVars, BITBUCKET_ENV_KEYS.REPOSITORY, 'workspace/repo_slug')}
+
+# =============================================================================
+# AZURE DEVOPS INTEGRATION (OPTIONAL)
+# =============================================================================
+${existingVars[AZURE_DEVOPS_ENV_KEYS.ENABLED] !== undefined ? `${AZURE_DEVOPS_ENV_KEYS.ENABLED}=${existingVars[AZURE_DEVOPS_ENV_KEYS.ENABLED]}` : `# ${AZURE_DEVOPS_ENV_KEYS.ENABLED}=true`}
+${envLine(existingVars, AZURE_DEVOPS_ENV_KEYS.ORGANIZATION)}
+${envLine(existingVars, AZURE_DEVOPS_ENV_KEYS.PROJECT)}
+${envLine(existingVars, AZURE_DEVOPS_ENV_KEYS.REPOSITORY)}
+${envLine(existingVars, AZURE_DEVOPS_ENV_KEYS.PAT)}
 =======
 # JIRA INTEGRATION (OPTIONAL)
 # =============================================================================
@@ -441,6 +476,7 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         githubEnabled: false,
         gitlabEnabled: false,
         bitbucketEnabled: false,
+        azureDevOpsEnabled: false,
         memoryEnabled: false,
         enableFancyUi: true,
         openaiKeyIsGlobal: false
@@ -514,6 +550,22 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
       }
       if (vars[BITBUCKET_ENV_KEYS.REPOSITORY]) {
         config.bitbucketRepository = vars[BITBUCKET_ENV_KEYS.REPOSITORY];
+      }
+
+      // Azure DevOps config
+      if (vars[AZURE_DEVOPS_ENV_KEYS.PAT]) {
+        config.azureDevOpsPat = vars[AZURE_DEVOPS_ENV_KEYS.PAT];
+        // Enable by default if PAT exists and AZURE_DEVOPS_ENABLED is not explicitly false
+        config.azureDevOpsEnabled = vars[AZURE_DEVOPS_ENV_KEYS.ENABLED]?.toLowerCase() !== 'false';
+      }
+      if (vars[AZURE_DEVOPS_ENV_KEYS.ORGANIZATION]) {
+        config.azureDevOpsOrganization = vars[AZURE_DEVOPS_ENV_KEYS.ORGANIZATION];
+      }
+      if (vars[AZURE_DEVOPS_ENV_KEYS.PROJECT]) {
+        config.azureDevOpsProject = vars[AZURE_DEVOPS_ENV_KEYS.PROJECT];
+      }
+      if (vars[AZURE_DEVOPS_ENV_KEYS.REPOSITORY]) {
+        config.azureDevOpsRepository = vars[AZURE_DEVOPS_ENV_KEYS.REPOSITORY];
       }
 
       // Jira config

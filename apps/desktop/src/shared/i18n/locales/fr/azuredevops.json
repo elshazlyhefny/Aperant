@@ -1,0 +1,41 @@
+{
+  "enable": {
+    "label": "Activer l'intégration Azure DevOps",
+    "description": "Examiner les pull requests depuis Azure DevOps"
+  },
+  "organization": {
+    "label": "Organisation",
+    "description": "Le nom de votre organisation Azure DevOps",
+    "placeholder": "mon-organisation"
+  },
+  "project": {
+    "label": "Projet",
+    "description": "Le projet Azure DevOps qui contient le dépôt",
+    "placeholder": "mon-projet"
+  },
+  "repository": {
+    "label": "Dépôt",
+    "description": "Nom du dépôt Git dans le projet",
+    "placeholder": "mon-depot",
+    "detect": "Détecter depuis le remote Git",
+    "detecting": "Détection...",
+    "detected": "{{repo}} détecté",
+    "notDetected": "Aucun remote Azure DevOps trouvé dans ce projet",
+    "detectFailed": "Échec de la détection du dépôt"
+  },
+  "pat": {
+    "label": "Jeton d'accès personnel",
+    "description": "Créez un jeton avec les portées Code (Lecture et écriture) et Build (Lecture) dans les paramètres utilisateur d'Azure DevOps",
+    "placeholder": "Collez votre jeton d'accès personnel",
+    "show": "Afficher le jeton",
+    "hide": "Masquer le jeton"
+  },
+  "connection": {
+    "label": "État de la connexion",
+    "checking": "Vérification de la connexion...",
+    "connected": "Connecté à {{repo}}",
+    "connectedGeneric": "Connecté",
+    "failed": "Échec de la connexion",
+    "notChecked": "Saisissez votre organisation, projet, dépôt et jeton pour vérifier la connexion"
+  }
+}

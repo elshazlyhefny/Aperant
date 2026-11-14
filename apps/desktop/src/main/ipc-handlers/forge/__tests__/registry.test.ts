@@ -166,5 +166,6 @@ describe('not_configured IPC code', () => {
     expect(notConfiguredBlockedReason('gitea')).toBe('not_configured');
     expect(notConfiguredBlockedReason('github')).toBe('no_github_config');
     expect(notConfiguredBlockedReason('bitbucket')).toBe('no_bitbucket_config');
+    expect(notConfiguredBlockedReason('azuredevops')).toBe('no_azuredevops_config');
   });
 });

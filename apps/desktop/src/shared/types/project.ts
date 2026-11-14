@@ -409,6 +409,13 @@ export interface ProjectEnvConfig {
   bitbucketToken?: string;
   bitbucketRepository?: string; // Format: workspace/repo_slug
 
+  // Azure DevOps Integration
+  azureDevOpsEnabled: boolean;
+  azureDevOpsOrganization?: string;
+  azureDevOpsProject?: string;
+  azureDevOpsRepository?: string;
+  azureDevOpsPat?: string;
+
   // Git/Worktree Settings
   defaultBranch?: string; // Base branch for worktree creation (e.g., 'main', 'develop')
 

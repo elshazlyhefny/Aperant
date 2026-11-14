@@ -30,6 +30,8 @@ export type PRFeedbackBlockedReason =
   | 'no_gitlab_config'
   // zeenha fork: Bitbucket repository/credentials are not configured
   | 'no_bitbucket_config'
+  // zeenha fork: Azure DevOps repository/credentials are not configured
+  | 'no_azuredevops_config'
   | 'branch_mismatch';
 
 /** Providers that have their own blocked code (and UI text) instead of the generic `not_configured`. */
@@ -37,6 +39,7 @@ export const LEGACY_NOT_CONFIGURED_CODES: readonly PRFeedbackBlockedReason[] = [
   'no_github_config',
   'no_gitlab_config',
   'no_bitbucket_config',
+  'no_azuredevops_config',
 ];
 
 /** IPC code for a forge that is not configured: the legacy per-provider code when one exists. */

@@ -7,6 +7,7 @@ import { resolvePRRef } from '../pr-feedback-source';
 vi.mock('../../github/utils', () => ({ getGitHubConfig: () => null }));
 vi.mock('../../gitlab/utils', () => ({ getGitLabConfig: async () => null, normalizeProjectReference: (p: string) => p }));
 vi.mock('../../bitbucket/utils', () => ({ getBitbucketConfig: async () => null }));
+vi.mock('../../azuredevops/utils', () => ({ getAzureDevOpsConfig: async () => null }));
 
 describe('resolvePRRef', () => {
   it('resolves GitHub pull request URLs', () => {
@@ -22,7 +23,20 @@ describe('resolvePRRef', () => {
     expect(resolvePRRef('https://bitbucket.org/ws/repo/pull-requests/9/diff')).toEqual({ provider: 'bitbucket', number: 9 });
   });
 
+  it('resolves Azure DevOps pull request URLs', () => {
+    expect(resolvePRRef('https://dev.azure.com/org/proj/_git/repo/pullrequest/14')).toEqual({
+      provider: 'azuredevops',
+      number: 14,
+    });
+    expect(resolvePRRef('https://org.visualstudio.com/proj/_git/repo/pullrequest/14')).toEqual({
+      provider: 'azuredevops',
+      number: 14,
+    });
+  });
+
   it.each([
+    'https://dev.azure.com/org/proj/_git/repo/pullrequest/abc',
+    'http://dev.azure.com/org/proj/_git/repo/pullrequest/14',
     'https://example.com/not-a-pr',
     'not a url',
     '',

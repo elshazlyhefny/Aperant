@@ -538,6 +538,7 @@
       "no_github_config": "GitHub n'est pas configuré pour ce projet.",
       "no_gitlab_config": "GitLab n'est pas configuré pour ce projet.",
       "no_bitbucket_config": "Bitbucket n'est pas configuré pour ce projet.",
+      "no_azuredevops_config": "Azure DevOps n'est pas configuré pour ce projet.",
       "branch_mismatch": "Le worktree de la tâche n'est pas sur la branche de la pull request : aucun suivi ne peut s'exécuter ici."
     }
   },

@@ -150,7 +150,9 @@ import type {
   BitbucketDetectedRepository,
   BitbucketPRReviewProgress,
   BitbucketPostReviewOptions,
-  BitbucketPostReviewResult
+  BitbucketPostReviewResult,
+  AzureDevOpsSyncStatus,
+  AzureDevOpsDetectedRepository
 } from './integrations';
 import type { PRReviewResult } from './pr-review';
 import type {
@@ -628,6 +630,10 @@ export interface ElectronAPI extends ScheduleAPI {
   onBitbucketPRLogsUpdated: (
     callback: (projectId: string, data: PRLogsUpdatedPayload) => void
   ) => () => void;
+
+  // Azure DevOps integration operations
+  checkAzureDevOpsConnection: (projectId: string) => Promise<IPCResult<AzureDevOpsSyncStatus>>;
+  detectAzureDevOpsRepository: (projectId: string) => Promise<IPCResult<AzureDevOpsDetectedRepository | null>>;
 
   // GitLab integration operations
   getGitLabProjects: (projectId: string) => Promise<IPCResult<GitLabProject[]>>;

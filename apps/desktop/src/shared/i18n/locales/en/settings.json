@@ -482,6 +482,13 @@
       "integrationDescription": "Connect to Bitbucket for pull request review",
       "syncDescription": "Sync with Bitbucket Pull Requests"
     },
+    "azuredevops": {
+      "title": "Azure DevOps",
+      "description": "Azure DevOps pull requests",
+      "integrationTitle": "Azure DevOps Integration",
+      "integrationDescription": "Connect to Azure DevOps for pull request review",
+      "syncDescription": "Sync with Azure DevOps Pull Requests"
+    },
     "jira": {
       "title": "Jira",
       "description": "Jira issues sync",

@@ -21,6 +21,7 @@ import { createJiraAPI, JiraAPI } from './modules/jira-api';
 import { createGitHubAPI, GitHubAPI } from './modules/github-api';
 import { createGitLabAPI, GitLabAPI } from './modules/gitlab-api';
 import { createBitbucketAPI, BitbucketAPI } from './modules/bitbucket-api';
+import { createAzureDevOpsAPI, AzureDevOpsAPI } from './modules/azuredevops-api';
 import { createShellAPI, ShellAPI } from './modules/shell-api';
 
 /**
@@ -37,6 +38,7 @@ export interface AgentAPI extends
   GitHubAPI,
   GitLabAPI,
   BitbucketAPI,
+  AzureDevOpsAPI,
   ShellAPI {}
 
 /**
@@ -54,6 +56,7 @@ export const createAgentAPI = (): AgentAPI => {
   const githubAPI = createGitHubAPI();
   const gitlabAPI = createGitLabAPI();
   const bitbucketAPI = createBitbucketAPI();
+  const azureDevOpsAPI = createAzureDevOpsAPI();
   const shellAPI = createShellAPI();
 
   return {
@@ -84,6 +87,9 @@ export const createAgentAPI = (): AgentAPI => {
     // Bitbucket Integration API
     ...bitbucketAPI,
 
+    // Azure DevOps Integration API
+    ...azureDevOpsAPI,
+
     // Shell Operations API
     ...shellAPI
   };
@@ -100,5 +106,6 @@ export type {
   GitHubAPI,
   GitLabAPI,
   BitbucketAPI,
+  AzureDevOpsAPI,
   ShellAPI
 };

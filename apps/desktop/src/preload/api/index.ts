@@ -10,6 +10,7 @@ import { AppUpdateAPI, createAppUpdateAPI } from './app-update-api';
 import { GitHubAPI, createGitHubAPI } from './modules/github-api';
 import type { GitLabAPI } from './modules/gitlab-api';
 import type { BitbucketAPI } from './modules/bitbucket-api';
+import type { AzureDevOpsAPI } from './modules/azuredevops-api';
 import { DebugAPI, createDebugAPI } from './modules/debug-api';
 import { ClaudeCodeAPI, createClaudeCodeAPI } from './modules/claude-code-api';
 import { McpAPI, createMcpAPI } from './modules/mcp-api';
@@ -96,6 +97,7 @@ export type {
   GitHubAPI,
   GitLabAPI,
   BitbucketAPI,
+  AzureDevOpsAPI,
   DebugAPI,
   ClaudeCodeAPI,
   McpAPI,

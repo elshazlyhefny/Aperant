@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import type { Project, ProjectSettings as ProjectSettingsType, AutoBuildVersionInfo, ProjectEnvConfig, LinearSyncStatus, JiraSyncStatus, GitHubSyncStatus, GitLabSyncStatus, BitbucketSyncStatus } from '../../../../shared/types';
+import type { Project, ProjectSettings as ProjectSettingsType, AutoBuildVersionInfo, ProjectEnvConfig, LinearSyncStatus, JiraSyncStatus, GitHubSyncStatus, GitLabSyncStatus, BitbucketSyncStatus, AzureDevOpsSyncStatus } from '../../../../shared/types';
 import { SettingsSection } from '../SettingsSection';
 import { GeneralSettings } from '../../project-settings/GeneralSettings';
 import { AgentMemorySettings } from '../../project-settings/AgentMemorySettings';
@@ -9,6 +9,7 @@ import { LinearIntegration } from '../integrations/LinearIntegration';
 import { GitHubIntegration } from '../integrations/GitHubIntegration';
 import { GitLabIntegration } from '../integrations/GitLabIntegration';
 import { BitbucketIntegration } from '../integrations/BitbucketIntegration';
+import { AzureDevOpsIntegration } from '../integrations/AzureDevOpsIntegration';
 import { JiraIntegration } from '../integrations/JiraIntegration';
 import { WebhookIntegration } from '../integrations/WebhookIntegration';
 import { InitializationGuard } from '../common/InitializationGuard';
@@ -40,6 +41,10 @@ interface SectionRouterProps {
   setShowBitbucketToken: React.Dispatch<React.SetStateAction<boolean>>;
   bitbucketConnectionStatus: BitbucketSyncStatus | null;
   isCheckingBitbucket: boolean;
+  showAzureDevOpsPat: boolean;
+  setShowAzureDevOpsPat: React.Dispatch<React.SetStateAction<boolean>>;
+  azureDevOpsConnectionStatus: AzureDevOpsSyncStatus | null;
+  isCheckingAzureDevOps: boolean;
   linearConnectionStatus: LinearSyncStatus | null;
   isCheckingLinear: boolean;
   showJiraToken: boolean;
@@ -83,6 +88,10 @@ export function SectionRouter({
   setShowBitbucketToken,
   bitbucketConnectionStatus,
   isCheckingBitbucket,
+  showAzureDevOpsPat,
+  setShowAzureDevOpsPat,
+  azureDevOpsConnectionStatus,
+  isCheckingAzureDevOps,
   linearConnectionStatus,
   isCheckingLinear,
   showJiraToken,
@@ -211,6 +220,30 @@ export function SectionRouter({
               setShowBitbucketToken={setShowBitbucketToken}
               bitbucketConnectionStatus={bitbucketConnectionStatus}
               isCheckingBitbucket={isCheckingBitbucket}
+            />
+          </InitializationGuard>
+        </SettingsSection>
+      );
+
+    case 'azuredevops':
+      return (
+        <SettingsSection
+          title={t('projectSections.azuredevops.integrationTitle')}
+          description={t('projectSections.azuredevops.integrationDescription')}
+        >
+          <InitializationGuard
+            initialized={!!project.autoBuildPath}
+            title={t('projectSections.azuredevops.integrationTitle')}
+            description={t('projectSections.azuredevops.syncDescription')}
+          >
+            <AzureDevOpsIntegration
+              projectId={project.id}
+              envConfig={envConfig}
+              updateEnvConfig={updateEnvConfig}
+              showAzureDevOpsPat={showAzureDevOpsPat}
+              setShowAzureDevOpsPat={setShowAzureDevOpsPat}
+              azureDevOpsConnectionStatus={azureDevOpsConnectionStatus}
+              isCheckingAzureDevOps={isCheckingAzureDevOps}
             />
           </InitializationGuard>
         </SettingsSection>

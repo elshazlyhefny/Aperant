@@ -120,6 +120,33 @@ If the Bitbucket Pull Requests view says Bitbucket is not configured, `getBitbuc
 
 The project also needs an `autoBuildPath` and an existing `.auto-claude/.env`. Requests time out after 30 seconds (`BITBUCKET_API_TIMEOUT_MS`).
 
+### Azure DevOps
+
+| Key | Purpose or example | Settings UI writes it |
+|-----|--------------------|-----------------------|
+| `AZURE_DEVOPS_ENABLED` | `true` or `false`. With `AZURE_DEVOPS_PAT` present, the integration is on unless this is `false` (compared case-insensitively). When unset it is written as the commented line `# AZURE_DEVOPS_ENABLED=true`. | Yes |
+| `AZURE_DEVOPS_ORGANIZATION` | Organization name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
+| `AZURE_DEVOPS_PROJECT` | Project name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
+| `AZURE_DEVOPS_REPOSITORY` | Repository name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
+| `AZURE_DEVOPS_PAT` | Personal access token. A secret, see [Secrets](#secrets). It needs the scopes Code (Read & write) and Build (Read). | Yes |
+
+Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visualstudio.com` remotes. Azure DevOps Server (on premises) is not.
+
+What works:
+
+- **Detect** reads the `origin` remote and matches the five remote formats of Azure DevOps Services.
+- **Create PR** opens a pull request on Azure DevOps. Drafts are real drafts. The description is capped at 4000 characters. Issue lines are worded without `#`, because Azure DevOps links `#123` to work items.
+- **PR feedback** sends failed build validations and active threads to the task's agent. See [PR Follow-ups](pr-follow-ups.md).
+
+#### Troubleshooting
+
+If Azure DevOps is reported as not configured, `getAzureDevOpsConfig()` returned `null`. This happens when:
+
+1. `AZURE_DEVOPS_ENABLED` is `false`.
+2. `AZURE_DEVOPS_ORGANIZATION`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_REPOSITORY` or `AZURE_DEVOPS_PAT` is missing or invalid.
+
+The project also needs an `autoBuildPath` and an existing env file. Requests time out after 30 seconds (`AZURE_DEVOPS_API_TIMEOUT_MS`). A pull request on a different repository than the configured one is refused.
+
 ### MCP servers
 
 | Key | Purpose or example | Settings UI writes it |
@@ -255,4 +282,4 @@ Rules:
 
 ## Secrets
 
-`.auto-claude/.env` can hold API keys and tokens, such as `BITBUCKET_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` and the embedding provider keys. Do not commit it to version control.
+`.auto-claude/.env` can hold API keys and tokens, such as `AZURE_DEVOPS_PAT`, `BITBUCKET_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN`, `JIRA_API_TOKEN`, `LINEAR_API_KEY` and the embedding provider keys. Do not commit it to version control.

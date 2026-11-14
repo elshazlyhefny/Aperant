@@ -56,6 +56,8 @@ const BLOCKED_MESSAGES: Record<PRFeedbackBlockedReason, string> = {
   no_gitlab_config: 'GitLab is not configured for this project (token or project missing). Nothing was started.',
   no_bitbucket_config:
     'Bitbucket is not configured for this project (username, token or repository missing). Nothing was started.',
+  no_azuredevops_config:
+    'Azure DevOps is not configured for this project (organization, project, repository or token missing). Nothing was started.',
   branch_mismatch:
     "The task's worktree is not on the pull request branch, so the follow-up cannot push to the same PR. Nothing was started.",
 };

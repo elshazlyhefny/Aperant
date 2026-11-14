@@ -15,7 +15,8 @@ import type {
   JiraSyncStatus,
   GitHubSyncStatus,
   GitLabSyncStatus,
-  BitbucketSyncStatus
+  BitbucketSyncStatus,
+  AzureDevOpsSyncStatus
 } from '../../../../shared/types';
 
 export interface UseProjectSettingsReturn {
@@ -68,6 +69,12 @@ export interface UseProjectSettingsReturn {
   setShowBitbucketToken: React.Dispatch<React.SetStateAction<boolean>>;
   bitbucketConnectionStatus: BitbucketSyncStatus | null;
   isCheckingBitbucket: boolean;
+
+  // Azure DevOps state
+  showAzureDevOpsPat: boolean;
+  setShowAzureDevOpsPat: React.Dispatch<React.SetStateAction<boolean>>;
+  azureDevOpsConnectionStatus: AzureDevOpsSyncStatus | null;
+  isCheckingAzureDevOps: boolean;
 
   // Linear state
   showLinearImportModal: boolean;
@@ -139,6 +146,11 @@ export function useProjectSettings(
   const [showBitbucketToken, setShowBitbucketToken] = useState(false);
   const [bitbucketConnectionStatus, setBitbucketConnectionStatus] = useState<BitbucketSyncStatus | null>(null);
   const [isCheckingBitbucket, setIsCheckingBitbucket] = useState(false);
+
+  // Azure DevOps state
+  const [showAzureDevOpsPat, setShowAzureDevOpsPat] = useState(false);
+  const [azureDevOpsConnectionStatus, setAzureDevOpsConnectionStatus] = useState<AzureDevOpsSyncStatus | null>(null);
+  const [isCheckingAzureDevOps, setIsCheckingAzureDevOps] = useState(false);
 
   // Linear import state
   const [showLinearImportModal, setShowLinearImportModal] = useState(false);
@@ -336,6 +348,42 @@ export function useProjectSettings(
     };
   }, [envConfig?.bitbucketEnabled, envConfig?.bitbucketUsername, envConfig?.bitbucketToken, envConfig?.bitbucketRepository, project.id]);
 
+  // Check Azure DevOps connection when credentials/repository change (debounced)
+  useEffect(() => {
+    if (
+      !envConfig?.azureDevOpsEnabled ||
+      !envConfig.azureDevOpsOrganization ||
+      !envConfig.azureDevOpsProject ||
+      !envConfig.azureDevOpsRepository ||
+      !envConfig.azureDevOpsPat
+    ) {
+      setAzureDevOpsConnectionStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setIsCheckingAzureDevOps(true);
+      try {
+        const status = await window.electronAPI.checkAzureDevOpsConnection(project.id);
+        if (!cancelled && status.success && status.data) {
+          setAzureDevOpsConnectionStatus(status.data);
+        }
+      } catch {
+        if (!cancelled) {
+          setAzureDevOpsConnectionStatus({ connected: false, error: 'Failed to check connection' });
+        }
+      } finally {
+        if (!cancelled) setIsCheckingAzureDevOps(false);
+      }
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [envConfig?.azureDevOpsEnabled, envConfig?.azureDevOpsOrganization, envConfig?.azureDevOpsProject, envConfig?.azureDevOpsRepository, envConfig?.azureDevOpsPat, project.id]);
+
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
@@ -466,6 +514,10 @@ export function useProjectSettings(
     setShowBitbucketToken,
     bitbucketConnectionStatus,
     isCheckingBitbucket,
+    showAzureDevOpsPat,
+    setShowAzureDevOpsPat,
+    azureDevOpsConnectionStatus,
+    isCheckingAzureDevOps,
     showLinearImportModal,
     setShowLinearImportModal,
     linearConnectionStatus,

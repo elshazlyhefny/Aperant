@@ -3,6 +3,7 @@
  * writeback look providers up here instead of branching on provider names.
  */
 
+import { azureDevOpsForge } from './azuredevops-forge';
 import { bitbucketForge } from './bitbucket-forge';
 import { githubForge } from './github-forge';
 import { gitlabForge } from './gitlab-forge';
@@ -21,7 +22,7 @@ export function createForgeRegistry(
   forges: readonly PRHost[],
   extraWriters: readonly OutcomeWriter[] = []
 ): ForgeRegistry {
-  // A code host without issue writeback (Bitbucket) is a PRHost only and is not a writer.
+  // A code host without issue writeback (Bitbucket, Azure DevOps) is a PRHost only and is not a writer.
   const writers: readonly OutcomeWriter[] = [...forges.filter(isOutcomeWriter), ...extraWriters];
   return {
     forges,
@@ -38,8 +39,8 @@ export function createForgeRegistry(
   };
 }
 
-/** Tried in this order when resolving a PR URL: GitHub, GitLab, then Bitbucket. */
-export const FORGES: readonly PRHost[] = [githubForge, gitlabForge, bitbucketForge];
+/** Tried in this order when resolving a PR URL: GitHub, GitLab, Bitbucket, then Azure DevOps. */
+export const FORGES: readonly PRHost[] = [githubForge, gitlabForge, bitbucketForge, azureDevOpsForge];
 
 const defaultRegistry = createForgeRegistry(FORGES, [linearWriter]);
 

@@ -11,7 +11,7 @@ import { SectionRouter } from './sections/SectionRouter';
 import { createHookProxy } from './utils/hookProxyFactory';
 import type { Project } from '../../../shared/types';
 
-export type ProjectSettingsSection = 'general' | 'linear' | 'github' | 'gitlab' | 'bitbucket' | 'memory' | 'security' | 'jira' | 'webhook';
+export type ProjectSettingsSection = 'general' | 'linear' | 'github' | 'gitlab' | 'bitbucket' | 'azuredevops' | 'memory' | 'security' | 'jira' | 'webhook';
 
 interface ProjectSettingsContentProps {
   project: Project | undefined;
@@ -112,6 +112,10 @@ function ProjectSettingsContentInner({
     setShowBitbucketToken,
     bitbucketConnectionStatus,
     isCheckingBitbucket,
+    showAzureDevOpsPat,
+    setShowAzureDevOpsPat,
+    azureDevOpsConnectionStatus,
+    isCheckingAzureDevOps,
     showLinearImportModal,
     setShowLinearImportModal,
     linearConnectionStatus,
@@ -166,6 +170,10 @@ function ProjectSettingsContentInner({
         setShowBitbucketToken={setShowBitbucketToken}
         bitbucketConnectionStatus={bitbucketConnectionStatus}
         isCheckingBitbucket={isCheckingBitbucket}
+        showAzureDevOpsPat={showAzureDevOpsPat}
+        setShowAzureDevOpsPat={setShowAzureDevOpsPat}
+        azureDevOpsConnectionStatus={azureDevOpsConnectionStatus}
+        isCheckingAzureDevOps={isCheckingAzureDevOps}
         linearConnectionStatus={linearConnectionStatus}
         isCheckingLinear={isCheckingLinear}
         showJiraToken={showJiraToken}

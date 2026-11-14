@@ -33,6 +33,7 @@ export type PRFeedbackErrorCode =
   | "unauthorized"
   | "github_error"
   | "gitlab_error"
+  | "azuredevops_error"
   // zeenha fork: Bitbucket API failure
   | "bitbucket_error";
 

@@ -394,6 +394,10 @@ export const IPC_CHANNELS = {
   BITBUCKET_PR_REVIEW_COMPLETE: 'bitbucket:pr:reviewComplete',
   BITBUCKET_PR_LOGS_UPDATED: 'bitbucket:pr:logsUpdated',
 
+  // Azure DevOps integration
+  AZUREDEVOPS_CHECK_CONNECTION: 'azuredevops:checkConnection',
+  AZUREDEVOPS_DETECT_REPOSITORY: 'azuredevops:detectRepository',
+
   // GitLab Issue Analysis Preview (proactive batch workflow)
   GITLAB_AUTOFIX_ANALYZE_PREVIEW: 'gitlab:autofix:analyzePreview',
   GITLAB_AUTOFIX_ANALYZE_PREVIEW_PROGRESS: 'gitlab:autofix:analyzePreviewProgress',
