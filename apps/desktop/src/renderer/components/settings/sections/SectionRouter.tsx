@@ -10,6 +10,7 @@ import { GitHubIntegration } from '../integrations/GitHubIntegration';
 import { GitLabIntegration } from '../integrations/GitLabIntegration';
 import { BitbucketIntegration } from '../integrations/BitbucketIntegration';
 import { JiraIntegration } from '../integrations/JiraIntegration';
+import { WebhookIntegration } from '../integrations/WebhookIntegration';
 import { InitializationGuard } from '../common/InitializationGuard';
 import type { ProjectSettingsSection } from '../ProjectSettingsContent';
 
@@ -235,6 +236,22 @@ export function SectionRouter({
               isCheckingJira={isCheckingJira}
               onOpenJiraImport={onOpenJiraImport}
             />
+          </InitializationGuard>
+        </SettingsSection>
+      );
+
+    case 'webhook':
+      return (
+        <SettingsSection
+          title={t('projectSections.webhook.title')}
+          description={t('projectSections.webhook.description')}
+        >
+          <InitializationGuard
+            initialized={!!project.autoBuildPath}
+            title={t('projectSections.webhook.title')}
+            description={t('projectSections.webhook.syncDescription')}
+          >
+            <WebhookIntegration envConfig={envConfig} updateEnvConfig={updateEnvConfig} />
           </InitializationGuard>
         </SettingsSection>
       );
