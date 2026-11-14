@@ -43,6 +43,16 @@ function BitbucketIcon({ className }: { className?: string }) {
   );
 }
 
+// Azure DevOps icon component (lucide-react doesn't have one)
+function AzureDevOpsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" role="img" aria-labelledby="azuredevops-icon-title">
+      <title id="azuredevops-icon-title">Azure DevOps</title>
+      <path d="M22 4.5v14.1l-5.4 3.4-8.2-3v3l-4.6-6.3L17.800 15.800V5.600L22 4.500zM17.900 5.800L10.400 2v2.800L3.500 7 2 9.300v6.200l2.800 1.200V8.400z"/>
+    </svg>
+  );
+}
+
 import {
   FullScreenDialog,
   FullScreenDialogContent,
@@ -106,6 +116,7 @@ const projectNavItemsConfig: NavItemConfig<ProjectSettingsSection>[] = [
   { id: 'github', icon: Github },
   { id: 'gitlab', icon: GitLabIcon },
   { id: 'bitbucket', icon: BitbucketIcon },
+  { id: 'azuredevops', icon: AzureDevOpsIcon },
   { id: 'jira', icon: Ticket },
   { id: 'memory', icon: Database },
   { id: 'security', icon: ShieldCheck }

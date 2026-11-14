@@ -6,3 +6,4 @@
 export { LinearIntegration } from './LinearIntegration';
 export { GitHubIntegration } from './GitHubIntegration';
 export { JiraIntegration } from './JiraIntegration';
+export { AzureDevOpsIntegration } from './AzureDevOpsIntegration';

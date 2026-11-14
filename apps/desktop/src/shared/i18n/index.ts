@@ -11,6 +11,7 @@ import enOnboarding from './locales/en/onboarding.json';
 import enDialogs from './locales/en/dialogs.json';
 import enGitlab from './locales/en/gitlab.json';
 import enBitbucket from './locales/en/bitbucket.json';
+import enAzureDevOps from './locales/en/azuredevops.json';
 import enJira from './locales/en/jira.json';
 import enLinear from './locales/en/linear.json';
 import enTaskReview from './locales/en/taskReview.json';
@@ -29,6 +30,7 @@ import frOnboarding from './locales/fr/onboarding.json';
 import frDialogs from './locales/fr/dialogs.json';
 import frGitlab from './locales/fr/gitlab.json';
 import frBitbucket from './locales/fr/bitbucket.json';
+import frAzureDevOps from './locales/fr/azuredevops.json';
 import frJira from './locales/fr/jira.json';
 import frLinear from './locales/fr/linear.json';
 import frTaskReview from './locales/fr/taskReview.json';
@@ -50,6 +52,7 @@ export const resources = {
     dialogs: enDialogs,
     gitlab: enGitlab,
     bitbucket: enBitbucket,
+    azuredevops: enAzureDevOps,
     jira: enJira,
     linear: enLinear,
     taskReview: enTaskReview,
@@ -68,6 +71,7 @@ export const resources = {
     dialogs: frDialogs,
     gitlab: frGitlab,
     bitbucket: frBitbucket,
+    azuredevops: frAzureDevOps,
     jira: frJira,
     linear: frLinear,
     taskReview: frTaskReview,
@@ -85,7 +89,7 @@ i18n
     lng: 'en', // Default language (will be overridden by settings)
     fallbackLng: 'en',
     defaultNS,
-    ns: ['common', 'navigation', 'settings', 'tasks', 'welcome', 'onboarding', 'dialogs', 'gitlab', 'bitbucket', 'taskReview', 'terminal', 'errors', 'schedules', 'jira', 'linear', 'changelog'],
+    ns: ['common', 'navigation', 'settings', 'tasks', 'welcome', 'onboarding', 'dialogs', 'gitlab', 'bitbucket', 'azuredevops', 'taskReview', 'terminal', 'errors', 'schedules', 'jira', 'linear', 'changelog'],
     interpolation: {
       escapeValue: false // React already escapes values
     },

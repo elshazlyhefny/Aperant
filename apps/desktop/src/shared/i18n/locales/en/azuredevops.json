@@ -1,0 +1,41 @@
+{
+  "enable": {
+    "label": "Enable Azure DevOps Integration",
+    "description": "Review pull requests from Azure DevOps"
+  },
+  "organization": {
+    "label": "Organization",
+    "description": "Your Azure DevOps organization name",
+    "placeholder": "my-organization"
+  },
+  "project": {
+    "label": "Project",
+    "description": "The Azure DevOps project that contains the repository",
+    "placeholder": "my-project"
+  },
+  "repository": {
+    "label": "Repository",
+    "description": "Name of the Git repository in the project",
+    "placeholder": "my-repository",
+    "detect": "Detect from Git Remote",
+    "detecting": "Detecting...",
+    "detected": "Detected {{repo}}",
+    "notDetected": "No Azure DevOps remote found in this project",
+    "detectFailed": "Failed to detect repository"
+  },
+  "pat": {
+    "label": "Personal Access Token",
+    "description": "Create a token with Code (Read & write) and Build (Read) scopes in Azure DevOps user settings",
+    "placeholder": "Paste your personal access token",
+    "show": "Show token",
+    "hide": "Hide token"
+  },
+  "connection": {
+    "label": "Connection Status",
+    "checking": "Checking connection...",
+    "connected": "Connected to {{repo}}",
+    "connectedGeneric": "Connected",
+    "failed": "Connection failed",
+    "notChecked": "Enter your organization, project, repository and token to check the connection"
+  }
+}
