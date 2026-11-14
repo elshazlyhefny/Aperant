@@ -25,6 +25,26 @@ describe('loadHeadlessConfig', () => {
     expect(config.project?.pushNewBranches).toBe(false);
   });
 
+  it('parses the webhook section without validating the url', () => {
+    const file = path.join(dir, 'w.json');
+    writeFileSync(file, JSON.stringify({ webhook: { url: 'not a url', events: { failed: false, prOpened: true, other: 1 }, extra: 1 } }));
+    expect(loadHeadlessConfig(file).webhook).toEqual({ url: 'not a url', events: { failed: false, prOpened: true } });
+  });
+
+  it('rejects a mistyped webhook section', () => {
+    const bad = path.join(dir, 'wbad.json');
+    const cases: [unknown, RegExp][] = [
+      ['x', /webhook must be an object/],
+      [{ url: 5 }, /webhook\.url must be a string/],
+      [{ events: 'x' }, /webhook\.events must be an object/],
+      [{ events: { blocked: 'yes' } }, /webhook\.events\.blocked must be a boolean/],
+    ];
+    for (const [webhook, re] of cases) {
+      writeFileSync(bad, JSON.stringify({ webhook }));
+      expect(() => loadHeadlessConfig(bad)).toThrow(re);
+    }
+  });
+
   it('fails loudly on a missing, invalid or mistyped file', () => {
     expect(() => loadHeadlessConfig(path.join(dir, 'nope.json'))).toThrow(/Cannot read config file/);
     const bad = path.join(dir, 'bad.json');

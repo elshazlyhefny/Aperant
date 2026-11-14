@@ -25,11 +25,17 @@ export interface HeadlessProjectConfig {
   webFetchProvider?: unknown;
 }
 
+export interface HeadlessWebhookConfig {
+  url?: string;
+  events?: Partial<{ reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean }>;
+}
+
 export interface HeadlessConfig {
   providerAccounts?: ProviderAccount[];
   globalPriorityOrder?: string[];
   providerAgentConfig?: Record<string, unknown>;
   project?: HeadlessProjectConfig;
+  webhook?: HeadlessWebhookConfig;
 }
 
 export interface HeadlessFlags {
@@ -97,6 +103,33 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
       throw new Error(`Config file ${configPath}: project.pushNewBranches must be a boolean`);
     }
     config.project = { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider };
+  }
+  if (raw.webhook !== undefined) {
+    if (!isRecord(raw.webhook)) {
+      throw new Error(`Config file ${configPath}: webhook must be an object`);
+    }
+    const { url, events } = raw.webhook;
+    if (url !== undefined && typeof url !== 'string') {
+      throw new Error(`Config file ${configPath}: webhook.url must be a string`);
+    }
+    const webhook: HeadlessWebhookConfig = {};
+    if (url !== undefined) webhook.url = url;
+    if (events !== undefined) {
+      if (!isRecord(events)) {
+        throw new Error(`Config file ${configPath}: webhook.events must be an object`);
+      }
+      const parsed: NonNullable<HeadlessWebhookConfig['events']> = {};
+      for (const key of ['reviewReady', 'failed', 'blocked', 'prOpened'] as const) {
+        const value = events[key];
+        if (value === undefined) continue;
+        if (typeof value !== 'boolean') {
+          throw new Error(`Config file ${configPath}: webhook.events.${key} must be a boolean`);
+        }
+        parsed[key] = value;
+      }
+      webhook.events = parsed;
+    }
+    config.webhook = webhook;
   }
   return config;
 }

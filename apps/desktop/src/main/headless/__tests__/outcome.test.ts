@@ -37,4 +37,14 @@ describe('classifyRun', () => {
     expect(classifyRun({ events: [{ type: 'QA_PASSED' }], abortSignal: 'SIGTERM' }).kind).toBe('error');
     expect(classifyRun({ events: [], exit: { code: null, signal: 'SIGKILL' } }).kind).toBe('error');
   });
+  it('surfaces the last prUrl on every outcome kind without changing decisions', () => {
+    const pr = [{ type: 'X', prUrl: 'https://a/1' }, { type: 'Y', extra: { prUrl: 'https://a/2' } }];
+    expect(classifyRun({ events: [...pr, { type: 'QA_PASSED' }] })).toEqual({ kind: 'success', exitCode: 0, prUrl: 'https://a/2' });
+    expect(classifyRun({ events: [...pr, { type: 'QA_MAX_ITERATIONS', extra: { reason: 'r' } }] })).toMatchObject({ kind: 'qa_failed', exitCode: 2, reason: 'r', prUrl: 'https://a/2' });
+    expect(classifyRun({ events: pr, exit: { code: 1 } })).toMatchObject({ kind: 'error', exitCode: 1, prUrl: 'https://a/2' });
+    expect(classifyRun({ events: pr, abortSignal: 'SIGINT' })).toMatchObject({ kind: 'error', exitCode: 1, prUrl: 'https://a/2' });
+  });
+  it('omits prUrl when no event has a string one', () => {
+    expect(classifyRun({ events: [{ type: 'QA_PASSED', prUrl: 5 }] })).toEqual({ kind: 'success', exitCode: 0 });
+  });
 });
