@@ -339,7 +339,11 @@ export interface GitHubAPI {
   runFollowupReview: (projectId: string, prNumber: number) => void;
 
   // PR logs
-  getPRLogs: (projectId: string, prNumber: number) => Promise<PRLogs | null>;
+  getPRLogs: (
+    projectId: string,
+    prNumber: number,
+    known?: PRLogsKnownVersion
+  ) => Promise<PRLogs | null | 'unchanged'>;
 
   // Workflow approval (for fork PRs)
   getWorkflowsAwaitingApproval: (projectId: string, prNumber: number) => Promise<WorkflowsAwaitingApprovalResult>;
@@ -359,7 +363,7 @@ export interface GitHubAPI {
     callback: (key: string, state: PRReviewStatePayload) => void
   ) => IpcListenerCleanup;
   onPRLogsUpdated: (
-    callback: (projectId: string, data: { prNumber: number; entryCount: number }) => void
+    callback: (projectId: string, data: PRLogsUpdatedPayload) => void
   ) => IpcListenerCleanup;
 
   // PR status polling operations
@@ -442,6 +446,46 @@ export interface PRLogs {
     analysis: PRPhaseLog;
     synthesis: PRPhaseLog;
   };
+}
+
+/**
+ * Entries added to one phase since the last push.
+ * `baseCount` is the number of entries the renderer should already hold.
+ */
+export interface PRLogPhaseDelta {
+  baseCount: number;
+  entries: PRLogEntry[];
+  status: PRPhaseLog['status'];
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+/**
+ * Delta payload pushed to the renderer (only changed phases are present)
+ */
+export interface PRLogsDelta {
+  pr_number: number;
+  created_at: string;
+  updated_at: string;
+  phases: { [phase in PRLogPhase]?: PRLogPhaseDelta };
+}
+
+/**
+ * Version of the logs the renderer already holds (for cheap change checks)
+ */
+export interface PRLogsKnownVersion {
+  updated_at: string;
+  entryCount: number;
+}
+
+/**
+ * Payload of the GITHUB_PR_LOGS_UPDATED event
+ */
+export interface PRLogsUpdatedPayload {
+  prNumber: number;
+  entryCount: number;
+  phaseStatus?: Partial<Record<PRLogPhase, PRPhaseLog['status']>>;
+  delta?: PRLogsDelta;
 }
 
 /**
@@ -728,8 +772,12 @@ export const createGitHubAPI = (): GitHubAPI => ({
     sendIpc(IPC_CHANNELS.GITHUB_PR_FOLLOWUP_REVIEW, projectId, prNumber),
 
   // PR logs
-  getPRLogs: (projectId: string, prNumber: number): Promise<PRLogs | null> =>
-    invokeIpc(IPC_CHANNELS.GITHUB_PR_GET_LOGS, projectId, prNumber),
+  getPRLogs: (
+    projectId: string,
+    prNumber: number,
+    known?: PRLogsKnownVersion
+  ): Promise<PRLogs | null | 'unchanged'> =>
+    invokeIpc(IPC_CHANNELS.GITHUB_PR_GET_LOGS, projectId, prNumber, known),
 
   // Workflow approval (for fork PRs)
   getWorkflowsAwaitingApproval: (projectId: string, prNumber: number): Promise<WorkflowsAwaitingApprovalResult> =>
@@ -760,7 +808,7 @@ export const createGitHubAPI = (): GitHubAPI => ({
     createIpcListener(IPC_CHANNELS.GITHUB_PR_REVIEW_STATE_CHANGE, callback),
 
   onPRLogsUpdated: (
-    callback: (projectId: string, data: { prNumber: number; entryCount: number }) => void
+    callback: (projectId: string, data: PRLogsUpdatedPayload) => void
   ): IpcListenerCleanup =>
     createIpcListener(IPC_CHANNELS.GITHUB_PR_LOGS_UPDATED, callback),
 

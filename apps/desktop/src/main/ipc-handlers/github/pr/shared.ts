@@ -49,7 +49,9 @@ export function getClaudeMdEnv(project: Project): Record<string, string> | undef
 
 /**
  * Sanitize network data before writing to file
- * Removes potentially dangerous characters and limits length
+ * Removes potentially dangerous characters and limits length.
+ * Intended for untrusted network data; not applied to local PR review logs
+ * (their size is bounded by the log collector instead).
  */
 export function sanitizeNetworkData(data: string, maxLength = 1000000): string {
   // Remove null bytes and other control characters except newlines/tabs/carriage returns
