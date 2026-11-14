@@ -34,6 +34,13 @@ import type { HeadlessConfig } from './config';
 import { classifyRun, EXIT_ERROR } from './outcome';
 import type { RunEvent, RunOutcome } from './outcome';
 import { createProgressReporter } from './progress';
+import {
+  notifyHeadlessOutcome,
+  projectNameFromPath,
+  readSpecTitle,
+  resolveHeadlessWebhook,
+} from './webhook';
+import type { ResolvedHeadlessWebhook } from './webhook';
 
 /** What the runner needs from a worker bridge (WorkerBridgeCore satisfies it). */
 export interface HeadlessBridge extends EventEmitter {
@@ -56,6 +63,8 @@ export interface HeadlessRunOptions {
   createBridge?: (options: WorkerBridgeCoreOptions) => HeadlessBridge;
   out?: (text: string) => void;
   err?: (text: string) => void;
+  /** Test-only: replaces the webhook retry backoff delay. */
+  webhookDelay?: (ms: number) => Promise<void>;
 }
 
 const AUTO_BUILD_PATH = '.auto-claude';
@@ -117,19 +126,48 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
     return EXIT_ERROR;
   };
 
+  // zeenha fork: outcome webhook state, set as early as possible so setup failures can notify too.
+  let webhook: ResolvedHeadlessWebhook | undefined;
+  let webhookProject = '';
+  let webhookTitle = '';
+  const sendOutcome = async (outcome: RunOutcome): Promise<void> => {
+    if (!webhook) return;
+    try {
+      await notifyHeadlessOutcome({
+        webhook,
+        outcome,
+        projectName: webhookProject,
+        taskTitle: webhookTitle,
+        warn: (message) => rawErr(redact(`warning: ${message}\n`)),
+        delay: options.webhookDelay,
+      });
+    } catch {
+      // The webhook must never change the run result.
+    }
+  };
+
   let specId: string | undefined;
   try {
     // (1) project and spec
     const projectPath = findGitRoot(path.resolve(options.projectPath ?? process.cwd()));
+    webhookProject = projectNameFromPath(projectPath);
     const resolved = resolveSpec(projectPath, options.spec);
     specId = resolved.specId;
     const specDir = resolved.specDir;
+    webhookTitle = specId;
     if (!existsSync(specDir) || !statSync(specDir).isDirectory() || !existsSync(path.join(specDir, 'spec.md'))) {
       throw new HeadlessSetupError(`Spec not found: ${path.join(specDir, 'spec.md')} does not exist`);
     }
+    webhookTitle = readSpecTitle(specDir, specId);
 
     // (2) config and project settings
     const config = loadHeadlessConfig(options.configPath);
+    const resolvedWebhook = resolveHeadlessWebhook(config, process.env);
+    if (resolvedWebhook && 'warning' in resolvedWebhook) {
+      rawErr(redact(`warning: ${resolvedWebhook.warning}\n`));
+    } else {
+      webhook = resolvedWebhook;
+    }
     const settings = resolveProjectSettings(projectPath, config, {
       baseBranch: options.baseBranch,
       noPush: options.noPush,
@@ -271,8 +309,12 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
     });
 
     reporter.summary(reported, info);
-    return reported.exitCode;
+    const exitCode = reported.exitCode;
+    await sendOutcome(reported);
+    return exitCode;
   } catch (error) {
-    return fail(error instanceof Error ? error.message : String(error), specId);
+    const exitCode = fail(error instanceof Error ? error.message : String(error), specId);
+    await sendOutcome({ kind: 'error', exitCode: EXIT_ERROR, reason: error instanceof Error ? error.message : String(error) });
+    return exitCode;
   }
 }
