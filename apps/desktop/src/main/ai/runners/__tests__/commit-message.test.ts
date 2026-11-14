@@ -390,6 +390,25 @@ describe('formatIssueClosingLines', () => {
   it('returns an empty list for no refs', () => {
     expect(formatIssueClosingLines([])).toEqual([]);
   });
+
+  it('azuredevops style never starts a reference with #', () => {
+    const lines = formatIssueClosingLines(
+      [
+        { kind: 'github', ref: '5' },
+        { kind: 'gitlab', ref: '9' },
+        { kind: 'jira', ref: 'PROJ-2' },
+        { kind: 'linear', ref: 'ABC-1' },
+      ],
+      'azuredevops',
+    );
+    expect(lines).toEqual([
+      'Related GitHub issue: 5',
+      'Related GitLab issue: 9',
+      'Related issue: PROJ-2',
+      'Related issue: ABC-1',
+    ]);
+    expect(lines.some((l) => l.includes('#'))).toBe(false);
+  });
 });
 
 describe('readIssueRefs', () => {

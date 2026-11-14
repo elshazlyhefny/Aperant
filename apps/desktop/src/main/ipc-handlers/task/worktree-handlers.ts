@@ -8,7 +8,7 @@ import { projectStore } from '../../project-store';
 
 import { MergeOrchestrator } from '../../ai/merge/orchestrator';
 import { pruneFinishedTask } from '../../ai/merge/file-evolution';
-import { createPR, createMR, createBitbucketPR, suggestPRTitleForWorktree } from '../../ai/runners/github/pr-creator';
+import { createPR, createMR, createBitbucketPR, createAzureDevOpsPR, suggestPRTitleForWorktree } from '../../ai/runners/github/pr-creator';
 import { capPRTitle } from '../../../shared/utils/pr-title';
 import { findTaskAndProject } from './shared';
 import { updateRoadmapFeatureOutcome } from '../../utils/roadmap-utils';
@@ -21,6 +21,7 @@ import {
 import { updateTaskStatusAfterPRCreation, originMatchesInstance, MAX_PR_TITLE_LENGTH, PRINTABLE_CHARS_REGEX } from './worktree-pr';
 import { getGitLabConfig } from '../gitlab/utils';
 import { getBitbucketConfig } from '../bitbucket/utils';
+import { azureDevOpsRemoteMatchesConfig, getAzureDevOpsConfig } from '../azuredevops/utils';
 import { refreshGitIndex } from '../../utils/git-isolation';
 import { cleanupWorktree } from '../../utils/worktree-cleanup';
 import { taskStateManager } from '../../task-state-manager';
@@ -970,7 +971,8 @@ export function registerWorktreeHandlers(
         // Bitbucket works the same way and is checked first.
         let gitlabConfig = await getGitLabConfig(project);
         let bitbucketConfig = await getBitbucketConfig(project);
-        if (gitlabConfig || bitbucketConfig) {
+        let azureDevOpsConfig = await getAzureDevOpsConfig(project);
+        if (gitlabConfig || bitbucketConfig || azureDevOpsConfig) {
           let originUrl = '';
           try {
             const { stdout } = await promisify(execFile)(gitPath, ['remote', 'get-url', 'origin'], {
@@ -983,6 +985,9 @@ export function registerWorktreeHandlers(
           }
           if (!originUrl || !bitbucketConfig || !originMatchesInstance(originUrl, 'https://bitbucket.org')) {
             bitbucketConfig = null;
+          }
+          if (!originUrl || !azureDevOpsConfig || !azureDevOpsRemoteMatchesConfig(originUrl, azureDevOpsConfig)) {
+            azureDevOpsConfig = null;
           }
           if (!originUrl || !gitlabConfig || !originMatchesInstance(originUrl, gitlabConfig.instanceUrl)) {
             gitlabConfig = null;
@@ -1006,10 +1011,12 @@ export function registerWorktreeHandlers(
           ]),
         };
 
-        debug('Creating PR via TypeScript runner:', { branchName, baseBranch, typedTitle, gitlab: !!gitlabConfig, bitbucket: !!bitbucketConfig });
+        debug('Creating PR via TypeScript runner:', { branchName, baseBranch, typedTitle, gitlab: !!gitlabConfig, bitbucket: !!bitbucketConfig, azureDevOps: !!azureDevOpsConfig });
 
         // Run the TypeScript PR/MR creator
-        const result = bitbucketConfig
+        const result = azureDevOpsConfig
+          ? await createAzureDevOpsPR({ ...prConfig, azureDevOps: azureDevOpsConfig })
+          : bitbucketConfig
           ? await createBitbucketPR({ ...prConfig, bitbucket: bitbucketConfig })
           : gitlabConfig
           ? await createMR({ ...prConfig, gitlab: gitlabConfig })

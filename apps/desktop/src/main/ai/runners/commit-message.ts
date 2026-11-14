@@ -153,9 +153,27 @@ export function readIssueRefs(specDir: string): IssueRef[] {
   return refs;
 }
 
-/** One issue-closing line per ref, in input order. */
-export function formatIssueClosingLines(refs: IssueRef[]): string[] {
+/**
+ * One issue-closing line per ref, in input order.
+ *
+ * zeenha fork: the 'azuredevops' style never starts a reference with '#',
+ * because Azure DevOps reads a bare '#123' as Azure Boards work item 123.
+ */
+export function formatIssueClosingLines(
+  refs: IssueRef[],
+  style: 'default' | 'azuredevops' = 'default',
+): string[] {
   return refs.map((r) => {
+    if (style === 'azuredevops') {
+      switch (r.kind) {
+        case 'github':
+          return `Related GitHub issue: ${r.ref}`;
+        case 'gitlab':
+          return `Related GitLab issue: ${r.ref}`;
+        default:
+          return `Related issue: ${r.ref}`;
+      }
+    }
     switch (r.kind) {
       case 'github':
         return `Fixes #${r.ref}`;

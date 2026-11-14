@@ -84,10 +84,25 @@ vi.mock('../../../../ipc-handlers/bitbucket/utils', () => ({
   createBitbucketPullRequest: bitbucket.create,
   findOpenPullRequestForBranch: bitbucket.find,
 }));
+const azure = vi.hoisted(() => {
+  class AzureDevOpsAPIError extends Error {
+    constructor(message: string, readonly statusCode: number) {
+      super(message);
+    }
+  }
+  return { AzureDevOpsAPIError, create: vi.fn(), find: vi.fn() };
+});
+vi.mock('../../../../ipc-handlers/azuredevops/utils', () => ({
+  AzureDevOpsAPIError: azure.AzureDevOpsAPIError,
+  createAzureDevOpsPullRequest: azure.create,
+  findOpenPullRequestForBranch: azure.find,
+  buildPullRequestWebUrl: (c: { organization: string; project: string; repository: string }, id: number) =>
+    `https://dev.azure.com/${c.organization}/${c.project}/_git/${c.repository}/pullrequest/${id}`,
+}));
 vi.mock('ai', () => ({ generateText: vi.fn(async () => ({ text: '## Summary\n- body' })) }));
 
 import { generateText } from 'ai';
-import { createBitbucketPR, createMR, createPR, GH_TIMEOUT_MS, NO_CHANGES_MESSAGE, PUSH_TIMEOUT_MS, unfinishedTaskMessage } from '../pr-creator';
+import { createAzureDevOpsPR, createBitbucketPR, createMR, createPR, GH_TIMEOUT_MS, NO_CHANGES_MESSAGE, PUSH_TIMEOUT_MS, unfinishedTaskMessage } from '../pr-creator';
 
 const PR_URL = 'https://github.com/o/r/pull/7';
 
@@ -625,6 +640,86 @@ describe('createBitbucketPR', () => {
       expect(delays).toContain(2000);
     } finally {
       spy.mockRestore();
+    }
+  });
+});
+
+describe('createAzureDevOpsPR', () => {
+  const PR_HREF = 'https://dev.azure.com/org/proj/_git/repo/pullrequest/12';
+  const azConfig = { organization: 'org', project: 'proj', repository: 'repo', pat: 'p' };
+  const azPr = { pullRequestId: 12 };
+  const prConfig = (overrides: Record<string, unknown> = {}) => {
+    const { ghPath: _gh, ...rest } = config();
+    return { ...rest, azureDevOps: azConfig, ...overrides };
+  };
+
+  beforeEach(() => {
+    azure.create.mockReset();
+    azure.find.mockReset();
+    azure.create.mockResolvedValue(azPr);
+  });
+
+  it('creates the pull request with a real draft flag and no title prefix', async () => {
+    const result = await createAzureDevOpsPR(prConfig({ draft: true }));
+    expect(result).toEqual({ success: true, prUrl: PR_HREF, alreadyExists: false });
+    expect(state.calls.filter((c) => c.command === 'gh')).toHaveLength(0);
+    expect(azure.create).toHaveBeenCalledWith(azConfig, {
+      sourceBranch: 'auto-claude/001-x',
+      targetBranch: 'main',
+      title: 'auto-claude: 001-x',
+      description: '## Summary\n- body',
+      isDraft: true,
+    });
+  });
+
+  it('resolves a 409 duplicate to the existing pull request', async () => {
+    azure.create.mockRejectedValue(new azure.AzureDevOpsAPIError('conflict', 409));
+    azure.find.mockResolvedValue(azPr);
+    const result = await createAzureDevOpsPR(prConfig());
+    expect(result).toEqual({ success: true, prUrl: PR_HREF, alreadyExists: true });
+    expect(azure.find).toHaveBeenCalledWith(azConfig, 'auto-claude/001-x');
+  });
+
+  it('reports MR_FAILED for a 401 without retrying', async () => {
+    azure.create.mockRejectedValue(new azure.AzureDevOpsAPIError('401 Unauthorized', 401));
+    const result = await createAzureDevOpsPR(prConfig());
+    expect(result).toEqual({ success: false, errorCode: 'MR_FAILED', error: '401 Unauthorized' });
+    expect(azure.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a 503 and succeeds on the next attempt', async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) =>
+      realSetTimeout(fn, 0)) as typeof setTimeout);
+    try {
+      azure.create
+        .mockRejectedValueOnce(new azure.AzureDevOpsAPIError('Service unavailable', 503))
+        .mockResolvedValueOnce(azPr);
+      expect(await createAzureDevOpsPR(prConfig())).toEqual({ success: true, prUrl: PR_HREF, alreadyExists: false });
+      expect(azure.create).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('keeps the issue lines without a leading # and stays within 4000 characters', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'az-body-'));
+    try {
+      const specDir = join(projectDir, '.auto-claude', 'specs', '001-x');
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, 'task_metadata.json'), JSON.stringify({ githubIssueNumber: 5, linearIdentifier: 'ABC-1' }));
+      vi.mocked(generateText).mockResolvedValueOnce({
+        text: Array.from({ length: 400 }, (_, i) => `- line number ${i} of a long description`).join('\n'),
+      } as never);
+      await createAzureDevOpsPR(prConfig({ projectDir }));
+      const description: string = azure.create.mock.calls[0][1].description;
+      expect(description.length).toBeLessThanOrEqual(4000);
+      expect(description).toContain('Related GitHub issue: 5');
+      expect(description).toContain('Related issue: ABC-1');
+      expect(description).not.toMatch(/#5|Fixes|Closes/);
+      expect(description).toContain('…');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
     }
   });
 });

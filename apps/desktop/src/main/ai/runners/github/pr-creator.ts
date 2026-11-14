@@ -38,6 +38,13 @@ import {
   findOpenPullRequestForBranch,
 } from '../../../ipc-handlers/bitbucket/utils';
 import type { BitbucketConfig } from '../../../ipc-handlers/bitbucket/types';
+import {
+  AzureDevOpsAPIError,
+  buildPullRequestWebUrl,
+  createAzureDevOpsPullRequest,
+  findOpenPullRequestForBranch as findOpenAzureDevOpsPullRequestForBranch,
+} from '../../../ipc-handlers/azuredevops/utils';
+import type { AzureDevOpsConfig } from '../../../ipc-handlers/azuredevops/types';
 
 // =============================================================================
 // Constants
@@ -140,11 +147,16 @@ export function appendIssueLines(body: string, lines: string[]): string {
  * project's spec directory is read first, then the worktree's copy.
  * Exported for tests.
  */
-export function readSourceIssueLines(worktreePath: string, projectDir: string, specId: string): string[] {
+export function readSourceIssueLines(
+  worktreePath: string,
+  projectDir: string,
+  specId: string,
+  style: 'default' | 'azuredevops' = 'default',
+): string[] {
   for (const root of [projectDir, worktreePath]) {
     try {
       const refs = readIssueRefs(join(root, '.auto-claude', 'specs', specId));
-      if (refs.length > 0) return formatIssueClosingLines(refs);
+      if (refs.length > 0) return formatIssueClosingLines(refs, style);
     } catch {
       // unreadable metadata: try the next copy
     }
@@ -780,7 +792,31 @@ async function getExistingPRUrl(
 // Main PR Creator
 // =============================================================================
 
-type PrepareBranchConfig = Omit<CreatePRConfig, 'ghPath'>;
+type PrepareBranchConfig = Omit<CreatePRConfig, 'ghPath'> & {
+  /** zeenha fork: how source-issue lines are written (Azure reads '#N' as a work item). */
+  issueLinkStyle?: 'default' | 'azuredevops';
+  /** zeenha fork: cap on the whole description, issue lines included. */
+  maxBodyChars?: number;
+};
+
+/**
+ * zeenha fork: fit body plus issue lines in `max` characters. The issue lines
+ * are always kept; the body is cut at a line break and ends with an ellipsis.
+ * Exported for tests.
+ */
+export function composeBodyWithLimit(body: string, lines: string[], max?: number): string {
+  const full = appendIssueLines(body, lines);
+  if (max === undefined || full.length <= max) return full;
+  const present = new Set(body.split(/\r?\n/).map((l) => l.trim()));
+  const missing = lines.filter((l) => !present.has(l.trim()));
+  const suffix = missing.length > 0 ? `\n\n${missing.join('\n')}` : '';
+  const ellipsis = '\n…';
+  const room = Math.max(0, max - suffix.length - ellipsis.length);
+  let head = body.slice(0, room);
+  const cut = head.lastIndexOf('\n');
+  if (cut > 0) head = head.slice(0, cut);
+  return `${head.trimEnd()}${ellipsis}${suffix}`.slice(0, Math.max(max, 0));
+}
 
 export type PrepareBranchResult =
   | { ok: true; title: string; body: string; effectiveBase: string }
@@ -883,9 +919,10 @@ export async function prepareBranch(config: PrepareBranchConfig): Promise<Prepar
   // zeenha fork: the closing lines are added in code, not asked of the model,
   // because the model can drop or misspell them and the PR would then not
   // close the issue it came from.
-  const body = appendIssueLines(
+  const body = composeBodyWithLimit(
     aiBody || extractSpecSummary(projectDir, specId),
-    readSourceIssueLines(worktreePath, projectDir, specId),
+    readSourceIssueLines(worktreePath, projectDir, specId, config.issueLinkStyle ?? 'default'),
+    config.maxBodyChars,
   );
 
   const effectiveBase = baseBranch.startsWith('origin/') ? baseBranch.slice('origin/'.length) : baseBranch;
@@ -1063,6 +1100,76 @@ export async function createBitbucketPR(
         try {
           const existing = await findOpenPullRequestForBranch(bitbucket, branchName);
           return { success: true, prUrl: existing?.links?.html?.href, alreadyExists: true };
+        } catch {
+          return { success: true, prUrl: undefined, alreadyExists: true };
+        }
+      }
+
+      // A timeout (statusCode 0) is ambiguous (the PR may exist), so it is not retried.
+      const retryable =
+        statusCode === undefined ? /timeout|connection|network|ECONNRESET|ECONNREFUSED|fetch failed/i.test(message)
+          : statusCode >= 500;
+      if (retryable && attempt < 2 && statusCode !== 0) {
+        await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 2000));
+        continue;
+      }
+
+      return { success: false, errorCode: 'MR_FAILED', error: message || 'Failed to create pull request' };
+    }
+  }
+
+  return { success: false, errorCode: 'MR_FAILED', error: 'Pull request creation failed after 3 attempts' };
+}
+
+// =============================================================================
+// Azure DevOps pull request finisher
+// =============================================================================
+
+/** Azure DevOps rejects pull request descriptions over this many characters. */
+const AZURE_DEVOPS_MAX_BODY_CHARS = 4000;
+
+/**
+ * zeenha fork: push a worktree branch and open an Azure DevOps pull request
+ * with an AI-generated description. Azure supports real drafts, so the title
+ * is not prefixed. MR_FAILED is reused so the shared error codes stay as is.
+ */
+export async function createAzureDevOpsPR(
+  config: Omit<CreatePRConfig, 'ghPath'> & { azureDevOps: AzureDevOpsConfig },
+): Promise<CreatePRResult> {
+  const { branchName, draft = false, azureDevOps } = config;
+
+  const prepared = await prepareBranch({
+    ...config,
+    issueLinkStyle: 'azuredevops',
+    maxBodyChars: AZURE_DEVOPS_MAX_BODY_CHARS,
+  });
+  if (!prepared.ok) return prepared.result;
+  const { title, body, effectiveBase } = prepared;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const pr = await createAzureDevOpsPullRequest(azureDevOps, {
+        sourceBranch: branchName,
+        targetBranch: effectiveBase,
+        title,
+        description: body,
+        isDraft: draft,
+      });
+      return { success: true, prUrl: buildPullRequestWebUrl(azureDevOps, pr.pullRequestId), alreadyExists: false };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const statusCode = err instanceof AzureDevOpsAPIError ? err.statusCode : undefined;
+
+      const duplicate =
+        statusCode === 409 || /already exists|active pull request/i.test(message);
+      if (duplicate) {
+        try {
+          const existing = await findOpenAzureDevOpsPullRequestForBranch(azureDevOps, branchName);
+          return {
+            success: true,
+            prUrl: existing ? buildPullRequestWebUrl(azureDevOps, existing.pullRequestId) : undefined,
+            alreadyExists: true,
+          };
         } catch {
           return { success: true, prUrl: undefined, alreadyExists: true };
         }
