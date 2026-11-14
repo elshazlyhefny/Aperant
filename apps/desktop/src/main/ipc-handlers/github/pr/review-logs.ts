@@ -19,6 +19,18 @@ export function getGitHubDir(project: Project): string {
 }
 
 /**
+ * Provider whose PR reviews the logs belong to
+ */
+export type PRLogProvider = "github" | "bitbucket";
+
+/**
+ * Get the per-provider directory for a project (.auto-claude/<provider>)
+ */
+export function getProviderDir(project: Project, provider: PRLogProvider = "github"): string {
+  return path.join(project.path, ".auto-claude", provider);
+}
+
+/**
  * PR log phase type
  */
 export type PRLogPhase = "context" | "analysis" | "synthesis";
@@ -277,8 +289,12 @@ export function createEmptyPRLogs(prNumber: number, repo: string, isFollowup: bo
  * Logs are stored at `.auto-claude/github/pr/logs_${prNumber}.json` within the project directory.
  * This provides persistent storage for streaming log data during PR reviews.
  */
-export function getPRLogsPath(project: Project, prNumber: number): string {
-  return path.join(getGitHubDir(project), "pr", `logs_${prNumber}.json`);
+export function getPRLogsPath(
+  project: Project,
+  prNumber: number,
+  provider: PRLogProvider = "github"
+): string {
+  return path.join(getProviderDir(project, provider), "pr", `logs_${prNumber}.json`);
 }
 
 /**
@@ -292,8 +308,12 @@ export function getPRLogsPath(project: Project, prNumber: number): string {
  * Returns null if the logs file doesn't exist yet (review hasn't started)
  * or if the file is corrupted/unreadable.
  */
-export function loadPRLogs(project: Project, prNumber: number): PRLogs | null {
-  const logsPath = getPRLogsPath(project, prNumber);
+export function loadPRLogs(
+  project: Project,
+  prNumber: number,
+  provider: PRLogProvider = "github"
+): PRLogs | null {
+  const logsPath = getPRLogsPath(project, prNumber, provider);
 
   try {
     const rawData = fs.readFileSync(logsPath, "utf-8");
@@ -316,8 +336,12 @@ export function loadPRLogs(project: Project, prNumber: number): PRLogs | null {
  * - Timestamps for created_at and updated_at
  * - Review metadata (PR number, repo, followup status)
  */
-export function savePRLogs(project: Project, logs: PRLogs): void {
-  const logsPath = getPRLogsPath(project, logs.pr_number);
+export function savePRLogs(
+  project: Project,
+  logs: PRLogs,
+  provider: PRLogProvider = "github"
+): void {
+  const logsPath = getPRLogsPath(project, logs.pr_number, provider);
   const prDir = path.dirname(logsPath);
 
   if (!fs.existsSync(prDir)) {
@@ -366,18 +390,22 @@ function countEntries(logs: PRLogs): number {
   return PHASES.reduce((n, p) => n + logs.phases[p].entries.length, 0);
 }
 
-/** Live collectors keyed by `${project.id}:${prNumber}` */
+/** Live collectors keyed by `${provider}:${project.id}:${prNumber}` */
 const liveCollectors = new Map<string, PRLogCollector>();
 
-function liveKey(project: Project, prNumber: number): string {
-  return `${project.id}:${prNumber}`;
+function liveKey(project: Project, prNumber: number, provider: PRLogProvider): string {
+  return `${provider}:${project.id}:${prNumber}`;
 }
 
 /**
  * Get the in-memory logs of a running review, or null if none is live.
  */
-export function getLiveLogs(project: Project, prNumber: number): PRLogs | null {
-  return liveCollectors.get(liveKey(project, prNumber))?.getLogs() ?? null;
+export function getLiveLogs(
+  project: Project,
+  prNumber: number,
+  provider: PRLogProvider = "github"
+): PRLogs | null {
+  return liveCollectors.get(liveKey(project, prNumber, provider))?.getLogs() ?? null;
 }
 
 /** mtime-keyed cache so unchanged finished reviews are not re-read */
@@ -390,9 +418,10 @@ const fileVersionCache = new Map<string, { mtimeMs: number; updated_at: string; 
 export function loadPRLogsIfChanged(
   project: Project,
   prNumber: number,
-  known?: PRLogsKnownVersion
+  known?: PRLogsKnownVersion,
+  provider: PRLogProvider = "github"
 ): PRLogs | null | "unchanged" {
-  const live = getLiveLogs(project, prNumber);
+  const live = getLiveLogs(project, prNumber, provider);
   if (live) {
     if (known && known.updated_at === live.updated_at && known.entryCount === countEntries(live)) {
       return "unchanged";
@@ -400,7 +429,7 @@ export function loadPRLogsIfChanged(
     return live;
   }
 
-  const logsPath = getPRLogsPath(project, prNumber);
+  const logsPath = getPRLogsPath(project, prNumber, provider);
   let mtimeMs: number;
   try {
     mtimeMs = fs.statSync(logsPath).mtimeMs;
@@ -420,7 +449,7 @@ export function loadPRLogsIfChanged(
     return "unchanged";
   }
 
-  const logs = loadPRLogs(project, prNumber);
+  const logs = loadPRLogs(project, prNumber, provider);
   if (!logs) return null;
   const entryCount = countEntries(logs);
   fileVersionCache.set(logsPath, { mtimeMs, updated_at: logs.updated_at, entryCount });
@@ -458,7 +487,7 @@ export function addLogEntry(logs: PRLogs, entry: PRLogEntry): boolean {
  *    runs (see getLiveLogs()); readers prefer them over the file.
  *
  * 2. **Throttled disk writes**: a trailing timer (~1s) persists the logs to
- *    .auto-claude/github/pr/logs_${prNumber}.json (compact JSON, atomic rename).
+ *    .auto-claude/<provider>/pr/logs_${prNumber}.json (compact JSON, atomic rename).
  *    Phase changes and finalize() write immediately.
  *
  * 3. **Delta push**: a coalesced trailing timer (~200ms) sends
@@ -478,6 +507,7 @@ export class PRLogCollector {
   private currentPhase: PRLogPhase = "context";
   private entryCount: number = 0;
   private mainWindow: BrowserWindow | null;
+  private provider: PRLogProvider;
   private sentCounts: Record<PRLogPhase, number> = { context: 0, analysis: 0, synthesis: 0 };
   private sentStatus: Record<PRLogPhase, string> = { context: "", analysis: "", synthesis: "" };
   private diskTimer: ReturnType<typeof setTimeout> | null = null;
@@ -488,14 +518,16 @@ export class PRLogCollector {
     prNumber: number,
     repo: string,
     isFollowup: boolean,
-    mainWindow?: BrowserWindow
+    mainWindow?: BrowserWindow,
+    options?: { provider?: PRLogProvider }
   ) {
     this.project = project;
+    this.provider = options?.provider ?? "github";
     this.logs = createEmptyPRLogs(prNumber, repo, isFollowup);
     this.mainWindow = mainWindow || null;
 
     // Trace: Log collector creation (verbose only)
-    const logPath = getPRLogsPath(project, prNumber);
+    const logPath = getPRLogsPath(project, prNumber, this.provider);
     traceLog("PRLogCollector created", {
       prNumber,
       repo,
@@ -504,7 +536,7 @@ export class PRLogCollector {
       hasMainWindow: !!this.mainWindow
     });
 
-    liveCollectors.set(liveKey(project, prNumber), this);
+    liveCollectors.set(liveKey(project, prNumber, this.provider), this);
 
     // Write initial empty logs so frontend sees the structure immediately
     this.flushDisk();
@@ -610,7 +642,7 @@ export class PRLogCollector {
       entryCount: this.entryCount
     });
     try {
-      savePRLogs(this.project, this.logs);
+      savePRLogs(this.project, this.logs, this.provider);
     } catch (error) {
       traceLog("PRLogCollector.flushDisk() failed", { error: String(error) });
     }
@@ -645,7 +677,11 @@ export class PRLogCollector {
       this.sentStatus[phase] = log.status;
     }
 
-    this.mainWindow.webContents.send(IPC_CHANNELS.GITHUB_PR_LOGS_UPDATED, this.project.id, {
+    const channel =
+      this.provider === "bitbucket"
+        ? IPC_CHANNELS.BITBUCKET_PR_LOGS_UPDATED
+        : IPC_CHANNELS.GITHUB_PR_LOGS_UPDATED;
+    this.mainWindow.webContents.send(channel, this.project.id, {
       prNumber: this.logs.pr_number,
       phaseStatus: {
         context: this.logs.phases.context.status,
@@ -666,7 +702,7 @@ export class PRLogCollector {
       }
     }
     this.save();
-    const key = liveKey(this.project, this.logs.pr_number);
+    const key = liveKey(this.project, this.logs.pr_number, this.provider);
     if (liveCollectors.get(key) === this) {
       liveCollectors.delete(key);
     }

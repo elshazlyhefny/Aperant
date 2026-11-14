@@ -353,3 +353,84 @@ describe("PRLogCollector streaming, throttling and change detection", () => {
     expect(getLiveLogs(project, 17)).toBeNull();
   });
 });
+
+describe("bitbucket provider", () => {
+  let dir: string;
+  let project: Project;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "review-logs-bb-"));
+    project = { id: "proj-bb", path: dir } as unknown as Project;
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes logs under .auto-claude/bitbucket/pr/", () => {
+    expect(getPRLogsPath(project, 5, "bitbucket")).toBe(
+      path.join(dir, ".auto-claude", "bitbucket", "pr", "logs_5.json")
+    );
+    const collector = new PRLogCollector(project, 5, "w/r", false, undefined, {
+      provider: "bitbucket",
+    });
+    collector.processLine("[Context] a");
+    collector.finalize(true);
+    expect(fs.existsSync(path.join(dir, ".auto-claude", "bitbucket", "pr", "logs_5.json"))).toBe(
+      true
+    );
+    expect(fs.existsSync(path.join(dir, ".auto-claude", "github", "pr", "logs_5.json"))).toBe(
+      false
+    );
+    expect(loadPRLogs(project, 5)).toBeNull();
+    expect(loadPRLogs(project, 5, "bitbucket")?.phases.context.entries).toHaveLength(1);
+  });
+
+  it("keeps github and bitbucket collectors with the same number independent", () => {
+    const gh = new PRLogCollector(project, 8, "o/r", false);
+    const bb = new PRLogCollector(project, 8, "w/r", false, undefined, { provider: "bitbucket" });
+    gh.processLine("[Context] gh");
+    bb.processLine("[Context] bb1");
+    bb.processLine("[Context] bb2");
+
+    expect(getLiveLogs(project, 8)).toBe(gh.getLogs());
+    expect(getLiveLogs(project, 8, "bitbucket")).toBe(bb.getLogs());
+    expect(gh.getLogs().phases.context.entries).toHaveLength(1);
+    expect(bb.getLogs().phases.context.entries).toHaveLength(2);
+
+    bb.finalize(true);
+    expect(getLiveLogs(project, 8, "bitbucket")).toBeNull();
+    expect(getLiveLogs(project, 8)).toBe(gh.getLogs());
+    gh.finalize(true);
+    expect(loadPRLogs(project, 8)?.phases.context.entries[0].content).toBe("gh");
+    expect(loadPRLogs(project, 8, "bitbucket")?.phases.context.entries[0].content).toBe("bb1");
+  });
+
+  it("loadPRLogsIfChanged honours the provider", () => {
+    const bb = new PRLogCollector(project, 9, "w/r", false, undefined, { provider: "bitbucket" });
+    bb.processLine("[Context] a");
+    const live = bb.getLogs();
+    expect(loadPRLogsIfChanged(project, 9)).toBeNull();
+    expect(
+      loadPRLogsIfChanged(project, 9, { updated_at: live.updated_at, entryCount: 1 }, "bitbucket")
+    ).toBe("unchanged");
+    bb.finalize(true);
+    const finished = loadPRLogsIfChanged(project, 9, undefined, "bitbucket") as PRLogs;
+    expect(finished.phases.context.entries).toHaveLength(1);
+    expect(loadPRLogsIfChanged(project, 9)).toBeNull();
+  });
+
+  it("pushes on the bitbucket channel", () => {
+    const send = vi.fn();
+    const win = { isDestroyed: () => false, webContents: { send } };
+    const collector = new PRLogCollector(project, 10, "w/r", false, win as never, {
+      provider: "bitbucket",
+    });
+    collector.processLine("[Context] a");
+    collector.finalize(true);
+    expect(send).toHaveBeenCalled();
+    for (const call of send.mock.calls) {
+      expect(call[0]).toBe(IPC_CHANNELS.BITBUCKET_PR_LOGS_UPDATED);
+    }
+  });
+});
