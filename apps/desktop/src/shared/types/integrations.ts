@@ -338,6 +338,19 @@ export interface BitbucketDetectedRepository {
   fullName: string; // workspace/repo_slug
 }
 
+export interface AzureDevOpsSyncStatus {
+  connected: boolean;
+  repoFullName?: string; // organization/project/repository
+  error?: string;
+}
+
+export interface AzureDevOpsDetectedRepository {
+  organization: string;
+  project: string;
+  repository: string;
+  fullName: string; // organization/project/repository
+}
+
 export interface GitLabImportResult {
   success: boolean;
   imported: number;

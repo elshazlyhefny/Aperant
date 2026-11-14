@@ -12,6 +12,7 @@ export const integrationMock = {
       githubEnabled: false,
       gitlabEnabled: false,
       bitbucketEnabled: false,
+      azureDevOpsEnabled: false,
       memoryEnabled: false,
       enableFancyUi: true
     }
