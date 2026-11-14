@@ -29,7 +29,9 @@ import { compareVersions } from './updater/version-manager';
 import { isMacOS } from './platform';
 
 // GitHub repo info for API calls
-const GITHUB_OWNER = 'AndyMik90';
+// zeenha fork: these constants name the fork, but they are never used at runtime
+// because UPDATES_DISABLED is true.
+const GITHUB_OWNER = 'elshazlyhefny';
 const GITHUB_REPO = 'Aperant';
 
 // Debug mode - DEBUG_UPDATER=true or development mode

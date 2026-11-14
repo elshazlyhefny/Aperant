@@ -489,6 +489,24 @@
       "integrationDescription": "Connect to Jira to import issues as tasks",
       "syncDescription": "Import from Jira Issues"
     },
+    "webhook": {
+      "title": "Webhook",
+      "description": "Send task outcomes to this project's channel",
+      "syncDescription": "Send task outcomes to a webhook",
+      "enable": "Project webhook",
+      "enableDescription": "Post task outcomes for this project to its own webhook",
+      "urlLabel": "Project webhook URL",
+      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlInvalid": "Enter a valid https URL (http is only allowed for localhost) without credentials.",
+      "show": "Show URL",
+      "hide": "Hide URL",
+      "overrideNote": "When set, this overrides the app-wide webhook for this project.",
+      "storedProtectedNote": "The URL is stored in this project's protected .auto-claude/.env file, which agents cannot read.",
+      "sendTest": "Send test message",
+      "sending": "Sending...",
+      "testSuccess": "Test message sent",
+      "testFailed": "Could not send the test message"
+    },
     "security": {
       "title": "Security",
       "description": "Isolate agent shell commands",

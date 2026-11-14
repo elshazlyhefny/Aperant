@@ -112,11 +112,11 @@ const getProviderName = (providerId: string): string => {
 
 /**
  * Check whether a provider account supports real-time usage monitoring.
- * Currently: Anthropic OAuth, OpenAI OAuth, and Z.AI API key accounts.
+ * Currently: Anthropic OAuth, OpenAI OAuth, and Z.AI / OpenRouter API key accounts.
  */
 const accountHasUsageMonitoring = (account: { provider: string; authType?: string; apiKey?: string }): boolean => {
   if ((account.provider === 'anthropic' || account.provider === 'openai') && account.authType === 'oauth') return true;
-  if (account.provider === 'zai' && account.apiKey) return true;
+  if ((account.provider === 'zai' || account.provider === 'openrouter') && account.apiKey) return true;
   return false;
 };
 
@@ -279,6 +279,17 @@ export function UsageIndicator() {
       }
     }
     return value.toString();
+  };
+
+  /**
+   * Format a USD amount for credit-based providers (e.g. OpenRouter)
+   */
+  const formatUsd = (value: number): string => {
+    try {
+      return new Intl.NumberFormat(i18n.language, { style: 'currency', currency: 'USD' }).format(value);
+    } catch {
+      return `$${value.toFixed(2)}`;
+    }
   };
 
   /**
@@ -1250,11 +1261,16 @@ export function UsageIndicator() {
   const weeklyPercent = usage.weeklyPercent;
   const limitingPercent = Math.max(sessionPercent, weeklyPercent);
 
+  const creditUsage = usage.creditUsage;
+  const creditLimit = creditUsage?.limit ?? null;
+  const creditPercent = creditUsage && creditLimit != null && creditLimit > 0
+    ? Math.min(100, (creditUsage.used / creditLimit) * 100)
+    : 0;
   // Badge color based on the limiting (higher) percentage
   // Override to red/destructive when re-auth is needed
   const badgeColorClasses = usage.needsReauthentication
     ? 'text-red-500 bg-red-500/10 border-red-500/20'
-    : getBadgeColorClasses(limitingPercent);
+    : getBadgeColorClasses(creditUsage ? (creditLimit != null ? creditPercent : 0) : limitingPercent);
 
   // Individual colors for session and weekly in the badge
   const sessionColorClass = getColorClass(sessionPercent);
@@ -1271,7 +1287,9 @@ export function UsageIndicator() {
     'common:usage.weeklyDefault'
   );
 
-  const maxUsage = Math.max(usage.sessionPercent, usage.weeklyPercent);
+  const maxUsage = creditUsage
+    ? (creditLimit != null ? creditPercent : 0)
+    : Math.max(usage.sessionPercent, usage.weeklyPercent);
   // Show AlertCircle when re-auth needed or high usage
   const Icon = usage.needsReauthentication ? AlertCircle :
     maxUsage >= THRESHOLD_WARNING ? AlertCircle :
@@ -1294,6 +1312,12 @@ export function UsageIndicator() {
             <span className="text-xs font-semibold text-red-500" title={t('common:usage.needsReauth')}>
               !
             </span>
+          ) : creditUsage ? (
+            <div className="flex items-center gap-0.5 text-xs font-semibold font-mono">
+              <span className={creditLimit != null ? getColorClass(creditPercent) : 'text-muted-foreground'}>
+                {creditLimit != null ? `${Math.round(creditPercent)}%` : formatUsd(creditUsage.used)}
+              </span>
+            </div>
           ) : (
             <div className="flex items-center gap-0.5 text-xs font-semibold font-mono">
               <span className={sessionColorClass} title={t('common:usage.sessionShort')}>
@@ -1343,6 +1367,56 @@ export function UsageIndicator() {
                 <LogIn className="h-3.5 w-3.5" />
                 {t('common:usage.reauthButton')}
               </button>
+            </div>
+          ) : creditUsage ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground font-medium text-[11px] flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {t('common:usage.windowCredit')}
+                </span>
+                {creditLimit != null && (
+                  <span className={`font-semibold tabular-nums text-xs ${getColorClass(creditPercent).replace('500', '600')}`}>
+                    {Math.round(creditPercent)}%
+                  </span>
+                )}
+              </div>
+              {creditUsage.resetPeriod && (
+                <div className="text-[10px] text-muted-foreground pl-4 flex items-center gap-1">
+                  <Info className="h-2.5 w-2.5" />
+                  {t(`common:usage.creditResets.${creditUsage.resetPeriod}`)}
+                </div>
+              )}
+              {creditLimit != null ? (
+                <>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden shadow-inner" data-testid="credit-progress-bar">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ease-out ${getGradientClass(creditPercent)}`}
+                      style={{ width: `${creditPercent}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-muted-foreground">{t('common:usage.used')}</span>
+                    <span className="font-medium tabular-nums">
+                      {formatUsd(creditUsage.used)} <span className="text-muted-foreground mx-1">/</span> {formatUsd(creditLimit)}
+                    </span>
+                  </div>
+                  {creditUsage.remaining != null && (
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-muted-foreground">{t('common:usage.creditRemaining')}</span>
+                      <span className="font-medium tabular-nums">{formatUsd(creditUsage.remaining)}</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-muted-foreground">{t('common:usage.used')}</span>
+                    <span className="font-medium tabular-nums">{formatUsd(creditUsage.used)}</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">{t('common:usage.creditNoLimit')}</div>
+                </>
+              )}
             </div>
           ) : (
             <>

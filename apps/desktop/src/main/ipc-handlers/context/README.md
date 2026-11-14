@@ -2,7 +2,7 @@
 
 This directory contains the refactored context-related IPC handlers for the Auto Claude UI application. The handlers manage project context, the memory system, and project index operations.
 
-> **Note:** These handlers still read the legacy `GRAPHITI_*` env names (for example `GRAPHITI_ENABLED`, `GRAPHITI_DB_PATH`) for compatibility. The memory service itself comes from `memory-service-factory.ts` and is backed by libSQL (see [the memory README](../../ai/memory/README.md)). Whether agents use memory is decided by `isAgentMemoryEnabled()` in `memory-service-factory.ts`, not by `isMemoryEnabled()` in `utils.ts`.
+> **Note:** These handlers still read the legacy `GRAPHITI_*` env names (for example `GRAPHITI_ENABLED`, `GRAPHITI_DB_PATH`) for compatibility. The memory service itself comes from `memory-service-factory.ts` and is backed by libSQL (see [the memory README](../../ai/memory/README.md)). Whether agents use memory is decided by `isAgentMemoryEnabled()` in `memory-service-factory.ts`.
 
 ## Architecture
 
@@ -18,7 +18,6 @@ Shared utility functions for environment configuration and parsing.
 - `parseEnvFile(content)` - Parse .env file content into key-value pairs
 - `loadProjectEnvVars(projectPath, autoBuildPath)` - Load project-specific environment variables
 - `loadGlobalSettings()` - Load global application settings
-- `isMemoryEnabled(projectEnvVars)` - Check if `GRAPHITI_ENABLED` is `true` in the project or process env (`isGraphitiEnabled` is a deprecated alias)
 - `hasOpenAIKey(projectEnvVars, globalSettings)` - Check if OpenAI API key is available
 - `validateEmbeddingConfiguration(...)` - Validate the embedding provider configuration
 - `getMemoryDatabaseDetails(projectEnvVars)` - Get memory database path and name (from `GRAPHITI_DB_PATH` / `GRAPHITI_DATABASE`)
@@ -131,7 +130,7 @@ Each module can be tested independently:
 
 ```typescript
 // Example: Testing utility functions
-import { parseEnvFile, isMemoryEnabled } from './utils';
+import { parseEnvFile } from './utils';
 
 test('parseEnvFile handles quotes correctly', () => {
   const content = 'API_KEY="test-key"\nDEBUG=true';

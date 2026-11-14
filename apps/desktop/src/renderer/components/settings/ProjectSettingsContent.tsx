@@ -11,7 +11,7 @@ import { SectionRouter } from './sections/SectionRouter';
 import { createHookProxy } from './utils/hookProxyFactory';
 import type { Project } from '../../../shared/types';
 
-export type ProjectSettingsSection = 'general' | 'linear' | 'github' | 'gitlab' | 'bitbucket' | 'memory' | 'security' | 'jira';
+export type ProjectSettingsSection = 'general' | 'linear' | 'github' | 'gitlab' | 'bitbucket' | 'memory' | 'security' | 'jira' | 'webhook';
 
 interface ProjectSettingsContentProps {
   project: Project | undefined;

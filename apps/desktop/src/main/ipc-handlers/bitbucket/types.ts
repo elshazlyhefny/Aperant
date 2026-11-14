@@ -21,8 +21,12 @@ export interface BitbucketAPIPullRequest {
   description?: string | null;
   state?: string;
   // zeenha fork: commit hash is needed to match pipelines to the PR head
-  source?: { branch?: { name?: string }; commit?: { hash?: string } };
-  destination?: { branch?: { name?: string } };
+  source?: {
+    branch?: { name?: string };
+    commit?: { hash?: string };
+    repository?: { full_name?: string };
+  };
+  destination?: { branch?: { name?: string }; commit?: { hash?: string } };
   author?: BitbucketAPIUser | null;
   reviewers?: Array<BitbucketAPIUser | null>;
   participants?: Array<{ user?: BitbucketAPIUser | null; role?: string }>;
@@ -75,4 +79,18 @@ export interface BitbucketAPIPipelineStep {
   uuid: string;
   name?: string;
   state?: BitbucketAPIPipelineState;
+}
+
+export interface BitbucketAPIDiffStat {
+  status?: string;
+  lines_added?: number;
+  lines_removed?: number;
+  old?: { path?: string } | null;
+  new?: { path?: string } | null;
+}
+
+export interface BitbucketAPICommit {
+  hash: string;
+  message?: string;
+  date?: string;
 }

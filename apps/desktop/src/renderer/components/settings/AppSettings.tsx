@@ -20,6 +20,7 @@ import {
   Bug,
   Terminal,
   Ticket,
+  Webhook,
   Users,
   ShieldCheck
 } from 'lucide-react';
@@ -107,6 +108,7 @@ const projectNavItemsConfig: NavItemConfig<ProjectSettingsSection>[] = [
   { id: 'gitlab', icon: GitLabIcon },
   { id: 'bitbucket', icon: BitbucketIcon },
   { id: 'jira', icon: Ticket },
+  { id: 'webhook', icon: Webhook },
   { id: 'memory', icon: Database },
   { id: 'security', icon: ShieldCheck }
 ];

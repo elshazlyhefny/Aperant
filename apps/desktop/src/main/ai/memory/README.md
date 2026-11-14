@@ -95,6 +95,9 @@ agent session
 - Injection: builders in [injection/](injection/) for the planner
   (`planner-memory-context.ts`), QA (`qa-context.ts`), prefetch
   (`prefetch-builder.ts`) and step-level injection (`step-injection-decider.ts`).
+  The planner, QA and prefetch builders feed the pre-session context described
+  under "How memory reaches a worker"; `agent/session-memory-context.ts` wires
+  them together and `agent/worker.ts` applies the result.
 - Structural graph: [graph/](graph/) does tree-sitter AST extraction, incremental
   indexing and impact analysis, in the same database. Its `index.ts` says it
   replaces the Python sidecar.
@@ -124,6 +127,13 @@ agent session
    finalizeMemory() -> handler.finalize(outcome)
 ```
 
+**Pre-session context.** For `planner` and `qa_reviewer` sessions the worker
+appends relevant memories to the kickoff (first user) message, not the system
+prompt. It builds them through `WorkerObserverProxy`, caps them at 6000 chars,
+and waits at most 3 s. When memory is off, slow or empty the block is silently
+skipped. The result is cached per agent type for the worker's lifetime, so the QA
+loop pays for at most one lookup.
+
 ## Legacy naming and the MCP path
 
 - `GRAPHITI_ENABLED`, `GRAPHITI_DATABASE`, `GRAPHITI_DB_PATH` and
@@ -135,20 +145,18 @@ agent session
   `mcpOptions.memoryEnabled = !!process.env.GRAPHITI_MCP_URL`. Nothing in `src`
   assigns that variable, and the server must be run externally (the Agent Tools
   page in `AgentTools.tsx` says the same).
-- [../context/graphiti-integration.ts](../context/graphiti-integration.ts) is a
-  stub: its `isMemoryEnabled()` always returns `false`, so `context/builder.ts`
-  never adds graph hints.
-- Two different functions are named `isMemoryEnabled()`:
-  - `ipc-handlers/context/utils.ts` reads `GRAPHITI_ENABLED` from the project env
-    or `process.env`.
-  - `ai/context/graphiti-integration.ts` always returns `false`.
-
-  Neither is the switch for agent memory. Use `isAgentMemoryEnabled()`.
+- `isAgentMemoryEnabled()` in `ipc-handlers/context/memory-service-factory.ts`
+  (driven by the `memoryEnabled` app setting) is the only memory switch.
 
 ## What is not shipped
 
 - Turso cloud sync: `getMemoryClient(tursoSyncUrl, authToken)` and
   `getWebMemoryClient` support it, but no caller passes those arguments, so
-  `memory.db` is local only.
+  `memory.db` is local only. Shared team memory through Turso sync is
+  deliberately not planned: it would send code-derived memories to a hosted
+  service, which conflicts with this fork's local-first position and its
+  zero-incident security goal. Reopen it only on explicit demand from several
+  users who accept a hosted dependency, together with a documented
+  data-handling decision.
 - The Convex auth and team features described in [Memory.md](../../../../../../Memory.md)
   do not exist in `src`.

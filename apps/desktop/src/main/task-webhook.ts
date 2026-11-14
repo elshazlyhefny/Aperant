@@ -5,12 +5,13 @@
  * request body and response body are never logged; nothing here throws.
  */
 
-import type { TaskStatus, ReviewReason } from '../shared/types';
+import type { TaskStatus, ReviewReason, Project } from '../shared/types';
 import type { WebhookSettings } from '../shared/types/settings';
 import { DEFAULT_APP_SETTINGS } from '../shared/constants/config';
 import { appLog } from './app-logger';
 import { readSettingsFile } from './settings-utils';
 import { sanitizeUrl } from './ipc-handlers/shared/sanitize';
+import { getProjectWebhookConfig } from './project-webhook-config';
 
 export type WebhookEvent = 'review_ready' | 'failed' | 'blocked' | 'pr_opened';
 
@@ -182,10 +183,24 @@ export function dispatchTaskOutcomeWebhook(input: {
   projectName: string;
   taskTitle: string;
   prUrl?: string;
+  project?: Pick<Project, 'path' | 'autoBuildPath'>;
 }): void {
   try {
     const event = mapOutcomeToWebhookEvent(input.status, input.reviewReason);
     if (!event) return;
+    // A valid project webhook overrides the app-wide one exclusively.
+    const projectConfig = input.project ? getProjectWebhookConfig(input.project) : null;
+    if (projectConfig) {
+      if (!projectConfig.events[EVENT_TOGGLE[event]]) return;
+      const projectPayload = buildWebhookPayload({
+        projectName: input.projectName,
+        taskTitle: input.taskTitle,
+        event,
+        prUrl: input.prUrl
+      });
+      void sendWebhook(projectConfig.url, projectPayload, { eventName: event }).catch(() => undefined);
+      return;
+    }
     const settings = loadWebhookSettings();
     if (!settings.enabled || !settings.events[EVENT_TOGGLE[event]]) return;
     if (!validateWebhookUrl(settings.url).ok) return;

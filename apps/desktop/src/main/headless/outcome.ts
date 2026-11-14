@@ -98,3 +98,35 @@ export function classifyRun(input: RunInput): RunOutcome {
   }
   return { kind: 'error', exitCode: EXIT_ERROR, reason: 'worker ended without reporting a build result' };
 }
+
+/**
+ * Classify a spec-creation run. Success needs a clean worker exit (code 0)
+ * with no abort, planning failure or bridge error. Never returns exit code 2.
+ */
+export function classifySpecRun(input: RunInput): RunOutcome {
+  const { events, errors = [], exit, abortSignal } = input;
+
+  if (abortSignal) {
+    return { kind: 'error', exitCode: EXIT_ERROR, reason: `aborted by ${abortSignal}` };
+  }
+
+  const failed = events.find((e) => e.type === 'PLANNING_FAILED');
+  if (failed) {
+    return { kind: 'error', exitCode: EXIT_ERROR, reason: field(failed, 'error') ?? 'planning failed' };
+  }
+
+  if (errors.length > 0) {
+    return { kind: 'error', exitCode: EXIT_ERROR, reason: errors[errors.length - 1] };
+  }
+
+  if (exit?.signal) {
+    return { kind: 'error', exitCode: EXIT_ERROR, reason: `worker killed by ${exit.signal}` };
+  }
+  if (exit && exit.code !== 0) {
+    return { kind: 'error', exitCode: EXIT_ERROR, reason: `worker exited with code ${exit.code}` };
+  }
+  if (exit) {
+    return { kind: 'success', exitCode: EXIT_SUCCESS };
+  }
+  return { kind: 'error', exitCode: EXIT_ERROR, reason: 'worker ended without reporting a spec result' };
+}
