@@ -50,7 +50,7 @@ The file is at `<project>/<autoBuildPath>/.env`, normally `.auto-claude/.env`. T
 
 You can edit the file by hand or from the project's Settings. Saving from the Settings UI regenerates the whole file from a fixed template. Values already in the file are kept, but a key that the template does not list is not carried over, so do not store unrelated variables here. Unset keys are written as commented lines such as `# DEFAULT_BRANCH=main`.
 
-> **Note:** The task-outcome webhook is deliberately not a key in this file (there is no `WEBHOOK_URL`). It is configured only in the app's own Settings, so a repository cannot redirect task data. Headless `cli.js run` uses its `--config` file or the `APERANT_WEBHOOK_URL` process environment variable instead, never a file in the repository. See [notifications-and-webhooks.md](notifications-and-webhooks.md).
+> **Note:** The app-wide task-outcome webhook is configured only in the app's own Settings. A project can suggest its own webhook URL in this file (see [Project webhook](#project-webhook)), but the suggestion is ignored until you approve it. Headless `cli.js run` uses its `--config` file or the `APERANT_WEBHOOK_URL` process environment variable instead, never a file in the repository. See [notifications-and-webhooks.md](notifications-and-webhooks.md).
 
 The last column says whether the Settings UI also writes the key. Every key below is one the generator writes, so for each of them the answer is yes. No key is "file only".
 
@@ -230,6 +230,40 @@ Approval is for the exact path. If the path is not approved, the installed Chrom
 **Headless CLI**
 
 Headless runs never approve anything and do not read the store. See [CLI-USAGE.md](CLI-USAGE.md).
+
+### Project webhook
+
+The generator writes these under the heading `# PROJECT TASK-OUTCOME WEBHOOK (OPTIONAL)`.
+
+| Key | Purpose or example | Settings UI writes it |
+|-----|--------------------|-----------------------|
+| `WEBHOOK_ENABLED` | `true` or `false`. Only `false` turns the project webhook off. Written only when a URL is set. | Yes |
+| `WEBHOOK_URL` | Address for this project's task-outcome messages, for example `https://hooks.example.com/...`. Needs approval, see [Approving a project webhook](#approving-a-project-webhook). | Yes |
+| `WEBHOOK_EVENT_REVIEW_READY` | `true` or `false`. Send the review ready event. | Yes |
+| `WEBHOOK_EVENT_FAILED` | `true` or `false`. Send the task failed event. | Yes |
+| `WEBHOOK_EVENT_BLOCKED` | `true` or `false`. Send the task blocked event. | Yes |
+| `WEBHOOK_EVENT_PR_OPENED` | `true` or `false`. Send the PR opened event. | Yes |
+
+### Approving a project webhook
+
+A `WEBHOOK_URL` in a committed `.env` could send your task data to an address the repository chose. So it is ignored until you approve it. An unapproved project URL falls back to the app-wide webhook.
+
+**How to approve**
+
+1. Open the project's **Settings > Webhook** page. It shows the full URL.
+2. Check the URL.
+3. Press **Approve**.
+
+**Rules**
+
+- Approval matches the exact URL. Any change to it needs a new approval.
+- A URL you type on that page is approved when you save. A URL that is already in the file is not approved until you press **Approve**.
+- Project URLs must use `https`. Loopback addresses and `http` are refused for project URLs.
+- Approvals are stored in `<userData>/webhook-approvals.json`, outside the repo, because a hostile repo could pre-approve itself.
+- A missing or corrupt file means nothing is approved (fail closed).
+- A URL saved in the file before this rule existed needs one approval.
+
+Approval is checked again when you confirm. If the URL changed while you were looking at it, it is refused with a "changed since shown" message.
 
 ### Memory and embeddings
 
