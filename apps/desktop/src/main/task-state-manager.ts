@@ -362,8 +362,9 @@ export class TaskStateManager {
 
       // zeenha fork: this subscriber is the single funnel for every task state
       // transition, so terminal outcomes (failed / ready for review / blocked)
-      // are reported to the user's webhook from here (PR opened too). Config comes from user
-      // settings only, never from project files. The same outcome is also
+      // are reported to the user's webhook from here (PR opened too). The
+      // project's own webhook (read from its .auto-claude/.env, which agents
+      // cannot read) overrides the app-wide one set in user settings. The same outcome is also
       // written back to the originating Jira issue and to the originating
       // GitHub / GitLab / Linear issue (user settings config only; only that
       // one issue is touched). A failure in any dispatcher must not affect
@@ -383,7 +384,8 @@ export class TaskStateManager {
               reviewReason,
               projectName: project.name,
               taskTitle: task.title || task.specId,
-              prUrl: task.metadata?.prUrl
+              prUrl: task.metadata?.prUrl,
+              project
             });
           } catch (error) {
             console.warn(`[TaskStateManager] Webhook dispatch failed for ${taskId}:`, error);

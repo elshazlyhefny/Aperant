@@ -70,7 +70,7 @@ describe('TaskStateManager webhook dispatch', () => {
     send(manager, { type: 'PLANNING_STARTED' });
     send(manager, { type: 'PLANNING_FAILED', error: 'boom', recoverable: true });
     expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(dispatch).toHaveBeenCalledWith({ status: 'error', reviewReason: undefined, projectName: 'Proj', taskTitle: 'My task' });
+    expect(dispatch).toHaveBeenCalledWith({ status: 'error', reviewReason: undefined, projectName: 'Proj', taskTitle: 'My task', project });
   });
 
   it('dispatches review_ready on completed human_review', () => {

@@ -9,6 +9,9 @@ export const integrationMock = {
     data: {
       linearEnabled: false,
       jiraEnabled: false,
+      webhookEnabled: false,
+      webhookUrl: '',
+      webhookEvents: { reviewReady: true, failed: true, blocked: true, prOpened: false },
       githubEnabled: false,
       gitlabEnabled: false,
       bitbucketEnabled: false,
