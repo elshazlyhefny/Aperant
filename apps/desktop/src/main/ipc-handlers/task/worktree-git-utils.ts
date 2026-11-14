@@ -1,15 +1,20 @@
 import path from 'path';
-import { minimatch } from 'minimatch';
-import { existsSync, readdirSync, readFileSync } from 'fs';
-import { execFileSync } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
+import { execFile, execFileSync } from 'child_process';
+import { promisify } from 'util';
 import { app } from 'electron';
 import { DEFAULT_APP_SETTINGS, DEFAULT_FEATURE_MODELS, DEFAULT_FEATURE_THINKING, MODEL_ID_MAP, THINKING_BUDGET_MAP } from '../../../shared/constants';
 import type { AppSettings } from '../../../shared/types';
 import { getToolPath } from '../../cli-tool-manager';
+import { fixMisconfiguredBareRepo, GIT_BRANCH_REGEX } from '../../utils/git-repo-repair';
+export { fixMisconfiguredBareRepo, GIT_BRANCH_REGEX };
 
-import { GIT_BRANCH_REGEX, getTaskBaseBranch, resolveTaskBaseBranch } from '../../base-branch';
+import { getTaskBaseBranch, resolveTaskBaseBranch, resolveTaskBaseBranchAsync } from '../../base-branch';
 
-export { GIT_BRANCH_REGEX, getTaskBaseBranch };
+export { getTaskBaseBranch };
+
+// zeenha fork: async git helpers below keep the main thread free while Human Review loads.
+const execFileAsync = promisify(execFile);
 
 /**
  * Read utility feature settings (for commit message, merge resolver) from settings file
@@ -48,118 +53,6 @@ export function getUtilitySettings(): { model: string; modelId: string; thinking
     thinkingLevel: DEFAULT_FEATURE_THINKING.utility,
     thinkingBudget: THINKING_BUDGET_MAP[DEFAULT_FEATURE_THINKING.utility]
   };
-}
-
-/**
- * Check if a repository is misconfigured as bare but has source files.
- * If so, automatically fix the configuration by unsetting core.bare.
- *
- * This can happen when git worktree operations incorrectly set bare=true,
- * or when users manually misconfigure the repository.
- *
- * @param projectPath - Path to check and potentially fix
- * @returns true if fixed, false if no fix needed or not fixable
- */
-export function fixMisconfiguredBareRepo(projectPath: string): boolean {
-  try {
-    // Check if bare=true is set
-    const bareConfig = execFileSync(
-      getToolPath('git'),
-      ['config', '--get', 'core.bare'],
-      { cwd: projectPath, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-    ).trim().toLowerCase();
-
-    if (bareConfig !== 'true') {
-      return false; // Not marked as bare, nothing to fix
-    }
-
-    // Check if there are source files (indicating misconfiguration)
-    // A truly bare repo would only have git internals, not source code
-    // This covers multiple ecosystems: JS/TS, Python, Rust, Go, Java, C#, etc.
-    //
-    // Markers are separated into exact matches and glob patterns for efficiency.
-    // Exact matches use existsSync() directly, while glob patterns use minimatch
-    // against a cached directory listing.
-    const EXACT_MARKERS = [
-      // JavaScript/TypeScript ecosystem
-      'package.json', 'apps', 'src',
-      // Python ecosystem
-      'pyproject.toml', 'setup.py', 'requirements.txt', 'Pipfile',
-      // Rust ecosystem
-      'Cargo.toml',
-      // Go ecosystem
-      'go.mod', 'go.sum', 'cmd', 'main.go',
-      // Java/JVM ecosystem
-      'pom.xml', 'build.gradle', 'build.gradle.kts',
-      // Ruby ecosystem
-      'Gemfile', 'Rakefile',
-      // PHP ecosystem
-      'composer.json',
-      // General project markers
-      'Makefile', 'CMakeLists.txt', 'README.md', 'LICENSE'
-    ];
-
-    const GLOB_MARKERS = [
-      // .NET/C# ecosystem - patterns that need glob matching
-      '*.csproj', '*.sln', '*.fsproj'
-    ];
-
-    // Check exact matches first (fast path)
-    const hasExactMatch = EXACT_MARKERS.some(marker =>
-      existsSync(path.join(projectPath, marker))
-    );
-
-    if (hasExactMatch) {
-      // Found a project marker, proceed to fix
-    } else {
-      // Check glob patterns - read directory once and cache for all patterns
-      let directoryFiles: string[] | null = null;
-      const MAX_FILES_TO_CHECK = 500; // Limit to avoid reading huge directories
-
-      const hasGlobMatch = GLOB_MARKERS.some(pattern => {
-        // Validate pattern - only support simple glob patterns for security
-        if (pattern.includes('..') || pattern.includes('/')) {
-          console.warn(`[GIT] Unsupported glob pattern ignored: ${pattern}`);
-          return false;
-        }
-
-        // Lazy-load directory listing, cached across patterns
-        if (directoryFiles === null) {
-          try {
-            const allFiles = readdirSync(projectPath);
-            // Limit to first N entries to avoid performance issues
-            directoryFiles = allFiles.slice(0, MAX_FILES_TO_CHECK);
-            if (allFiles.length > MAX_FILES_TO_CHECK) {
-              console.warn(`[GIT] Directory has ${allFiles.length} entries, checking only first ${MAX_FILES_TO_CHECK}`);
-            }
-          } catch (error) {
-            // Log the error for debugging instead of silently swallowing
-            console.warn(`[GIT] Failed to read directory ${projectPath}:`, error instanceof Error ? error.message : String(error));
-            directoryFiles = [];
-          }
-        }
-
-        // Use minimatch for proper glob pattern matching
-        return directoryFiles.some(file => minimatch(file, pattern, { nocase: true }));
-      });
-
-      if (!hasGlobMatch) {
-        return false; // Legitimately bare repo
-      }
-    }
-
-    // Fix the misconfiguration
-    console.warn('[GIT] Detected misconfigured bare repository with source files. Auto-fixing by unsetting core.bare...');
-    execFileSync(
-      getToolPath('git'),
-      ['config', '--unset', 'core.bare'],
-      { cwd: projectPath, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-    );
-    console.warn('[GIT] Fixed: core.bare has been unset. Git operations should now work correctly.');
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -209,4 +102,86 @@ export function getEffectiveBaseBranch(
     project: { path: projectPath, autoBuildPath, settings: { mainBranch: projectMainBranch } },
     specId,
   });
+}
+
+/**
+ * zeenha fork: async version of getEffectiveBaseBranch. Same precedence (shared
+ * resolver), but git probes do not block the Electron main thread.
+ */
+export function getEffectiveBaseBranchAsync(
+  projectPath: string,
+  specId: string,
+  projectMainBranch?: string,
+  autoBuildPath?: string
+): Promise<string> {
+  return resolveTaskBaseBranchAsync({
+    project: { path: projectPath, autoBuildPath, settings: { mainBranch: projectMainBranch } },
+    specId,
+  });
+}
+
+export interface NumstatEntry {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+/**
+ * zeenha fork: parse `git diff --numstat` output. Binary files ('-') count as 0.
+ */
+export function parseNumstat(output: string): NumstatEntry[] {
+  const entries: NumstatEntry[] = [];
+  for (const line of output.split('\n')) {
+    if (!line.trim()) continue;
+    const parts = line.split('\t');
+    if (parts.length < 3) continue;
+    entries.push({
+      path: parts.slice(2).join('\t'),
+      additions: parseInt(parts[0], 10) || 0,
+      deletions: parseInt(parts[1], 10) || 0,
+    });
+  }
+  return entries;
+}
+
+export function summarizeNumstat(entries: NumstatEntry[]): {
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+  for (const entry of entries) {
+    additions += entry.additions;
+    deletions += entry.deletions;
+  }
+  return { filesChanged: entries.length, additions, deletions };
+}
+
+// zeenha fork: in-flight dedupe only (no TTL), so nothing stale is served after a call settles.
+const inFlightNumstat = new Map<string, Promise<string>>();
+
+/**
+ * Run `git diff --numstat <baseBranch>` in a worktree without blocking the main thread.
+ * Concurrent identical calls share one git process. Errors propagate to the caller.
+ */
+export function getWorktreeNumstat(worktreePath: string, baseBranch: string): Promise<string> {
+  const key = `${worktreePath}\0${baseBranch}`;
+  const existing = inFlightNumstat.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = execFileAsync(getToolPath('git'), ['diff', '--numstat', baseBranch], {
+    cwd: worktreePath,
+    encoding: 'utf-8',
+    maxBuffer: 10 * 1024 * 1024,
+  })
+    .then(({ stdout }) => stdout.trim())
+    .finally(() => {
+      inFlightNumstat.delete(key);
+    });
+
+  inFlightNumstat.set(key, promise);
+  return promise;
 }

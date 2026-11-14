@@ -38,7 +38,7 @@ vi.mock('../cli-tool-manager', () => ({
 // Mock settings-utils
 vi.mock('../settings-utils', () => ({
   readSettingsFile: vi.fn(() => ({})),
-  writeSettingsFile: vi.fn(),
+  updateSettingsFile: vi.fn(async (mutator: (s: Record<string, unknown>) => unknown) => mutator({})),
 }));
 
 // Mock utils/windows-paths

@@ -278,13 +278,31 @@ export function TaskCreationWizard({
       }
     };
 
+    // Re-list branches after a background fetch without touching the spinner or selection
+    const refreshBranches = async () => {
+      if (!projectPath) return;
+      try {
+        const result = await window.electronAPI.getGitBranchesWithInfo(projectPath);
+        if (isMounted && result.success && result.data) {
+          setBranches(result.data);
+        }
+      } catch (err) {
+        console.error('Failed to refresh branches:', err);
+      }
+    };
+
+    let unsubscribe: (() => void) | undefined;
     if (open && projectPath) {
       fetchBranches();
       fetchProjectDefaultBranch();
+      unsubscribe = window.electronAPI.onGitBranchesUpdated((updatedPath) => {
+        if (isMounted && updatedPath === projectPath) refreshBranches();
+      });
     }
 
     return () => {
       isMounted = false;
+      unsubscribe?.();
     };
   }, [open, projectPath, projectId]);
 

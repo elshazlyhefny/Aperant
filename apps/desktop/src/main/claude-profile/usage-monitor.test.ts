@@ -69,6 +69,7 @@ vi.mock('./credential-utils', () => ({
 vi.mock('../settings-utils', () => ({
   readSettingsFileAsync: vi.fn(async () => undefined),
   readSettingsFile: vi.fn(() => undefined),
+  updateSettingsFile: vi.fn(async () => undefined),
   getSettingsPath: vi.fn(() => '/tmp/test-settings.json'),
 }));
 

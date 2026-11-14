@@ -6,7 +6,7 @@ import type { Project } from '../../../../shared/types';
 import { IPC_CHANNELS } from '../../../../shared/constants';
 import type { BrowserWindow } from 'electron';
 import type { AgentManager } from '../../../agent/agent-manager';
-import type { createIPCCommunicators as createIPCCommunicatorsType } from '../utils/ipc-communicator';
+import type { createIPCCommunicators as createIPCCommunicatorsType } from '../../shared/ipc-communicator';
 
 const mockIpcMain = vi.hoisted(() => {
   class HoistedMockIpcMain {
@@ -85,7 +85,7 @@ vi.mock('../../../agent/agent-manager', () => ({
   AgentManager: MockAgentManager,
 }));
 
-vi.mock('../utils/ipc-communicator', () => ({
+vi.mock('../../shared/ipc-communicator', () => ({
   createIPCCommunicators: (...args: Parameters<CreateIPCCommunicators>) =>
     mockCreateIPCCommunicators(...args),
 }));

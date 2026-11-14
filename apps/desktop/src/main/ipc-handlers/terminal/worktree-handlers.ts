@@ -11,7 +11,6 @@ import path from 'path';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, symlinkSync, lstatSync, copyFileSync, cpSync, statSync, readlinkSync } from 'fs';
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
-import { minimatch } from 'minimatch';
 import { debugLog, debugError } from '../../../shared/utils/debug-logger';
 import { projectStore } from '../../project-store';
 import { parseEnvFile } from '../utils';
@@ -26,6 +25,7 @@ import { getIsolatedGitEnv } from '../../utils/git-isolation';
 import { getToolPath } from '../../cli-tool-manager';
 import { cleanupWorktree } from '../../utils/worktree-cleanup';
 import { detectTrunkBranch } from '../../base-branch';
+import { fixMisconfiguredBareRepo, GIT_BRANCH_REGEX } from '../../utils/git-repo-repair';
 
 // Promisify execFile for async operations
 const execFileAsync = promisify(execFile);
@@ -33,9 +33,6 @@ const execFileAsync = promisify(execFile);
 // Shared validation regex for worktree names - lowercase alphanumeric with dashes/underscores
 // Must start and end with alphanumeric character
 const WORKTREE_NAME_REGEX = /^[a-z0-9][a-z0-9_-]*[a-z0-9]$|^[a-z0-9]$/;
-
-// Validation regex for git branch names - allows alphanumeric, dots, slashes, dashes, underscores
-const GIT_BRANCH_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
 
 // Git worktree list porcelain output parsing constants
 const GIT_PORCELAIN = {
@@ -70,109 +67,6 @@ function isSymlinkOrJunction(targetPath: string): boolean {
     return true;
   } catch {
     return false; // Path doesn't exist or is not a symlink/junction
-  }
-}
-
-/**
- * Fix repositories that are incorrectly marked with core.bare=true.
- * This can happen when git worktree operations incorrectly set bare=true
- * on a working repository that has source files.
- *
- * Returns true if a fix was applied, false otherwise.
- */
-function fixMisconfiguredBareRepo(projectPath: string): boolean {
-  try {
-    // Check if bare=true is set
-    const bareConfig = execFileSync(
-      getToolPath('git'),
-      ['config', '--get', 'core.bare'],
-      { cwd: projectPath, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], env: getIsolatedGitEnv() }
-    ).trim().toLowerCase();
-
-    if (bareConfig !== 'true') {
-      return false; // Not marked as bare, nothing to fix
-    }
-
-    // Check if there are source files (indicating misconfiguration)
-    // A truly bare repo would only have git internals, not source code
-    // This covers multiple ecosystems: JS/TS, Python, Rust, Go, Java, C#, etc.
-    const EXACT_MARKERS = [
-      // JavaScript/TypeScript ecosystem
-      'package.json', 'apps', 'src',
-      // Python ecosystem
-      'pyproject.toml', 'setup.py', 'requirements.txt', 'Pipfile',
-      // Rust ecosystem
-      'Cargo.toml',
-      // Go ecosystem
-      'go.mod', 'go.sum', 'cmd', 'main.go',
-      // Java/JVM ecosystem
-      'pom.xml', 'build.gradle', 'build.gradle.kts',
-      // Ruby ecosystem
-      'Gemfile', 'Rakefile',
-      // PHP ecosystem
-      'composer.json',
-      // General project markers
-      'Makefile', 'CMakeLists.txt', 'README.md', 'LICENSE'
-    ];
-
-    const GLOB_MARKERS = [
-      // .NET/C# ecosystem - patterns that need glob matching
-      '*.csproj', '*.sln', '*.fsproj'
-    ];
-
-    // Check exact matches first (fast path)
-    const hasExactMatch = EXACT_MARKERS.some(marker =>
-      existsSync(path.join(projectPath, marker))
-    );
-
-    if (hasExactMatch) {
-      // Found a project marker, proceed to fix
-    } else {
-      // Check glob patterns - read directory once and cache for all patterns
-      let directoryFiles: string[] | null = null;
-      const MAX_FILES_TO_CHECK = 500;
-
-      const hasGlobMatch = GLOB_MARKERS.some(pattern => {
-        // Validate pattern - only support simple glob patterns for security
-        if (pattern.includes('..') || pattern.includes('/')) {
-          debugLog('[TerminalWorktree] Unsupported glob pattern ignored:', pattern);
-          return false;
-        }
-
-        // Lazy-load directory listing, cached across patterns
-        if (directoryFiles === null) {
-          try {
-            const allFiles = readdirSync(projectPath);
-            directoryFiles = allFiles.slice(0, MAX_FILES_TO_CHECK);
-            if (allFiles.length > MAX_FILES_TO_CHECK) {
-              debugLog(`[TerminalWorktree] Directory has ${allFiles.length} entries, checking only first ${MAX_FILES_TO_CHECK}`);
-            }
-          } catch (error) {
-            debugError('[TerminalWorktree] Failed to read directory:', error);
-            directoryFiles = [];
-          }
-        }
-
-        // Use minimatch for proper glob pattern matching
-        return directoryFiles.some(file => minimatch(file, pattern, { nocase: true }));
-      });
-
-      if (!hasGlobMatch) {
-        return false; // Legitimately bare repo
-      }
-    }
-
-    // Fix the misconfiguration
-    debugLog('[TerminalWorktree] Detected misconfigured bare repository with source files. Auto-fixing by unsetting core.bare...');
-    execFileSync(
-      getToolPath('git'),
-      ['config', '--unset', 'core.bare'],
-      { cwd: projectPath, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], env: getIsolatedGitEnv() }
-    );
-    debugLog('[TerminalWorktree] Fixed: core.bare has been unset. Git operations should now work correctly.');
-    return true;
-  } catch {
-    return false;
   }
 }
 

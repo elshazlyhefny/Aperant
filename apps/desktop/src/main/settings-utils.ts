@@ -8,6 +8,12 @@
  * and is readable/writable by the owner only (0o600), since it may hold
  * credentials such as API keys.
  *
+ * Read-modify-write goes through updateSettingsFile, which serializes callers
+ * in-process and takes a cross-process proper-lockfile lock so concurrent
+ * updates are never lost. If settings.json exists but is unreadable (corrupt,
+ * or not a JSON object) it is never overwritten: SettingsUnreadableError is
+ * thrown and the file is left untouched.
+ *
  * NOTE: This module intentionally does NOT perform migrations or auto-detection.
  * Those are handled by the IPC handlers where they have full context.
  */
@@ -27,6 +33,8 @@ import {
 } from 'fs';
 import { promises as fsPromises } from 'fs';
 import path from 'path';
+// @ts-expect-error - no types available for proper-lockfile
+import * as lockfile from 'proper-lockfile';
 import type { AppSettings } from '../shared/types/settings';
 
 /**
@@ -98,6 +106,84 @@ export function writeSettingsFile(settings: object): void {
     }
     throw error;
   }
+}
+
+/**
+ * Thrown by updateSettingsFile when settings.json exists but cannot be read or
+ * is not a JSON object. The file is left untouched so the user's data is not
+ * overwritten with a partial settings object.
+ */
+export class SettingsUnreadableError extends Error {
+  readonly code = 'SETTINGS_UNREADABLE';
+
+  constructor(settingsPath: string, cause?: unknown) {
+    super(`settings.json at ${settingsPath} is unreadable or not a JSON object; the file was left untouched`);
+    this.name = 'SettingsUnreadableError';
+    if (cause !== undefined) {
+      (this as { cause?: unknown }).cause = cause;
+    }
+  }
+}
+
+// In-process queue: proper-lockfile throws ELOCKED for same-process contenders
+// instead of queueing them, so serialize callers here first.
+let updateQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Read-modify-write settings.json under a cross-process lock.
+ *
+ * The mutator receives the current on-disk settings (or {} if the file does not
+ * exist) and may mutate them in place. If the serialized result is unchanged
+ * nothing is written. If settings.json is unreadable, SettingsUnreadableError
+ * is thrown and the file is not touched. If the mutator throws, nothing is
+ * written. The lock is always released.
+ *
+ * @returns The mutator's return value
+ */
+export async function updateSettingsFile<T = void>(
+  mutator: (settings: Partial<AppSettings>) => T | Promise<T>
+): Promise<T> {
+  const run = async (): Promise<T> => {
+    const settingsPath = getSettingsPath();
+    await fsPromises.mkdir(path.dirname(settingsPath), { recursive: true });
+
+    const release: () => Promise<void> = await lockfile.lock(settingsPath, {
+      realpath: false,
+      retries: { retries: 10, minTimeout: 50, maxTimeout: 500 },
+    });
+    try {
+      let settings: Partial<AppSettings> = {};
+      if (existsSync(settingsPath)) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(await fsPromises.readFile(settingsPath, 'utf-8'));
+        } catch (error) {
+          throw new SettingsUnreadableError(settingsPath, error);
+        }
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          throw new SettingsUnreadableError(settingsPath);
+        }
+        settings = parsed as Partial<AppSettings>;
+      }
+
+      const before = JSON.stringify(settings);
+      const result = await mutator(settings);
+      if (JSON.stringify(settings) !== before) {
+        writeSettingsFile(settings);
+      }
+      return result;
+    } finally {
+      try {
+        await release();
+      } catch {
+        // Lock may already be gone; nothing more to do
+      }
+    }
+  };
+
+  const next = updateQueue.then(run, run);
+  updateQueue = next.catch(() => undefined);
+  return next;
 }
 
 /**

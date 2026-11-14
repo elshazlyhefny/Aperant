@@ -25,8 +25,16 @@ import { refreshGitIndex } from '../../utils/git-isolation';
 import { cleanupWorktree } from '../../utils/worktree-cleanup';
 import { taskStateManager } from '../../task-state-manager';
 import { handleWorktreeMerge } from './worktree-merge';
-import { isGitWorkTree, GIT_BRANCH_REGEX } from './worktree-git-utils';
-import { resolveTaskBaseBranch, resolveTaskBaseBranchWithSource } from '../../base-branch';
+import {
+  isGitWorkTree,
+  getWorktreeNumstat,
+  parseNumstat,
+  summarizeNumstat,
+  GIT_BRANCH_REGEX
+} from './worktree-git-utils';
+import { resolveTaskBaseBranch, resolveTaskBaseBranchAsync, resolveTaskBaseBranchWithSource } from '../../base-branch';
+
+const execFileAsync = promisify(execFile);
 
 export { GIT_BRANCH_REGEX } from './worktree-git-utils';
 
@@ -138,65 +146,38 @@ export function registerWorktreeHandlers(
 
         // Get branch info from git
         try {
-          // Get current branch in worktree
-          const branch = execFileSync(getToolPath('git'), ['rev-parse', '--abbrev-ref', 'HEAD'], {
-            cwd: worktreePath,
-            encoding: 'utf-8'
-          }).trim();
-
-          // Get base branch using proper fallback chain:
+          // zeenha fork: async git calls, run in parallel, so the main thread is not blocked.
+          // Worktree branch (a failure falls through to the catch below), the user's current
+          // branch in the main project (where changes will merge INTO; failure ignored, might be
+          // detached HEAD), and the base branch using the fallback chain:
           // 1. Task metadata baseBranch, 2. Project settings mainBranch, 3. main/master detection
-          const baseBranch = resolveTaskBaseBranch({ project, specId: task.specId });
-
-          // Get user's current branch in main project (this is where changes will merge INTO)
-          let currentProjectBranch: string | undefined;
-          try {
-            currentProjectBranch = execFileSync(getToolPath('git'), ['rev-parse', '--abbrev-ref', 'HEAD'], {
+          const [branch, currentProjectBranch, baseBranch] = await Promise.all([
+            execFileAsync(getToolPath('git'), ['rev-parse', '--abbrev-ref', 'HEAD'], {
+              cwd: worktreePath,
+              encoding: 'utf-8'
+            }).then(({ stdout }) => stdout.trim()),
+            execFileAsync(getToolPath('git'), ['rev-parse', '--abbrev-ref', 'HEAD'], {
               cwd: project.path,
               encoding: 'utf-8'
-            }).trim();
-          } catch {
-            // Ignore - might be in detached HEAD or git error
-          }
+            }).then(({ stdout }) => stdout.trim() as string | undefined)
+              .catch(() => undefined),
+            resolveTaskBaseBranchAsync({ project, specId: task.specId })
+          ]);
 
-          // Get commit count (cross-platform - no shell syntax)
-          let commitCount = 0;
-          try {
-            const countOutput = execFileSync(getToolPath('git'), ['rev-list', '--count', `${baseBranch}..HEAD`], {
-              cwd: worktreePath,
-              encoding: 'utf-8',
-              stdio: ['pipe', 'pipe', 'pipe']
-            }).trim();
-            commitCount = parseInt(countOutput, 10) || 0;
-          } catch {
-            commitCount = 0;
-          }
-
-          // Get diff stats
-          let filesChanged = 0;
-          let additions = 0;
-          let deletions = 0;
-
+          // Commit count (cross-platform - no shell syntax) and diff stats in parallel.
           // Use working-tree diff against baseBranch to capture ALL changes
           // (both committed and uncommitted). This ensures the UI shows file stats
           // even when the agent hasn't committed its work yet.
-          try {
-            const diffStat = execFileSync(getToolPath('git'), ['diff', '--stat', baseBranch], {
+          const [commitCount, { filesChanged, additions, deletions }] = await Promise.all([
+            execFileAsync(getToolPath('git'), ['rev-list', '--count', `${baseBranch}..HEAD`], {
               cwd: worktreePath,
-              encoding: 'utf-8',
-              stdio: ['pipe', 'pipe', 'pipe']
-            }).trim();
-
-            // Parse the summary line (e.g., "3 files changed, 50 insertions(+), 10 deletions(-)")
-            const summaryMatch = diffStat.match(/(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/);
-            if (summaryMatch) {
-              filesChanged = parseInt(summaryMatch[1], 10) || 0;
-              additions = parseInt(summaryMatch[2], 10) || 0;
-              deletions = parseInt(summaryMatch[3], 10) || 0;
-            }
-          } catch {
-            // Ignore diff errors
-          }
+              encoding: 'utf-8'
+            }).then(({ stdout }) => parseInt(stdout.trim(), 10) || 0)
+              .catch(() => 0),
+            getWorktreeNumstat(worktreePath, baseBranch)
+              .then((numstat) => summarizeNumstat(parseNumstat(numstat)))
+              .catch(() => ({ filesChanged: 0, additions: 0, deletions: 0 }))
+          ]);
 
           return {
             success: true,
@@ -252,29 +233,25 @@ export function registerWorktreeHandlers(
         // Get base branch using proper fallback chain:
         // 1. Task metadata baseBranch, 2. Project settings mainBranch, 3. main/master detection
         // Note: We do NOT use current HEAD as that may be a feature branch
-        const baseBranch = resolveTaskBaseBranch({ project, specId: task.specId });
+        // zeenha fork: async git calls, run in parallel, so the main thread is not blocked.
+        const baseBranch = await resolveTaskBaseBranchAsync({ project, specId: task.specId });
 
         // Get the diff with file stats
         const files: WorktreeDiffFile[] = [];
 
-        let numstat = '';
-        let nameStatus = '';
         try {
           // Use working-tree diff against baseBranch to capture ALL changes
           // (both committed and uncommitted). This ensures the diff view shows
           // file changes even when the agent hasn't committed its work yet.
-          numstat = execFileSync(getToolPath('git'), ['diff', '--numstat', baseBranch], {
-            cwd: worktreePath,
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe']
-          }).trim();
-
-          // Get name-status for file status (cross-platform)
-          nameStatus = execFileSync(getToolPath('git'), ['diff', '--name-status', baseBranch], {
-            cwd: worktreePath,
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe']
-          }).trim();
+          const [numstat, nameStatus] = await Promise.all([
+            getWorktreeNumstat(worktreePath, baseBranch),
+            // Get name-status for file status (cross-platform)
+            execFileAsync(getToolPath('git'), ['diff', '--name-status', baseBranch], {
+              cwd: worktreePath,
+              encoding: 'utf-8',
+              maxBuffer: 10 * 1024 * 1024
+            }).then(({ stdout }) => stdout.trim())
+          ]);
 
           // Parse name-status to get file statuses
           const statusMap: Record<string, 'added' | 'modified' | 'deleted' | 'renamed'> = {};
@@ -291,15 +268,14 @@ export function registerWorktreeHandlers(
           });
 
           // Parse numstat for additions/deletions
-          numstat.split('\n').filter(Boolean).forEach((line: string) => {
-            const [adds, dels, filePath] = line.split('\t');
+          for (const entry of parseNumstat(numstat)) {
             files.push({
-              path: filePath,
-              status: statusMap[filePath] || 'modified',
-              additions: parseInt(adds, 10) || 0,
-              deletions: parseInt(dels, 10) || 0
+              path: entry.path,
+              status: statusMap[entry.path] || 'modified',
+              additions: entry.additions,
+              deletions: entry.deletions
             });
-          });
+          }
         } catch (diffError) {
           console.error('Error getting diff:', diffError);
         }
@@ -541,7 +517,6 @@ export function registerWorktreeHandlers(
   );
 
   // Promisified execFile for async git operations
-  const execFileAsync = promisify(execFile);
 
   /**
    * Discard an orphaned worktree by spec name (no task association required)

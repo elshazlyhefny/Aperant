@@ -14,13 +14,17 @@
 
 import path from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
+import { promisify } from 'util';
 import { getToolPath } from './cli-tool-manager';
 import { getIsolatedGitEnv } from './utils/git-isolation';
 import type { Project } from '../shared/types';
 
-// Regex pattern for validating git branch names
-export const GIT_BRANCH_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+import { GIT_BRANCH_REGEX } from './utils/git-repo-repair';
+
+export { GIT_BRANCH_REGEX };
+
+const execFileAsync = promisify(execFile);
 
 const PROJECT_DEFAULT_MARKER = '__project_default__';
 
@@ -98,9 +102,30 @@ export function detectTrunkBranch(projectPath: string): 'main' | 'master' | unde
 }
 
 /**
- * Resolve a task's base branch and report where the answer came from.
+ * zeenha fork: async detectTrunkBranch, so the probe does not block the main thread.
  */
-export function resolveTaskBaseBranchWithSource(options: ResolveTaskBaseBranchOptions): ResolvedBaseBranch {
+export async function detectTrunkBranchAsync(projectPath: string): Promise<'main' | 'master' | undefined> {
+  if (!projectPath || typeof projectPath !== 'string') return undefined;
+  // main is preferred over master, so probe sequentially
+  for (const branch of ['main', 'master'] as const) {
+    try {
+      await execFileAsync(getToolPath('git'), ['rev-parse', '--verify', branch], {
+        cwd: projectPath,
+        encoding: 'utf-8',
+        env: getIsolatedGitEnv(),
+      });
+      return branch;
+    } catch {
+      // Branch doesn't exist, try next
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Steps 1-3 of the precedence (no git). Returns undefined when trunk detection is needed.
+ */
+function resolveWithoutGit(options: ResolveTaskBaseBranchOptions): ResolvedBaseBranch | undefined {
   const { project, specId, override } = options;
 
   const overrideBranch = normalizeBranchName(override);
@@ -121,12 +146,43 @@ export function resolveTaskBaseBranchWithSource(options: ResolveTaskBaseBranchOp
   const settingsBranch = normalizeBranchName(project?.settings?.mainBranch);
   if (settingsBranch) return { branch: settingsBranch, source: 'project_settings' };
 
-  if (validPath) {
-    const detected = detectTrunkBranch(projectPath);
+  return undefined;
+}
+
+function hasProjectPath(options: ResolveTaskBaseBranchOptions): boolean {
+  const projectPath = options.project?.path;
+  return typeof projectPath === 'string' && projectPath.length > 0;
+}
+
+/**
+ * Resolve a task's base branch and report where the answer came from.
+ */
+export function resolveTaskBaseBranchWithSource(options: ResolveTaskBaseBranchOptions): ResolvedBaseBranch {
+  const resolved = resolveWithoutGit(options);
+  if (resolved) return resolved;
+
+  if (hasProjectPath(options)) {
+    const detected = detectTrunkBranch(options.project.path);
     if (detected) return { branch: detected, source: 'detected' };
   }
 
   return { branch: 'main', source: 'fallback' };
+}
+
+/**
+ * zeenha fork: async resolveTaskBaseBranch with the same precedence, for IPC handlers
+ * that must not block the Electron main thread.
+ */
+export async function resolveTaskBaseBranchAsync(options: ResolveTaskBaseBranchOptions): Promise<string> {
+  const resolved = resolveWithoutGit(options);
+  if (resolved) return resolved.branch;
+
+  if (hasProjectPath(options)) {
+    const detected = await detectTrunkBranchAsync(options.project.path);
+    if (detected) return detected;
+  }
+
+  return 'main';
 }
 
 export function resolveTaskBaseBranch(options: ResolveTaskBaseBranchOptions): string {

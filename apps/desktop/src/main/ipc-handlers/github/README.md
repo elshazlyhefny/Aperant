@@ -32,7 +32,7 @@ github/
     ├── followup-handlers.ts       # Follow-up review handlers (333 lines)
     ├── review-runner.ts           # Runs the AI review (330 lines)
     ├── review-results.ts          # Review result load/save (308 lines)
-    ├── review-logs.ts             # PRLogCollector and log handling (535 lines)
+    ├── review-logs.ts             # PRLogCollector: in-memory logs, throttled compact writes, delta pushes, "unchanged" poll (674 lines)
     ├── ci-wait.ts                 # CI wait logic (284 lines)
     ├── posting-handlers.ts        # Post reviews/comments (423 lines)
     ├── merge-handlers.ts          # Merge and readiness (443 lines)

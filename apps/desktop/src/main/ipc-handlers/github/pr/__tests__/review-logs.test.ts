@@ -9,11 +9,15 @@ import {
   addLogEntry,
   createEmptyPRLogs,
   getPRLogsPath,
+  getLiveLogs,
   getPhaseFromSource,
   loadPRLogs,
+  loadPRLogsIfChanged,
   parseLogLine,
   savePRLogs,
   type PRLogEntry,
+  type PRLogs,
+  type PRLogPhase,
 } from "../review-logs";
 
 describe("parseLogLine", () => {
@@ -186,5 +190,166 @@ describe("load/save and PRLogCollector", () => {
     expect(saved?.is_followup).toBe(true);
     expect(saved?.phases.context.status).toBe("failed");
     expect(saved?.phases.analysis.status).toBe("pending");
+  });
+});
+
+describe("PRLogCollector streaming, throttling and change detection", () => {
+  let dir: string;
+  let project: Project;
+  const makeWin = () => {
+    const send = vi.fn();
+    return { send, win: { isDestroyed: () => false, webContents: { send } } };
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "review-logs-stream-"));
+    project = { id: "proj-stream", path: dir } as unknown as Project;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("throttles disk writes and writes compact JSON", () => {
+    const collector = new PRLogCollector(project, 10, "o/r", false);
+    const writeSpy = vi.spyOn(fs, "writeFileSync");
+    const renameSpy = vi.spyOn(fs, "renameSync");
+
+    for (let i = 0; i < 200; i++) collector.processLine(`[Context] line ${i}`);
+
+    // First line activates the phase (immediate write); the rest are throttled
+    expect(writeSpy.mock.calls.length).toBeLessThan(5);
+    vi.advanceTimersByTime(1100);
+    expect(writeSpy.mock.calls.length).toBeLessThan(10);
+    expect(renameSpy.mock.calls.length).toBe(writeSpy.mock.calls.length);
+
+    const raw = fs.readFileSync(getPRLogsPath(project, 10), "utf-8");
+    expect(raw).not.toContain("\n");
+    expect(raw).not.toContain('  "');
+    collector.finalize(true);
+  });
+
+  it("pushes deltas with correct baseCount that reconstruct the memory state", () => {
+    const { send, win } = makeWin();
+    const collector = new PRLogCollector(project, 11, "o/r", false, win as never);
+
+    const lines = [
+      "[Context] a",
+      "[Context] b",
+      "[AI] c",
+      "[AI] d",
+      "[AI] e",
+      "[Summary] f",
+      "[Summary] g",
+    ];
+    for (const line of lines) {
+      collector.processLine(line);
+      vi.advanceTimersByTime(250);
+    }
+    collector.processLine("[Summary] h");
+    collector.finalize(true);
+
+    const rebuilt: Record<PRLogPhase, string[]> = { context: [], analysis: [], synthesis: [] };
+    for (const call of send.mock.calls) {
+      const delta = call[2].delta;
+      for (const phase of Object.keys(delta.phases) as PRLogPhase[]) {
+        const d = delta.phases[phase];
+        expect(d.baseCount).toBe(rebuilt[phase].length);
+        rebuilt[phase].push(...d.entries.map((e: PRLogEntry) => e.content));
+      }
+    }
+    const mem = collector.getLogs();
+    for (const phase of ["context", "analysis", "synthesis"] as const) {
+      expect(rebuilt[phase]).toEqual(mem.phases[phase].entries.map((e) => e.content));
+    }
+    expect(rebuilt.synthesis).toEqual(["f", "g", "h"]);
+  });
+
+  it("flushes immediately on phase change", () => {
+    const { send, win } = makeWin();
+    const collector = new PRLogCollector(project, 12, "o/r", false, win as never);
+    collector.processLine("[Context] a");
+    const before = send.mock.calls.length;
+    collector.processLine("[Context] b"); // throttled
+    expect(send.mock.calls.length).toBe(before);
+
+    collector.processLine("[AI] c"); // phase change -> immediate
+    expect(send.mock.calls.length).toBeGreaterThan(before);
+    const onDisk = loadPRLogs(project, 12);
+    expect(onDisk?.phases.context.status).toBe("completed");
+    expect(onDisk?.phases.analysis.entries).toHaveLength(1);
+    collector.finalize(true);
+  });
+
+  it("finalize flushes pending entries to disk and reports the full entryCount", () => {
+    const { send, win } = makeWin();
+    const collector = new PRLogCollector(project, 13, "o/r", false, win as never);
+    for (let i = 0; i < 50; i++) collector.processLine(`[Context] line ${i}`);
+    collector.finalize(true);
+
+    const onDisk = loadPRLogs(project, 13) as PRLogs;
+    expect(onDisk).toEqual(collector.getLogs());
+    expect(onDisk.phases.context.entries).toHaveLength(50);
+    const payload = send.mock.calls[send.mock.calls.length - 1][2];
+    expect(payload.entryCount).toBe(50);
+  });
+
+  it("loads logs larger than 1,000,000 characters", () => {
+    const logs = createEmptyPRLogs(14, "o/r", false);
+    const big = "x".repeat(10_000);
+    for (let i = 0; i < 150; i++) {
+      addLogEntry(logs, { timestamp: "t", type: "text", content: big, phase: "analysis" });
+    }
+    savePRLogs(project, logs);
+    expect(JSON.stringify(logs).length).toBeGreaterThan(1_000_000);
+    const loaded = loadPRLogs(project, 14);
+    expect(loaded).not.toBeNull();
+    expect(loaded?.phases.analysis.entries).toHaveLength(150);
+  });
+
+  it("loadPRLogsIfChanged uses live logs while a collector is running", () => {
+    const collector = new PRLogCollector(project, 15, "o/r", false);
+    collector.processLine("[Context] a");
+    collector.processLine("[Context] b");
+    const live = collector.getLogs();
+
+    expect(
+      loadPRLogsIfChanged(project, 15, { updated_at: live.updated_at, entryCount: 2 })
+    ).toBe("unchanged");
+    const changed = loadPRLogsIfChanged(project, 15, {
+      updated_at: live.updated_at,
+      entryCount: 1,
+    });
+    expect(changed).not.toBe("unchanged");
+    expect((changed as PRLogs).phases.context.entries).toHaveLength(2);
+    collector.finalize(true);
+  });
+
+  it("loadPRLogsIfChanged does not re-read an unchanged finished file", () => {
+    const collector = new PRLogCollector(project, 16, "o/r", false);
+    collector.processLine("[Context] a");
+    collector.finalize(true);
+
+    const first = loadPRLogsIfChanged(project, 16) as PRLogs;
+    expect(first.phases.context.entries).toHaveLength(1);
+
+    const readSpy = vi.spyOn(fs, "readFileSync");
+    const second = loadPRLogsIfChanged(project, 16, {
+      updated_at: first.updated_at,
+      entryCount: 1,
+    });
+    expect(second).toBe("unchanged");
+    expect(readSpy).not.toHaveBeenCalled();
+  });
+
+  it("getLiveLogs returns collector logs during review and null after finalize", () => {
+    const collector = new PRLogCollector(project, 17, "o/r", false);
+    collector.processLine("[Context] a");
+    expect(getLiveLogs(project, 17)).toBe(collector.getLogs());
+    collector.finalize(true);
+    expect(getLiveLogs(project, 17)).toBeNull();
   });
 });
