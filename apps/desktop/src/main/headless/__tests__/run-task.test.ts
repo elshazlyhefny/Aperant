@@ -181,3 +181,154 @@ describe('runHeadlessTask', () => {
     expect(err.join('')).not.toContain(SECRET);
   });
 });
+
+describe('runHeadlessTask outcome webhook', () => {
+  const HOOK = 'https://hooks.example.com/services/T000/B000/SECRETTOKEN';
+  const PR = 'https://github.com/o/r/pull/7';
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  function configWith(webhook: Record<string, unknown> | undefined): string {
+    const file = path.join(projectDir, 'headless-config.json');
+    writeFileSync(file, JSON.stringify(webhook ? { webhook } : {}));
+    return file;
+  }
+
+  const runHook = (overrides: Partial<Parameters<typeof runHeadlessTask>[0]> = {}) =>
+    run({
+      webhookDelay: async () => undefined,
+      ...overrides,
+      configPath: overrides.configPath ?? configWith({ url: HOOK }),
+    });
+
+  const bodies = (): Array<{ text: string; blocks: unknown[] }> =>
+    fetchMock.mock.calls.map((c) => JSON.parse((c[1] as { body: string }).body));
+  /** The link of every "View PR" button in a posted body (exact values, not substring matches). */
+  const prLinks = (body: { blocks: unknown[] }): string[] =>
+    (body.blocks as Array<{ type?: string; elements?: Array<{ url?: string }> }>)
+      .filter((block) => block.type === 'actions')
+      .flatMap((block) => (block.elements ?? []).map((element) => element.url ?? ''));
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue({ status: 200 });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('APERANT_WEBHOOK_URL', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('posts review_ready on success', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED' }]);
+    expect(await runHook()).toBe(0);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe(HOOK);
+    const [body] = bodies();
+    expect(body.text).toContain('Demo');
+    expect(body.text).toContain(path.basename(projectDir));
+    expect(JSON.stringify(body.blocks)).toContain('Demo');
+  });
+
+  it('posts blocked and keeps exit code 2 on QA_MAX_ITERATIONS', async () => {
+    makeSpec();
+    script([{ type: 'QA_MAX_ITERATIONS' }]);
+    expect(await runHook()).toBe(2);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(bodies()[0].text.toLowerCase()).toContain('blocked');
+  });
+
+  it('posts failed and keeps exit code 1 on an error run', async () => {
+    makeSpec();
+    script([{ type: 'PLANNING_FAILED', error: 'no plan' }]);
+    expect(await runHook()).toBe(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(bodies()[0].text.toLowerCase()).toContain('fail');
+  });
+
+  it('posts failed for a setup failure after the config loaded', async () => {
+    makeSpec();
+    mockResolveAuth.mockRejectedValue(new Error('No credentials found.'));
+    expect(await runHook()).toBe(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(bodies()[0].text.toLowerCase()).toContain('fail');
+  });
+
+  it('sends nothing when the config itself cannot be loaded', async () => {
+    makeSpec();
+    expect(await runHook({ configPath: path.join(projectDir, 'missing.json') })).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('posts pr_opened with the https link when events.prOpened is true', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED', prUrl: PR }]);
+    const config = configWith({ url: HOOK, events: { prOpened: true } });
+    expect(await runHook({ configPath: config })).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [reviewReady, prOpened] = bodies();
+    expect(prLinks(reviewReady)).toEqual([]);
+    expect(prLinks(prOpened)).toEqual([PR]);
+    expect(prOpened.text.split(' ').at(-1)).toBe(PR);
+  });
+
+  it('sends no pr_opened when events.prOpened is false', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED', prUrl: PR }]);
+    const config = configWith({ url: HOOK, events: { prOpened: false } });
+    expect(await runHook({ configPath: config })).toBe(0);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [reviewReady] = bodies();
+    expect(prLinks(reviewReady)).toEqual([]);
+    expect(reviewReady.text.split(' ').at(-1)).not.toBe(PR);
+  });
+
+  it('keeps exit 0 and warns without the URL when the server returns 500', async () => {
+    makeSpec();
+    fetchMock.mockResolvedValue({ status: 500 });
+    script([{ type: 'QA_PASSED' }]);
+    expect(await runHook()).toBe(0);
+    const text = err.join('');
+    expect(text).toContain('warning:');
+    expect(text).not.toContain('hooks.example.com');
+    expect(text).not.toContain('SECRETTOKEN');
+  });
+
+  it('keeps exit 0 and warns without the URL when fetch throws', async () => {
+    makeSpec();
+    fetchMock.mockRejectedValue(new Error(`connect failed ${HOOK}`));
+    script([{ type: 'QA_PASSED' }]);
+    expect(await runHook()).toBe(0);
+    const text = err.join('');
+    expect(text).toContain('warning:');
+    expect(text).not.toContain('SECRETTOKEN');
+  });
+
+  it('reads the URL from APERANT_WEBHOOK_URL', async () => {
+    makeSpec();
+    vi.stubEnv('APERANT_WEBHOOK_URL', 'https://env.example.com/hook');
+    script([{ type: 'QA_PASSED' }]);
+    expect(await runHook({ configPath: configWith(undefined) })).toBe(0);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe('https://env.example.com/hook');
+  });
+
+  it('warns and sends nothing for an invalid http:// remote URL', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED' }]);
+    const config = configWith({ url: 'http://remote.example.com/hook' });
+    expect(await runHook({ configPath: config })).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const text = err.join('');
+    expect(text).toContain('warning: webhook disabled');
+    expect(text).not.toContain('remote.example.com');
+  });
+
+  it('never calls fetch when no webhook is configured', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED' }]);
+    expect(await run()).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

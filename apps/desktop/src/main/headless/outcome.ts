@@ -30,6 +30,8 @@ export interface RunOutcome {
   kind: 'success' | 'qa_failed' | 'error';
   exitCode: 0 | 1 | 2;
   reason?: string;
+  /** Pull request url seen on any event (last one wins). */
+  prUrl?: string;
 }
 
 function field(event: RunEvent, key: 'error' | 'reason'): string | undefined {
@@ -40,7 +42,24 @@ function field(event: RunEvent, key: 'error' | 'reason'): string | undefined {
   return undefined;
 }
 
+function lastPrUrl(events: RunEvent[]): string | undefined {
+  let found: string | undefined;
+  for (const e of events) {
+    const direct = e.prUrl;
+    const nested = e.extra?.prUrl;
+    if (typeof direct === 'string' && direct) found = direct;
+    if (typeof nested === 'string' && nested) found = nested;
+  }
+  return found;
+}
+
 export function classifyRun(input: RunInput): RunOutcome {
+  const outcome = classifyRunBase(input);
+  const prUrl = lastPrUrl(input.events);
+  return prUrl ? { ...outcome, prUrl } : outcome;
+}
+
+function classifyRunBase(input: RunInput): RunOutcome {
   const { events, errors = [], exit, abortSignal } = input;
 
   if (abortSignal) {
