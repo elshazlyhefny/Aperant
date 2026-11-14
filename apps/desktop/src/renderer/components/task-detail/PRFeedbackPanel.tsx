@@ -2,7 +2,8 @@
  * zeenha fork: shows the failing CI checks and unresolved review feedback of a
  * task's pull request and lets the user choose which items to send to the
  * task's agent. Nothing is pre-selected and nothing starts without a click.
- * All GitHub text is rendered as plain text.
+ * Works for GitHub, GitLab and Bitbucket Cloud pull requests. All forge text
+ * is rendered as plain text.
  */
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
