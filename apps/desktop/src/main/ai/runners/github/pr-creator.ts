@@ -26,6 +26,7 @@ import { formatIssueClosingLines, readIssueRefs } from '../commit-message';
 import type { ModelShorthand, ThinkingLevel } from '../../config/types';
 import type { WorktreeCreatePRErrorCode } from '../../../../shared/types';
 import { capPRTitle } from '../../../../shared/utils/pr-title';
+import { formatSecretFindings, listBranchFiles, scanChangedFiles } from '../../security/secret-gate';
 import {
   createGitLabMergeRequest,
   findOpenMergeRequestForBranch,
@@ -382,17 +383,64 @@ export async function commitsAheadOfBase(
   gitPath: string,
   baseBranch: string,
 ): Promise<number | null> {
+  const resolved = await resolveBaseRef(worktreePath, gitPath, baseBranch);
+  return resolved ? resolved.count : null;
+}
+
+/**
+ * zeenha fork: the first of origin/<base> or <base> that git can resolve, with
+ * the commits HEAD is ahead of it. Null when neither resolves.
+ */
+async function resolveBaseRef(
+  worktreePath: string,
+  gitPath: string,
+  baseBranch: string,
+): Promise<{ ref: string; count: number } | null> {
   const base = baseBranch.replace(/^origin\//, '');
   for (const ref of [`origin/${base}`, base]) {
     try {
       const out = (await run(gitPath, ['rev-list', '--count', `${ref}..HEAD`], worktreePath, GIT_READ_TIMEOUT_MS)).trim();
       const count = Number.parseInt(out, 10);
-      if (Number.isInteger(count) && count >= 0) return count;
+      if (Number.isInteger(count) && count >= 0) return { ref, count };
     } catch {
       // try the next ref
     }
   }
   return null;
+}
+
+/**
+ * zeenha fork: scan the files this branch changed against its base for
+ * secrets, before anything is pushed. Unlike the Bash hook this fails closed:
+ * if the base cannot be resolved or the scan throws, the push is refused
+ * rather than publishing unscanned content. The work is already committed, so
+ * the working tree equals HEAD for these files. Returns null when clean.
+ */
+export async function scanBranchForSecrets(
+  worktreePath: string,
+  gitPath: string,
+  baseBranch: string,
+): Promise<CreatePRResult | null> {
+  try {
+    const resolved = await resolveBaseRef(worktreePath, gitPath, baseBranch);
+    if (!resolved) {
+      return {
+        success: false,
+        errorCode: 'SECRETS_DETECTED',
+        error: `Could not resolve the base branch "${baseBranch}" to scan the changes for secrets, so nothing was pushed.`,
+      };
+    }
+    const files = listBranchFiles(worktreePath, resolved.ref);
+    const matches = scanChangedFiles(files, worktreePath);
+    if (matches.length === 0) return null;
+    return { success: false, errorCode: 'SECRETS_DETECTED', error: formatSecretFindings(matches, 'push') };
+  } catch (err) {
+    return {
+      success: false,
+      errorCode: 'SECRETS_DETECTED',
+      error: `The secret scan could not finish (${describeError(err)}), so nothing was pushed.`,
+    };
+  }
 }
 
 async function gatherPRContext(
@@ -885,6 +933,12 @@ export async function prepareBranch(config: PrepareBranchConfig): Promise<Prepar
       },
     };
   }
+
+  // zeenha fork: scan before the title call and the push, so nothing reaches
+  // the remote and no AI call is spent on a refused branch. This covers
+  // GitHub, GitLab, Bitbucket and Azure DevOps: they all prepare here.
+  const secretResult = await scanBranchForSecrets(worktreePath, gitPath, baseBranch);
+  if (secretResult) return { ok: false, result: secretResult };
 
   // zeenha fork: the title is suggested only now, from the committed branch.
   const { diffSummary, commitLog } = await gatherPRContext(worktreePath, gitPath, baseBranch);

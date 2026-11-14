@@ -209,6 +209,9 @@ export async function createOrGetWorktree(
 
   // Best-effort upstream setup: the remote branch does not exist until first push,
   // so publish it here when origin is available instead of inheriting origin/main.
+  // zeenha fork: no secret scan here. This publishes a brand-new branch at the
+  // base commit, which holds no agent work. Any later push goes through
+  // pushBranch/prepareBranch, which scans first.
   if (pushNewBranches) {
     const hasOrigin = await git(
       ['remote', 'get-url', 'origin'],
