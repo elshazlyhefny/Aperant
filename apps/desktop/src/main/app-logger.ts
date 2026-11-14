@@ -19,6 +19,7 @@ import { app } from 'electron';
 import { existsSync, readdirSync, statSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import os from 'os';
+import { setLogger } from './log-port';
 
 // Configure electron-log (wrapped in try-catch for re-import scenarios in tests)
 try {
@@ -215,6 +216,9 @@ export const appLog = {
   error: (...args: unknown[]) => log.error(...args),
   log: (...args: unknown[]) => log.info(...args),
 };
+
+// Route Electron-free modules (see log-port.ts) through electron-log.
+setLogger(appLog);
 
 /**
  * Best-effort stderr fallback used when electron-log itself throws (e.g. EIO).

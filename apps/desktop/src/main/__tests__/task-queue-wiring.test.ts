@@ -8,8 +8,8 @@ vi.mock('../ipc-handlers/task/plan-file-utils', () => ({
 }));
 vi.mock('../worktree-paths', () => ({ findTaskWorktree: vi.fn(() => null) }));
 vi.mock('fs', () => ({ existsSync: vi.fn(() => false) }));
-vi.mock('../app-logger', () => ({
-  appLog: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn() }
+vi.mock('../log-port', () => ({
+  appLogPort: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn() }
 }));
 
 import { TaskStateManager } from '../task-state-manager';

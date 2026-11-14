@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Project, Task } from '../../shared/types';
 
-vi.mock('../app-logger', () => ({
-  appLog: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn() },
+vi.mock('../log-port', () => ({
+  appLogPort: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn() },
 }));
 
 import { TaskQueueManager } from '../task-queue-manager';
