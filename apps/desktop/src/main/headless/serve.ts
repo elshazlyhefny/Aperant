@@ -384,7 +384,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
     timers.push(tickTimer);
   }
   const safetyTimer = setInterval(() => void queue.requestProcess(), SAFETY_PROCESS_INTERVAL_MS);
-  safetyTimer.unref?.();
+  // Not unref'd: this timer is what keeps the daemon alive while it is idle
   timers.push(safetyTimer);
 
   // (8) shutdown

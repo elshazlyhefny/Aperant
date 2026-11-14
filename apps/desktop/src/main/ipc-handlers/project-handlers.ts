@@ -104,7 +104,6 @@ export function registerProjectHandlers(
         const project = projectStore.addProject(projectPath);
         // zeenha fork: take the queue lock as soon as the project is known
         ensureQueueLock(project);
-        void taskQueueManager.requestProcess(project.id);
         return { success: true, data: project };
       } catch (error) {
         return {
