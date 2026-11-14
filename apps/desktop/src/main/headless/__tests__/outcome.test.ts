@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRun, EXIT_ERROR, EXIT_QA_FAILED, EXIT_SUCCESS } from '../outcome';
+import { classifyRun, classifySpecRun, EXIT_ERROR, EXIT_QA_FAILED, EXIT_SUCCESS } from '../outcome';
 
 describe('classifyRun', () => {
   it('constants', () => {
@@ -36,5 +36,27 @@ describe('classifyRun', () => {
     expect(classifyRun({ events: [], abortSignal: 'SIGINT' })).toMatchObject({ kind: 'error', exitCode: 1 });
     expect(classifyRun({ events: [{ type: 'QA_PASSED' }], abortSignal: 'SIGTERM' }).kind).toBe('error');
     expect(classifyRun({ events: [], exit: { code: null, signal: 'SIGKILL' } }).kind).toBe('error');
+  });
+});
+
+describe('classifySpecRun', () => {
+  it('clean exit 0 is success', () => {
+    expect(classifySpecRun({ events: [], exit: { code: 0 } })).toEqual({ kind: 'success', exitCode: 0 });
+  });
+  it('abort wins', () => {
+    expect(classifySpecRun({ events: [], exit: { code: 0 }, abortSignal: 'SIGINT' })).toEqual({ kind: 'error', exitCode: 1, reason: 'aborted by SIGINT' });
+  });
+  it('PLANNING_FAILED carries its error', () => {
+    expect(classifySpecRun({ events: [{ type: 'PLANNING_FAILED', extra: { error: 'bad' } }], exit: { code: 0 } })).toEqual({ kind: 'error', exitCode: 1, reason: 'bad' });
+  });
+  it('bridge errors use the last one', () => {
+    expect(classifySpecRun({ events: [], errors: ['a', 'b'], exit: { code: 0 } }).reason).toBe('b');
+  });
+  it('signal or non-zero exit is error', () => {
+    expect(classifySpecRun({ events: [], exit: { code: null, signal: 'SIGKILL' } }).kind).toBe('error');
+    expect(classifySpecRun({ events: [], exit: { code: 3 } }).reason).toContain('code 3');
+  });
+  it('no exit info is error, never exit code 2', () => {
+    expect(classifySpecRun({ events: [] })).toEqual({ kind: 'error', exitCode: 1, reason: 'worker ended without reporting a spec result' });
   });
 });
