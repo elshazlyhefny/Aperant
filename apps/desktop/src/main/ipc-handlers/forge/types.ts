@@ -9,6 +9,10 @@ import type { IssueWritebackSettings } from '../../../shared/types/settings';
 import type { WebhookEvent } from '../../task-webhook';
 import type { PRFeedbackFetchResult } from '../github/pr/task-feedback';
 
+/** Provider-neutral names for the shared feedback error and result shape. */
+export { PRFeedbackError } from '../github/pr/task-feedback';
+export type { PRFeedbackFetchResult };
+
 export type PRRef = { provider: string; number: number };
 
 export type ForgeLoadResult =

@@ -4,9 +4,8 @@
  */
 
 import type { Project } from '../../../shared/types';
-import { PRFeedbackError, type PRFeedbackFetchResult } from '../github/pr/task-feedback';
 import { getForgeById, getForgeForPrUrl } from '../forge/registry';
-import type { PRRef } from '../forge/types';
+import { PRFeedbackError, type PRFeedbackFetchResult, type PRRef } from '../forge/types';
 
 export type { PRRef };
 
