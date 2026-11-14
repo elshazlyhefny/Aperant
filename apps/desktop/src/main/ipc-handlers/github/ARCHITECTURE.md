@@ -345,7 +345,7 @@ export function registerGithubHandlers(...) {
 | `followup-handlers.ts` | 333 | Follow-up reviews |
 | `review-runner.ts` | 330 | Runs the AI review |
 | `review-results.ts` | 308 | Review result persistence |
-| `review-logs.ts` | 535 | `PRLogCollector` and log handlers |
+| `review-logs.ts` | 674 | `PRLogCollector` (in-memory logs, throttled compact writes, delta pushes, `unchanged` poll) and log handlers |
 | `ci-wait.ts` | 284 | CI wait logic |
 | `posting-handlers.ts` | 423 | Post reviews and comments |
 | `merge-handlers.ts` | 443 | Merge and merge readiness |

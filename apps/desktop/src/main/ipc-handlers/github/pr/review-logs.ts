@@ -9,7 +9,7 @@ import path from "path";
 import fs from "fs";
 import { IPC_CHANNELS } from "../../../../shared/constants";
 import type { Project } from "../../../../shared/types";
-import { traceLog, sanitizeNetworkData } from "./shared";
+import { traceLog } from "./shared";
 
 /**
  * Get the GitHub directory for a project
@@ -297,8 +297,7 @@ export function loadPRLogs(project: Project, prNumber: number): PRLogs | null {
 
   try {
     const rawData = fs.readFileSync(logsPath, "utf-8");
-    const sanitizedData = sanitizeNetworkData(rawData);
-    return JSON.parse(sanitizedData) as PRLogs;
+    return JSON.parse(rawData) as PRLogs;
   } catch {
     return null;
   }
@@ -310,7 +309,8 @@ export function loadPRLogs(project: Project, prNumber: number): PRLogs | null {
  * Called by PRLogCollector.save() to persist logs incrementally during review.
  * This enables real-time streaming to the frontend via file-based polling.
  *
- * The logs file is written atomically and includes:
+ * The logs file is written compactly to a ".tmp" sibling and renamed over the
+ * target, so a concurrent reader never observes a partial file. It includes:
  * - Phase status (pending/active/completed/failed)
  * - Log entries for each phase (context, analysis, synthesis)
  * - Timestamps for created_at and updated_at
@@ -325,7 +325,109 @@ export function savePRLogs(project: Project, logs: PRLogs): void {
   }
 
   logs.updated_at = new Date().toISOString();
-  fs.writeFileSync(logsPath, JSON.stringify(logs, null, 2), "utf-8");
+  const tmpPath = `${logsPath}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(logs), "utf-8");
+  fs.renameSync(tmpPath, logsPath);
+}
+
+/**
+ * Delta of a single phase: entries added since the last push.
+ * `baseCount` is the number of entries the renderer should already hold.
+ */
+export interface PRLogPhaseDelta {
+  baseCount: number;
+  entries: PRLogEntry[];
+  status: PRPhaseLog["status"];
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+/**
+ * Delta payload pushed to the renderer (only phases that changed are present)
+ */
+export interface PRLogsDelta {
+  pr_number: number;
+  created_at: string;
+  updated_at: string;
+  phases: { [phase in PRLogPhase]?: PRLogPhaseDelta };
+}
+
+/**
+ * Version the caller already holds, used for cheap change detection
+ */
+export interface PRLogsKnownVersion {
+  updated_at: string;
+  entryCount: number;
+}
+
+const PHASES: PRLogPhase[] = ["context", "analysis", "synthesis"];
+
+function countEntries(logs: PRLogs): number {
+  return PHASES.reduce((n, p) => n + logs.phases[p].entries.length, 0);
+}
+
+/** Live collectors keyed by `${project.id}:${prNumber}` */
+const liveCollectors = new Map<string, PRLogCollector>();
+
+function liveKey(project: Project, prNumber: number): string {
+  return `${project.id}:${prNumber}`;
+}
+
+/**
+ * Get the in-memory logs of a running review, or null if none is live.
+ */
+export function getLiveLogs(project: Project, prNumber: number): PRLogs | null {
+  return liveCollectors.get(liveKey(project, prNumber))?.getLogs() ?? null;
+}
+
+/** mtime-keyed cache so unchanged finished reviews are not re-read */
+const fileVersionCache = new Map<string, { mtimeMs: number; updated_at: string; entryCount: number }>();
+
+/**
+ * Load logs only if they differ from what the caller already knows.
+ * Returns 'unchanged' when the known version is still current.
+ */
+export function loadPRLogsIfChanged(
+  project: Project,
+  prNumber: number,
+  known?: PRLogsKnownVersion
+): PRLogs | null | "unchanged" {
+  const live = getLiveLogs(project, prNumber);
+  if (live) {
+    if (known && known.updated_at === live.updated_at && known.entryCount === countEntries(live)) {
+      return "unchanged";
+    }
+    return live;
+  }
+
+  const logsPath = getPRLogsPath(project, prNumber);
+  let mtimeMs: number;
+  try {
+    mtimeMs = fs.statSync(logsPath).mtimeMs;
+  } catch {
+    fileVersionCache.delete(logsPath);
+    return null;
+  }
+
+  const cached = fileVersionCache.get(logsPath);
+  if (
+    known &&
+    cached &&
+    cached.mtimeMs === mtimeMs &&
+    cached.updated_at === known.updated_at &&
+    cached.entryCount === known.entryCount
+  ) {
+    return "unchanged";
+  }
+
+  const logs = loadPRLogs(project, prNumber);
+  if (!logs) return null;
+  const entryCount = countEntries(logs);
+  fileVersionCache.set(logsPath, { mtimeMs, updated_at: logs.updated_at, entryCount });
+  if (known && known.updated_at === logs.updated_at && known.entryCount === entryCount) {
+    return "unchanged";
+  }
+  return logs;
 }
 
 /**
@@ -349,34 +451,37 @@ export function addLogEntry(logs: PRLogs, entry: PRLogEntry): boolean {
 
 /**
  * PR Log Collector - collects logs during review
- * Saves incrementally to disk so frontend can stream logs in real-time
  *
  * Log Streaming Architecture:
  * ===========================
- * This class implements a hybrid push/pull approach for real-time log streaming:
+ * 1. **Memory is authoritative**: logs live in this collector while the review
+ *    runs (see getLiveLogs()); readers prefer them over the file.
  *
- * 1. **File-Based Storage**: Logs are saved to disk every 3 entries (saveInterval)
- *    - Location: .auto-claude/github/pr/logs_${prNumber}.json
- *    - Format: JSON with phase status and log entries
+ * 2. **Throttled disk writes**: a trailing timer (~1s) persists the logs to
+ *    .auto-claude/github/pr/logs_${prNumber}.json (compact JSON, atomic rename).
+ *    Phase changes and finalize() write immediately.
  *
- * 2. **Push-Based Updates**: Emits IPC events (GITHUB_PR_LOGS_UPDATED) after each save
- *    - Notifies frontend immediately when new logs are available
- *    - Includes phase status and entry count for quick UI updates
+ * 3. **Delta push**: a coalesced trailing timer (~200ms) sends
+ *    GITHUB_PR_LOGS_UPDATED with only the entries added since the last push,
+ *    so IPC payloads stay small regardless of log size.
  *
- * 3. **Pull-Based Polling**: Frontend polls via loadPRLogs() every 1.5s as fallback
- *    - Ensures logs are displayed even if IPC events are missed
- *    - Provides resilience against event delivery failures
- *
- * This hybrid approach ensures reliable real-time updates while maintaining
- * simplicity and debuggability (logs are always on disk for inspection).
+ * 4. **Cheap poll fallback**: the renderer can still poll through
+ *    loadPRLogsIfChanged(), which returns 'unchanged' without reading or
+ *    parsing anything when nothing has changed.
  */
+const DISK_FLUSH_MS = 1000;
+const PUSH_FLUSH_MS = 200;
+
 export class PRLogCollector {
   private logs: PRLogs;
   private project: Project;
   private currentPhase: PRLogPhase = "context";
   private entryCount: number = 0;
-  private saveInterval: number = 3; // Save every N entries for real-time streaming
   private mainWindow: BrowserWindow | null;
+  private sentCounts: Record<PRLogPhase, number> = { context: 0, analysis: 0, synthesis: 0 };
+  private sentStatus: Record<PRLogPhase, string> = { context: "", analysis: "", synthesis: "" };
+  private diskTimer: ReturnType<typeof setTimeout> | null = null;
+  private pushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     project: Project,
@@ -399,8 +504,16 @@ export class PRLogCollector {
       hasMainWindow: !!this.mainWindow
     });
 
-    // Save initial empty logs so frontend sees the structure immediately
-    this.save();
+    liveCollectors.set(liveKey(project, prNumber), this);
+
+    // Write initial empty logs so frontend sees the structure immediately
+    this.flushDisk();
+    this.flushPush();
+  }
+
+  /** In-memory logs (authoritative while the review runs) */
+  getLogs(): PRLogs {
+    return this.logs;
   }
 
   processLine(line: string): void {
@@ -421,7 +534,6 @@ export class PRLogCollector {
 
     // Track phase transitions - mark previous phases as complete (only if they were active)
     if (phase !== this.currentPhase) {
-      // When moving to a new phase, mark the previous phase as complete
       // Only mark complete if the phase was actually active (received log entries)
       // This prevents marking phases as "completed" if they were skipped
       if (this.currentPhase === "context" && (phase === "analysis" || phase === "synthesis")) {
@@ -446,12 +558,15 @@ export class PRLogCollector {
     };
 
     const phaseStatusChanged = addLogEntry(this.logs, entry);
+    this.logs.updated_at = entry.timestamp;
     this.entryCount++;
 
-    // Save immediately if phase status changed (so frontend sees phase activation)
-    // OR save periodically for real-time streaming (every N entries)
-    if (phaseStatusChanged || this.entryCount % this.saveInterval === 0) {
+    if (phaseStatusChanged) {
+      // Flush immediately so frontend sees phase activation
       this.save();
+    } else {
+      this.scheduleDisk();
+      this.schedulePush();
     }
   }
 
@@ -459,77 +574,101 @@ export class PRLogCollector {
     const phaseLog = this.logs.phases[phase];
     phaseLog.status = success ? "completed" : "failed";
     phaseLog.completed_at = new Date().toISOString();
-    // Save immediately so frontend sees the status change
+    this.logs.updated_at = phaseLog.completed_at;
+    // Flush immediately so frontend sees the status change
     this.save();
   }
 
   /**
-   * Save logs to disk and notify frontend
-   *
-   * This method is called:
-   * 1. Every N entries (saveInterval = 3) for incremental streaming
-   * 2. When phase status changes (pending → active, active → completed)
-   * 3. On review finalization (success or failure)
-   *
-   * Two-step update mechanism:
-   * --------------------------
-   * 1. **File Write**: Persists logs to disk via savePRLogs()
-   *    - Creates/updates .auto-claude/github/pr/logs_${prNumber}.json
-   *    - Updates the `updated_at` timestamp
-   *
-   * 2. **IPC Push Event**: Sends GITHUB_PR_LOGS_UPDATED to renderer
-   *    - Contains phase status summary (pending/active/completed/failed)
-   *    - Includes entry count for detecting changes
-   *    - Enables instant UI updates without polling delay
-   *
-   * The frontend receives the IPC event and can optionally trigger an
-   * immediate poll via loadPRLogs() to fetch the latest log content.
-   * This is more efficient than polling alone, as the UI can update
-   * immediately when logs are available rather than waiting for the
-   * next poll interval (1.5s).
+   * Flush to disk and push a delta to the renderer immediately,
+   * cancelling any pending throttled flushes.
    */
   save(): void {
-    const logPath = getPRLogsPath(this.project, this.logs.pr_number);
-    traceLog("PRLogCollector.save()", {
-      prNumber: this.logs.pr_number,
-      logPath,
-      entryCount: this.entryCount,
-      phases: Object.entries(this.logs.phases).map(([name, phase]) => ({
-        name,
-        status: phase.status,
-        entryCount: phase.entries.length
-      }))
-    });
+    this.flushDisk();
+    this.flushPush();
+  }
 
-    // Step 1: Write logs to disk for persistence and polling-based retrieval
-    savePRLogs(this.project, this.logs);
+  private scheduleDisk(): void {
+    if (this.diskTimer) return;
+    this.diskTimer = setTimeout(() => this.flushDisk(), DISK_FLUSH_MS);
+    this.diskTimer.unref?.();
+  }
 
-    // Step 2: Emit IPC event to notify renderer of log update (push-based)
-    // Uses standard (projectId, data) pattern matching other IPC communicators
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(IPC_CHANNELS.GITHUB_PR_LOGS_UPDATED, this.project.id, {
-        prNumber: this.logs.pr_number,
-        phaseStatus: {
-          context: this.logs.phases.context.status,
-          analysis: this.logs.phases.analysis.status,
-          synthesis: this.logs.phases.synthesis.status
-        },
-        entryCount: this.entryCount
-      });
+  private schedulePush(): void {
+    if (this.pushTimer) return;
+    this.pushTimer = setTimeout(() => this.flushPush(), PUSH_FLUSH_MS);
+    this.pushTimer.unref?.();
+  }
+
+  private flushDisk(): void {
+    if (this.diskTimer) {
+      clearTimeout(this.diskTimer);
+      this.diskTimer = null;
     }
+    traceLog("PRLogCollector.flushDisk()", {
+      prNumber: this.logs.pr_number,
+      entryCount: this.entryCount
+    });
+    try {
+      savePRLogs(this.project, this.logs);
+    } catch (error) {
+      traceLog("PRLogCollector.flushDisk() failed", { error: String(error) });
+    }
+  }
+
+  private flushPush(): void {
+    if (this.pushTimer) {
+      clearTimeout(this.pushTimer);
+      this.pushTimer = null;
+    }
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
+
+    const delta: PRLogsDelta = {
+      pr_number: this.logs.pr_number,
+      created_at: this.logs.created_at,
+      updated_at: this.logs.updated_at,
+      phases: {},
+    };
+    for (const phase of PHASES) {
+      const log = this.logs.phases[phase];
+      const baseCount = this.sentCounts[phase];
+      const entries = log.entries.slice(baseCount);
+      if (entries.length === 0 && log.status === this.sentStatus[phase]) continue;
+      delta.phases[phase] = {
+        baseCount,
+        entries,
+        status: log.status,
+        started_at: log.started_at,
+        completed_at: log.completed_at,
+      };
+      this.sentCounts[phase] = log.entries.length;
+      this.sentStatus[phase] = log.status;
+    }
+
+    this.mainWindow.webContents.send(IPC_CHANNELS.GITHUB_PR_LOGS_UPDATED, this.project.id, {
+      prNumber: this.logs.pr_number,
+      phaseStatus: {
+        context: this.logs.phases.context.status,
+        analysis: this.logs.phases.analysis.status,
+        synthesis: this.logs.phases.synthesis.status
+      },
+      entryCount: this.entryCount,
+      delta,
+    });
   }
 
   finalize(success: boolean): void {
     // Mark active phases as completed based on success status
-    // Pending phases with no entries should stay pending (they never ran)
-    for (const phase of ["context", "analysis", "synthesis"] as PRLogPhase[]) {
-      const phaseLog = this.logs.phases[phase];
-      if (phaseLog.status === "active") {
+    // Pending phases with no entries stay pending (they never ran)
+    for (const phase of PHASES) {
+      if (this.logs.phases[phase].status === "active") {
         this.markPhaseComplete(phase, success);
       }
-      // Note: Pending phases stay pending - they never received any log entries
-      // This is correct behavior for follow-up reviews where some phases may be skipped
     }
     this.save();
+    const key = liveKey(this.project, this.logs.pr_number);
+    if (liveCollectors.get(key) === this) {
+      liveCollectors.delete(key);
+    }
   }
 }

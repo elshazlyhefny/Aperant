@@ -77,10 +77,18 @@ export interface ProjectAPI {
    }) => void) => () => void;
 
    // Git Operations
-  /** @deprecated Use getGitBranchesWithInfo for structured branch data with type indicators */
+  /**
+   * @deprecated Use getGitBranchesWithInfo for structured branch data with type indicators.
+   * Returns local refs immediately; a background fetch may follow with an onGitBranchesUpdated event.
+   */
   getGitBranches: (projectPath: string) => Promise<IPCResult<string[]>>;
-  /** Get branches with structured type information (local vs remote) */
+  /**
+   * Get branches with structured type information (local vs remote).
+   * Returns local refs immediately; a background fetch may follow with an onGitBranchesUpdated event.
+   */
   getGitBranchesWithInfo: (projectPath: string) => Promise<IPCResult<GitBranchDetail[]>>;
+  /** Subscribe to background-fetch completion; returns an unsubscribe function */
+  onGitBranchesUpdated: (callback: (projectPath: string) => void) => () => void;
   getCurrentGitBranch: (projectPath: string) => Promise<IPCResult<string | null>>;
   detectMainBranch: (projectPath: string, options?: { declaredOnly?: boolean }) => Promise<IPCResult<string | null>>;
   checkGitStatus: (projectPath: string) => Promise<IPCResult<GitStatus>>;
@@ -236,6 +244,12 @@ export const createProjectAPI = (): ProjectAPI => ({
   },
 
   // Git Operations
+  onGitBranchesUpdated: (callback: (projectPath: string) => void) => {
+    const listener = (_: unknown, projectPath: string) => callback(projectPath);
+    ipcRenderer.on(IPC_CHANNELS.GIT_BRANCHES_UPDATED, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.GIT_BRANCHES_UPDATED, listener);
+  },
+
   getGitBranches: (projectPath: string): Promise<IPCResult<string[]>> =>
     ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_BRANCHES, projectPath),
 

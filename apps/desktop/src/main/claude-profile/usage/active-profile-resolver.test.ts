@@ -40,7 +40,7 @@ vi.mock('../../ai/auth/codex-oauth', () => ({
 const mockReadSettings = vi.fn();
 vi.mock('../../settings-utils', () => ({
   readSettingsFileAsync: () => mockReadSettings(),
-  writeSettingsFile: vi.fn()
+  updateSettingsFile: async (mutator: (s: unknown) => unknown) => mutator((await mockReadSettings()) ?? {})
 }));
 
 import { resolveActiveProfile } from './active-profile-resolver';

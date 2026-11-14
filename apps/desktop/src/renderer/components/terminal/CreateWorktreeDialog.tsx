@@ -147,10 +147,27 @@ export function CreateWorktreeDialog({
       }
     };
 
+    // Re-list branches after a background fetch; no spinner, no default-branch re-detection
+    const refreshBranches = async () => {
+      try {
+        const result = await window.electronAPI.getGitBranchesWithInfo(projectPath);
+        if (isMounted && result.success && result.data) {
+          setBranches(result.data);
+        }
+      } catch (err) {
+        console.error('Failed to refresh branches:', err);
+      }
+    };
+
     fetchBranches();
+
+    const unsubscribe = window.electronAPI.onGitBranchesUpdated((updatedPath) => {
+      if (isMounted && updatedPath === projectPath) refreshBranches();
+    });
 
     return () => {
       isMounted = false;
+      unsubscribe();
     };
   }, [open, projectPath, project?.settings?.mainBranch]);
 

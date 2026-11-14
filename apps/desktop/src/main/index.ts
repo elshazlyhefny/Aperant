@@ -56,7 +56,7 @@ import { initializeUsageMonitorForwarding } from './ipc-handlers/terminal-handle
 import { initializeAppUpdater, stopPeriodicUpdates } from './app-updater';
 import { DEFAULT_APP_SETTINGS, IPC_CHANNELS, SPELL_CHECK_LANGUAGE_MAP, DEFAULT_SPELL_CHECK_LANGUAGE, ADD_TO_DICTIONARY_LABELS } from '../shared/constants';
 import { getAppLanguage, initAppLanguage } from './app-language';
-import { readSettingsFile, writeSettingsFile, secureSettingsFilePermissions } from './settings-utils';
+import { readSettingsFile, updateSettingsFile, secureSettingsFilePermissions } from './settings-utils';
 import { projectStore } from './project-store';
 import { registerSettingsAccessor } from './ai/auth/resolver';
 import { appLog, setupErrorLogging } from './app-logger';
@@ -496,12 +496,13 @@ app.whenReady().then(() => {
             migrated = true;
 
             // Save the corrected setting - we're the only process modifying settings at startup
-            try {
-              writeSettingsFile(settings);
+            void updateSettingsFile((s) => {
+              s.autoBuildPath = correctedPath;
+            }).then(() => {
               appLog.info('[main] Successfully saved migrated autoBuildPath to settings');
-            } catch (writeError) {
+            }).catch((writeError) => {
               console.warn('[main] Failed to save migrated autoBuildPath:', writeError);
-            }
+            });
             break;
           }
         }
@@ -511,13 +512,14 @@ app.whenReady().then(() => {
           validAutoBuildPath = undefined; // Let auto-detection find the correct path
 
           // Clear the stale setting so this warning doesn't repeat every startup
-          try {
-            delete settings.autoBuildPath;
-            writeSettingsFile(settings);
+          delete settings.autoBuildPath;
+          void updateSettingsFile((s) => {
+            delete s.autoBuildPath;
+          }).then(() => {
             appLog.info('[main] Cleared stale autoBuildPath from settings');
-          } catch {
+          }).catch(() => {
             // Non-critical - warning will just repeat next startup
-          }
+          });
         }
       }
     }

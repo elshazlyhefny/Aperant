@@ -6,6 +6,7 @@ import { useGitHubPRs, usePRFiltering } from "./hooks";
 import { PRList, PRDetail, PRFilterBar } from "./components";
 import { Button } from "../ui/button";
 import { ResizablePanels } from "../ui/resizable-panels";
+import type { PRLogsKnownVersion } from "../../../preload/api/modules/github-api";
 
 interface GitHubPRsProps {
   onOpenSettings?: () => void;
@@ -183,9 +184,9 @@ export function GitHubPRs({ onOpenSettings, isActive = false }: GitHubPRsProps) 
     [selectedPRNumber, assignPR]
   );
 
-  const handleGetLogs = useCallback(async () => {
+  const handleGetLogs = useCallback(async (known?: PRLogsKnownVersion) => {
     if (selectedProjectId && selectedPRNumber) {
-      return await window.electronAPI.github.getPRLogs(selectedProjectId, selectedPRNumber);
+      return await window.electronAPI.github.getPRLogs(selectedProjectId, selectedPRNumber, known);
     }
     return null;
   }, [selectedProjectId, selectedPRNumber]);
