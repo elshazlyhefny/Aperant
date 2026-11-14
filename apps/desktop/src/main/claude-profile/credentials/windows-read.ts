@@ -300,7 +300,7 @@ export function getCredentialsFromWindows(configDir?: string, forceRefresh = fal
 /**
  * Retrieve full credentials (including refresh token) from Windows Credential Manager
  */
-function getFullCredentialsFromWindowsCredentialManager(configDir?: string): FullOAuthCredentials {
+export function getFullCredentialsFromWindowsCredentialManager(configDir?: string): FullOAuthCredentials {
   const targetName = getWindowsCredentialTarget(configDir);
   const isDebug = process.env.DEBUG === 'true';
 
@@ -430,7 +430,7 @@ public static extern bool CredFree(IntPtr cred);
  * Retrieve full credentials (including refresh token) from Windows .credentials.json file
  * This is the primary storage mechanism used by Claude CLI on Windows
  */
-function getFullCredentialsFromWindowsFile(configDir?: string): FullOAuthCredentials {
+export function getFullCredentialsFromWindowsFile(configDir?: string): FullOAuthCredentials {
   const credentialsPath = getWindowsCredentialsPath(configDir);
   return getFullCredentialsFromFile(credentialsPath, 'Windows:File:Full');
 }
