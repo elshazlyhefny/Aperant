@@ -24,6 +24,7 @@ nul
 .secrets
 secrets/
 credentials/
+!apps/desktop/src/main/claude-profile/credentials/
 
 # ===========================
 # IDE & Editors

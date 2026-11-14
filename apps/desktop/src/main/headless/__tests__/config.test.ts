@@ -25,6 +25,26 @@ describe('loadHeadlessConfig', () => {
     expect(config.project?.pushNewBranches).toBe(false);
   });
 
+  it('parses the webhook section without validating the url', () => {
+    const file = path.join(dir, 'w.json');
+    writeFileSync(file, JSON.stringify({ webhook: { url: 'not a url', events: { failed: false, prOpened: true, other: 1 }, extra: 1 } }));
+    expect(loadHeadlessConfig(file).webhook).toEqual({ url: 'not a url', events: { failed: false, prOpened: true } });
+  });
+
+  it('rejects a mistyped webhook section', () => {
+    const bad = path.join(dir, 'wbad.json');
+    const cases: [unknown, RegExp][] = [
+      ['x', /webhook must be an object/],
+      [{ url: 5 }, /webhook\.url must be a string/],
+      [{ events: 'x' }, /webhook\.events must be an object/],
+      [{ events: { blocked: 'yes' } }, /webhook\.events\.blocked must be a boolean/],
+    ];
+    for (const [webhook, re] of cases) {
+      writeFileSync(bad, JSON.stringify({ webhook }));
+      expect(() => loadHeadlessConfig(bad)).toThrow(re);
+    }
+  });
+
   it('fails loudly on a missing, invalid or mistyped file', () => {
     expect(() => loadHeadlessConfig(path.join(dir, 'nope.json'))).toThrow(/Cannot read config file/);
     const bad = path.join(dir, 'bad.json');
@@ -46,14 +66,14 @@ describe('loadHeadlessConfig webhook and maxParallelTasks', () => {
     return file;
   };
 
-  it('parses webhook and merges events over the defaults', () => {
+  it('parses webhook.enabled and keeps the section as written (defaults are merged when it is resolved)', () => {
     const config = loadHeadlessConfig(
       write({ webhook: { enabled: true, url: 'https://example.com/hook', events: { prOpened: true, failed: false } } }),
     );
     expect(config.webhook).toEqual({
       enabled: true,
       url: 'https://example.com/hook',
-      events: { reviewReady: true, failed: false, blocked: true, prOpened: true },
+      events: { failed: false, prOpened: true },
     });
   });
 
@@ -66,10 +86,6 @@ describe('loadHeadlessConfig webhook and maxParallelTasks', () => {
     expect(() => loadHeadlessConfig(write({ webhook: [] }))).toThrow(/webhook must be an object/);
     expect(() => loadHeadlessConfig(write({ webhook: { enabled: 'yes' } }))).toThrow(/webhook.enabled/);
     expect(() => loadHeadlessConfig(write({ webhook: { url: 5 } }))).toThrow(/webhook.url must be a string/);
-    expect(() => loadHeadlessConfig(write({ webhook: { enabled: true, url: 'http://example.com/x' } }))).toThrow(
-      /https_required/,
-    );
-    expect(() => loadHeadlessConfig(write({ webhook: { enabled: true } }))).toThrow(/webhook.url is not valid/);
     expect(() => loadHeadlessConfig(write({ webhook: { events: { failed: 'no' } } }))).toThrow(/events.failed/);
     expect(() => loadHeadlessConfig(write({ webhook: { events: 1 } }))).toThrow(/events must be an object/);
   });

@@ -1,32 +1,48 @@
 /**
  * Outgoing task-outcome webhook (Slack-compatible JSON body).
- * The Electron-free parts live in webhook-core.ts and are re-exported here.
+ *
+ * Security: payloads are built from an allow-list of fields only; the URL,
+ * request body and response body are never logged; nothing here throws.
  */
 
+import type { TaskStatus, ReviewReason, Project } from '../shared/types';
 import type { WebhookSettings } from '../shared/types/settings';
 import { DEFAULT_APP_SETTINGS } from '../shared/constants/config';
 import { appLog } from './app-logger';
-import { setLogger } from './log-port';
 import { readSettingsFile } from './settings-utils';
+import { getProjectWebhookConfig } from './project-webhook-config';
 import {
-  dispatchTaskOutcomeWebhookWith,
-  sendWebhook,
+  sendWebhook as sendWebhookCore,
   validateWebhookUrl,
-  type TaskOutcomeWebhookInput,
-  type WebhookPayload
-} from './webhook-core';
-
-export {
   buildWebhookPayload,
-  dispatchTaskOutcomeWebhookWith,
-  mapOutcomeToWebhookEvent,
-  sendWebhook,
-  validateWebhookUrl
-} from './webhook-core';
-export type { WebhookEvent, WebhookPayload } from './webhook-core';
+  type WebhookEvent,
+  type WebhookPayload
+} from './task-webhook-core';
+import { mapOutcomeToWebhookEvent } from './webhook-core';
 
-// Route log-port output (used by webhook-core) to the desktop logger.
-setLogger(appLog);
+export { validateWebhookUrl, buildWebhookPayload } from './task-webhook-core';
+export { mapOutcomeToWebhookEvent } from './webhook-core';
+export type { WebhookEvent, WebhookPayload } from './task-webhook-core';
+
+function safeWarn(message: string): void {
+  try {
+    appLog.warn(message);
+  } catch {
+    // never throw from logging
+  }
+}
+
+export function sendWebhook(
+  url: string,
+  payload: WebhookPayload,
+  options: {
+    delay?: (ms: number) => Promise<void>;
+    eventName?: string;
+    warn?: (message: string) => void;
+  } = {}
+): Promise<boolean> {
+  return sendWebhookCore(url, payload, { ...options, warn: options.warn ?? safeWarn });
+}
 
 function loadWebhookSettings(): WebhookSettings {
   const raw = readSettingsFile() ?? {};
@@ -40,9 +56,47 @@ function loadWebhookSettings(): WebhookSettings {
   };
 }
 
-export function dispatchTaskOutcomeWebhook(input: TaskOutcomeWebhookInput): void {
+const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
+  review_ready: 'reviewReady',
+  failed: 'failed',
+  blocked: 'blocked',
+  pr_opened: 'prOpened'
+};
+
+export function dispatchTaskOutcomeWebhook(input: {
+  status: TaskStatus | string;
+  reviewReason?: ReviewReason | string | null;
+  projectName: string;
+  taskTitle: string;
+  prUrl?: string;
+  project?: Pick<Project, 'path' | 'autoBuildPath'>;
+}): void {
   try {
-    dispatchTaskOutcomeWebhookWith(loadWebhookSettings(), input);
+    const event = mapOutcomeToWebhookEvent(input.status, input.reviewReason);
+    if (!event) return;
+    // A valid project webhook overrides the app-wide one exclusively.
+    const projectConfig = input.project ? getProjectWebhookConfig(input.project) : null;
+    if (projectConfig) {
+      if (!projectConfig.events[EVENT_TOGGLE[event]]) return;
+      const projectPayload = buildWebhookPayload({
+        projectName: input.projectName,
+        taskTitle: input.taskTitle,
+        event,
+        prUrl: input.prUrl
+      });
+      void sendWebhook(projectConfig.url, projectPayload, { eventName: event }).catch(() => undefined);
+      return;
+    }
+    const settings = loadWebhookSettings();
+    if (!settings.enabled || !settings.events[EVENT_TOGGLE[event]]) return;
+    if (!validateWebhookUrl(settings.url).ok) return;
+    const payload = buildWebhookPayload({
+      projectName: input.projectName,
+      taskTitle: input.taskTitle,
+      event,
+      prUrl: input.prUrl
+    });
+    void sendWebhook(settings.url, payload, { eventName: event }).catch(() => undefined);
   } catch {
     // never let webhook problems affect task flow
   }

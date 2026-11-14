@@ -4,6 +4,7 @@ import { AlertCircle, Settings } from 'lucide-react';
 import { Button } from '../ui/button';
 import { PullRequestList } from './components/PullRequestList';
 import { PullRequestDetail } from './components/PullRequestDetail';
+import { useBitbucketPRReview } from './hooks/useBitbucketPRReview';
 import { useBitbucketPRs, type BitbucketStateFilter } from './hooks/useBitbucketPRs';
 
 interface BitbucketPullRequestsProps {
@@ -29,6 +30,8 @@ export function BitbucketPullRequests({ projectId, onOpenSettings }: BitbucketPu
     refresh,
     postComment
   } = useBitbucketPRs(projectId, { stateFilter });
+
+  const review = useBitbucketPRReview(projectId, selectedPRId);
 
   if (notConfigured) {
     return (
@@ -74,6 +77,7 @@ export function BitbucketPullRequests({ projectId, onOpenSettings }: BitbucketPu
         {selectedPR ? (
           <PullRequestDetail
             pr={selectedPR}
+            review={review}
             diff={diff}
             isLoading={isLoadingDetail}
             error={detailError}

@@ -883,7 +883,15 @@
     "clickToOpenSettings": "Cliquez pour ouvrir les Paramètres →",
     "sessionShort": "Utilisation session 5 heures",
     "weeklyShort": "Utilisation hebdomadaire 7 jours",
-    "swap": "Changer"
+    "swap": "Changer",
+    "windowCredit": "Crédit",
+    "creditRemaining": "Restant",
+    "creditNoLimit": "Aucune limite définie",
+    "creditResets": {
+      "daily": "Réinitialisation quotidienne",
+      "weekly": "Réinitialisation hebdomadaire",
+      "monthly": "Réinitialisation mensuelle"
+    }
   },
   "oauth": {
     "enterCode": "Saisie manuelle du code (secours)",

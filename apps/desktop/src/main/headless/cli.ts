@@ -8,6 +8,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { createHeadlessSpec } from './new-spec';
 import { runHeadlessTask } from './run-task';
 import { runServe } from './serve';
 
@@ -17,16 +18,18 @@ export const USAGE = `Usage: cli.js <command> [options]
 
 Commands:
   run <spec>      Run the spec's build (plan, code, QA) and open a pull request
+  new "<description>"  Create a spec from a description (add --run to build it too)
   serve           Run the project's task queue and recurring schedules until stopped
   help            Show this help
 
-Options for run:
+Options for run (they also apply to new --run):
   --project <dir>       Project directory (default: current directory)
   --config <file>       JSON config file
   --base-branch <name>  Branch the task worktree is created from
   --no-push             Do not push the task branch
   --json                Print machine-readable events
   --verbose             Print detailed progress
+  --run                 With new: run the build after the spec is created
   --help                Show this help
   --version             Print the version
 
@@ -99,14 +102,18 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
     out(`${(deps.readVersion ?? readPackageVersion)()}\n`);
     return 0;
   }
-  const [command, spec, ...extra] = positionals;
+  const [command, arg, ...extra] = positionals;
   if (values.help || command === 'help') {
     out(USAGE);
     return 0;
   }
   if (command === 'serve') {
-    if (spec || extra.length > 0) {
+    if (arg || extra.length > 0) {
       err(`Too many arguments\n\n${USAGE}`);
+      return 1;
+    }
+    if (values.run) {
+      err(`--run only applies to the new command\n\n${USAGE}`);
       return 1;
     }
     let shutdownTimeoutMs: number | undefined;
@@ -133,24 +140,50 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
       err,
     });
   }
-  if (command !== 'run') {
+  if (command !== 'run' && command !== 'new') {
     err(`${command ? `Unknown command: ${command}` : 'Missing command'}\n\n${USAGE}`);
     return 1;
   }
-  if (!spec || extra.length > 0) {
-    err(`${spec ? 'Too many arguments' : 'Missing <spec> argument'}\n\n${USAGE}`);
+  if (!arg || extra.length > 0) {
+    const missing = command === 'new' ? 'Missing <description> argument' : 'Missing <spec> argument';
+    err(`${arg ? 'Too many arguments' : missing}\n\n${USAGE}`);
+    return 1;
+  }
+  if (command === 'run' && values.run) {
+    err(`--run only applies to the new command\n\n${USAGE}`);
     return 1;
   }
 
+  const projectPath = path.resolve(values.project ?? process.cwd());
+  const workerPath = deps.workerPath ?? defaultWorkerPath();
+  let spec = arg;
+
+  if (command === 'new') {
+    const created = await createHeadlessSpec({
+      projectPath,
+      description: arg,
+      configPath: values.config,
+      json: values.json,
+      verbose: values.verbose,
+      workerPath,
+      summary: !values.run,
+      out,
+      err,
+    });
+    if (created.exitCode !== 0) return created.exitCode;
+    if (!values.run || !created.specId) return 0;
+    spec = created.specId;
+  }
+
   return runHeadlessTask({
-    projectPath: path.resolve(values.project ?? process.cwd()),
+    projectPath,
     spec,
     configPath: values.config,
     baseBranch: values['base-branch'],
     noPush: values['no-push'],
     json: values.json,
     verbose: values.verbose,
-    workerPath: deps.workerPath ?? defaultWorkerPath(),
+    workerPath,
     out,
     err,
   });
@@ -166,6 +199,7 @@ const OPTIONS = {
   'no-push': { type: 'boolean' },
   json: { type: 'boolean' },
   verbose: { type: 'boolean' },
+  run: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 } as const;

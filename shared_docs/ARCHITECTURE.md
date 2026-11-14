@@ -308,7 +308,6 @@ Memory is a local, TypeScript implementation under `ai/memory/`. CLAUDE.md descr
 
 - The primary memory store is a libSQL (SQLite) file written by TypeScript code in the Electron main process. It is not Graphiti.
 - No Python Graphiti sidecar is in this repository (the repo has only `apps/desktop/`). The memory MCP server exists only as a client-side hook. `ai/mcp/registry.ts` builds a `memory` server (StreamableHTTP) only when `GRAPHITI_MCP_URL` is set, and `agent/agent-manager.ts` sets `memoryEnabled` from that variable. Without a sidecar behind that URL, nothing uses it.
-- `ai/context/graphiti-integration.ts` is a stub. `isMemoryEnabled()` always returns `false` and `fetchGraphHints()` returns `[]`. Its own header says memory now lives in `ai/memory/`. `isGraphitiEnabled` is a deprecated alias.
 - The "knowledge graph" in the local store is a code graph (files, symbols and their edges, built with tree-sitter), not Graphiti's entity graph.
 
 ### Local store

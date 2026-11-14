@@ -8,13 +8,10 @@
  * always on).
  */
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { EventEmitter } from 'node:events';
 
 import { getSpecsDir } from '../../shared/constants';
-import type { ExecutionProgressData } from '../agent/types';
 import type { AgentExecutorConfig, SerializableSessionConfig } from '../ai/agent/types';
 import { WorkerBridgeCore } from '../ai/agent/worker-bridge-core';
 import type { WorkerBridgeCoreOptions } from '../ai/agent/worker-bridge-core';
@@ -31,15 +28,21 @@ import { createOrGetWorktree } from '../ai/worktree/worktree-manager';
 import { resolveHeadlessAuth } from './auth';
 import { loadHeadlessConfig, mcpOptionsForHeadless, resolveProjectSettings } from './config';
 import type { HeadlessConfig } from './config';
+import { collectBridgeRun } from './bridge-run';
+import type { HeadlessBridge } from './bridge-run';
 import { classifyRun, EXIT_ERROR } from './outcome';
-import type { RunEvent, RunOutcome } from './outcome';
+import type { RunOutcome } from './outcome';
 import { createProgressReporter } from './progress';
+import { AUTO_BUILD_PATH, findGitRoot, HeadlessSetupError, providerPhaseModels } from './shared';
+import {
+  notifyHeadlessOutcome,
+  projectNameFromPath,
+  readSpecTitle,
+  resolveHeadlessWebhook,
+} from './webhook';
+import type { ResolvedHeadlessWebhook } from './webhook';
 
-/** What the runner needs from a worker bridge (WorkerBridgeCore satisfies it). */
-export interface HeadlessBridge extends EventEmitter {
-  spawn(config: AgentExecutorConfig): void;
-  terminate(): Promise<void>;
-}
+export type { HeadlessBridge };
 
 export interface HeadlessRunOptions {
   /** Project root (or any directory inside it). Defaults to the current directory. */
@@ -62,6 +65,10 @@ export interface HeadlessRunOptions {
   createBridge?: (options: WorkerBridgeCoreOptions) => HeadlessBridge;
   out?: (text: string) => void;
   err?: (text: string) => void;
+  /** Test-only: replaces the webhook retry backoff delay. */
+  webhookDelay?: (ms: number) => Promise<void>;
+  /** Send the outcome webhook (default true). The daemon passes false and sends its own. */
+  sendWebhook?: boolean;
 }
 
 export interface HeadlessRunResult {
@@ -71,22 +78,6 @@ export interface HeadlessRunResult {
   branch?: string;
   worktreePath?: string;
   aborted: boolean;
-}
-
-const AUTO_BUILD_PATH = '.auto-claude';
-
-class HeadlessSetupError extends Error {}
-
-function findGitRoot(start: string): string {
-  try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd: start,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    throw new HeadlessSetupError(`${start} is not inside a git repository`);
-  }
 }
 
 function resolveSpec(projectRoot: string, spec: string): { specId: string; specDir: string } {
@@ -101,13 +92,6 @@ function resolveSpec(projectRoot: string, spec: string): { specId: string; specD
     throw new HeadlessSetupError(`Spec directory ${specDir} must be inside ${specsDir}`);
   }
   return { specId, specDir };
-}
-
-function providerPhaseModels(config: HeadlessConfig) {
-  return (provider: string): Record<string, string> | undefined => {
-    const entry = config.providerAgentConfig?.[provider] as { customPhaseModels?: Record<string, string> } | undefined;
-    return entry?.customPhaseModels;
-  };
 }
 
 export async function runHeadlessTask(options: HeadlessRunOptions): Promise<number> {
@@ -137,20 +121,50 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     return { exitCode: EXIT_ERROR, outcome, specId, aborted: false };
   };
 
+  // zeenha fork: outcome webhook state, set as early as possible so setup failures can notify too.
+  let webhook: ResolvedHeadlessWebhook | undefined;
+  let webhookProject = '';
+  let webhookTitle = '';
+  const sendOutcome = async (outcome: RunOutcome): Promise<void> => {
+    if (!webhook) return;
+    try {
+      await notifyHeadlessOutcome({
+        webhook,
+        outcome,
+        projectName: webhookProject,
+        taskTitle: webhookTitle,
+        warn: (message) => rawErr(redact(`warning: ${message}\n`)),
+        delay: options.webhookDelay,
+      });
+    } catch {
+      // The webhook must never change the run result.
+    }
+  };
+
   let specId: string | undefined;
-  let aborted = false;
   try {
     // (1) project and spec
     const projectPath = findGitRoot(path.resolve(options.projectPath ?? process.cwd()));
+    webhookProject = projectNameFromPath(projectPath);
     const resolved = resolveSpec(projectPath, options.spec);
     specId = resolved.specId;
     const specDir = resolved.specDir;
+    webhookTitle = specId;
     if (!existsSync(specDir) || !statSync(specDir).isDirectory() || !existsSync(path.join(specDir, 'spec.md'))) {
       throw new HeadlessSetupError(`Spec not found: ${path.join(specDir, 'spec.md')} does not exist`);
     }
+    webhookTitle = readSpecTitle(specDir, specId);
 
     // (2) config and project settings
     const config = options.config ?? loadHeadlessConfig(options.configPath);
+    if (options.sendWebhook !== false) {
+      const resolvedWebhook = resolveHeadlessWebhook(config, process.env);
+      if (resolvedWebhook && 'warning' in resolvedWebhook) {
+        rawErr(redact(`warning: ${resolvedWebhook.warning}\n`));
+      } else {
+        webhook = resolvedWebhook;
+      }
+    }
     const settings = resolveProjectSettings(projectPath, config, {
       baseBranch: options.baseBranch,
       noPush: options.noPush,
@@ -232,85 +246,31 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     };
     const bridge = options.createBridge ? options.createBridge(bridgeOptions) : new WorkerBridgeCore(bridgeOptions);
 
-    const events: RunEvent[] = [];
-    const errors: string[] = [];
-    let exitInfo: { code: number | null; signal?: string | null } | undefined;
-    let abortSignal: string | undefined;
-    const handleProcessSignals = options.handleProcessSignals !== false;
-
     const info = { spec: specId, branch, worktree: worktreePath };
     reporter.log(`Running ${specId} in worktree ${worktreePath} (branch ${branch})`);
 
-    const reported = await new Promise<RunOutcome>((resolve) => {
-      let settled = false;
-      const onSigint = () => abort('SIGINT');
-      const onSigterm = () => abort('SIGTERM');
-      const onAbortSignal = () => {
-        const reason = options.signal?.reason;
-        abort(typeof reason === 'string' && reason ? reason : 'abort signal');
-      };
-      const removeHandlers = () => {
-        if (handleProcessSignals) {
-          process.off('SIGINT', onSigint);
-          process.off('SIGTERM', onSigterm);
-        }
-        options.signal?.removeEventListener('abort', onAbortSignal);
-      };
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        removeHandlers();
-        resolve(classifyRun({ events, errors, exit: exitInfo, abortSignal }));
-      };
-
-      bridge.on('log', (_taskId: string, text: string) => reporter.log(text));
-      bridge.on('execution-progress', (_taskId: string, data: ExecutionProgressData) => reporter.progress(data));
-      bridge.on('task-event', (_taskId: string, event: RunEvent) => {
-        events.push(event);
-        reporter.taskEvent(event);
-      });
-      bridge.on('error', (_taskId: string, message: string) => {
-        errors.push(message);
-        reporter.error(message);
-      });
-      bridge.on('exit', (_taskId: string, code: number | null) => {
-        exitInfo = { code };
-        finish();
-      });
-
-      // (7) signals
-      const abort = (signal: string) => {
-        if (abortSignal) return;
-        abortSignal = signal;
-        aborted = true;
-        Promise.resolve(bridge.terminate())
-          .catch(() => {
-            // Already gone
-          })
-          .finally(finish);
-      };
-      if (handleProcessSignals) {
-        process.on('SIGINT', onSigint);
-        process.on('SIGTERM', onSigterm);
-      }
-
-      try {
-        bridge.spawn(executorConfig);
-      } catch (error) {
-        errors.push(error instanceof Error ? error.message : String(error));
-        finish();
-        return;
-      }
-      // Registered after spawn so an already-aborted signal terminates a live bridge.
-      if (options.signal) {
-        if (options.signal.aborted) onAbortSignal();
-        else options.signal.addEventListener('abort', onAbortSignal, { once: true });
-      }
+    const runInput = await collectBridgeRun({
+      bridge,
+      executorConfig,
+      reporter,
+      signal: options.signal,
+      handleProcessSignals: options.handleProcessSignals,
     });
+    const reported = classifyRun(runInput);
 
     reporter.summary(reported, info);
-    return { exitCode: reported.exitCode, outcome: reported, specId, branch, worktreePath, aborted };
+    await sendOutcome(reported);
+    return {
+      exitCode: reported.exitCode,
+      outcome: reported,
+      specId,
+      branch,
+      worktreePath,
+      aborted: runInput.abortSignal !== undefined,
+    };
   } catch (error) {
-    return fail(error instanceof Error ? error.message : String(error), specId);
+    const result = fail(error instanceof Error ? error.message : String(error), specId);
+    if (result.outcome) await sendOutcome(result.outcome);
+    return result;
   }
 }

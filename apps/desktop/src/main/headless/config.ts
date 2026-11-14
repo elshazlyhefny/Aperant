@@ -16,9 +16,6 @@ import { parseEnvPassthrough } from '../ai/security/child-env';
 import { parseSandboxMode } from '../ai/security/sandbox';
 import { parseWebFetchProvider } from '../ai/tools/providers/types';
 import type { SerializableSessionConfig } from '../ai/agent/types';
-import { DEFAULT_APP_SETTINGS } from '../../shared/constants/config';
-import type { WebhookSettings } from '../../shared/types/settings';
-import { validateWebhookUrl } from '../webhook-core';
 
 export interface HeadlessProjectConfig {
   mainBranch?: string;
@@ -30,12 +27,19 @@ export interface HeadlessProjectConfig {
   maxParallelTasks?: number;
 }
 
+export interface HeadlessWebhookConfig {
+  /** Daemon only: `serve` sends the webhook only when this is true. `run` ignores it. */
+  enabled?: boolean;
+  url?: string;
+  events?: Partial<{ reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean }>;
+}
+
 export interface HeadlessConfig {
   providerAccounts?: ProviderAccount[];
   globalPriorityOrder?: string[];
   providerAgentConfig?: Record<string, unknown>;
   project?: HeadlessProjectConfig;
-  webhook?: WebhookSettings;
+  webhook?: HeadlessWebhookConfig;
 }
 
 export interface HeadlessFlags {
@@ -55,41 +59,6 @@ export interface HeadlessProjectSettings {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-const WEBHOOK_EVENT_KEYS = ['reviewReady', 'failed', 'blocked', 'prOpened'] as const;
-
-function parseWebhook(value: unknown, configPath: string): WebhookSettings {
-  if (!isRecord(value)) {
-    throw new Error(`Config file ${configPath}: webhook must be an object`);
-  }
-  const { enabled, url, events } = value;
-  if (enabled !== undefined && typeof enabled !== 'boolean') {
-    throw new Error(`Config file ${configPath}: webhook.enabled must be a boolean`);
-  }
-  if (url !== undefined && typeof url !== 'string') {
-    throw new Error(`Config file ${configPath}: webhook.url must be a string`);
-  }
-  if (events !== undefined && !isRecord(events)) {
-    throw new Error(`Config file ${configPath}: webhook.events must be an object`);
-  }
-  const mergedEvents = { ...DEFAULT_APP_SETTINGS.webhook.events };
-  for (const key of WEBHOOK_EVENT_KEYS) {
-    const flag = events?.[key];
-    if (flag === undefined) continue;
-    if (typeof flag !== 'boolean') {
-      throw new Error(`Config file ${configPath}: webhook.events.${key} must be a boolean`);
-    }
-    mergedEvents[key] = flag;
-  }
-  const webhookUrl = url ?? DEFAULT_APP_SETTINGS.webhook.url;
-  if (enabled === true || webhookUrl !== '') {
-    const check = validateWebhookUrl(webhookUrl);
-    if (!check.ok) {
-      throw new Error(`Config file ${configPath}: webhook.url is not valid (${check.error})`);
-    }
-  }
-  return { enabled: enabled === true, url: webhookUrl, events: mergedEvents };
 }
 
 /** Load the optional --config file. Missing path = defaults; a bad explicit file throws. */
@@ -147,7 +116,35 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
     config.project = { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider, maxParallelTasks };
   }
   if (raw.webhook !== undefined) {
-    config.webhook = parseWebhook(raw.webhook, configPath);
+    if (!isRecord(raw.webhook)) {
+      throw new Error(`Config file ${configPath}: webhook must be an object`);
+    }
+    const { enabled, url, events } = raw.webhook;
+    if (enabled !== undefined && typeof enabled !== 'boolean') {
+      throw new Error(`Config file ${configPath}: webhook.enabled must be a boolean`);
+    }
+    if (url !== undefined && typeof url !== 'string') {
+      throw new Error(`Config file ${configPath}: webhook.url must be a string`);
+    }
+    const webhook: HeadlessWebhookConfig = {};
+    if (enabled !== undefined) webhook.enabled = enabled;
+    if (url !== undefined) webhook.url = url;
+    if (events !== undefined) {
+      if (!isRecord(events)) {
+        throw new Error(`Config file ${configPath}: webhook.events must be an object`);
+      }
+      const parsed: NonNullable<HeadlessWebhookConfig['events']> = {};
+      for (const key of ['reviewReady', 'failed', 'blocked', 'prOpened'] as const) {
+        const value = events[key];
+        if (value === undefined) continue;
+        if (typeof value !== 'boolean') {
+          throw new Error(`Config file ${configPath}: webhook.events.${key} must be a boolean`);
+        }
+        parsed[key] = value;
+      }
+      webhook.events = parsed;
+    }
+    config.webhook = webhook;
   }
   return config;
 }

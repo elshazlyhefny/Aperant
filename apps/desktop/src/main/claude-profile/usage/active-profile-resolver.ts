@@ -237,12 +237,43 @@ async function resolveZai(
   };
 }
 
-/** Resolvers keyed by `${provider}:${authType}`, or by provider alone (zai). */
+async function resolveOpenRouter(
+  account: ProviderAccount,
+  deps: ActiveProfileResolverDeps
+): Promise<ActiveProfileResult | null> {
+  const { log } = deps;
+  // OpenRouter API key account
+  const credential = account.apiKey;
+  if (!credential) {
+    log.traceLog('[UsageMonitor:TRACE] OpenRouter account missing apiKey:', account.id);
+    return null;
+  }
+
+  const baseUrl = account.baseUrl ?? 'https://openrouter.ai/api';
+
+  log.traceLog('[UsageMonitor:TRACE] Active auth type: OpenRouter API key (via globalPriorityOrder)', {
+    profileId: account.id,
+    profileName: account.name,
+    baseUrl
+  });
+
+  return {
+    profileId: account.id,
+    profileName: account.name,
+    profileEmail: account.email,
+    isAPIProfile: true,
+    baseUrl,
+    credential
+  };
+}
+
+/** Resolvers keyed by `${provider}:${authType}`, or by provider alone (zai, openrouter). */
 const ACCOUNT_RESOLVERS: Record<string, AccountResolver> = {
   'anthropic:oauth': resolveAnthropicOAuth,
   'anthropic:api-key': resolveAnthropicApiKey,
   'openai:oauth': resolveOpenAICodexOAuth,
-  zai: resolveZai
+  zai: resolveZai,
+  openrouter: resolveOpenRouter
 };
 
 function findResolver(account: ProviderAccount): AccountResolver | undefined {
@@ -253,7 +284,7 @@ function findResolver(account: ProviderAccount): AccountResolver | undefined {
  * Determine which profile is active by reading globalPriorityOrder from settings.
  * The first account in the priority order is considered the active one.
  *
- * Supported: Anthropic OAuth, Anthropic API key, OpenAI/Codex OAuth, Z.AI API key.
+ * Supported: Anthropic OAuth, Anthropic API key, OpenAI/Codex OAuth, Z.AI API key, OpenRouter API key.
  * Other providers return null (no usage monitoring supported).
  */
 export async function resolveActiveProfile(

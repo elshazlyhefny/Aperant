@@ -14,7 +14,7 @@ vi.mock('../codex-usage-fetcher', () => ({
   getCodexAccountId: vi.fn(),
 }));
 
-import { appendProviderAccountUsage, codexUsageSource, zaiUsageSource } from './provider-accounts';
+import { appendProviderAccountUsage, codexUsageSource, openrouterUsageSource, zaiUsageSource } from './provider-accounts';
 
 const zaiAccount = { id: 'z1', provider: 'zai', name: 'Z One', authType: 'api-key', apiKey: 'raw-key' };
 const codexAccount = { id: 'c1', provider: 'openai', name: 'Codex One', authType: 'oauth' };
@@ -98,6 +98,23 @@ describe('appendProviderAccountUsage', () => {
       { headers: { Authorization: 'raw-key' } }
     );
     expect(all[0].availabilityScore).toBe(100);
+  });
+
+  it('OpenRouter reuses currentUsage for the active account and never flags reauth', async () => {
+    readSettings.mockResolvedValue({ providerAccounts: [{ id: 'r1', provider: 'openrouter', name: 'R', authType: 'api-key', apiKey: 'rk' }] });
+    const all: ProfileUsageSummary[] = [];
+    await appendProviderAccountUsage(all, openrouterUsageSource, { currentUsage: snapshot({ profileId: 'r1' }), log });
+    expect(all[0]).toMatchObject({ profileId: 'r1', isActive: true, needsReauthentication: false });
+  });
+
+  it('OpenRouter sends Bearer header and adds a minimal entry on fetch failure', async () => {
+    readSettings.mockResolvedValue({ providerAccounts: [{ id: 'r1', provider: 'openrouter', name: 'R', authType: 'api-key', apiKey: 'rk' }] });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false });
+    vi.stubGlobal('fetch', fetchMock);
+    const all: ProfileUsageSummary[] = [];
+    await appendProviderAccountUsage(all, openrouterUsageSource, { currentUsage: null, log });
+    expect(fetchMock).toHaveBeenCalledWith('https://openrouter.ai/api/v1/key', { headers: { Authorization: 'Bearer rk' } });
+    expect(all[0]).toMatchObject({ profileId: 'r1', sessionPercent: 0, availabilityScore: 100, isActive: false });
   });
 
   it('logs when reading settings throws', async () => {

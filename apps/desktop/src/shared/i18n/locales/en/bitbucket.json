@@ -66,6 +66,43 @@
       "title": "Bitbucket is not configured",
       "description": "Add your Bitbucket credentials and repository in the project settings to see pull requests.",
       "action": "Open Bitbucket Settings"
+    },
+    "review": {
+      "title": "AI Review",
+      "start": "Start AI review",
+      "rerun": "Re-run review",
+      "cancel": "Cancel",
+      "running": "Reviewing...",
+      "notOpen": "AI review is only available for open pull requests",
+      "progress": "Review progress",
+      "logsTitle": "Review logs",
+      "summary": "Summary",
+      "status": {
+        "approve": "Looks good",
+        "request_changes": "Changes requested",
+        "comment": "Comments",
+        "in_progress": "In progress"
+      },
+      "findingsTitle": "Findings",
+      "noFindings": "No issues found",
+      "inlineOption": "Also post selected findings as inline comments",
+      "postButton": "Post selected findings to Bitbucket",
+      "posting": "Posting...",
+      "confirm": {
+        "title": "Post findings to Bitbucket?",
+        "description_one": "{{count}} finding will be posted to this pull request on Bitbucket as a comment.",
+        "description_other": "{{count}} findings will be posted to this pull request on Bitbucket as a comment.",
+        "inline": "Inline comments will also be posted on the matching lines.",
+        "noInline": "No inline comments will be posted.",
+        "confirm": "Post",
+        "cancel": "Cancel"
+      },
+      "postSuccess": "Findings posted to Bitbucket",
+      "inlinePartial": "{{count}} inline comments could not be placed:",
+      "errors": {
+        "review": "Review failed: {{error}}",
+        "post": "Posting failed: {{error}}"
+      }
     }
   }
 }

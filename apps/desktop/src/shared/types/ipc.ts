@@ -147,8 +147,17 @@ import type {
   GitLabNewCommitsCheck,
   BitbucketPullRequest,
   BitbucketSyncStatus,
-  BitbucketDetectedRepository
+  BitbucketDetectedRepository,
+  BitbucketPRReviewProgress,
+  BitbucketPostReviewOptions,
+  BitbucketPostReviewResult
 } from './integrations';
+import type { PRReviewResult } from './pr-review';
+import type {
+  PRLogs,
+  PRLogsKnownVersion,
+  PRLogsUpdatedPayload
+} from '../../preload/api/modules/github-api';
 import type { APIProfile, ProfilesFile, TestConnectionResult, DiscoverModelsResult } from './profile';
 import type { ProviderAccount } from './provider-account';
 
@@ -591,6 +600,34 @@ export interface ElectronAPI extends ScheduleAPI {
   getBitbucketPullRequest: (projectId: string, prId: number) => Promise<IPCResult<BitbucketPullRequest>>;
   getBitbucketPullRequestDiff: (projectId: string, prId: number) => Promise<IPCResult<string>>;
   postBitbucketPullRequestComment: (projectId: string, prId: number, body: string) => Promise<IPCResult<{ id: number }>>;
+
+  // Bitbucket PR AI review operations
+  runBitbucketPRReview: (projectId: string, prId: number) => void;
+  cancelBitbucketPRReview: (projectId: string, prId: number) => Promise<boolean>;
+  getBitbucketPRReview: (projectId: string, prId: number) => Promise<PRReviewResult | null>;
+  getBitbucketPRLogs: (
+    projectId: string,
+    prId: number,
+    known?: PRLogsKnownVersion
+  ) => Promise<PRLogs | null | 'unchanged'>;
+  postBitbucketPRReview: (
+    projectId: string,
+    prId: number,
+    selectedFindingIds: string[],
+    options: BitbucketPostReviewOptions
+  ) => Promise<IPCResult<BitbucketPostReviewResult>>;
+  onBitbucketPRReviewProgress: (
+    callback: (projectId: string, progress: BitbucketPRReviewProgress) => void
+  ) => () => void;
+  onBitbucketPRReviewComplete: (
+    callback: (projectId: string, result: PRReviewResult) => void
+  ) => () => void;
+  onBitbucketPRReviewError: (
+    callback: (projectId: string, error: { prId: number; error: string }) => void
+  ) => () => void;
+  onBitbucketPRLogsUpdated: (
+    callback: (projectId: string, data: PRLogsUpdatedPayload) => void
+  ) => () => void;
 
   // GitLab integration operations
   getGitLabProjects: (projectId: string) => Promise<IPCResult<GitLabProject[]>>;

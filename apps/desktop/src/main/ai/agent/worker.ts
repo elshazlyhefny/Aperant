@@ -53,6 +53,7 @@ import { connectMcpServers, resolveMcpServersForAgent, mergeMcpTools, closeAllMc
 import { mcpResolveOptionsForAgent } from '../mcp/project-settings';
 import type { McpClientResult } from '../mcp/types';
 import { runProjectIndexer } from '../project/project-indexer';
+import { appendMemoryContext, buildSessionMemoryContext } from './session-memory-context';
 import { WorkerObserverProxy } from '../memory/ipc/worker-observer-proxy';
 import { createRecordMemoryTool } from '../memory/tools/record-memory';
 import { createSearchMemoryTool } from '../memory/tools/search-memory';
@@ -349,6 +350,33 @@ async function assemblePrompt(
 // Single Session Runner
 // =============================================================================
 
+// zeenha fork: planner and qa_reviewer get relevant memories in their kickoff
+// (first user) message, not the system prompt, so the system prompt stays one
+// cacheable prefix. The result is cached per agent type for the worker lifetime
+// (including a timed-out "none"), so the QA loop's repeated reviewer sessions
+// cost at most one memory deadline.
+const memoryContextCache = new Map<string, Promise<string | undefined>>();
+
+async function withMemoryContext(
+  agentType: string,
+  specDir: string,
+  kickoff: string,
+): Promise<string> {
+  if (abortController.signal.aborted) return kickoff;
+  let pending = memoryContextCache.get(agentType);
+  if (!pending) {
+    pending = buildSessionMemoryContext({
+      agentType,
+      proxy: memoryProxy,
+      projectId: config.projectId ?? '',
+      specDir,
+      postLog,
+    });
+    memoryContextCache.set(agentType, pending);
+  }
+  return appendMemoryContext(kickoff, await pending);
+}
+
 /**
  * Run a single agent session and return the result.
  * Used as the runSession callback for BuildOrchestrator and QALoop.
@@ -434,7 +462,7 @@ async function runSingleSession(
 
   // Build initial messages: use provided kickoff message, or fall back to session messages
   const initialMessages = initialUserMessage
-    ? [{ role: 'user' as const, content: initialUserMessage }]
+    ? [{ role: 'user' as const, content: await withMemoryContext(agentType, specDir, initialUserMessage) }]
     : baseSession.initialMessages;
 
   // Resolve context window limit from model metadata
@@ -629,11 +657,23 @@ async function runDefaultSession(
   // Resolve context window limit from model metadata
   const contextWindowLimit = getModelContextWindow(session.modelId);
 
+  // zeenha fork: see withMemoryContext. Copy the array; never mutate session.
+  let initialMessages = session.initialMessages;
+  const first = initialMessages?.[0];
+  if (
+    (session.agentType === 'planner' || session.agentType === 'qa_reviewer') &&
+    first &&
+    typeof first.content === 'string'
+  ) {
+    const content = await withMemoryContext(session.agentType, session.specDir, first.content);
+    initialMessages = [{ ...first, content }, ...initialMessages.slice(1)];
+  }
+
   const sessionConfig: SessionConfig = {
     agentType: session.agentType,
     model,
     systemPrompt: session.systemPrompt,
-    initialMessages: session.initialMessages,
+    initialMessages,
     toolContext,
     maxSteps: session.maxSteps,
     thinkingLevel: session.thinkingLevel,

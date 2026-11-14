@@ -25,9 +25,19 @@ export type PRFeedbackBlockedReason =
   | 'pr_not_open'
   | 'agent_running'
   | 'auth_required'
+  | 'not_configured'
   | 'no_github_config'
   | 'no_gitlab_config'
   | 'branch_mismatch';
+
+/** Providers that already had their own blocked code before the forge registry. */
+export const LEGACY_NOT_CONFIGURED_CODES: readonly PRFeedbackBlockedReason[] = ['no_github_config', 'no_gitlab_config'];
+
+/** IPC code for a forge that is not configured: the legacy per-provider code when one exists. */
+export function notConfiguredBlockedReason(provider: string): PRFeedbackBlockedReason {
+  const legacy = `no_${provider}_config`;
+  return LEGACY_NOT_CONFIGURED_CODES.find((code) => code === legacy) ?? 'not_configured';
+}
 
 export interface PRFeedbackResult {
   prNumber: number;

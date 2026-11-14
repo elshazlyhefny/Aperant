@@ -15,13 +15,14 @@ import {
   getBitbucketConfig,
   bitbucketFetch,
   bitbucketFetchText,
-  detectBitbucketRepositoryFromRemote
+  detectBitbucketRepositoryFromRemote,
+  postBitbucketComment,
+  MAX_COMMENT_LENGTH
 } from './utils';
 import type {
   BitbucketAPIPullRequest,
   BitbucketAPIPage,
   BitbucketAPIRepository,
-  BitbucketAPIComment,
   BitbucketAPIUser
 } from './types';
 import { createDebugLog } from '../../../shared/utils/debug-logger';
@@ -34,7 +35,6 @@ type PullRequestStateFilter = typeof VALID_PR_STATES[number];
 const CONCRETE_STATES = ['OPEN', 'MERGED', 'DECLINED', 'SUPERSEDED'] as const;
 type PullRequestState = BitbucketPullRequest['state'];
 
-const MAX_COMMENT_LENGTH = 32768;
 const NOT_CONFIGURED = 'Bitbucket not configured';
 
 export function isValidPullRequestState(state: string): state is PullRequestStateFilter {
@@ -73,7 +73,7 @@ export function transformPullRequest(apiPr: BitbucketAPIPullRequest): BitbucketP
   };
 }
 
-function isValidPrId(id: unknown): id is number {
+export function isValidPrId(id: unknown): id is number {
   return typeof id === 'number' && Number.isInteger(id) && id > 0;
 }
 
@@ -248,11 +248,7 @@ export function registerPostPullRequestComment(): void {
       }
 
       try {
-        const comment = await bitbucketFetch(
-          config,
-          `${repoPath(config.repository)}/pullrequests/${prId}/comments`,
-          { method: 'POST', body: JSON.stringify({ content: { raw: body } }) }
-        ) as BitbucketAPIComment;
+        const comment = await postBitbucketComment(config, prId, body);
         return { success: true, data: { id: comment.id } };
       } catch (error) {
         debugLog('Failed to post comment:', errorMessage(error, 'unknown'));

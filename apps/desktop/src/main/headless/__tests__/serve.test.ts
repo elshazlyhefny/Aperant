@@ -152,6 +152,9 @@ describe('runServe queue', () => {
   it('maps outcomes to statuses and sends one webhook per terminal outcome', async () => {
     makeSpec('001-a');
     makeSpec('002-b');
+    // The runner's own webhook (cli.js run) must stay off under the daemon: one notification per outcome.
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200 });
+    vi.stubGlobal('fetch', fetchMock);
     const p = serve();
     await vi.waitFor(() => expect(spawned()).toHaveLength(2));
     const byTask = (id: string) => spawned().find((b) => b.taskId === id) as FakeBridge;
@@ -164,8 +167,25 @@ describe('runServe queue', () => {
     const statuses = webhook.mock.calls.map((c) => [c[1].status, c[1].reviewReason]);
     expect(statuses).toContainEqual(['human_review', 'qa_rejected']);
     expect(statuses).toContainEqual(['error', undefined]);
+    expect(webhook.mock.calls[0][0]).toEqual({
+      enabled: true,
+      url: 'https://example.com/hook',
+      events: { reviewReady: true, failed: true, blocked: true, prOpened: false },
+    });
     await stop(p);
     expect(webhook).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('exits 1 and starts nothing when the webhook url is invalid', async () => {
+    makeSpec('001-a');
+    const code = await serve({ config: { webhook: { enabled: true, url: 'http://example.com/hook' } } });
+    expect(code).toBe(1);
+    expect(err.join('')).toContain('webhook.url is not valid');
+    expect(err.join('')).not.toContain('example.com');
+    expect(bridges).toHaveLength(0);
+    expect(existsSync(path.join(projectDir, '.auto-claude', '.locks'))).toBe(false);
   });
 
   it('exits 3 and starts nothing when a desktop holds the lock', async () => {

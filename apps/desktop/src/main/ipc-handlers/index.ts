@@ -148,7 +148,7 @@ export function setupIpcHandlers(
   registerGitlabHandlers(agentManager, getMainWindow);
 
   // Bitbucket integration handlers
-  registerBitbucketHandlers();
+  registerBitbucketHandlers(getMainWindow);
 
   // Ideation handlers
   registerIdeationHandlers(agentManager, getMainWindow);

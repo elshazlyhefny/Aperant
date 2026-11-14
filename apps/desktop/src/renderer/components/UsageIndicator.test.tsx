@@ -40,6 +40,9 @@ vi.mock('react-i18next', () => ({
         'common:usage.providerAnthropic': 'Anthropic',
         'common:usage.providerOpenAI': 'OpenAI',
         'common:usage.providerGoogle': 'Google AI',
+        'common:usage.windowCredit': 'Credit',
+        'common:usage.creditRemaining': 'Remaining',
+        'common:usage.creditNoLimit': 'No limit set',
       };
 
       if (params && Object.keys(params).length > 0) {
@@ -322,6 +325,75 @@ describe('UsageIndicator', () => {
       await waitFor(() => {
         expect(screen.queryByText('Cross-Provider Usage')).not.toBeInTheDocument();
       });
+    });
+  });
+
+  describe('OpenRouter credit usage', () => {
+    const openRouterAccounts: ProviderAccount[] = [
+      {
+        id: 'account-openrouter',
+        provider: 'openrouter',
+        name: 'OpenRouter Key',
+        authType: 'api-key',
+        billingModel: 'pay-per-use',
+        apiKey: 'or-key',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ];
+
+    const mockCredit = (creditUsage: Record<string, unknown>) => {
+      vi.mocked(useSettingsStore).mockReturnValue(createStoreMock({
+        providerAccounts: openRouterAccounts,
+        globalPriorityOrder: ['account-openrouter'],
+      }) as any);
+      (window as any).electronAPI.requestUsageUpdate = vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          profileId: 'account-openrouter',
+          profileName: 'OpenRouter Key',
+          sessionPercent: 0,
+          weeklyPercent: 0,
+          sessionResetTimestamp: undefined,
+          weeklyResetTimestamp: undefined,
+          fetchedAt: new Date(),
+          needsReauthentication: false,
+          creditUsage,
+        },
+      });
+      (window as any).electronAPI.requestAllProfilesUsage = vi.fn().mockResolvedValue({
+        success: true,
+        data: { allProfiles: [], activeProfile: null },
+      });
+    };
+
+    it('shows percent and used/limit when a limit is set', async () => {
+      mockCredit({ used: 2.5, limit: 10, remaining: 7.5, resetPeriod: null });
+      render(<UsageIndicator />);
+
+      const trigger = await screen.findByRole('button', { name: 'common:usage.usageStatusAriaLabel' });
+      expect(await screen.findByText('25%')).toBeInTheDocument();
+      fireEvent.mouseEnter(trigger);
+
+      expect(await screen.findByText('Credit')).toBeInTheDocument();
+      expect(screen.getByText(/\$2\.50.*\$10\.00/)).toBeInTheDocument();
+      expect(screen.getByText('$7.50')).toBeInTheDocument();
+      expect(screen.getByTestId('credit-progress-bar')).toBeInTheDocument();
+      expect(screen.queryByText('Unlimited')).not.toBeInTheDocument();
+    });
+
+    it('shows only the used amount when no limit is set', async () => {
+      mockCredit({ used: 3.25, limit: null, remaining: null, resetPeriod: null });
+      render(<UsageIndicator />);
+
+      const trigger = await screen.findByRole('button', { name: 'common:usage.usageStatusAriaLabel' });
+      expect(await screen.findByText('$3.25')).toBeInTheDocument();
+      fireEvent.mouseEnter(trigger);
+
+      expect(await screen.findByText('No limit set')).toBeInTheDocument();
+      expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('credit-progress-bar')).not.toBeInTheDocument();
+      expect(screen.queryByText('Unlimited')).not.toBeInTheDocument();
     });
   });
 });

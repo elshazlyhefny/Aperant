@@ -11,7 +11,6 @@
  * Do not import electron, project-store, app-logger or settings-utils here.
  */
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
@@ -40,11 +39,11 @@ import {
   setTaskStatus,
 } from './task-store';
 import type { HeadlessProject } from './task-store';
-import { DEFAULT_APP_SETTINGS } from '../../shared/constants/config';
+import { AUTO_BUILD_PATH, findGitRoot } from './shared';
+import { resolveServeWebhookSettings } from './webhook';
 
 export const EXIT_LOCKED = 3;
 
-const AUTO_BUILD_PATH = '.auto-claude';
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 const SAFETY_PROCESS_INTERVAL_MS = 30_000;
 const RUNNING_FILE = 'serve-running.json';
@@ -84,18 +83,6 @@ interface ActiveRun {
   done: Promise<void>;
 }
 
-function findGitRoot(start: string): string {
-  try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd: start,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    throw new Error(`${start} is not inside a git repository`);
-  }
-}
-
 function defaultInstallSignals(onSignal: (signal: string) => void): () => void {
   const onTerm = () => onSignal('SIGTERM');
   const onInt = () => onSignal('SIGINT');
@@ -123,9 +110,11 @@ export async function runServe(options: ServeOptions): Promise<number> {
 
   let projectPath: string;
   let config: HeadlessConfig;
+  let webhookSettings: WebhookSettings;
   try {
     projectPath = findGitRoot(path.resolve(options.projectPath));
     config = options.config ?? loadHeadlessConfig(options.configPath);
+    webhookSettings = resolveServeWebhookSettings(config);
   } catch (error) {
     rawErr(`${error instanceof Error ? error.message : String(error)}\n`);
     return EXIT_ERROR;
@@ -202,7 +191,6 @@ export async function runServe(options: ServeOptions): Promise<number> {
   }
   rmSync(runningFile, { force: true });
 
-  const webhookSettings: WebhookSettings = config.webhook ?? DEFAULT_APP_SETTINGS.webhook;
   const dispatchWebhook = options.dispatchWebhook ?? dispatchTaskOutcomeWebhookWith;
 
   // (4) queue and schedules
@@ -305,6 +293,8 @@ export async function runServe(options: ServeOptions): Promise<number> {
             config,
             signal: controller.signal,
             handleProcessSignals: false,
+            // The daemon sends its own webhook in settle(), once the final status is known.
+            sendWebhook: false,
             baseBranch: options.baseBranch,
             noPush: options.noPush,
             json: options.json,
