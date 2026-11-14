@@ -92,6 +92,9 @@ let specDir = '';
 function writeSpec() {
   fs.writeFileSync(path.join(specDir, 'spec.md'), `# Spec\n\n${'A real specification line. '.repeat(10)}\n`);
 }
+function writeMetadata(baseBranch: string) {
+  fs.writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({ baseBranch }));
+}
 function writePlan(content: string | object) {
   fs.writeFileSync(
     path.join(specDir, 'implementation_plan.json'),
@@ -225,10 +228,23 @@ describe('TASK_START launch', () => {
   });
 
   it('prefers the task-level baseBranch over the project mainBranch', async () => {
-    ref.task.metadata.baseBranch = 'feature/base';
+    writeMetadata('feature/base');
     writeSpec();
     await startTask();
     expect(agentManager.startTaskExecution.mock.calls[0][3]).toEqual(expectedOptions('feature/base'));
+  });
+
+  it('passes an origin/-prefixed baseBranch to startTaskExecution without the prefix', async () => {
+    writeMetadata('origin/feat/x');
+    writeSpec();
+    await startTask();
+    expect(agentManager.startTaskExecution.mock.calls[0][3]).toEqual(expectedOptions('feat/x'));
+  });
+
+  it('passes an origin/-prefixed baseBranch to startSpecCreation without the prefix', async () => {
+    writeMetadata('origin/feat/x');
+    await startTask();
+    expect(agentManager.startSpecCreation.mock.calls[0][5]).toBe('feat/x');
   });
 
   describe('XState event choice', () => {
@@ -331,7 +347,7 @@ describe('applyTaskStatusUpdate -> in_progress launch', () => {
   });
 
   it('starts task execution for a spec with subtasks and prefers the task baseBranch', async () => {
-    ref.task.metadata.baseBranch = 'feature/base';
+    writeMetadata('feature/base');
     writeSpec();
     writePlan(PLAN_WITH_SUBTASKS);
     await updateStatus('in_progress');

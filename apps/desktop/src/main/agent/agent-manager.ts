@@ -37,6 +37,7 @@ import { parseSandboxMode } from '../ai/security/sandbox';
 import { parseWebFetchProvider } from '../ai/tools/providers/types';
 import { createOrGetWorktree } from '../ai/worktree';
 import { findTaskWorktree } from '../worktree-paths';
+import { resolveTaskBaseBranch } from '../base-branch';
 import { landsThroughPullRequestsOnly } from '../../shared/utils/landing-policy';
 import { readSettingsFile } from '../settings-utils';
 import { hasUsableAuth } from '../services/profile/provider-account-check';
@@ -523,7 +524,11 @@ export class AgentManager extends EventEmitter {
     const useWorktree = options.useWorktree !== false; // Default to true (matching Python backend)
     if (useWorktree) {
       try {
-        const baseBranch = options.baseBranch ?? project?.settings?.mainBranch ?? 'main';
+        const baseBranch = resolveTaskBaseBranch({
+          project: { path: projectPath, autoBuildPath: project?.autoBuildPath, settings: project?.settings },
+          specId,
+          override: options.baseBranch,
+        });
         const result = await createOrGetWorktree(
           projectPath,
           specId,

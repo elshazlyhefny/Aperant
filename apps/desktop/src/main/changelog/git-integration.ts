@@ -8,6 +8,7 @@ import type {
 } from '../../shared/types';
 import { parseGitLogOutput } from './parser';
 import { getToolPath } from '../cli-tool-manager';
+import { detectTrunkBranch } from '../base-branch';
 
 /**
  * Debug logging helper
@@ -157,23 +158,7 @@ export function getDefaultBranch(projectPath: string): string {
     return result.replace('origin/', '');
   } catch {
     // Fallback: check if main or master exists
-    try {
-      execFileSync(getToolPath('git'), ['rev-parse', '--verify', 'main'], {
-        cwd: projectPath,
-        encoding: 'utf-8'
-      });
-      return 'main';
-    } catch {
-      try {
-        execFileSync(getToolPath('git'), ['rev-parse', '--verify', 'master'], {
-          cwd: projectPath,
-          encoding: 'utf-8'
-        });
-        return 'master';
-      } catch {
-        return 'main';
-      }
-    }
+    return detectTrunkBranch(projectPath) ?? 'main';
   }
 }
 

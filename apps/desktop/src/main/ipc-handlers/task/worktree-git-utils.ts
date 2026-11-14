@@ -9,6 +9,10 @@ import { getToolPath } from '../../cli-tool-manager';
 import { fixMisconfiguredBareRepo, GIT_BRANCH_REGEX } from '../../utils/git-repo-repair';
 export { fixMisconfiguredBareRepo, GIT_BRANCH_REGEX };
 
+import { getTaskBaseBranch, resolveTaskBaseBranch, resolveTaskBaseBranchAsync } from '../../base-branch';
+
+export { getTaskBaseBranch };
+
 // zeenha fork: async git helpers below keep the main thread free while Human Review loads.
 const execFileAsync = promisify(execFile);
 
@@ -79,130 +83,41 @@ export function isGitWorkTree(projectPath: string): boolean {
 }
 
 /**
- * Read the stored base branch from task_metadata.json
- * This is the branch the task was created from (set by user during task creation)
- */
-export function getTaskBaseBranch(specDir: string): string | undefined {
-  // Defensive check for undefined input
-  if (!specDir || typeof specDir !== 'string') {
-    console.error('[getTaskBaseBranch] specDir is undefined or not a string');
-    return undefined;
-  }
-
-  try {
-    const metadataPath = path.join(specDir, 'task_metadata.json');
-    if (existsSync(metadataPath)) {
-      const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8'));
-      // Return baseBranch if explicitly set (not the __project_default__ marker)
-      // Also validate it's a valid branch name to prevent malformed git commands
-      if (metadata.baseBranch &&
-          metadata.baseBranch !== '__project_default__' &&
-          GIT_BRANCH_REGEX.test(metadata.baseBranch)) {
-        // Strip remote prefix if present (e.g., "origin/feat/x" → "feat/x")
-        const branch = metadata.baseBranch.replace(/^origin\//, '');
-        return branch;
-      }
-    }
-  } catch (e) {
-    console.warn('[getTaskBaseBranch] Failed to read task metadata:', e);
-  }
-  return undefined;
-}
-
-/**
- * Get the effective base branch for a task with proper fallback chain.
- * Priority:
- * 1. Task metadata baseBranch (explicit task-level override from task_metadata.json)
- * 2. Project settings mainBranch (project-level default)
- * 3. Git default branch detection (main/master)
+ * Get the effective base branch for a task. Delegates to the shared resolver.
+ * Canonical precedence:
+ * 1. Task metadata baseBranch (task_metadata.json)
+ * 2. Project settings mainBranch
+ * 3. Git trunk detection (main, then master)
  * 4. Fallback to 'main'
  *
- * This should be used instead of getting the current HEAD branch,
- * as the user may be on a feature branch when viewing worktree status.
+ * Prefer resolveTaskBaseBranch() from ../../base-branch in new code.
  */
-export function getEffectiveBaseBranch(projectPath: string, specId: string, projectMainBranch?: string): string {
-  // Defensive check for undefined inputs
-  if (!projectPath || typeof projectPath !== 'string') {
-    console.error('[getEffectiveBaseBranch] projectPath is undefined or not a string');
-    return 'main';
-  }
-  if (!specId || typeof specId !== 'string') {
-    console.error('[getEffectiveBaseBranch] specId is undefined or not a string');
-    return 'main';
-  }
-
-  // 1. Try task metadata baseBranch
-  const specDir = path.join(projectPath, '.auto-claude', 'specs', specId);
-  const taskBaseBranch = getTaskBaseBranch(specDir);
-  if (taskBaseBranch) {
-    return taskBaseBranch;
-  }
-
-  // 2. Try project settings mainBranch
-  if (projectMainBranch && GIT_BRANCH_REGEX.test(projectMainBranch)) {
-    return projectMainBranch;
-  }
-
-  // 3. Try to detect main/master branch
-  for (const branch of ['main', 'master']) {
-    try {
-      execFileSync(getToolPath('git'), ['rev-parse', '--verify', branch], {
-        cwd: projectPath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      return branch;
-    } catch {
-      // Branch doesn't exist, try next
-    }
-  }
-
-  // 4. Fallback to 'main'
-  return 'main';
+export function getEffectiveBaseBranch(
+  projectPath: string,
+  specId: string,
+  projectMainBranch?: string,
+  autoBuildPath?: string
+): string {
+  return resolveTaskBaseBranch({
+    project: { path: projectPath, autoBuildPath, settings: { mainBranch: projectMainBranch } },
+    specId,
+  });
 }
 
 /**
- * zeenha fork: async version of getEffectiveBaseBranch. Same priority chain,
- * but git probes do not block the Electron main thread.
+ * zeenha fork: async version of getEffectiveBaseBranch. Same precedence (shared
+ * resolver), but git probes do not block the Electron main thread.
  */
-export async function getEffectiveBaseBranchAsync(
+export function getEffectiveBaseBranchAsync(
   projectPath: string,
   specId: string,
-  projectMainBranch?: string
+  projectMainBranch?: string,
+  autoBuildPath?: string
 ): Promise<string> {
-  if (!projectPath || typeof projectPath !== 'string') {
-    console.error('[getEffectiveBaseBranchAsync] projectPath is undefined or not a string');
-    return 'main';
-  }
-  if (!specId || typeof specId !== 'string') {
-    console.error('[getEffectiveBaseBranchAsync] specId is undefined or not a string');
-    return 'main';
-  }
-
-  const specDir = path.join(projectPath, '.auto-claude', 'specs', specId);
-  const taskBaseBranch = getTaskBaseBranch(specDir);
-  if (taskBaseBranch) {
-    return taskBaseBranch;
-  }
-
-  if (projectMainBranch && GIT_BRANCH_REGEX.test(projectMainBranch)) {
-    return projectMainBranch;
-  }
-
-  // main is preferred over master, so probe sequentially
-  for (const branch of ['main', 'master']) {
-    try {
-      await execFileAsync(getToolPath('git'), ['rev-parse', '--verify', branch], {
-        cwd: projectPath,
-        encoding: 'utf-8',
-      });
-      return branch;
-    } catch {
-      // Branch doesn't exist, try next
-    }
-  }
-
-  return 'main';
+  return resolveTaskBaseBranchAsync({
+    project: { path: projectPath, autoBuildPath, settings: { mainBranch: projectMainBranch } },
+    specId,
+  });
 }
 
 export interface NumstatEntry {
