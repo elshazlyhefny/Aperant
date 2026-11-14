@@ -11,6 +11,7 @@ import { DEFAULT_APP_SETTINGS } from '../shared/constants/config';
 import { appLog } from './app-logger';
 import { readSettingsFile } from './settings-utils';
 import { getProjectWebhookConfig } from './project-webhook-config';
+import { getWebhookApprovals } from './webhook-approval-store';
 import {
   sendWebhook as sendWebhookCore,
   validateWebhookUrl,
@@ -74,9 +75,15 @@ export function dispatchTaskOutcomeWebhook(input: {
   try {
     const event = mapOutcomeToWebhookEvent(input.status, input.reviewReason);
     if (!event) return;
-    // A valid project webhook overrides the app-wide one exclusively.
-    const projectConfig = input.project ? getProjectWebhookConfig(input.project) : null;
-    if (projectConfig) {
+    // An APPROVED project webhook overrides the app-wide one exclusively. An
+    // unapproved or refused one is untrusted: it never receives task data.
+    const projectConfig = input.project
+      ? getProjectWebhookConfig(input.project, getWebhookApprovals(input.project.path))
+      : null;
+    if (projectConfig && projectConfig.status !== 'approved') {
+      safeWarn('[Webhook] project webhook not approved, using app-wide webhook');
+    }
+    if (projectConfig?.status === 'approved') {
       if (!projectConfig.events[EVENT_TOGGLE[event]]) return;
       const projectPayload = buildWebhookPayload({
         projectName: input.projectName,

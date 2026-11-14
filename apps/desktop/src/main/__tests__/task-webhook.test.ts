@@ -3,8 +3,10 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   warn: vi.fn(),
   settings: undefined as Record<string, unknown> | undefined,
-  projectConfig: vi.fn()
+  projectConfig: vi.fn(),
+  approvals: vi.fn()
 }));
+vi.mock('../webhook-approval-store', () => ({ getWebhookApprovals: mocks.approvals }));
 vi.mock('../project-webhook-config', () => ({ getProjectWebhookConfig: mocks.projectConfig }));
 vi.mock('../app-logger', () => ({ appLog: { warn: mocks.warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('../settings-utils', () => ({ readSettingsFile: () => mocks.settings }));
@@ -28,6 +30,8 @@ beforeEach(() => {
   mocks.settings = undefined;
   mocks.projectConfig.mockReset();
   mocks.projectConfig.mockReturnValue(null);
+  mocks.approvals.mockReset();
+  mocks.approvals.mockReturnValue({ urls: [] });
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -244,8 +248,10 @@ describe('dispatchTaskOutcomeWebhook with a project webhook', () => {
   const appWide = {
     webhook: { enabled: true, url: URL_OK, events: { reviewReady: true, failed: true, blocked: true, prOpened: false } }
   };
-  const cfg = (failed: boolean) => ({
+  const cfg = (failed: boolean, status: 'approved' | 'unapproved' | 'refused' = 'approved') => ({
     url: PROJECT_URL,
+    hash: 'h',
+    status,
     events: { reviewReady: true, failed, blocked: true, prOpened: false }
   });
 
@@ -258,7 +264,7 @@ describe('dispatchTaskOutcomeWebhook with a project webhook', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(PROJECT_URL);
-    expect(mocks.projectConfig).toHaveBeenCalledWith(project);
+    expect(mocks.projectConfig).toHaveBeenCalledWith(project, { urls: [] });
   });
 
   it('sends nothing, not even app-wide, when the project event is disabled', async () => {
@@ -276,6 +282,39 @@ describe('dispatchTaskOutcomeWebhook with a project webhook', () => {
     dispatchTaskOutcomeWebhook(input);
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock.mock.calls[0][0]).toBe(URL_OK);
+  });
+
+  it('unapproved project url sends to the app-wide url only, with one URL-free warn', async () => {
+    mocks.settings = appWide;
+    mocks.projectConfig.mockReturnValue(cfg(true, 'unapproved'));
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(URL_OK);
+    expect(mocks.approvals).toHaveBeenCalledWith('/proj');
+    expect(mocks.warn).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify(mocks.warn.mock.calls);
+    expect(logged).not.toContain('PROJSECRET');
+    expect(logged).not.toContain('hooks.example.com');
+  });
+
+  it('refused (e.g. loopback) project url falls back to the app-wide url', async () => {
+    mocks.settings = appWide;
+    mocks.projectConfig.mockReturnValue({ ...cfg(true, 'refused'), url: 'http://localhost:9/x' });
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toBe(URL_OK);
+  });
+
+  it('unapproved project url with app-wide disabled sends nothing', async () => {
+    mocks.settings = { webhook: { ...appWide.webhook, enabled: false } };
+    mocks.projectConfig.mockReturnValue(cfg(true, 'unapproved'));
+    dispatchTaskOutcomeWebhook(input);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('keeps the old behaviour when no project is passed', async () => {
