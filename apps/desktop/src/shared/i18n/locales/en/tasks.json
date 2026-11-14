@@ -534,6 +534,7 @@
       "pr_not_open": "The pull request is no longer open, so feedback cannot be sent to the agent.",
       "agent_running": "The agent is already running for this task. Wait for it to finish.",
       "auth_required": "GitHub authentication is required to send feedback. Sign in to GitHub and refresh.",
+      "not_configured": "The code host for this pull request is not configured for this project.",
       "no_github_config": "GitHub is not configured for this project.",
       "no_gitlab_config": "GitLab is not configured for this project.",
       "branch_mismatch": "The task's worktree is not on the pull request's branch, so no follow-up can run here."

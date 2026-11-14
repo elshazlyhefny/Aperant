@@ -26,7 +26,9 @@ import type {
 } from '../../../shared/types';
 import { findTaskAndProject } from './shared';
 import type { PRFeedbackFetchResult } from '../github/pr/task-feedback';
-import { loadPRFeedback, resolvePRRef, type PRRef } from './pr-feedback-source';
+import { notConfiguredBlockedReason } from '../../../shared/types/pr-feedback';
+import { getForgeById } from '../forge/registry';
+import { loadPRFeedback, resolvePRRef, type LoadPRFeedbackResult, type PRRef } from './pr-feedback-source';
 import { buildFollowUpRequest } from './pr-followup-request';
 import { findTaskWorktree } from '../../worktree-paths';
 import { getToolPath } from '../../cli-tool-manager';
@@ -49,11 +51,29 @@ const BLOCKED_MESSAGES: Record<PRFeedbackBlockedReason, string> = {
   pr_not_open: 'The pull request is closed or merged, so feedback cannot be sent back to this task. Nothing was started.',
   agent_running: 'An agent is already running for this task. Wait for it to finish, then try again. Nothing was started.',
   auth_required: 'Authentication required. Add an account in Settings > Accounts, then try again. Nothing was started.',
+  not_configured: 'The code host for this pull request is not configured for this project. Nothing was started.',
   no_github_config: 'GitHub is not configured for this project (token or repository missing). Nothing was started.',
   no_gitlab_config: 'GitLab is not configured for this project (token or project missing). Nothing was started.',
   branch_mismatch:
     "The task's worktree is not on the pull request branch, so the follow-up cannot push to the same PR. Nothing was started.",
 };
+
+/** Failure result for a feedback load that did not succeed. */
+function loadFailure(loaded: Extract<LoadPRFeedbackResult, { ok: false }>): {
+  success: false;
+  code: PRFollowUpErrorCode;
+  error: string;
+  provider?: string;
+} {
+  if (loaded.code === 'fetch_failed') return { success: false, code: 'fetch_failed', error: loaded.error };
+  const forge = getForgeById(loaded.provider);
+  return {
+    success: false,
+    code: notConfiguredBlockedReason(loaded.provider),
+    error: forge ? `${forge.notConfiguredMessage} Nothing was started.` : BLOCKED_MESSAGES.not_configured,
+    provider: loaded.provider,
+  };
+}
 
 interface TaskPRContext {
   task: Task;
@@ -155,13 +175,7 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
       const { task, project, prUrl, provider, number } = resolved.ctx;
 
       const loaded = await loadPRFeedback(project, prUrl, { provider, number });
-      if (!loaded.ok) {
-        return {
-          success: false,
-          code: loaded.code,
-          error: loaded.code === 'fetch_failed' ? loaded.error : BLOCKED_MESSAGES[loaded.code],
-        };
-      }
+      if (!loaded.ok) return loadFailure(loaded);
       const fetched = loaded.fetched;
 
       const worktree = checkWorktree(project, task);
@@ -215,13 +229,7 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
 
       // 3. Re-fetch in main. Only selected items are kept; unknown ids are rejected.
       const loaded = await loadPRFeedback(project, prUrl, { provider, number: prNumber });
-      if (!loaded.ok) {
-        return {
-          success: false,
-          code: loaded.code,
-          error: loaded.code === 'fetch_failed' ? loaded.error : BLOCKED_MESSAGES[loaded.code],
-        };
-      }
+      if (!loaded.ok) return loadFailure(loaded);
       const fetched = loaded.fetched;
 
       const blocked = firstBlock({
