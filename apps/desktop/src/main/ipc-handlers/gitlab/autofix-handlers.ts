@@ -14,6 +14,8 @@ import path from 'path';
 import fs from 'fs';
 import { IPC_CHANNELS } from '../../../shared/constants';
 import { getGitLabConfig, gitlabFetch, encodeProjectPath } from './utils';
+import { createIPCCommunicators } from '../shared/ipc-communicator';
+import { createAutoFixStore } from '../shared/autofix-store';
 import { withProjectOrNull } from '../github/utils/project-middleware';
 import type { Project } from '../../../shared/types';
 import type {
@@ -26,6 +28,31 @@ import type {
 import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 const debugLog = createDebugLog('GitLab AutoFix');
+
+const autoFixStore = createAutoFixStore<object, GitLabAutoFixQueueItem, GitLabIssueBatch>({
+  providerDir: 'gitlab',
+  mapQueueItem: (data) => ({
+    issueIid: data.issue_iid,
+    project: data.project,
+    status: data.status,
+    specId: data.spec_id,
+    mrIid: data.mr_iid,
+    error: data.error,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+  }),
+  mapBatch: (data) => ({
+    id: data.batch_id,
+    issues: data.issues.map((i: Record<string, unknown>) => ({
+      iid: i.iid as number,
+      title: i.title as string,
+      similarity: (i.similarity as number) ?? 1.0,
+    })),
+    commonThemes: data.common_themes ?? [],
+    confidence: data.confidence ?? 1.0,
+    reasoning: data.reasoning ?? '',
+  }),
+});
 
 function sanitizeIssueUrl(rawUrl: unknown, instanceUrl: string): string {
   if (typeof rawUrl !== 'string') return '';
@@ -50,163 +77,10 @@ function sanitizeIssueUrl(rawUrl: unknown, instanceUrl: string): string {
 }
 
 /**
- * Validate that a resolved path stays within the project directory
- * Prevents path traversal attacks via malicious project.path values
- */
-function validatePathWithinProject(projectPath: string, resolvedPath: string): void {
-  const normalizedProject = path.resolve(projectPath);
-  const normalizedResolved = path.resolve(resolvedPath);
-
-  if (!normalizedResolved.startsWith(normalizedProject + path.sep) && normalizedResolved !== normalizedProject) {
-    throw new Error('Invalid path: path traversal detected');
-  }
-}
-
-/**
- * Get the GitLab directory for a project
- */
-function getGitLabDir(project: Project): string {
-  const gitlabDir = path.join(project.path, '.auto-claude', 'gitlab');
-  validatePathWithinProject(project.path, gitlabDir);
-  return gitlabDir;
-}
-
-/**
- * Get the auto-fix config for a project
- */
-function getAutoFixConfig(project: Project): GitLabAutoFixConfig {
-  const configPath = path.join(getGitLabDir(project), 'config.json');
-
-  if (fs.existsSync(configPath)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      return {
-        enabled: data.auto_fix_enabled ?? false,
-        labels: data.auto_fix_labels ?? ['auto-fix'],
-        requireHumanApproval: data.require_human_approval ?? true,
-        model: data.model ?? 'claude-sonnet-4-6',
-        thinkingLevel: data.thinking_level ?? 'medium',
-      };
-    } catch {
-      // Return defaults
-    }
-  }
-
-  return {
-    enabled: false,
-    labels: ['auto-fix'],
-    requireHumanApproval: true,
-    model: 'claude-sonnet-4-6',
-    thinkingLevel: 'medium',
-  };
-}
-
-/**
- * Save the auto-fix config for a project
- */
-function saveAutoFixConfig(project: Project, config: GitLabAutoFixConfig): void {
-  const gitlabDir = getGitLabDir(project);
-  fs.mkdirSync(gitlabDir, { recursive: true });
-
-  const configPath = path.join(gitlabDir, 'config.json');
-  let existingConfig: Record<string, unknown> = {};
-
-  try {
-    existingConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  } catch {
-    // Use empty config
-  }
-
-  const updatedConfig = {
-    ...existingConfig,
-    auto_fix_enabled: config.enabled,
-    auto_fix_labels: config.labels,
-    require_human_approval: config.requireHumanApproval,
-    model: config.model,
-    thinking_level: config.thinkingLevel,
-  };
-
-  fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2), 'utf-8');
-}
-
-/**
- * Get the auto-fix queue for a project
- */
-function getAutoFixQueue(project: Project): GitLabAutoFixQueueItem[] {
-  const issuesDir = path.join(getGitLabDir(project), 'issues');
-
-  if (!fs.existsSync(issuesDir)) {
-    return [];
-  }
-
-  const queue: GitLabAutoFixQueueItem[] = [];
-  const files = fs.readdirSync(issuesDir);
-
-  for (const file of files) {
-    if (file.startsWith('autofix_') && file.endsWith('.json')) {
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(issuesDir, file), 'utf-8'));
-        queue.push({
-          issueIid: data.issue_iid,
-          project: data.project,
-          status: data.status,
-          specId: data.spec_id,
-          mrIid: data.mr_iid,
-          error: data.error,
-          createdAt: data.created_at,
-          updatedAt: data.updated_at,
-        });
-      } catch {
-        // Skip invalid files
-      }
-    }
-  }
-
-  return queue.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-}
-
-/**
- * Get batches from disk
- */
-function getBatches(project: Project): GitLabIssueBatch[] {
-  const batchesDir = path.join(getGitLabDir(project), 'batches');
-
-  if (!fs.existsSync(batchesDir)) {
-    return [];
-  }
-
-  const batches: GitLabIssueBatch[] = [];
-  const files = fs.readdirSync(batchesDir);
-
-  for (const file of files) {
-    if (file.startsWith('batch_') && file.endsWith('.json')) {
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(batchesDir, file), 'utf-8'));
-        batches.push({
-          id: data.batch_id,
-          issues: data.issues.map((i: Record<string, unknown>) => ({
-            iid: i.iid as number,
-            title: i.title as string,
-            similarity: i.similarity as number ?? 1.0,
-          })),
-          commonThemes: data.common_themes ?? [],
-          confidence: data.confidence ?? 1.0,
-          reasoning: data.reasoning ?? '',
-        });
-      } catch {
-        // Skip invalid files
-      }
-    }
-  }
-
-  return batches;
-}
-
-/**
  * Check for issues with auto-fix labels
  */
 async function checkAutoFixLabels(project: Project): Promise<number[]> {
-  const config = getAutoFixConfig(project);
+  const config = autoFixStore.getConfig(project);
   if (!config.enabled || config.labels.length === 0) {
     return [];
   }
@@ -229,7 +103,7 @@ async function checkAutoFixLabels(project: Project): Promise<number[]> {
   }>;
 
   // Filter for issues with matching labels
-  const queue = getAutoFixQueue(project);
+  const queue = autoFixStore.getQueue(project);
   const pendingIssues = new Set(queue.map(q => q.issueIid));
 
   const matchingIssues: number[] = [];
@@ -256,7 +130,7 @@ async function checkAutoFixLabels(project: Project): Promise<number[]> {
  * Check for NEW issues not yet in the auto-fix queue (no labels required)
  */
 async function checkNewIssues(project: Project): Promise<Array<{ iid: number }>> {
-  const config = getAutoFixConfig(project);
+  const config = autoFixStore.getConfig(project);
   if (!config.enabled) {
     return [];
   }
@@ -266,7 +140,7 @@ async function checkNewIssues(project: Project): Promise<Array<{ iid: number }>>
     return [];
   }
 
-  const queue = getAutoFixQueue(project);
+  const queue = autoFixStore.getQueue(project);
   const pendingIssues = new Set(queue.map(q => q.issueIid));
   const encodedProject = encodeProjectPath(glConfig.project);
 
@@ -286,39 +160,6 @@ async function checkNewIssues(project: Project): Promise<Array<{ iid: number }>>
 }
 
 /**
- * Send IPC progress event
- */
-function sendProgress(
-  mainWindow: BrowserWindow,
-  projectId: string,
-  progress: GitLabAutoFixProgress
-): void {
-  mainWindow.webContents.send(IPC_CHANNELS.GITLAB_AUTOFIX_PROGRESS, projectId, progress);
-}
-
-/**
- * Send IPC error event
- */
-function sendError(
-  mainWindow: BrowserWindow,
-  projectId: string,
-  error: string
-): void {
-  mainWindow.webContents.send(IPC_CHANNELS.GITLAB_AUTOFIX_ERROR, projectId, error);
-}
-
-/**
- * Send IPC complete event
- */
-function sendComplete(
-  mainWindow: BrowserWindow,
-  projectId: string,
-  data: GitLabAutoFixQueueItem
-): void {
-  mainWindow.webContents.send(IPC_CHANNELS.GITLAB_AUTOFIX_COMPLETE, projectId, data);
-}
-
-/**
  * Start auto-fix for an issue
  */
 async function startAutoFix(
@@ -326,12 +167,22 @@ async function startAutoFix(
   issueIid: number,
   mainWindow: BrowserWindow
 ): Promise<void> {
+  const { sendProgress, sendComplete } = createIPCCommunicators<GitLabAutoFixProgress, GitLabAutoFixQueueItem>(
+    mainWindow,
+    {
+      progress: IPC_CHANNELS.GITLAB_AUTOFIX_PROGRESS,
+      error: IPC_CHANNELS.GITLAB_AUTOFIX_ERROR,
+      complete: IPC_CHANNELS.GITLAB_AUTOFIX_COMPLETE,
+    },
+    project.id
+  );
+
   const glConfig = await getGitLabConfig(project);
   if (!glConfig) {
     throw new Error('No GitLab configuration found');
   }
 
-  sendProgress(mainWindow, project.id, {
+  sendProgress({
     phase: 'fetching',
     issueIid,
     progress: 10,
@@ -353,14 +204,14 @@ async function startAutoFix(
     web_url: string;
   };
 
-  sendProgress(mainWindow, project.id, {
+  sendProgress({
     phase: 'analyzing',
     issueIid,
     progress: 30,
     message: 'Analyzing issue...',
   });
 
-  sendProgress(mainWindow, project.id, {
+  sendProgress({
     phase: 'creating_spec',
     issueIid,
     progress: 50,
@@ -373,7 +224,7 @@ async function startAutoFix(
   }
 
   // Save auto-fix state
-  const issuesDir = path.join(getGitLabDir(project), 'issues');
+  const issuesDir = path.join(autoFixStore.getDir(project), 'issues');
   fs.mkdirSync(issuesDir, { recursive: true });
 
   const state: GitLabAutoFixQueueItem = {
@@ -401,14 +252,14 @@ async function startAutoFix(
     'utf-8'
   );
 
-  sendProgress(mainWindow, project.id, {
+  sendProgress({
     phase: 'complete',
     issueIid,
     progress: 100,
     message: 'Auto-fix spec created! Start the build to continue.',
   });
 
-  sendComplete(mainWindow, project.id, state);
+  sendComplete(state);
 }
 
 /**
@@ -425,7 +276,7 @@ export function registerAutoFixHandlers(
     async (_, projectId: string): Promise<GitLabAutoFixConfig | null> => {
       debugLog('getAutoFixConfig handler called', { projectId });
       return withProjectOrNull(projectId, async (project) => {
-        return getAutoFixConfig(project);
+        return autoFixStore.getConfig(project);
       });
     }
   );
@@ -436,7 +287,7 @@ export function registerAutoFixHandlers(
     async (_, projectId: string, config: GitLabAutoFixConfig): Promise<boolean> => {
       debugLog('saveAutoFixConfig handler called', { projectId, enabled: config.enabled });
       const result = await withProjectOrNull(projectId, async (project) => {
-        saveAutoFixConfig(project, config);
+        autoFixStore.saveConfig(project, config);
         return true;
       });
       return result ?? false;
@@ -449,7 +300,7 @@ export function registerAutoFixHandlers(
     async (_, projectId: string): Promise<GitLabAutoFixQueueItem[]> => {
       debugLog('getAutoFixQueue handler called', { projectId });
       const result = await withProjectOrNull(projectId, async (project) => {
-        return getAutoFixQueue(project);
+        return autoFixStore.getQueue(project);
       });
       return result ?? [];
     }
@@ -496,7 +347,18 @@ export function registerAutoFixHandlers(
         });
       } catch (error) {
         debugLog('Auto-fix failed', { issueIid, error: error instanceof Error ? error.message : error });
-        sendError(mainWindow, projectId, error instanceof Error ? error.message : 'Failed to start auto-fix');
+        // Behaviour change: GITLAB_AUTOFIX_ERROR now carries { error } instead of a bare
+        // string (no renderer listener consumes it; only the preload type changed).
+        const { sendError } = createIPCCommunicators<GitLabAutoFixProgress, GitLabAutoFixQueueItem>(
+          mainWindow,
+          {
+            progress: IPC_CHANNELS.GITLAB_AUTOFIX_PROGRESS,
+            error: IPC_CHANNELS.GITLAB_AUTOFIX_ERROR,
+            complete: IPC_CHANNELS.GITLAB_AUTOFIX_COMPLETE,
+          },
+          projectId
+        );
+        sendError(error instanceof Error ? error.message : 'Failed to start auto-fix');
       }
     }
   );
@@ -507,7 +369,7 @@ export function registerAutoFixHandlers(
     async (_, projectId: string): Promise<GitLabIssueBatch[]> => {
       debugLog('getBatches handler called', { projectId });
       const result = await withProjectOrNull(projectId, async (project) => {
-        return getBatches(project);
+        return autoFixStore.getBatches(project);
       });
       return result ?? [];
     }
@@ -601,7 +463,7 @@ export function registerAutoFixHandlers(
       debugLog('approveBatches handler called', { projectId, batchCount: approvedBatches.length });
       const result = await withProjectOrNull(projectId, async (project) => {
         try {
-          const batchesDir = path.join(getGitLabDir(project), 'batches');
+          const batchesDir = path.join(autoFixStore.getDir(project), 'batches');
           fs.mkdirSync(batchesDir, { recursive: true });
 
           // Save approved batches
@@ -622,7 +484,7 @@ export function registerAutoFixHandlers(
             }, null, 2), 'utf-8');
           }
 
-          const batches = getBatches(project);
+          const batches = autoFixStore.getBatches(project);
           return { success: true, batches };
         } catch (error) {
           debugLog('Approve batches failed', { error: error instanceof Error ? error.message : error });

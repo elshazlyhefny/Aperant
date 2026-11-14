@@ -109,7 +109,7 @@ export interface GitLabAPI {
     callback: (projectId: string, result: GitLabAutoFixQueueItem) => void
   ) => IpcListenerCleanup;
   onGitLabAutoFixError: (
-    callback: (projectId: string, error: string) => void
+    callback: (projectId: string, error: { error: string }) => void
   ) => IpcListenerCleanup;
   onGitLabAutoFixAnalyzePreviewProgress: (
     callback: (projectId: string, progress: { phase: string; progress: number; message: string }) => void
@@ -334,7 +334,7 @@ export const createGitLabAPI = (): GitLabAPI => ({
     createIpcListener(IPC_CHANNELS.GITLAB_AUTOFIX_COMPLETE, callback),
 
   onGitLabAutoFixError: (
-    callback: (projectId: string, error: string) => void
+    callback: (projectId: string, error: { error: string }) => void
   ): IpcListenerCleanup =>
     createIpcListener(IPC_CHANNELS.GITLAB_AUTOFIX_ERROR, callback),
 
