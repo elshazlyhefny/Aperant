@@ -2,8 +2,10 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   warn: vi.fn(),
-  settings: undefined as Record<string, unknown> | undefined
+  settings: undefined as Record<string, unknown> | undefined,
+  projectConfig: vi.fn()
 }));
+vi.mock('../project-webhook-config', () => ({ getProjectWebhookConfig: mocks.projectConfig }));
 vi.mock('../app-logger', () => ({ appLog: { warn: mocks.warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('../settings-utils', () => ({ readSettingsFile: () => mocks.settings }));
 
@@ -24,6 +26,8 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   mocks.warn.mockReset();
   mocks.settings = undefined;
+  mocks.projectConfig.mockReset();
+  mocks.projectConfig.mockReturnValue(null);
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -230,6 +234,67 @@ describe('dispatchTaskOutcomeWebhook', () => {
     Object.defineProperty(mocks, 'settings', { get() { throw new Error('x'); }, configurable: true });
     expect(() => dispatchTaskOutcomeWebhook(input)).not.toThrow();
     Object.defineProperty(mocks, 'settings', { value: undefined, writable: true, configurable: true });
+  });
+});
+
+describe('dispatchTaskOutcomeWebhook with a project webhook', () => {
+  const PROJECT_URL = 'https://hooks.example.com/project/PROJSECRET/PATH';
+  const project = { path: '/proj', autoBuildPath: '.auto-claude' };
+  const input = { status: 'error', projectName: 'P', taskTitle: 'T', project };
+  const appWide = {
+    webhook: { enabled: true, url: URL_OK, events: { reviewReady: true, failed: true, blocked: true, prOpened: false } }
+  };
+  const cfg = (failed: boolean) => ({
+    url: PROJECT_URL,
+    events: { reviewReady: true, failed, blocked: true, prOpened: false }
+  });
+
+  it('sends only to the project url when set and the event is enabled', async () => {
+    mocks.settings = appWide;
+    mocks.projectConfig.mockReturnValue(cfg(true));
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(PROJECT_URL);
+    expect(mocks.projectConfig).toHaveBeenCalledWith(project);
+  });
+
+  it('sends nothing, not even app-wide, when the project event is disabled', async () => {
+    mocks.settings = appWide;
+    mocks.projectConfig.mockReturnValue(cfg(false));
+    dispatchTaskOutcomeWebhook(input);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the app-wide webhook when the project has none', async () => {
+    mocks.settings = appWide;
+    mocks.projectConfig.mockReturnValue(null);
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toBe(URL_OK);
+  });
+
+  it('keeps the old behaviour when no project is passed', async () => {
+    mocks.settings = appWide;
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook({ status: 'error', projectName: 'P', taskTitle: 'T' });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toBe(URL_OK);
+    expect(mocks.projectConfig).not.toHaveBeenCalled();
+  });
+
+  it('never logs the project url', async () => {
+    mocks.projectConfig.mockReturnValue(cfg(true));
+    fetchMock.mockResolvedValue(res(500));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(mocks.warn).toHaveBeenCalled());
+    const logged = JSON.stringify(mocks.warn.mock.calls);
+    expect(logged).not.toContain('PROJSECRET');
+    expect(logged).not.toContain('hooks.example.com');
   });
 });
 
