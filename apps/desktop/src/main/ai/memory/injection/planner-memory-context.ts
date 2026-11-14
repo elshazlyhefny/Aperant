@@ -6,7 +6,7 @@
  * dependencies, outcomes, and workflow recipes.
  */
 
-import type { Memory, MemoryService } from '../types';
+import type { InjectionMemorySource, Memory } from '../types';
 
 // ============================================================
 // PUBLIC API
@@ -24,7 +24,7 @@ import type { Memory, MemoryService } from '../types';
 export async function buildPlannerMemoryContext(
   taskDescription: string,
   relevantModules: string[],
-  memoryService: MemoryService,
+  memoryService: InjectionMemorySource,
   projectId: string,
 ): Promise<string> {
   try {

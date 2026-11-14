@@ -5,7 +5,7 @@
  * patterns stored as 'prefetch_pattern' memories.
  */
 
-import type { MemoryService } from '../types';
+import type { InjectionMemorySource } from '../types';
 
 // ============================================================
 // TYPES
@@ -35,7 +35,7 @@ export interface PrefetchPlan {
  */
 export async function buildPrefetchPlan(
   modules: string[],
-  memoryService: MemoryService,
+  memoryService: Pick<InjectionMemorySource, 'search'>,
   projectId: string,
 ): Promise<PrefetchPlan> {
   try {

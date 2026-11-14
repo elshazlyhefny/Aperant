@@ -95,6 +95,9 @@ agent session
 - Injection: builders in [injection/](injection/) for the planner
   (`planner-memory-context.ts`), QA (`qa-context.ts`), prefetch
   (`prefetch-builder.ts`) and step-level injection (`step-injection-decider.ts`).
+  The planner, QA and prefetch builders feed the pre-session context described
+  under "How memory reaches a worker"; `agent/session-memory-context.ts` wires
+  them together and `agent/worker.ts` applies the result.
 - Structural graph: [graph/](graph/) does tree-sitter AST extraction, incremental
   indexing and impact analysis, in the same database. Its `index.ts` says it
   replaces the Python sidecar.
@@ -123,6 +126,13 @@ agent session
      MemoryService -> memory.db
    finalizeMemory() -> handler.finalize(outcome)
 ```
+
+**Pre-session context.** For `planner` and `qa_reviewer` sessions the worker
+appends relevant memories to the kickoff (first user) message, not the system
+prompt. It builds them through `WorkerObserverProxy`, caps them at 6000 chars,
+and waits at most 3 s. When memory is off, slow or empty the block is silently
+skipped. The result is cached per agent type for the worker's lifetime, so the QA
+loop pays for at most one lookup.
 
 ## Legacy naming and the MCP path
 
