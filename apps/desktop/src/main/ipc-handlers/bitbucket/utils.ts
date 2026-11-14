@@ -7,13 +7,20 @@ import { execFileSync } from 'child_process';
 import path from 'path';
 import type { Project } from '../../../shared/types';
 import { parseEnvFile } from '../utils';
-import type { BitbucketConfig, BitbucketAPIPullRequest, BitbucketAPIPage } from './types';
+import type {
+  BitbucketConfig,
+  BitbucketAPIPullRequest,
+  BitbucketAPIPage,
+  BitbucketAPIComment
+} from './types';
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
 
 export const BITBUCKET_API_BASE = 'https://api.bitbucket.org/2.0';
 
 // Default timeout for Bitbucket API requests (30 seconds)
 export const BITBUCKET_API_TIMEOUT_MS = 30000;
+
+export const MAX_COMMENT_LENGTH = 32768;
 
 const MAX_TOKEN_LENGTH = 512;
 const MAX_USERNAME_LENGTH = 256;
@@ -282,4 +289,30 @@ export function parseBitbucketRemoteUrl(
   if (!fullName) return null;
   const [workspace, repoSlug] = fullName.split('/');
   return { workspace, repoSlug, fullName };
+}
+
+/** Inline anchor for a pull request comment (file path plus optional line numbers) */
+export interface BitbucketInlineAnchor {
+  path: string;
+  to?: number;
+  from?: number;
+}
+
+/**
+ * Post a comment on a pull request, optionally anchored inline to a file/line.
+ */
+export async function postBitbucketComment(
+  config: BitbucketConfig,
+  prId: number,
+  content: string,
+  inline?: BitbucketInlineAnchor
+): Promise<BitbucketAPIComment> {
+  const [workspace, slug] = config.repository.split('/');
+  const payload: Record<string, unknown> = { content: { raw: content } };
+  if (inline) payload.inline = inline;
+  return (await bitbucketFetch(
+    config,
+    `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(slug)}/pullrequests/${prId}/comments`,
+    { method: 'POST', body: JSON.stringify(payload) }
+  )) as BitbucketAPIComment;
 }
