@@ -1,11 +1,15 @@
 import path from 'path';
 import { minimatch } from 'minimatch';
 import { existsSync, readdirSync, readFileSync } from 'fs';
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
+import { promisify } from 'util';
 import { app } from 'electron';
 import { DEFAULT_APP_SETTINGS, DEFAULT_FEATURE_MODELS, DEFAULT_FEATURE_THINKING, MODEL_ID_MAP, THINKING_BUDGET_MAP } from '../../../shared/constants';
 import type { AppSettings } from '../../../shared/types';
 import { getToolPath } from '../../cli-tool-manager';
+
+// zeenha fork: async git helpers below keep the main thread free while Human Review loads.
+const execFileAsync = promisify(execFile);
 
 // Regex pattern for validating git branch names
 export const GIT_BRANCH_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
@@ -269,4 +273,114 @@ export function getEffectiveBaseBranch(projectPath: string, specId: string, proj
 
   // 4. Fallback to 'main'
   return 'main';
+}
+
+/**
+ * zeenha fork: async version of getEffectiveBaseBranch. Same priority chain,
+ * but git probes do not block the Electron main thread.
+ */
+export async function getEffectiveBaseBranchAsync(
+  projectPath: string,
+  specId: string,
+  projectMainBranch?: string
+): Promise<string> {
+  if (!projectPath || typeof projectPath !== 'string') {
+    console.error('[getEffectiveBaseBranchAsync] projectPath is undefined or not a string');
+    return 'main';
+  }
+  if (!specId || typeof specId !== 'string') {
+    console.error('[getEffectiveBaseBranchAsync] specId is undefined or not a string');
+    return 'main';
+  }
+
+  const specDir = path.join(projectPath, '.auto-claude', 'specs', specId);
+  const taskBaseBranch = getTaskBaseBranch(specDir);
+  if (taskBaseBranch) {
+    return taskBaseBranch;
+  }
+
+  if (projectMainBranch && GIT_BRANCH_REGEX.test(projectMainBranch)) {
+    return projectMainBranch;
+  }
+
+  // main is preferred over master, so probe sequentially
+  for (const branch of ['main', 'master']) {
+    try {
+      await execFileAsync(getToolPath('git'), ['rev-parse', '--verify', branch], {
+        cwd: projectPath,
+        encoding: 'utf-8',
+      });
+      return branch;
+    } catch {
+      // Branch doesn't exist, try next
+    }
+  }
+
+  return 'main';
+}
+
+export interface NumstatEntry {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+/**
+ * zeenha fork: parse `git diff --numstat` output. Binary files ('-') count as 0.
+ */
+export function parseNumstat(output: string): NumstatEntry[] {
+  const entries: NumstatEntry[] = [];
+  for (const line of output.split('\n')) {
+    if (!line.trim()) continue;
+    const parts = line.split('\t');
+    if (parts.length < 3) continue;
+    entries.push({
+      path: parts.slice(2).join('\t'),
+      additions: parseInt(parts[0], 10) || 0,
+      deletions: parseInt(parts[1], 10) || 0,
+    });
+  }
+  return entries;
+}
+
+export function summarizeNumstat(entries: NumstatEntry[]): {
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+  for (const entry of entries) {
+    additions += entry.additions;
+    deletions += entry.deletions;
+  }
+  return { filesChanged: entries.length, additions, deletions };
+}
+
+// zeenha fork: in-flight dedupe only (no TTL), so nothing stale is served after a call settles.
+const inFlightNumstat = new Map<string, Promise<string>>();
+
+/**
+ * Run `git diff --numstat <baseBranch>` in a worktree without blocking the main thread.
+ * Concurrent identical calls share one git process. Errors propagate to the caller.
+ */
+export function getWorktreeNumstat(worktreePath: string, baseBranch: string): Promise<string> {
+  const key = `${worktreePath}\0${baseBranch}`;
+  const existing = inFlightNumstat.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = execFileAsync(getToolPath('git'), ['diff', '--numstat', baseBranch], {
+    cwd: worktreePath,
+    encoding: 'utf-8',
+    maxBuffer: 10 * 1024 * 1024,
+  })
+    .then(({ stdout }) => stdout.trim())
+    .finally(() => {
+      inFlightNumstat.delete(key);
+    });
+
+  inFlightNumstat.set(key, promise);
+  return promise;
 }
