@@ -73,7 +73,7 @@ export function transformPullRequest(apiPr: BitbucketAPIPullRequest): BitbucketP
   };
 }
 
-function isValidPrId(id: unknown): id is number {
+export function isValidPrId(id: unknown): id is number {
   return typeof id === 'number' && Number.isInteger(id) && id > 0;
 }
 
