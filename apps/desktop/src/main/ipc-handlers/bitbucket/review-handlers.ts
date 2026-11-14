@@ -12,6 +12,7 @@ import { loadPRLogsIfChanged, type PRLogs, type PRLogsKnownVersion } from '../gi
 import { isValidPrId } from './pull-request-handlers';
 import { getBitbucketReviewResult } from './review-results';
 import { runBitbucketPRReview, runningBitbucketReviews, getBitbucketReviewKey } from './review-runner';
+import { registerBitbucketPostReview } from './review-posting';
 import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 const debugLog = createDebugLog('Bitbucket PR Review');
@@ -23,6 +24,8 @@ const CHANNELS = {
 };
 
 export function registerBitbucketReviewHandlers(getMainWindow: () => BrowserWindow | null): void {
+  registerBitbucketPostReview();
+
   ipcMain.on(IPC_CHANNELS.BITBUCKET_PR_REVIEW, async (_event, projectId: string, prId: number) => {
     const mainWindow = getMainWindow();
     if (!mainWindow) {
