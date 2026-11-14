@@ -225,15 +225,6 @@ export function registerProviderAccountHandlers(): void {
     }
   );
 
-  // TEST CONNECTION for a provider account
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_ACCOUNTS_TEST_CONNECTION,
-    async (_event, _provider: string, _config: { apiKey?: string; baseUrl?: string; region?: string }): Promise<IPCResult<{ success: boolean; error?: string }>> => {
-      // Basic stub - connection testing can be enhanced later per-provider
-      return { success: true, data: { success: true } };
-    }
-  );
-
   // CHECK ENV credentials (detect which providers have env vars set)
   ipcMain.handle(
     IPC_CHANNELS.PROVIDER_ACCOUNTS_CHECK_ENV,

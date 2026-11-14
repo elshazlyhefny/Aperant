@@ -426,7 +426,6 @@ export interface ElectronAPI extends ScheduleAPI {
   setProviderAccountQueueOrder: (order: string[]) => Promise<IPCResult>;
   setCrossProviderQueueOrder: (order: string[]) => Promise<IPCResult>;
   saveModelOverrides: (overrides: Record<string, unknown>) => Promise<IPCResult>;
-  testProviderConnection: (provider: string, config: { apiKey?: string; baseUrl?: string; region?: string }) => Promise<IPCResult<{ success: boolean; error?: string }>>;
   checkEnvCredentials: () => Promise<IPCResult<Record<string, boolean>>>;
 
   // Codex OAuth authentication
@@ -777,7 +776,6 @@ export interface ElectronAPI extends ScheduleAPI {
 
   // Shell operations
   openExternal: (url: string) => Promise<void>;
-  openTerminal: (dirPath: string) => Promise<IPCResult<void>>;
 
   // Changelog operations
   getChangelogDoneTasks: (projectId: string, tasks?: Task[]) => Promise<IPCResult<ChangelogTask[]>>;

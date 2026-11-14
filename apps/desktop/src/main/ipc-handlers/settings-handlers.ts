@@ -1,5 +1,5 @@
 import { ipcMain, dialog, app, shell, session } from 'electron';
-import { existsSync, mkdirSync, statSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { execFileSync } from 'node:child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -28,7 +28,6 @@ import type { APIProfile } from '../../shared/types/profile';
 import type { ClaudeProfile } from '../../shared/types/agent';
 import { loadProfilesFile } from '../services/profile';
 import { loadProfileStore } from '../claude-profile/profile-storage';
-import { isMacOS, isWindows } from '../platform';
 
 async function migrateToProviderAccounts(settings: AppSettings): Promise<{ changed: boolean; settings: AppSettings }> {
   if (settings._migratedProviderAccounts) {
@@ -805,99 +804,6 @@ export function registerSettingsHandlers(
           throw new Error('Invalid URL format');
         }
         throw error;
-      }
-    }
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.SHELL_OPEN_TERMINAL,
-    async (event, dirPath: string): Promise<IPCResult<void>> => {
-      if (!assertTrustedSender(event, 'SHELL_OPEN_TERMINAL')) return { success: false, error: 'Untrusted sender' };
-      try {
-        // Validate dirPath input
-        if (!dirPath || typeof dirPath !== 'string' || dirPath.trim() === '') {
-          return {
-            success: false,
-            error: 'Directory path is required and must be a non-empty string'
-          };
-        }
-
-        // Resolve to absolute path
-        const resolvedPath = path.resolve(dirPath);
-
-        // Verify path exists
-        if (!existsSync(resolvedPath)) {
-          return {
-            success: false,
-            error: `Directory does not exist: ${resolvedPath}`
-          };
-        }
-
-        // Verify it's a directory
-        try {
-          if (!statSync(resolvedPath).isDirectory()) {
-            return {
-              success: false,
-              error: `Path is not a directory: ${resolvedPath}`
-            };
-          }
-        } catch (_statError) {
-          return {
-            success: false,
-            error: `Cannot access path: ${resolvedPath}`
-          };
-        }
-
-        if (isMacOS()) {
-          // macOS: Use execFileSync with argument array to prevent injection
-          execFileSync('open', ['-a', 'Terminal', resolvedPath], { stdio: 'ignore' });
-        } else if (isWindows()) {
-          // Windows: Use cmd.exe directly with argument array
-          // /C tells cmd to execute the command and terminate
-          // /K keeps the window open after executing cd
-          execFileSync('cmd.exe', ['/K', 'cd', '/d', resolvedPath], {
-            stdio: 'ignore',
-            windowsHide: false,
-            shell: false  // Explicitly disable shell to prevent injection
-          });
-        } else {
-          // Linux: Try common terminal emulators with argument arrays
-          // Note: xterm uses cwd option to avoid shell injection vulnerabilities
-          const terminals: Array<{ cmd: string; args: string[]; useCwd?: boolean }> = [
-            { cmd: 'gnome-terminal', args: ['--working-directory', resolvedPath] },
-            { cmd: 'konsole', args: ['--workdir', resolvedPath] },
-            { cmd: 'xfce4-terminal', args: ['--working-directory', resolvedPath] },
-            { cmd: 'xterm', args: ['-e', 'bash'], useCwd: true }
-          ];
-
-          let opened = false;
-          for (const { cmd, args, useCwd } of terminals) {
-            try {
-              execFileSync(cmd, args, {
-                stdio: 'ignore',
-                ...(useCwd ? { cwd: resolvedPath } : {})
-              });
-              opened = true;
-              break;
-            } catch {
-            }
-          }
-
-          if (!opened) {
-            return {
-              success: false,
-              error: 'No supported terminal emulator found. Please install gnome-terminal, konsole, xfce4-terminal, or xterm.'
-            };
-          }
-        }
-
-        return { success: true };
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-        return {
-          success: false,
-          error: `Failed to open terminal: ${errorMsg}`
-        };
       }
     }
   );
