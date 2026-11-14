@@ -135,15 +135,8 @@ agent session
   `mcpOptions.memoryEnabled = !!process.env.GRAPHITI_MCP_URL`. Nothing in `src`
   assigns that variable, and the server must be run externally (the Agent Tools
   page in `AgentTools.tsx` says the same).
-- [../context/graphiti-integration.ts](../context/graphiti-integration.ts) is a
-  stub: its `isMemoryEnabled()` always returns `false`, so `context/builder.ts`
-  never adds graph hints.
-- Two different functions are named `isMemoryEnabled()`:
-  - `ipc-handlers/context/utils.ts` reads `GRAPHITI_ENABLED` from the project env
-    or `process.env`.
-  - `ai/context/graphiti-integration.ts` always returns `false`.
-
-  Neither is the switch for agent memory. Use `isAgentMemoryEnabled()`.
+- `isAgentMemoryEnabled()` in `ipc-handlers/context/memory-service-factory.ts`
+  (driven by the `memoryEnabled` app setting) is the only memory switch.
 
 ## What is not shipped
 
