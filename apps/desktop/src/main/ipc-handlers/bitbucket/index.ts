@@ -12,6 +12,8 @@ import {
   registerGetPullRequestDiff,
   registerPostPullRequestComment
 } from './pull-request-handlers';
+import { registerBitbucketReviewHandlers } from './review-handlers';
+import type { BrowserWindow } from 'electron';
 import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 const debugLog = createDebugLog('Bitbucket');
@@ -19,7 +21,7 @@ const debugLog = createDebugLog('Bitbucket');
 /**
  * Register all Bitbucket IPC handlers
  */
-export function registerBitbucketHandlers(): void {
+export function registerBitbucketHandlers(getMainWindow: () => BrowserWindow | null): void {
   debugLog('Registering all Bitbucket handlers');
 
   registerCheckConnection();
@@ -28,6 +30,7 @@ export function registerBitbucketHandlers(): void {
   registerGetPullRequest();
   registerGetPullRequestDiff();
   registerPostPullRequestComment();
+  registerBitbucketReviewHandlers(getMainWindow);
 
   debugLog('All Bitbucket handlers registered');
 }

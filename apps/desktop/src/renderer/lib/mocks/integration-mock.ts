@@ -232,6 +232,27 @@ export const integrationMock = {
     error: 'Not available in browser mock'
   }),
 
+  runBitbucketPRReview: () => {},
+
+  cancelBitbucketPRReview: async () => false,
+
+  getBitbucketPRReview: async () => null,
+
+  getBitbucketPRLogs: async () => null,
+
+  postBitbucketPRReview: async () => ({
+    success: false,
+    error: 'Not available in browser mock'
+  }),
+
+  onBitbucketPRReviewProgress: () => () => {},
+
+  onBitbucketPRReviewComplete: () => () => {},
+
+  onBitbucketPRReviewError: () => () => {},
+
+  onBitbucketPRLogsUpdated: () => () => {},
+
   // GitLab Integration Operations
   getGitLabProjects: async () => ({
     success: true,
