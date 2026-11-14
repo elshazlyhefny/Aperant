@@ -500,14 +500,6 @@ For high or critical risk, add security steps:
 {
   "verification_steps": [
     {
-      "name": "Secrets Scan",
-      "command": "python auto-claude/scan_secrets.py --all-files --json",
-      "expected_outcome": "No secrets detected",
-      "type": "security",
-      "required": true,
-      "blocking": true
-    },
-    {
       "name": "SAST Scan (Python)",
       "command": "bandit -r src/ -f json",
       "expected_outcome": "No high severity issues",
@@ -518,6 +510,8 @@ For high or critical risk, add security steps:
   ]
 }
 ```
+
+Secret scanning is automatic at commit and again before the branch is pushed, so the plan needs no separate secrets step.
 
 ### Trivial Risk - Skip Validation
 
