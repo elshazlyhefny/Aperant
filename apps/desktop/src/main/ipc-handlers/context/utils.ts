@@ -98,19 +98,6 @@ export function loadGlobalSettings(): GlobalSettings {
 }
 
 /**
- * Check if memory is enabled in project or global environment
- */
-export function isMemoryEnabled(projectEnvVars: EnvironmentVars): boolean {
-  return (
-    projectEnvVars['GRAPHITI_ENABLED']?.toLowerCase() === 'true' ||
-    process.env.GRAPHITI_ENABLED?.toLowerCase() === 'true'
-  );
-}
-
-/** @deprecated Use isMemoryEnabled instead */
-export const isGraphitiEnabled = isMemoryEnabled;
-
-/**
  * Check if OpenAI API key is available
  * Priority: project .env > global settings > process.env
  */
