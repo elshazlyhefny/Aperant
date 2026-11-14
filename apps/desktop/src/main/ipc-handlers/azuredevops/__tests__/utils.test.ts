@@ -96,6 +96,7 @@ describe('azureDevOpsFetch', () => {
     expect(err.message.length).toBeLessThan(600);
     expect(err.message).not.toContain('secret-pat');
     expect(err.message).not.toContain('Basic');
+    expect(err.message).not.toContain(Buffer.from(':secret-pat').toString('base64'));
   });
   it('maps abort to status 0', async () => {
     const abort = new Error('aborted');

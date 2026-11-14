@@ -117,6 +117,40 @@ describe('Read with projectDir = the task worktree', () => {
   });
 });
 
+describe('Azure DevOps PAT in the project secret file', () => {
+  const PAT_LINE = 'AZURE_DEVOPS_PAT=ado-supersecretpat';
+
+  beforeAll(() => {
+    fs.writeFileSync(mainEnv, PAT_LINE);
+    fs.writeFileSync(wtEnv, PAT_LINE);
+  });
+
+  it('Read refuses both the project and worktree files', async () => {
+    for (const [file, dir] of [
+      [mainEnv, root],
+      [wtEnv, worktree],
+    ]) {
+      const out = await outcome(() => readTool.config.execute({ file_path: file } as never, ctx(dir)));
+      expect(out).toContain('ERROR');
+      expect(out).not.toContain('ado-supersecretpat');
+    }
+  });
+
+  it('Grep and Glob do not expose the PAT', async () => {
+    const grepOut = await outcome(() =>
+      grepTool.config.execute({ pattern: 'ado-supersecretpat', path: root } as never, ctx(root)),
+    );
+    expect(grepOut).not.toContain('ado-supersecretpat');
+    const globOut = await outcome(() =>
+      globTool.config.execute(
+        { pattern: '**/.env*', path: path.dirname(mainEnv) } as never,
+        ctx(root),
+      ),
+    );
+    expect(globOut).not.toContain(mainEnv);
+  });
+});
+
 describe('Bash credential validator', () => {
   it('refuses a relative path climbing to the main .env', () => {
     expect(validateCredentialPaths('cat ../../../.env')[0]).toBe(false);

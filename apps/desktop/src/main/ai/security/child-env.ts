@@ -21,6 +21,8 @@ export const CREDENTIAL_ENV_PATTERNS: readonly RegExp[] = [
   // Known credential families
   /^AWS_/i,
   /^AZURE_/i,
+  // Azure Pipelines job token (no underscore before TOKEN, so _TOKEN$ misses it)
+  /^SYSTEM_ACCESSTOKEN$/i,
   /^OPENAI_/i,
   /^GOOGLE_APPLICATION_CREDENTIALS$/i,
   /^GCP_/i,

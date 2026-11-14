@@ -80,6 +80,26 @@ describe('buildChildEnv', () => {
   });
 });
 
+describe('buildChildEnv Azure DevOps keys', () => {
+  // AZURE_DEVOPS_ORGANIZATION is not a secret, but ^AZURE_ removes it too; that is acceptable.
+  const names = [
+    'AZURE_DEVOPS_PAT',
+    'AZURE_DEVOPS_ORGANIZATION',
+    'AZURE_DEVOPS_EXT_PAT',
+    'SYSTEM_ACCESSTOKEN',
+  ];
+
+  it.each(names)('removes %s', (name) => {
+    const env = buildChildEnv({ [name]: 'x', PATH: '/bin' });
+    expect(env[name]).toBeUndefined();
+    expect(env.PATH).toBe('/bin');
+  });
+
+  it.each(names)('keeps %s only when named in passthrough', (name) => {
+    expect(buildChildEnv({ [name]: 'x' }, { passthrough: [name] })[name]).toBe('x');
+  });
+});
+
 describe('parseEnvPassthrough', () => {
   it('trims, de-duplicates and ignores non-strings', () => {
     expect(parseEnvPassthrough([' FOO ', 'FOO', 'BAR', 1, null, {}])).toEqual(['FOO', 'BAR']);

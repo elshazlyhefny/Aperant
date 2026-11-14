@@ -158,6 +158,21 @@ describe('createMcpClient', () => {
     }
   });
 
+  it('does not leak AZURE_DEVOPS_PAT into the stdio transport env', async () => {
+    const original = process.env.AZURE_DEVOPS_PAT;
+    process.env.AZURE_DEVOPS_PAT = 'ado-secret-pat';
+
+    try {
+      await createMcpClient(stdioConfig);
+
+      const options = mockStdioClientTransport.mock.calls[0][0] as { env: Record<string, string> };
+      expect(options.env).not.toHaveProperty('AZURE_DEVOPS_PAT');
+    } finally {
+      if (original === undefined) delete process.env.AZURE_DEVOPS_PAT;
+      else process.env.AZURE_DEVOPS_PAT = original;
+    }
+  });
+
   it('passes undefined env to StdioClientTransport when no env in config', async () => {
     const noEnvConfig: McpServerConfig = {
       ...stdioConfig,
