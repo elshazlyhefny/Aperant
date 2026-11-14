@@ -20,7 +20,8 @@ export interface BitbucketAPIPullRequest {
   title?: string;
   description?: string | null;
   state?: string;
-  source?: { branch?: { name?: string } };
+  // zeenha fork: commit hash is needed to match pipelines to the PR head
+  source?: { branch?: { name?: string }; commit?: { hash?: string } };
   destination?: { branch?: { name?: string } };
   author?: BitbucketAPIUser | null;
   reviewers?: Array<BitbucketAPIUser | null>;
@@ -47,4 +48,31 @@ export interface BitbucketAPIRepository {
 export interface BitbucketAPIComment {
   id: number;
   content?: { raw?: string };
+  // zeenha fork: fields used to build PR feedback threads
+  deleted?: boolean;
+  parent?: { id: number };
+  inline?: { path?: string; from?: number | null; to?: number | null };
+  resolution?: unknown;
+  user?: BitbucketAPIUser | null;
+  links?: { html?: { href?: string } };
+  created_on?: string;
+}
+
+// zeenha fork: pipeline API types
+export interface BitbucketAPIPipelineState {
+  name?: string;
+  result?: { name?: string };
+}
+
+export interface BitbucketAPIPipeline {
+  uuid: string;
+  build_number?: number;
+  target?: { ref_name?: string; commit?: { hash?: string } };
+  state?: BitbucketAPIPipelineState;
+}
+
+export interface BitbucketAPIPipelineStep {
+  uuid: string;
+  name?: string;
+  state?: BitbucketAPIPipelineState;
 }

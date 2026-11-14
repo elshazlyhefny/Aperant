@@ -195,6 +195,26 @@ export async function bitbucketFetchText(
 }
 
 /**
+ * zeenha fork: fetch plain text such as a pipeline step log. Unlike
+ * bitbucketFetchText (which sends Accept: text/plain), the Accept header is
+ * caller-chosen and defaults to a wildcard, and an optional Range header
+ * limits the bytes read (e.g. 'bytes=-65536' for the tail of a log).
+ */
+export async function bitbucketFetchLog(
+  config: Pick<BitbucketConfig, 'username' | 'token'>,
+  endpoint: string,
+  opts: { accept?: string; range?: string } = {}
+): Promise<string> {
+  const response = await bitbucketRequest(
+    config,
+    endpoint,
+    opts.range ? { headers: { Range: opts.range } } : {},
+    opts.accept ?? '*/*'
+  );
+  return response.text();
+}
+
+/**
  * Create a pull request from sourceBranch into destinationBranch.
  * The returned PR's links.html.href is its web URL.
  */

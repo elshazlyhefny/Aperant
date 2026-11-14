@@ -17,6 +17,7 @@ import {
   getSafeNextEndpoint,
   createBitbucketPullRequest,
   findOpenPullRequestForBranch,
+  bitbucketFetchLog,
   BitbucketAPIError
 } from '../utils';
 
@@ -174,5 +175,38 @@ describe('getBitbucketConfig', () => {
   });
   it('returns null without autoBuildPath', async () => {
     expect(await getBitbucketConfig({ id: 'p', path: '/tmp' } as unknown as Project)).toBeNull();
+  });
+});
+
+// zeenha fork: step log fetch
+describe('bitbucketFetchLog', () => {
+  const creds = { username: 'alice', token: 'tok' };
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  it('defaults Accept to */* and sends no Range', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, text: async () => 'log' });
+    await expect(bitbucketFetchLog(creds, '/repositories/ws/repo/pipelines/1/steps/2/log')).resolves.toBe('log');
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Accept).toBe('*/*');
+    expect(init.headers.Range).toBeUndefined();
+    expect(init.headers.Authorization).toMatch(/^Basic /);
+  });
+
+  it('passes a custom Accept and Range', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 206, text: async () => 'tail' });
+    await bitbucketFetchLog(creds, '/x', { accept: 'text/plain', range: 'bytes=-100' });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Accept).toBe('text/plain');
+    expect(init.headers.Range).toBe('bytes=-100');
+  });
+
+  it('maps errors to BitbucketAPIError', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found', text: async () => '' });
+    await expect(bitbucketFetchLog(creds, '/x')).rejects.toMatchObject({ statusCode: 404 });
   });
 });

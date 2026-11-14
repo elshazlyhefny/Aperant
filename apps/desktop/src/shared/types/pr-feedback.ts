@@ -27,6 +27,8 @@ export type PRFeedbackBlockedReason =
   | 'auth_required'
   | 'no_github_config'
   | 'no_gitlab_config'
+  // zeenha fork: Bitbucket repository/credentials are not configured
+  | 'no_bitbucket_config'
   | 'branch_mismatch';
 
 export interface PRFeedbackResult {

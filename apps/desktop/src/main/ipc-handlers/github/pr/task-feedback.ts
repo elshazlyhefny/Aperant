@@ -32,7 +32,9 @@ export type PRFeedbackErrorCode =
   | "forbidden"
   | "unauthorized"
   | "github_error"
-  | "gitlab_error";
+  | "gitlab_error"
+  // zeenha fork: Bitbucket API failure
+  | "bitbucket_error";
 
 /** Typed error so the IPC handler can map failures to a clear message. */
 export class PRFeedbackError extends Error {
