@@ -2,6 +2,8 @@
  * Azure DevOps Handlers Entry Point
  *
  * Delegates to the modular handlers in the azuredevops/ directory.
+ *
+ * zeenha fork: Azure DevOps support does not exist upstream.
  */
 
 import { registerAzureDevOpsHandlers } from './azuredevops/index';

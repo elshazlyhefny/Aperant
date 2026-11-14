@@ -1,3 +1,4 @@
+// zeenha fork: Azure DevOps preload bridge, not present upstream.
 import { IPC_CHANNELS } from '../../../shared/constants';
 import type {
   AzureDevOpsSyncStatus,

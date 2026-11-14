@@ -1,3 +1,4 @@
+// zeenha fork: Azure DevOps project settings section, not present upstream.
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, GitBranch, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';

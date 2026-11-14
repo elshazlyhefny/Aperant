@@ -2,6 +2,8 @@
  * Azure DevOps IPC Handlers Module
  *
  * Exports the main registration function for all Azure DevOps-related IPC handlers.
+ *
+ * zeenha fork: Azure DevOps support does not exist upstream.
  */
 
 import { registerCheckConnection, registerDetectRepository } from './connection-handlers';

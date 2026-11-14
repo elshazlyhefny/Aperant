@@ -1,5 +1,7 @@
 /**
  * Azure DevOps module types and interfaces
+ *
+ * zeenha fork: Azure DevOps support does not exist upstream.
  */
 
 export interface AzureDevOpsConfig {

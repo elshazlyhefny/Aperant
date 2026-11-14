@@ -1,5 +1,7 @@
 /**
  * Azure DevOps connection and repository detection handlers
+ *
+ * zeenha fork: Azure DevOps support does not exist upstream.
  */
 
 import { ipcMain } from 'electron';
