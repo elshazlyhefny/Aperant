@@ -3,10 +3,10 @@
   "version": "2.8.0-beta.6.zeenha.48",
   "type": "module",
   "description": "Autonomous multi-agent coding framework",
-  "homepage": "https://github.com/AndyMik90/Aperant",
+  "homepage": "https://github.com/elshazlyhefny/Aperant",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AndyMik90/Aperant.git"
+    "url": "https://github.com/elshazlyhefny/Aperant.git"
   },
   "main": "./out/main/index.js",
   "author": {
@@ -167,7 +167,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "AndyMik90",
+        "owner": "elshazlyhefny",
         "repo": "Aperant"
       }
     ],
