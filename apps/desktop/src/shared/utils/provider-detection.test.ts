@@ -53,6 +53,20 @@ describe('provider-detection', () => {
       });
     });
 
+    describe('OpenRouter provider', () => {
+      it('should detect openrouter.ai', () => {
+        expect(detectProvider('https://openrouter.ai')).toBe('openrouter');
+      });
+
+      it('should detect openrouter.ai/api', () => {
+        expect(detectProvider('https://openrouter.ai/api')).toBe('openrouter');
+      });
+
+      it('should not match lookalike domains', () => {
+        expect(detectProvider('https://notopenrouter.ai')).toBe('unknown');
+      });
+    });
+
     describe('Unknown provider', () => {
       it('should return unknown for unrecognized domain', () => {
         const result = detectProvider('https://unknown.com/api');
@@ -77,6 +91,10 @@ describe('provider-detection', () => {
 
     it('should return correct label for ZHIPU', () => {
       expect(getProviderLabel('zhipu')).toBe('ZHIPU AI');
+    });
+
+    it('should return correct label for OpenRouter', () => {
+      expect(getProviderLabel('openrouter')).toBe('OpenRouter');
     });
 
     it('should return Unknown for unknown provider', () => {
@@ -107,6 +125,13 @@ describe('provider-detection', () => {
       expect(color).toContain('bg-purple-500/10');
       expect(color).toContain('text-purple-500');
       expect(color).toContain('border-purple-500/20');
+    });
+
+    it('should return violet colors for OpenRouter', () => {
+      const color = getProviderBadgeColor('openrouter');
+      expect(color).toContain('bg-violet-500/10');
+      expect(color).toContain('text-violet-500');
+      expect(color).toContain('border-violet-500/20');
     });
 
     it('should return gray colors for unknown', () => {

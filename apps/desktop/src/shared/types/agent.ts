@@ -77,6 +77,18 @@ export interface ClaudeUsageSnapshot {
   weeklyUsageValue?: number;
   /** Weekly usage limit (total quota) */
   weeklyUsageLimit?: number;
+  /**
+   * Credit-based usage (USD) for providers that bill by spend instead of quota
+   * windows (e.g. OpenRouter). The renderer shows these amounts directly, so no
+   * percentage is needed. `limit: null` means the key has no spend cap, and
+   * `remaining: null` means the remaining balance is unknown or unlimited.
+   */
+  creditUsage?: {
+    used: number;
+    limit: number | null;
+    remaining: number | null;
+    resetPeriod?: 'daily' | 'weekly' | 'monthly' | null;
+  };
   /** True if profile has invalid refresh token and needs re-authentication */
   needsReauthentication?: boolean;
 }
