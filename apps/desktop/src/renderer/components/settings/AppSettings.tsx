@@ -20,6 +20,7 @@ import {
   Bug,
   Terminal,
   Ticket,
+  Webhook,
   Users,
   ShieldCheck
 } from 'lucide-react';
@@ -118,6 +119,7 @@ const projectNavItemsConfig: NavItemConfig<ProjectSettingsSection>[] = [
   { id: 'bitbucket', icon: BitbucketIcon },
   { id: 'azuredevops', icon: AzureDevOpsIcon },
   { id: 'jira', icon: Ticket },
+  { id: 'webhook', icon: Webhook },
   { id: 'memory', icon: Database },
   { id: 'security', icon: ShieldCheck }
 ];

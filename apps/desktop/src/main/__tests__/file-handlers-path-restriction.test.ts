@@ -31,7 +31,7 @@ beforeAll(() => {
   fs.mkdirSync(evilDir);
   fs.writeFileSync(path.join(projectDir, 'a.txt'), 'hello');
   fs.writeFileSync(path.join(evilDir, 'secret.txt'), 'secret');
-  fs.symlinkSync(evilDir, path.join(projectDir, 'link'));
+  fs.symlinkSync(evilDir, path.join(projectDir, 'link'), 'junction');
   registerFileHandlers();
 });
 

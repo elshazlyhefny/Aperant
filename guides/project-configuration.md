@@ -50,7 +50,7 @@ The file is at `<project>/<autoBuildPath>/.env`, normally `.auto-claude/.env`. T
 
 You can edit the file by hand or from the project's Settings. Saving from the Settings UI regenerates the whole file from a fixed template. Values already in the file are kept, but a key that the template does not list is not carried over, so do not store unrelated variables here. Unset keys are written as commented lines such as `# DEFAULT_BRANCH=main`.
 
-> **Note:** The task-outcome webhook is deliberately not a key in this file (there is no `WEBHOOK_URL`). It is configured only in the app's own Settings, so a repository cannot redirect task data. See [notifications-and-webhooks.md](notifications-and-webhooks.md).
+> **Note:** The task-outcome webhook is deliberately not a key in this file (there is no `WEBHOOK_URL`). It is configured only in the app's own Settings, so a repository cannot redirect task data. Headless `cli.js run` uses its `--config` file or the `APERANT_WEBHOOK_URL` process environment variable instead, never a file in the repository. See [notifications-and-webhooks.md](notifications-and-webhooks.md).
 
 The last column says whether the Settings UI also writes the key. Every key below is one the generator writes, so for each of them the answer is yes. No key is "file only".
 

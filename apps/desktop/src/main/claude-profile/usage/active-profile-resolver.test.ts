@@ -141,6 +141,22 @@ describe('resolveActiveProfile', () => {
     expect(await resolveActiveProfile(makeDeps())).toBeNull();
   });
 
+  it('resolves OpenRouter accounts with default and custom baseUrl, null without apiKey', async () => {
+    mockReadSettings.mockResolvedValue(settingsWith({ id: 'r1', name: 'R', provider: 'openrouter', authType: 'api-key', apiKey: 'rk' }));
+    expect(await resolveActiveProfile(makeDeps())).toMatchObject({
+      profileId: 'r1',
+      isAPIProfile: true,
+      baseUrl: 'https://openrouter.ai/api',
+      credential: 'rk'
+    });
+
+    mockReadSettings.mockResolvedValue(settingsWith({ id: 'r3', name: 'R', provider: 'openrouter', authType: 'api-key', apiKey: 'rk', baseUrl: 'https://proxy.example/api' }));
+    expect(await resolveActiveProfile(makeDeps())).toMatchObject({ baseUrl: 'https://proxy.example/api' });
+
+    mockReadSettings.mockResolvedValue(settingsWith({ id: 'r2', name: 'R', provider: 'openrouter', authType: 'api-key' }));
+    expect(await resolveActiveProfile(makeDeps())).toBeNull();
+  });
+
   it('returns null for unsupported providers', async () => {
     mockReadSettings.mockResolvedValue(settingsWith({ id: 'g1', name: 'G', provider: 'google', authType: 'api-key', apiKey: 'g' }));
     expect(await resolveActiveProfile(makeDeps())).toBeNull();

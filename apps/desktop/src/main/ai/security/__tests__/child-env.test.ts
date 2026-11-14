@@ -21,6 +21,7 @@ describe('buildChildEnv', () => {
     'GH_TOKEN',
     'GITLAB_TOKEN',
     'JIRA_API_TOKEN',
+    'WEBHOOK_URL',
     'NPM_TOKEN',
     'SSH_AUTH_SOCK',
     'ANTHROPIC_API_KEY',

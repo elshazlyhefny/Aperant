@@ -33,6 +33,8 @@ export const CREDENTIAL_ENV_PATTERNS: readonly RegExp[] = [
   /^GH_ENTERPRISE_TOKEN$/i,
   /^GITLAB_TOKEN$/i,
   /^JIRA_API_TOKEN$/i,
+  // zeenha fork: per-project outcome webhook URL (may embed a secret in its path)
+  /^WEBHOOK_URL$/i,
   /^NPM_TOKEN$/i,
   /^SSH_AUTH_SOCK$/i,
   /^ANTHROPIC_API_KEY$/i,

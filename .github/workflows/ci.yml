@@ -1,7 +1,8 @@
 # Cross-Platform CI Pipeline
 #
 # Tests on all target platforms (Linux, Windows, macOS) to catch
-# platform-specific bugs before they merge. ALL platforms must pass.
+# platform-specific bugs before they merge. Linux gates CI Complete; macOS and
+# Windows are advisory (see test-frontend-macos and test-frontend-windows).
 #
 # Optimized: Frontend-only matrix, path filters to skip on docs-only changes.
 
@@ -52,8 +53,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # zeenha fork: only Linux is shipped, and Windows has unported test failures.
-        # macOS runs in test-frontend-macos below so it does not gate CI Complete.
+        # zeenha fork: only Linux gates CI Complete. macOS and Windows run in
+        # test-frontend-macos and test-frontend-windows below as advisory jobs.
         os: [ubuntu-latest]
 
     steps:
@@ -136,10 +137,43 @@ jobs:
         run: npm run build
 
   # --------------------------------------------------------------------------
+  # Frontend Tests - Windows (advisory)
+  # --------------------------------------------------------------------------
+  # zeenha fork: advisory until it has passed on main for two weeks. Then add
+  # `test-frontend-windows` to ci-complete `needs` and to its result check, and
+  # remove `continue-on-error`. Typecheck is not repeated here (Linux covers it).
+  test-frontend-windows:
+    name: test-frontend (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js frontend
+        uses: ./.github/actions/setup-node-frontend
+        with:
+          ignore-scripts: 'true'
+
+      # Same selection as `npm run test:unit`, plus a JSON report for the summary.
+      - name: Run unit tests
+        working-directory: apps/desktop
+        shell: bash
+        run: npx vitest run --exclude src/__tests__/integration/ --exclude src/__tests__/e2e/ --reporter=default --reporter=json --outputFile.json=test-results/windows-unit.json
+
+      - name: Windows test summary
+        if: always()
+        working-directory: apps/desktop
+        shell: bash
+        run: node scripts/windows-test-summary.cjs test-results/windows-unit.json
+
+  # --------------------------------------------------------------------------
   # Windows Bash sandbox - single file only
   # --------------------------------------------------------------------------
-  # zeenha fork: the full Windows suite has known unported failures, so only the
-  # sandbox integration test runs here. It exercises the real restricted-token launcher.
+  # zeenha fork: the full unit suite now runs in test-frontend-windows above. This
+  # job stays as the real-launcher check: it exercises the real restricted-token launcher.
   test-windows-sandbox:
     name: test-windows-sandbox
     runs-on: windows-latest

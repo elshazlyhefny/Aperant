@@ -1,5 +1,5 @@
 /**
- * Provider-account usage (Codex / Z.AI accounts stored in settings.json
+ * Provider-account usage (Codex / Z.AI / OpenRouter accounts stored in settings.json
  * `providerAccounts`, outside ClaudeProfileManager).
  */
 
@@ -10,9 +10,10 @@ import { ensureValidCodexToken } from '../../ai/auth/codex-oauth';
 import { fetchCodexUsage, normalizeCodexResponse } from '../codex-usage-fetcher';
 import { calculateAvailabilityScore } from './availability-score';
 import { zaiAdapter } from './providers/zai';
+import { openrouterAdapter } from './providers/openrouter';
 
 export interface ProviderAccountUsageSource {
-  provider: 'openai' | 'zai';
+  provider: 'openai' | 'zai' | 'openrouter';
   /** Which settings accounts this source handles */
   accountFilter(account: ProviderAccount): boolean;
   /** How `needsReauthentication` is derived when reusing currentUsage */
@@ -58,6 +59,29 @@ export const zaiUsageSource: ProviderAccountUsageSource = {
     // Z.AI wraps response in a data field
     const rawData = json.data ?? json;
     return zaiAdapter.normalize(rawData, { profileId: account.id, profileName: account.name }, json);
+  },
+};
+
+export const openrouterUsageSource: ProviderAccountUsageSource = {
+  provider: 'openrouter',
+  label: 'OpenRouter',
+  accountFilter: (account) => account.provider === 'openrouter' && !!account.apiKey,
+  currentUsageNeedsReauth: 'false',
+  async fetchInactiveUsage(account) {
+    // CodeQL: file data in outbound request - validate API key is a non-empty string before use
+    const safeApiKey = typeof account.apiKey === 'string' && account.apiKey.length > 0 ? account.apiKey : '';
+    const response = await fetch('https://openrouter.ai/api/v1/key', {
+      headers: {
+        'Authorization': `Bearer ${safeApiKey}`,
+      },
+    });
+    if (!response.ok) return null;
+    const json = await response.json();
+    return openrouterAdapter.normalize(
+      openrouterAdapter.extractData(json),
+      { profileId: account.id, profileName: account.name, profileEmail: account.email },
+      json
+    );
   },
 };
 

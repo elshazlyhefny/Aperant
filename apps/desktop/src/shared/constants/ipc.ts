@@ -381,6 +381,19 @@ export const IPC_CHANNELS = {
   BITBUCKET_GET_PULL_REQUEST_DIFF: 'bitbucket:getPullRequestDiff',
   BITBUCKET_POST_PULL_REQUEST_COMMENT: 'bitbucket:postPullRequestComment',
 
+  // Bitbucket PR AI review
+  BITBUCKET_PR_REVIEW: 'bitbucket:pr:review',
+  BITBUCKET_PR_REVIEW_CANCEL: 'bitbucket:pr:reviewCancel',
+  BITBUCKET_PR_GET_REVIEW: 'bitbucket:pr:getReview',
+  BITBUCKET_PR_GET_LOGS: 'bitbucket:pr:getLogs',
+  BITBUCKET_PR_POST_REVIEW: 'bitbucket:pr:postReview',
+
+  // Bitbucket PR review events (main -> renderer)
+  BITBUCKET_PR_REVIEW_PROGRESS: 'bitbucket:pr:reviewProgress',
+  BITBUCKET_PR_REVIEW_ERROR: 'bitbucket:pr:reviewError',
+  BITBUCKET_PR_REVIEW_COMPLETE: 'bitbucket:pr:reviewComplete',
+  BITBUCKET_PR_LOGS_UPDATED: 'bitbucket:pr:logsUpdated',
+
   // Azure DevOps integration
   AZUREDEVOPS_CHECK_CONNECTION: 'azuredevops:checkConnection',
   AZUREDEVOPS_DETECT_REPOSITORY: 'azuredevops:detectRepository',

@@ -137,11 +137,49 @@ The Settings screen shows an inline error for an invalid URL: "Enter a valid htt
 - Delivery runs in the background. It never changes a task's status and never blocks the app.
 - There is no queue. After 3 failed attempts the message is dropped and not sent again.
 
+## Headless runs (cli.js run)
+
+`cli.js run` (see [CLI-USAGE.md](CLI-USAGE.md)) can send the same webhook when the run ends. It never reads the app's settings, so it has its own configuration.
+
+Add a `webhook` key to the `--config` JSON file:
+
+```json
+{
+  "webhook": {
+    "url": "https://hooks.example.com/services/XXX",
+    "events": { "reviewReady": true, "failed": true, "blocked": true, "prOpened": false }
+  }
+}
+```
+
+- `url` is the webhook address.
+- `events` is optional, and so is each toggle in it. The defaults are the same as in the app: `reviewReady`, `failed` and `blocked` on, `prOpened` off.
+- The environment variable `APERANT_WEBHOOK_URL` also sets the URL. When it is set and not empty, it overrides `webhook.url` in the config file. The `events` toggles still come from the config file.
+
+Outcome to event:
+
+| Run outcome | Exit code | Webhook event |
+|-------------|-----------|---------------|
+| QA passed | 0 | `review_ready` |
+| QA failed after the maximum iterations | 2 | `blocked` |
+| Error | 1 | `failed` |
+| The run reports a PR link | any | `pr_opened`, in addition to the event above |
+
+The CLI does not open the PR itself. `pr_opened` is sent only when the run reports a PR link, and only if the **prOpened** toggle is on.
+
+Everything else is the same as in the app: the [URL rules](#url-rules), the [payload](#payload) and the [retries](#delivery). The project name is the name of the `--project` directory, and the task title is the first `# ` heading of the spec's `spec.md`, or the spec id when there is none.
+
+Behaviour to know:
+
+- The URL is never read from `.aperant.json` or `.auto-claude/.env`. Only the config file you pass and the process environment are used.
+- Delivery runs before the process exits and can add up to about 30 seconds to a run when the receiver is down.
+- A webhook problem never changes the exit code. An invalid URL or a failed delivery prints a line starting with `warning:` on stderr and the run result stays as it was. The URL is not printed.
+
 ## Security: user-level only
 
 The webhook is read only from the app's own user settings. It is never read from `.aperant.json`, `.auto-claude/.env` or any other file in a repository. A repository must not be able to send task data to an address it chooses. The same reasoning is why the `baseBranch` and `linkDependencies` settings are read only from the main checkout.
 
-No `WEBHOOK_URL` environment key exists, and one must not be added.
+No `WEBHOOK_URL` key may be added to repository files (`.aperant.json`, `.auto-claude/.env`) or read by the app from its environment. The headless CLI is the one exception: it reads `APERANT_WEBHOOK_URL` from its own process environment only (see [Headless runs](#headless-runs-clijs-run)), never from a file in the repository.
 
 The URL is masked in the field and is never logged. Treat it like a secret: anyone who has it can post messages to the channel.
 

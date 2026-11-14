@@ -2,11 +2,7 @@
 
 When a task has a pull request, the task detail modal shows a **PR feedback** panel. It lists the failed CI checks and the open review feedback on that pull request. You pick the items you want fixed and send them to the task's agent. The agent fixes them in the task's own worktree. After QA approves the fix, Aperant pushes it to the same branch, so the existing pull request updates. No new pull request is created.
 
-This works for GitHub and Azure DevOps. The sections below describe GitHub; see [Azure DevOps](#azure-devops) for the differences. GitLab, Bitbucket and the headless CLI are not covered. See [Not covered](#not-covered).
-
-### Azure DevOps
-
-For a pull request on Azure DevOps, the panel sends two kinds of feedback: failed build validations, with log excerpts, and active threads, with the file and line they refer to. Azure DevOps must be configured for the project, see [Azure DevOps](project-configuration.md#azure-devops). If it is not, the panel shows a not-configured message. A pull request on a repository other than the configured one is refused.
+This works for GitHub, GitLab, Bitbucket Cloud and Azure DevOps. The panel reads feedback through the API of the forge that hosts the pull request (merge request on GitLab). The headless CLI is not covered. See [Not covered](#not-covered). The panel text is available in English and French.
 
 ## When the panel appears
 
@@ -44,7 +40,7 @@ If a pull request has more than 50 items in a group, only the first 50 show. Fix
 ## Sending feedback to the agent
 
 1. Open the task from the Kanban board.
-2. Read the **PR feedback** panel. Use **Open on GitHub** on an item to see it in context.
+2. Read the **PR feedback** panel. Use **Open in browser** on an item to see it in context.
 3. Tick the items you want fixed. Nothing is pre-selected.
 4. Click **Send selected to agent**.
 
@@ -89,8 +85,11 @@ The panel can show the feedback but keep **Send selected to agent** disabled. It
 | `branch_mismatch` | "The task's worktree is not on the pull request's branch, so no follow-up can run here." | The worktree is not on `auto-claude/<specId>`, or the head branch of the pull request is a different branch. | Switch the worktree back to `auto-claude/<specId>`. If the pull request uses another branch, make the fixes by hand. |
 | `pr_not_open` | "The pull request is no longer open, so feedback cannot be sent to the agent." | The pull request is closed or merged. | Reopen it on GitHub, or create a new task. |
 | `agent_running` | "The agent is already running for this task. Wait for it to finish." | An agent is working on this task. | Wait, then click **Refresh**. |
-| `auth_required` | "GitHub authentication is required to send feedback. Sign in to GitHub and refresh." | See [The auth_required check](#the-auth_required-check). | See below. |
+| `auth_required` | "Authentication is required to send feedback. Add an account in Settings > Accounts and refresh." | See [The auth_required check](#the-auth_required-check). | See below. |
 | `no_github_config` | "GitHub is not configured for this project." | The project has no GitHub token or repository set. | Configure GitHub for the project, then click **Refresh**. |
+| `no_gitlab_config` | "GitLab is not configured for this project." | The project has no GitLab token or project set, or the merge request is not on the configured GitLab project. | Configure GitLab for the project, then click **Refresh**. |
+| `no_bitbucket_config` | "Bitbucket is not configured for this project." | `BITBUCKET_ENABLED`, `BITBUCKET_USERNAME`, `BITBUCKET_TOKEN` or `BITBUCKET_REPOSITORY` is missing in the project `.env`, or the pull request is not on the configured repository. | See [Bitbucket Cloud](#bitbucket-cloud). |
+| `no_azuredevops_config` | "Azure DevOps is not configured for this project." | The project has no Azure DevOps organization, project, repository or token set, or the pull request is not on the configured repository. | See [Azure DevOps](#azure-devops). |
 
 ### A missing worktree
 
@@ -102,11 +101,36 @@ Without the worktree there is nowhere to run the follow-up. Make the changes by 
 
 The panel text and the check do not match exactly:
 
-- The panel says GitHub sign-in is required.
+- The panel asks you to add an account in Settings > Accounts.
 - If you click **Send selected to agent** and the check fails, the message says: "Authentication required. Add an account in Settings > Accounts, then try again. Nothing was started."
 - The code does not check your GitHub sign-in. It checks the account the agent runs with. It passes when the active Claude profile has valid authentication, or when at least one provider account is configured.
 
 So the fix is to add or sign in to an account under **Settings > Accounts** so the agent can run, then click **Refresh**. Loading the feedback from GitHub is a separate step and has its own errors, shown as "Could not load PR feedback".
+
+## Bitbucket Cloud
+
+Set these in the project `.env`:
+
+```
+BITBUCKET_ENABLED=true
+BITBUCKET_USERNAME=<your Bitbucket username>
+BITBUCKET_TOKEN=<app password or token>
+BITBUCKET_REPOSITORY=<workspace>/<repo-slug>
+```
+
+What is listed:
+
+- **Failed checks**: Pipelines steps whose result is `FAILED` or `ERROR`, with the tail of the step log.
+- **Unresolved review comments**: unresolved comments, including inline ones. An inline comment shows its file and line.
+- There is no change requests group on Bitbucket.
+
+The pull request must be on the repository set in `BITBUCKET_REPOSITORY`. Otherwise it is refused with "This pull request is not on the Bitbucket repository configured for this project." and nothing is started. If Bitbucket is not configured, you get "Bitbucket is not configured for this project (username, token or repository missing)." Fix it by completing the four variables, then click **Refresh**.
+
+The limits are the same as above: 50 items per group and 4000 characters per item.
+
+## Azure DevOps
+
+For a pull request on Azure DevOps, the panel sends two kinds of feedback: failed build validations, with log excerpts, and active threads, with the file and line they refer to. Azure DevOps must be configured for the project, see [Azure DevOps](project-configuration.md#azure-devops). If it is not, the panel shows a not-configured message. A pull request on a repository other than the configured one is refused.
 
 ## Untrusted input
 
@@ -118,7 +142,7 @@ Review comments and check output come from third parties. Aperant treats them as
 
 This lowers the risk. It is not a guarantee. Read the items before you send them, and review the pushed changes on GitHub.
 
-The panel shows GitHub text as plain text.
+The panel shows forge text as plain text.
 
 ## Nothing starts without a click
 
@@ -129,6 +153,5 @@ The panel shows GitHub text as plain text.
 
 ## Not covered
 
-- GitLab and Bitbucket.
 - The headless CLI.
 - Pull requests that were not created from a task. With no task there is no panel.

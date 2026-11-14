@@ -496,6 +496,24 @@
       "integrationDescription": "Se connecter à Jira pour importer des tickets comme tâches",
       "syncDescription": "Importer depuis Jira"
     },
+    "webhook": {
+      "title": "Webhook",
+      "description": "Envoyer les résultats des tâches vers le canal de ce projet",
+      "syncDescription": "Envoyer les résultats des tâches vers un webhook",
+      "enable": "Webhook du projet",
+      "enableDescription": "Publier les résultats des tâches de ce projet sur son propre webhook",
+      "urlLabel": "URL du webhook du projet",
+      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlInvalid": "Saisissez une URL https valide (http n'est autorisé que pour localhost), sans identifiants.",
+      "show": "Afficher l'URL",
+      "hide": "Masquer l'URL",
+      "overrideNote": "Lorsqu'elle est définie, cette URL remplace le webhook global de l'application pour ce projet.",
+      "storedProtectedNote": "L'URL est stockée dans le fichier protégé .auto-claude/.env de ce projet, que les agents ne peuvent pas lire.",
+      "sendTest": "Envoyer un message de test",
+      "sending": "Envoi...",
+      "testSuccess": "Message de test envoyé",
+      "testFailed": "Impossible d'envoyer le message de test"
+    },
     "security": {
       "title": "Sécurité",
       "description": "Isoler les commandes shell des agents",

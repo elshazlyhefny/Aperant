@@ -33,7 +33,9 @@ export type PRFeedbackErrorCode =
   | "unauthorized"
   | "github_error"
   | "gitlab_error"
-  | "azuredevops_error";
+  | "azuredevops_error"
+  // zeenha fork: Bitbucket API failure
+  | "bitbucket_error";
 
 /** Typed error so the IPC handler can map failures to a clear message. */
 export class PRFeedbackError extends Error {

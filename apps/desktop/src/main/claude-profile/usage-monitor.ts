@@ -36,7 +36,7 @@ import { getCredentialFingerprint, createUsageLogger } from './usage/usage-log';
 import { resolveActiveCredential, resolveInactiveProfileToken } from './usage/credential-resolver';
 import { resolveActiveProfile, resolveActiveProfileLegacy } from './usage/active-profile-resolver';
 import { calculateAvailabilityScore } from './usage/availability-score';
-import { appendProviderAccountUsage, codexUsageSource, zaiUsageSource } from './usage/provider-accounts';
+import { appendProviderAccountUsage, codexUsageSource, openrouterUsageSource, zaiUsageSource } from './usage/provider-accounts';
 // Re-export for backward compatibility
 export type { ApiProvider };
 
@@ -284,6 +284,8 @@ export class UsageMonitor extends EventEmitter {
       await this.appendCodexAccounts(allProfiles);
       // Include Z.AI provider accounts from providerAccounts
       await this.appendZAIAccounts(allProfiles);
+      // Include OpenRouter provider accounts from providerAccounts
+      await this.appendOpenRouterAccounts(allProfiles);
 
       // Return minimal data with auth status - don't return null!
       return {
@@ -594,6 +596,8 @@ export class UsageMonitor extends EventEmitter {
     await this.appendCodexAccounts(allProfiles);
     // Include Z.AI provider accounts from providerAccounts
     await this.appendZAIAccounts(allProfiles);
+    // Include OpenRouter provider accounts from providerAccounts
+    await this.appendOpenRouterAccounts(allProfiles);
 
     // Sort by availability score (highest first = most available)
     allProfiles.sort((a, b) => b.availabilityScore - a.availabilityScore);
@@ -759,6 +763,17 @@ export class UsageMonitor extends EventEmitter {
   }
 
   /**
+   * Append OpenRouter provider accounts to the allProfiles list.
+   * OpenRouter accounts use API keys; usage comes from GET /api/v1/key.
+   */
+  private async appendOpenRouterAccounts(allProfiles: ProfileUsageSummary[]): Promise<void> {
+    await appendProviderAccountUsage(allProfiles, openrouterUsageSource, {
+      currentUsage: this.currentUsage,
+      log: (message, data) => this.debugLog(message, data),
+    });
+  }
+
+  /**
    * Get credential for usage monitoring (OAuth token or API key)
    * Detects profile type and returns appropriate credential
    *
@@ -815,6 +830,10 @@ export class UsageMonitor extends EventEmitter {
       }
 
       // Add needsReauthentication flag to the snapshot for the active profile
+      // A successful API-key fetch means the key works again; clear any stale auth flag
+      if (isAPIProfile) {
+        this.needsReauthProfiles.delete(profileId);
+      }
       usage.needsReauthentication = this.needsReauthProfiles.has(profileId);
 
       this.currentUsage = usage;
@@ -965,6 +984,7 @@ export class UsageMonitor extends EventEmitter {
    *   - Anthropic API key (provider: 'anthropic', authType: 'api-key')
    *   - OpenAI/Codex OAuth (provider: 'openai', authType: 'oauth')
    *   - Z.AI API key (provider: 'zai')
+   *   - OpenRouter API key (provider: 'openrouter')
    *   - Other providers: returns null (no usage monitoring supported)
    *
    * @returns Active profile info (including resolved credential) or null if undetermined
@@ -1069,6 +1089,11 @@ export class UsageMonitor extends EventEmitter {
         this.debugLog('[UsageMonitor] Auth failure - clearing keychain cache for profile: ' + profileId);
         clearKeychainCache(profile.configDir);
       }
+    }
+
+    // API-key profiles have no refresh path; surface the pending-auth indicator
+    if (isAPIProfile) {
+      this.needsReauthProfiles.add(profileId);
     }
 
     // Mark this profile as auth-failed to prevent swap loops

@@ -883,7 +883,15 @@
     "clickToOpenSettings": "Click to open Settings →",
     "sessionShort": "5-hour session usage",
     "weeklyShort": "7-day weekly usage",
-    "swap": "Swap"
+    "swap": "Swap",
+    "windowCredit": "Credit",
+    "creditRemaining": "Remaining",
+    "creditNoLimit": "No limit set",
+    "creditResets": {
+      "daily": "Resets daily",
+      "weekly": "Resets weekly",
+      "monthly": "Resets monthly"
+    }
   },
   "oauth": {
     "enterCode": "Manual Code Entry (Fallback)",

@@ -141,7 +141,7 @@ export function setupIpcHandlers(
   registerGitlabHandlers(agentManager, getMainWindow);
 
   // Bitbucket integration handlers
-  registerBitbucketHandlers();
+  registerBitbucketHandlers(getMainWindow);
 
   // Azure DevOps integration handlers
   registerAzureDevOpsHandlers();

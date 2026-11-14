@@ -2,6 +2,8 @@
  * Project-related types
  */
 
+import type { WebhookSettings } from './settings';
+
 export interface Project {
   id: string;
   name: string;
@@ -381,6 +383,11 @@ export interface ProjectEnvConfig {
   jiraEmail?: string;
   jiraApiToken?: string;
   jiraProjectKey?: string;
+
+  // zeenha fork: per-project task-outcome webhook (overrides the global one)
+  webhookEnabled?: boolean;
+  webhookUrl?: string;
+  webhookEvents?: WebhookSettings['events'];
 
   // GitHub Integration
   githubEnabled: boolean;

@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// zeenha fork: intentionally still upstream, prebuilt native modules are only published there.
 const GITHUB_REPO = 'AndyMik90/Auto-Claude';
 
 /**
