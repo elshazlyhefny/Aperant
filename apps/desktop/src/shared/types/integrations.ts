@@ -338,6 +338,25 @@ export interface BitbucketDetectedRepository {
   fullName: string; // workspace/repo_slug
 }
 
+export interface BitbucketPRReviewProgress {
+  phase: 'fetching' | 'analyzing' | 'generating' | 'posting' | 'complete';
+  prId: number;
+  progress: number;
+  message: string;
+}
+
+export interface BitbucketPostReviewOptions {
+  confirmed: boolean;
+  postInline: boolean;
+}
+
+export interface BitbucketPostReviewResult {
+  summaryCommentId: number;
+  inlinePosted: number;
+  inlineFailed: Array<{ findingId: string; reason: string }>;
+  postedFindingIds: string[];
+}
+
 export interface GitLabImportResult {
   success: boolean;
   imported: number;
