@@ -12,6 +12,7 @@ import type {
 } from '../../shared/types';
 import { projectStore } from '../project-store';
 import { taskQueueManager } from '../task-queue-manager';
+import { ensureQueueLock } from '../desktop-queue-lock';
 import {
   initializeProject,
   isInitialized,
@@ -101,6 +102,8 @@ export function registerProjectHandlers(
         }
 
         const project = projectStore.addProject(projectPath);
+        // zeenha fork: take the queue lock as soon as the project is known
+        ensureQueueLock(project);
         return { success: true, data: project };
       } catch (error) {
         return {

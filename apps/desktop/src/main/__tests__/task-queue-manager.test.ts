@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Project, Task } from '../../shared/types';
 
-vi.mock('../app-logger', () => ({
-  appLog: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn() },
+vi.mock('../log-port', () => ({
+  appLogPort: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), log: vi.fn() },
 }));
 
 import { TaskQueueManager } from '../task-queue-manager';
@@ -215,5 +215,36 @@ describe('TaskQueueManager', () => {
     });
     await mgr.requestProcess();
     expect(promotedOrder(promote)).toEqual(['g1']);
+  });
+});
+
+describe('TaskQueueManager queue lock', () => {
+  it('skips promotion and reports lockedBy when canProcess is not ok', async () => {
+    const tasks = { p1: [makeTask('a', 'queue')] };
+    const promote = vi.fn(async () => ({ success: true }));
+    const emitState = vi.fn();
+    const mgr = new TaskQueueManager({
+      getProjects: () => [makeProject('p1', 2)],
+      getTasks: (id) => tasks[id as 'p1'] ?? [],
+      promote,
+      emitState,
+      canProcess: () => ({ ok: false, heldBy: 'daemon (pid 1)' }),
+    });
+    await mgr.requestProcess('p1');
+    expect(promote).not.toHaveBeenCalled();
+    expect(emitState.mock.calls[0][1].lockedBy).toBe('daemon (pid 1)');
+  });
+
+  it('promotes when canProcess is ok', async () => {
+    const tasks = { p1: [makeTask('a', 'queue')] };
+    const promote = vi.fn(async () => ({ success: true }));
+    const mgr = new TaskQueueManager({
+      getProjects: () => [makeProject('p1', 2)],
+      getTasks: (id) => tasks[id as 'p1'] ?? [],
+      promote,
+      canProcess: () => ({ ok: true }),
+    });
+    await mgr.requestProcess('p1');
+    expect(promote).toHaveBeenCalledTimes(1);
   });
 });

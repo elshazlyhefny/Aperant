@@ -20,9 +20,15 @@ export interface BridgeRunOptions {
   bridge: HeadlessBridge;
   executorConfig: AgentExecutorConfig;
   reporter: ProgressReporter;
+  /** Aborting behaves like SIGTERM: the bridge is terminated. */
+  signal?: AbortSignal;
+  /** Register SIGINT/SIGTERM handlers (default true). The daemon passes false. */
+  handleProcessSignals?: boolean;
 }
 
-export function collectBridgeRun({ bridge, executorConfig, reporter }: BridgeRunOptions): Promise<RunInput> {
+export function collectBridgeRun(options: BridgeRunOptions): Promise<RunInput> {
+  const { bridge, executorConfig, reporter, signal } = options;
+  const handleProcessSignals = options.handleProcessSignals !== false;
   const events: RunEvent[] = [];
   const errors: string[] = [];
   let exitInfo: { code: number | null; signal?: string | null } | undefined;
@@ -32,9 +38,16 @@ export function collectBridgeRun({ bridge, executorConfig, reporter }: BridgeRun
     let settled = false;
     const onSigint = () => abort('SIGINT');
     const onSigterm = () => abort('SIGTERM');
+    const onAbortSignal = () => {
+      const reason = signal?.reason;
+      abort(typeof reason === 'string' && reason ? reason : 'abort signal');
+    };
     const removeHandlers = () => {
-      process.off('SIGINT', onSigint);
-      process.off('SIGTERM', onSigterm);
+      if (handleProcessSignals) {
+        process.off('SIGINT', onSigint);
+        process.off('SIGTERM', onSigterm);
+      }
+      signal?.removeEventListener('abort', onAbortSignal);
     };
     const finish = () => {
       if (settled) return;
@@ -67,14 +80,22 @@ export function collectBridgeRun({ bridge, executorConfig, reporter }: BridgeRun
         })
         .finally(finish);
     };
-    process.on('SIGINT', onSigint);
-    process.on('SIGTERM', onSigterm);
+    if (handleProcessSignals) {
+      process.on('SIGINT', onSigint);
+      process.on('SIGTERM', onSigterm);
+    }
 
     try {
       bridge.spawn(executorConfig);
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
       finish();
+      return;
+    }
+    // Registered after spawn so an already-aborted signal terminates a live bridge.
+    if (signal) {
+      if (signal.aborted) onAbortSignal();
+      else signal.addEventListener('abort', onAbortSignal, { once: true });
     }
   });
 }

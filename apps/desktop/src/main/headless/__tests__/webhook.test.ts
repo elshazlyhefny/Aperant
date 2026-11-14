@@ -10,6 +10,7 @@ import {
   projectNameFromPath,
   readSpecTitle,
   resolveHeadlessWebhook,
+  resolveServeWebhookSettings,
   type ResolvedHeadlessWebhook
 } from '../webhook';
 
@@ -62,6 +63,41 @@ describe('resolveHeadlessWebhook', () => {
       {}
     ) as ResolvedHeadlessWebhook;
     expect(custom.events).toEqual({ reviewReady: true, failed: false, blocked: true, prOpened: true });
+  });
+});
+
+describe('resolveServeWebhookSettings', () => {
+  it('is disabled with default events when nothing is configured', () => {
+    expect(resolveServeWebhookSettings({})).toEqual({
+      enabled: false,
+      url: '',
+      events: { reviewReady: true, failed: true, blocked: true, prOpened: false }
+    });
+  });
+
+  it('merges events over the defaults and needs enabled: true', () => {
+    const webhook = { url: URL_OK, events: { prOpened: true, failed: false } };
+    expect(resolveServeWebhookSettings({ webhook: { ...webhook, enabled: true } })).toEqual({
+      enabled: true,
+      url: URL_OK,
+      events: { reviewReady: true, failed: false, blocked: true, prOpened: true }
+    });
+    expect(resolveServeWebhookSettings({ webhook }).enabled).toBe(false);
+  });
+
+  it('rejects an invalid url without printing it', () => {
+    expect(() => resolveServeWebhookSettings({ webhook: { enabled: true, url: 'http://example.com/x' } })).toThrow(
+      /https_required/
+    );
+    expect(() => resolveServeWebhookSettings({ webhook: { enabled: true } })).toThrow(/webhook.url is not valid/);
+    let message = '';
+    try {
+      resolveServeWebhookSettings({ webhook: { url: 'ftp://secret.example.com/x' } });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/webhook.url is not valid/);
+    expect(message).not.toContain('secret.example.com');
   });
 });
 

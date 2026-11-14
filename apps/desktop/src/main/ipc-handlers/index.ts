@@ -49,6 +49,8 @@ import type { IPCResult, TaskQueueState } from '../../shared/types';
 import { projectStore } from '../project-store';
 import { taskStateManager } from '../task-state-manager';
 import { taskQueueManager } from '../task-queue-manager';
+import { ensureQueueLock } from '../desktop-queue-lock';
+import { formatLockHolder } from '../utils/project-queue-lock';
 import { applyTaskStatusUpdate } from './task/execution-handlers';
 
 /**
@@ -81,7 +83,13 @@ export function setupIpcHandlers(
     getTasks: (projectId) => projectStore.getTasks(projectId),
     promote: (taskId) => applyTaskStatusUpdate(agentManager, getMainWindow, taskId, 'in_progress'),
     emitState: (_projectId, state) =>
-      safeSendToRenderer(getMainWindow, IPC_CHANNELS.TASK_QUEUE_STATE_CHANGE, state)
+      safeSendToRenderer(getMainWindow, IPC_CHANNELS.TASK_QUEUE_STATE_CHANGE, state),
+    canProcess: (projectId) => {
+      const project = projectStore.getProject(projectId);
+      if (!project) return { ok: true };
+      const lock = ensureQueueLock(project);
+      return lock.ok ? { ok: true } : { ok: false, heldBy: formatLockHolder(lock.holder) };
+    }
   });
   taskStateManager.onStatusEmitted((taskId, status, projectId) => {
     void taskQueueManager.onTaskStatusChanged(taskId, status, projectId);

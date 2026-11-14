@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { DEFAULT_APP_SETTINGS } from '../../shared/constants/config';
+import type { WebhookSettings } from '../../shared/types/settings';
 import {
   buildWebhookPayload,
   sendWebhook,
@@ -57,6 +58,24 @@ export function resolveHeadlessWebhook(
       prOpened: overrides.prOpened ?? defaults.prOpened
     }
   };
+}
+
+/**
+ * Webhook settings for the daemon (`serve`), from the config file only. Unlike
+ * `run`, the daemon needs `enabled: true`, does not read APERANT_WEBHOOK_URL
+ * and refuses to start with an invalid URL: throws, without the URL in the message.
+ */
+export function resolveServeWebhookSettings(config: HeadlessConfig): WebhookSettings {
+  const defaults = DEFAULT_APP_SETTINGS.webhook;
+  const enabled = config.webhook?.enabled === true;
+  const url = config.webhook?.url ?? defaults.url;
+  if (enabled || url !== '') {
+    const check = validateWebhookUrl(url);
+    if (!check.ok) {
+      throw new Error(`Config: webhook.url is not valid (${check.error ?? 'invalid_url'})`);
+    }
+  }
+  return { enabled, url, events: { ...defaults.events, ...(config.webhook?.events ?? {}) } };
 }
 
 export function eventsForOutcome(outcome: RunOutcome, toggles: WebhookToggles): WebhookEvent[] {

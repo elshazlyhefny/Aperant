@@ -2,7 +2,7 @@ import type { Project, Task, TaskStatus, TaskQueueState } from '../shared/types'
 import { DEFAULT_MAX_PARALLEL_TASKS } from '../shared/constants/queue';
 import { evaluateTaskDependencies } from '../shared/utils/task-dependencies';
 import { isHoldActive } from '../shared/utils/file-overlap';
-import { appLog } from './app-logger';
+import { appLogPort } from './log-port';
 
 /** Safety limit that stops a pass when promotions keep failing */
 const MAX_CONSECUTIVE_FAILURES = 10;
@@ -19,6 +19,8 @@ export interface TaskQueueDeps {
   getTasks: (projectId: string) => Task[];
   promote: (taskId: string, projectId: string) => Promise<PromoteResult>;
   emitState?: (projectId: string, state: QueueState) => void;
+  /** zeenha fork: false while another process (the daemon) holds this project's queue lock. */
+  canProcess?: (projectId: string) => { ok: true } | { ok: false; heldBy: string };
 }
 
 const isActive = (t: Task): boolean => !t.metadata?.archivedAt;
@@ -127,6 +129,17 @@ export class TaskQueueManager {
 
   private async processProject(projectId: string): Promise<void> {
     const deps = this.requireDeps();
+    let lockedBy: string | undefined;
+    try {
+      const gate = deps.canProcess?.(projectId);
+      if (gate && !gate.ok) {
+        lockedBy = gate.heldBy;
+        deps.emitState?.(projectId, { ...this.getState(projectId), lockedBy });
+        return;
+      }
+    } catch (error) {
+      appLogPort.error(`[Queue] Lock check failed for project ${projectId}:`, error);
+    }
     try {
       const attempted = new Set<string>();
       let consecutiveFailures = 0;
@@ -159,7 +172,7 @@ export class TaskQueueManager {
         if (inProgressCount >= limit || queued.length === 0) break;
 
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          appLog.warn(`[Queue] Stopping queue processing after ${MAX_CONSECUTIVE_FAILURES} consecutive failures`);
+          appLogPort.warn(`[Queue] Stopping queue processing after ${MAX_CONSECUTIVE_FAILURES} consecutive failures`);
           break;
         }
 
@@ -177,7 +190,7 @@ export class TaskQueueManager {
           set.add(next.id);
           this.promotedIds.set(projectId, set);
         } else {
-          appLog.error(`[Queue] Failed to promote task ${next.id} to In Progress: ${result.error ?? 'unknown error'}`);
+          appLogPort.error(`[Queue] Failed to promote task ${next.id} to In Progress: ${result.error ?? 'unknown error'}`);
           attempted.add(next.id);
           consecutiveFailures++;
         }
@@ -185,15 +198,15 @@ export class TaskQueueManager {
 
       this.skipped.set(projectId, [...attempted]);
       if (attempted.size > 0) {
-        appLog.warn(`[Queue] Skipped ${attempted.size} task(s) that failed to promote`);
+        appLogPort.warn(`[Queue] Skipped ${attempted.size} task(s) that failed to promote`);
       }
     } catch (error) {
-      appLog.error(`[Queue] Queue pass failed for project ${projectId}:`, error);
+      appLogPort.error(`[Queue] Queue pass failed for project ${projectId}:`, error);
     }
     try {
       deps.emitState?.(projectId, this.getState(projectId));
     } catch (error) {
-      appLog.error(`[Queue] Failed to emit queue state for project ${projectId}:`, error);
+      appLogPort.error(`[Queue] Failed to emit queue state for project ${projectId}:`, error);
     }
   }
 }

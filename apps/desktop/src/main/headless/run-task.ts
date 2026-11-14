@@ -27,6 +27,7 @@ import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
 import { createOrGetWorktree } from '../ai/worktree/worktree-manager';
 import { resolveHeadlessAuth } from './auth';
 import { loadHeadlessConfig, mcpOptionsForHeadless, resolveProjectSettings } from './config';
+import type { HeadlessConfig } from './config';
 import { collectBridgeRun } from './bridge-run';
 import type { HeadlessBridge } from './bridge-run';
 import { classifyRun, EXIT_ERROR } from './outcome';
@@ -49,6 +50,12 @@ export interface HeadlessRunOptions {
   /** Spec id (e.g. 001-my-feature) or a path to the spec directory. */
   spec: string;
   configPath?: string;
+  /** Already-loaded config; used instead of reading configPath. */
+  config?: HeadlessConfig;
+  /** Aborting behaves like SIGTERM: the bridge is terminated. */
+  signal?: AbortSignal;
+  /** Register SIGINT/SIGTERM handlers (default true). The daemon passes false. */
+  handleProcessSignals?: boolean;
   baseBranch?: string;
   noPush?: boolean;
   json?: boolean;
@@ -60,6 +67,17 @@ export interface HeadlessRunOptions {
   err?: (text: string) => void;
   /** Test-only: replaces the webhook retry backoff delay. */
   webhookDelay?: (ms: number) => Promise<void>;
+  /** Send the outcome webhook (default true). The daemon passes false and sends its own. */
+  sendWebhook?: boolean;
+}
+
+export interface HeadlessRunResult {
+  exitCode: number;
+  outcome: RunOutcome | undefined;
+  specId?: string;
+  branch?: string;
+  worktreePath?: string;
+  aborted: boolean;
 }
 
 function resolveSpec(projectRoot: string, spec: string): { specId: string; specDir: string } {
@@ -77,6 +95,10 @@ function resolveSpec(projectRoot: string, spec: string): { specId: string; specD
 }
 
 export async function runHeadlessTask(options: HeadlessRunOptions): Promise<number> {
+  return (await runHeadlessTaskDetailed(options)).exitCode;
+}
+
+export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Promise<HeadlessRunResult> {
   // Secrets resolved later in the run; every line written goes through redact().
   const secrets: string[] = [];
   const redact = (text: string): string => {
@@ -92,10 +114,11 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
     out: (t) => rawOut(redact(t)),
     err: (t) => rawErr(redact(t)),
   });
-  const fail = (message: string, specId?: string): number => {
+  const fail = (message: string, specId?: string): HeadlessRunResult => {
     reporter.error(message);
-    reporter.summary({ kind: 'error', exitCode: EXIT_ERROR, reason: message }, { spec: specId });
-    return EXIT_ERROR;
+    const outcome: RunOutcome = { kind: 'error', exitCode: EXIT_ERROR, reason: message };
+    reporter.summary(outcome, { spec: specId });
+    return { exitCode: EXIT_ERROR, outcome, specId, aborted: false };
   };
 
   // zeenha fork: outcome webhook state, set as early as possible so setup failures can notify too.
@@ -133,12 +156,14 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
     webhookTitle = readSpecTitle(specDir, specId);
 
     // (2) config and project settings
-    const config = loadHeadlessConfig(options.configPath);
-    const resolvedWebhook = resolveHeadlessWebhook(config, process.env);
-    if (resolvedWebhook && 'warning' in resolvedWebhook) {
-      rawErr(redact(`warning: ${resolvedWebhook.warning}\n`));
-    } else {
-      webhook = resolvedWebhook;
+    const config = options.config ?? loadHeadlessConfig(options.configPath);
+    if (options.sendWebhook !== false) {
+      const resolvedWebhook = resolveHeadlessWebhook(config, process.env);
+      if (resolvedWebhook && 'warning' in resolvedWebhook) {
+        rawErr(redact(`warning: ${resolvedWebhook.warning}\n`));
+      } else {
+        webhook = resolvedWebhook;
+      }
     }
     const settings = resolveProjectSettings(projectPath, config, {
       baseBranch: options.baseBranch,
@@ -224,15 +249,28 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
     const info = { spec: specId, branch, worktree: worktreePath };
     reporter.log(`Running ${specId} in worktree ${worktreePath} (branch ${branch})`);
 
-    const reported = classifyRun(await collectBridgeRun({ bridge, executorConfig, reporter }));
+    const runInput = await collectBridgeRun({
+      bridge,
+      executorConfig,
+      reporter,
+      signal: options.signal,
+      handleProcessSignals: options.handleProcessSignals,
+    });
+    const reported = classifyRun(runInput);
 
     reporter.summary(reported, info);
-    const exitCode = reported.exitCode;
     await sendOutcome(reported);
-    return exitCode;
+    return {
+      exitCode: reported.exitCode,
+      outcome: reported,
+      specId,
+      branch,
+      worktreePath,
+      aborted: runInput.abortSignal !== undefined,
+    };
   } catch (error) {
-    const exitCode = fail(error instanceof Error ? error.message : String(error), specId);
-    await sendOutcome({ kind: 'error', exitCode: EXIT_ERROR, reason: error instanceof Error ? error.message : String(error) });
-    return exitCode;
+    const result = fail(error instanceof Error ? error.message : String(error), specId);
+    if (result.outcome) await sendOutcome(result.outcome);
+    return result;
   }
 }

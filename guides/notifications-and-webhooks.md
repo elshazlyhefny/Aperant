@@ -181,6 +181,8 @@ The webhook is read only from the app's own user settings. It is never read from
 
 No `WEBHOOK_URL` key may be added to repository files (`.aperant.json`, `.auto-claude/.env`) or read by the app from its environment. The headless CLI is the one exception: it reads `APERANT_WEBHOOK_URL` from its own process environment only (see [Headless runs](#headless-runs-clijs-run)), never from a file in the repository.
 
+The headless daemon (`cli.js serve`) does not read the app's `settings.json`. Its webhook comes from the `webhook` key of the `--config` file you pass to it (`enabled`, `url`, `events`), which is a file you control on that machine. Unlike `cli.js run`, the daemon sends the webhook only when `enabled` is `true`, does not read `APERANT_WEBHOOK_URL`, and stops at startup with exit code 1 when the URL is invalid. It sends one message per finished task. See [Config file keys](CLI-USAGE.md#config-file-keys). The same URL rules and delivery behaviour apply.
+
 The URL is masked in the field and is never logged. Treat it like a secret: anyone who has it can post messages to the channel.
 
 ## Receivers other than Slack

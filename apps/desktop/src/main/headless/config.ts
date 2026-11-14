@@ -23,9 +23,13 @@ export interface HeadlessProjectConfig {
   envPassthrough?: unknown;
   bashSandbox?: unknown;
   webFetchProvider?: unknown;
+  /** Daemon only: how many queued tasks may run at once. */
+  maxParallelTasks?: number;
 }
 
 export interface HeadlessWebhookConfig {
+  /** Daemon only: `serve` sends the webhook only when this is true. `run` ignores it. */
+  enabled?: boolean;
   url?: string;
   events?: Partial<{ reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean }>;
 }
@@ -95,24 +99,35 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
     if (!isRecord(raw.project)) {
       throw new Error(`Config file ${configPath}: project must be an object`);
     }
-    const { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider } = raw.project;
+    const { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider, maxParallelTasks } =
+      raw.project;
     if (mainBranch !== undefined && typeof mainBranch !== 'string') {
       throw new Error(`Config file ${configPath}: project.mainBranch must be a string`);
     }
     if (pushNewBranches !== undefined && typeof pushNewBranches !== 'boolean') {
       throw new Error(`Config file ${configPath}: project.pushNewBranches must be a boolean`);
     }
-    config.project = { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider };
+    if (
+      maxParallelTasks !== undefined &&
+      (typeof maxParallelTasks !== 'number' || !Number.isInteger(maxParallelTasks) || maxParallelTasks < 1)
+    ) {
+      throw new Error(`Config file ${configPath}: project.maxParallelTasks must be a positive integer`);
+    }
+    config.project = { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider, maxParallelTasks };
   }
   if (raw.webhook !== undefined) {
     if (!isRecord(raw.webhook)) {
       throw new Error(`Config file ${configPath}: webhook must be an object`);
     }
-    const { url, events } = raw.webhook;
+    const { enabled, url, events } = raw.webhook;
+    if (enabled !== undefined && typeof enabled !== 'boolean') {
+      throw new Error(`Config file ${configPath}: webhook.enabled must be a boolean`);
+    }
     if (url !== undefined && typeof url !== 'string') {
       throw new Error(`Config file ${configPath}: webhook.url must be a string`);
     }
     const webhook: HeadlessWebhookConfig = {};
+    if (enabled !== undefined) webhook.enabled = enabled;
     if (url !== undefined) webhook.url = url;
     if (events !== undefined) {
       if (!isRecord(events)) {

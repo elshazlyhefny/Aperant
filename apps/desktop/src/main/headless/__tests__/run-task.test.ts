@@ -18,7 +18,7 @@ vi.mock('../../ai/prompts/prompt-loader', () => ({
   tryLoadPrompt: () => 'PLANNER PROMPT',
 }));
 
-import { runHeadlessTask } from '../run-task';
+import { runHeadlessTask, runHeadlessTaskDetailed } from '../run-task';
 import type { HeadlessBridge } from '../run-task';
 
 const SECRET = 'sk-ant-super-secret-key';
@@ -179,6 +179,90 @@ describe('runHeadlessTask', () => {
     await run({ json: true, verbose: true });
     expect(out.join('')).not.toContain(SECRET);
     expect(err.join('')).not.toContain(SECRET);
+  });
+
+  it('terminates the bridge when the abort signal fires', async () => {
+    makeSpec();
+    const controller = new AbortController();
+    bridge.spawn.mockImplementation(() => {
+      setImmediate(() => controller.abort('cancelled'));
+    });
+    const result = await runHeadlessTaskDetailed({
+      projectPath: projectDir,
+      spec: '001-demo',
+      workerPath: '/fake/worker.js',
+      createBridge: () => bridge,
+      out: (t) => void out.push(t),
+      err: (t) => void err.push(t),
+      signal: controller.signal,
+      handleProcessSignals: false,
+    });
+    expect(bridge.terminate).toHaveBeenCalledOnce();
+    expect(result.aborted).toBe(true);
+    expect(result.exitCode).toBe(1);
+    expect(err.join('')).toContain('aborted by cancelled');
+  });
+
+  it('handles an already-aborted signal after spawning', async () => {
+    makeSpec();
+    const controller = new AbortController();
+    controller.abort();
+    const result = await runHeadlessTaskDetailed({
+      projectPath: projectDir,
+      spec: '001-demo',
+      workerPath: '/fake/worker.js',
+      createBridge: () => bridge,
+      out: (t) => void out.push(t),
+      err: (t) => void err.push(t),
+      signal: controller.signal,
+    });
+    expect(bridge.spawn).toHaveBeenCalledOnce();
+    expect(bridge.terminate).toHaveBeenCalledOnce();
+    expect(result.aborted).toBe(true);
+  });
+
+  it('adds no process signal listeners when handleProcessSignals is false', async () => {
+    makeSpec();
+    const sigint = process.listenerCount('SIGINT');
+    const sigterm = process.listenerCount('SIGTERM');
+    let during: number[] = [];
+    bridge.spawn.mockImplementation(() => {
+      during = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];
+      setImmediate(() => {
+        bridge.emit('task-event', '001-demo', { type: 'QA_PASSED' });
+        bridge.emit('exit', '001-demo', 0, 'task-execution');
+      });
+    });
+    expect(await run({ handleProcessSignals: false })).toBe(0);
+    expect(during).toEqual([sigint, sigterm]);
+  });
+
+  it('returns detailed result fields', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED' }]);
+    const result = await runHeadlessTaskDetailed({
+      projectPath: projectDir,
+      spec: '001-demo',
+      workerPath: '/fake/worker.js',
+      createBridge: () => bridge,
+      out: (t) => void out.push(t),
+      err: (t) => void err.push(t),
+    });
+    expect(result).toMatchObject({
+      exitCode: 0,
+      specId: '001-demo',
+      branch: 'auto-claude/001-demo',
+      aborted: false,
+    });
+    expect(result.worktreePath).toContain('001-demo');
+    expect(result.outcome?.exitCode).toBe(0);
+  });
+
+  it('uses a supplied config instead of loading configPath', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED' }]);
+    expect(await run({ configPath: '/does/not/exist.json', config: { project: { mainBranch: 'dev' } } })).toBe(0);
+    expect(mockCreateWorktree.mock.calls[0][2]).toBe('dev');
   });
 });
 

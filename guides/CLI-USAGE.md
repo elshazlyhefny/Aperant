@@ -261,3 +261,104 @@ Any exit code:
 - `warning: webhook ...` on stderr: the webhook URL was rejected or delivery failed. The exit code is not affected. Check the URL rules in [notifications-and-webhooks.md](notifications-and-webhooks.md#url-rules).
 
 Exit code 2: QA did not pass. Read `qa_report.md` in the worktree's spec directory, `.auto-claude/worktrees/tasks/<id>/.auto-claude/specs/<id>/qa_report.md`, for the remaining issues.
+
+## Running the queue and schedules as a daemon
+
+`serve` runs one project's task queue and its recurring schedules without opening the app, until you stop it. Use it on a server or a machine where the app is not open. It needs the same prerequisites as `run` (Node 22 or newer, a build, a git repository) and the same [credentials](#credentials).
+
+### Command
+
+```bash
+node apps/desktop/out/main/cli.js serve [--project <dir>] [--config <file>] \
+  [--schedules <file>] [--project-id <id>] [--base-branch <b>] [--no-push] \
+  [--shutdown-timeout <sec>] [--json] [--verbose]
+
+# or, from apps/desktop
+npm run cli -- serve ...
+```
+
+| Flag | Purpose |
+|------|---------|
+| `--project <dir>` | Project directory. Default: the current directory. |
+| `--config <file>` | JSON config file, the same file as for `run`, plus the keys below. |
+| `--schedules <file>` | Schedules file. Default: `<project>/.auto-claude/schedules.json`. |
+| `--project-id <id>` | Use the schedules of this desktop project id. See [The schedules file](#the-schedules-file). |
+| `--base-branch <b>` | Branch the task worktrees are created from. |
+| `--no-push` | Do not push task branches. |
+| `--shutdown-timeout <sec>` | Seconds to wait for running tasks after SIGTERM or SIGINT. Default: 30. |
+| `--json` | Print one JSON event per line. |
+| `--verbose` | Print detailed progress. |
+
+### What it runs
+
+- **The queue.** Tasks in the Queue start in dependency order, as in the app, while the number of running tasks is under the project's parallel limit. The limit is `project.maxParallelTasks` in the config file (default 3). The desktop project setting is not read.
+- **Schedules.** Due schedules create a task from their template and put it in the Queue. The rules are the same as in the app, including the missed-run rule: a run more than 5 minutes late, or several runs due at once, records one `missed` entry and creates one catch-up task. See [recurring-tasks.md](recurring-tasks.md#missed-runs).
+- **Outcomes.** When a task finishes, its status is saved in the project (Human Review for a pass or a QA rejection, Error otherwise) and the [outcome webhook](notifications-and-webhooks.md) is sent if the config file enables it. The Kanban board shows the result when you open the app later.
+- **Token budgets.** A task stops when it reaches its `tokenBudget` (from its `task_metadata.json`, as for `run`). A schedule's budget per run applies to the tasks it creates; the task is stopped, set to Error, and the schedule records `budget_exceeded`.
+
+### The lock
+
+The daemon takes a lock on the project's queue. The desktop app takes the same lock when it runs the queue. The app and the daemon therefore cannot run the same project at once. If another process holds the lock, `serve` prints
+
+```
+Cannot start: project queue is already run by <holder>
+```
+
+and exits with code 3. Stop the other process (close the app, or stop the other daemon) and start `serve` again.
+
+### The schedules file
+
+By default the daemon reads and writes `<project>/.auto-claude/schedules.json`, in the same format as the app's `schedules.json` in its user data folder. To use the schedules you made in the desktop app, copy that file into the project, or pass it with `--schedules`, and add `--project-id <id>` with the desktop project's id. With `--project-id` only the schedules of that project are used, and they run against the project given by `--project`. The daemon writes the run history back to the file you point it at. Without `--project-id` every schedule in the file runs against `--project`.
+
+If the file is missing or corrupt, the daemon has no schedules and only runs the queue.
+
+### Config file keys
+
+In addition to the keys under [Credentials](#credentials):
+
+```json
+{
+  "webhook": {
+    "enabled": true,
+    "url": "https://hooks.slack.com/services/...",
+    "events": { "reviewReady": true, "failed": true, "blocked": true, "prOpened": false }
+  },
+  "project": { "maxParallelTasks": 2 }
+}
+```
+
+- `webhook`: the outcome webhook for the daemon. It is read only from this file, never from the app's `settings.json`. See [notifications-and-webhooks.md](notifications-and-webhooks.md). An invalid URL stops the daemon with exit code 1. The daemon sends it only when `enabled` is `true`, and it does not read `APERANT_WEBHOOK_URL`. `run` reads the same `url` and `events` but ignores `enabled`: for `run`, a URL is enough.
+- `project.maxParallelTasks`: how many tasks run at once. Default: 3.
+
+### Stopping
+
+On SIGTERM or SIGINT the daemon stops the schedule checks, aborts the running tasks and waits up to `--shutdown-timeout` seconds. Each interrupted task goes back to the Queue, with its stuck subtasks reset, and resumes on the next start. Tasks that do not stop in time are put back the same way. The lock is then released and the exit code is 0. A second signal forces an immediate exit with code 1; the tasks that were running are then recovered at the next start, which puts any task still marked running back in the Queue.
+
+### Exit codes for serve
+
+| Code | Meaning |
+|------|---------|
+| 0 | Stopped cleanly. |
+| 1 | Error: bad arguments, no git repository, an invalid config file, or a forced exit. |
+| 3 | The project queue is held by another process. |
+
+### systemd example
+
+```ini
+[Unit]
+Description=Aperant queue and schedules
+After=network-online.target
+
+[Service]
+WorkingDirectory=/srv/my-project
+Environment=ANTHROPIC_API_KEY=...
+ExecStart=/usr/bin/node /opt/aperant/apps/desktop/out/main/cli.js serve --config /etc/aperant/serve.json
+Restart=on-failure
+RestartPreventExitStatus=3
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`RestartPreventExitStatus=3` stops systemd from restarting the daemon in a loop while the app holds the lock. Keep `TimeoutStopSec` above `--shutdown-timeout`. Prefer an `EnvironmentFile=` with restricted permissions to a key written in the unit.

@@ -44,7 +44,7 @@ export interface ScheduleRunRecord {
 export type ScheduleRunNowResult = {
   started: boolean;
   taskId?: string;
-  reason?: 'unfinished' | 'not_found';
+  reason?: 'unfinished' | 'not_found' | 'locked';
 };
 
 export interface RecurringSchedule {

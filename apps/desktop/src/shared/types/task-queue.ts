@@ -7,4 +7,6 @@ export interface TaskQueueState {
   queuedTaskIds: string[];
   /** Task ids skipped in the last pass because promotion failed */
   skippedTaskIds: string[];
+  /** Set when another process (the daemon) runs this project's queue, so the desktop does not promote */
+  lockedBy?: string;
 }

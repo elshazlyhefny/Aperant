@@ -278,3 +278,18 @@ describe('schedule service', () => {
     });
   });
 });
+
+describe('schedule service queue lock', () => {
+  it('creates nothing and keeps nextRunAt when canRun is false', async () => {
+    const h = setup();
+    h.deps.canRun = () => false;
+    const svc = createScheduleService(h.deps);
+    await svc.tick();
+    expect(h.deps.createTask).not.toHaveBeenCalled();
+    expect(h.schedules[0].nextRunAt).toBe(T0);
+    const result = await svc.runNow('s1');
+    expect(result).toEqual({ started: false, reason: 'locked' });
+    expect(h.deps.createTask).not.toHaveBeenCalled();
+    expect(h.schedules[0].nextRunAt).toBe(T0);
+  });
+});

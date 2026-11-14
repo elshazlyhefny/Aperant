@@ -21,6 +21,22 @@ function resolveLocal(fromFile: string, specifier: string): string | null {
   return candidates.find((file) => existsSync(file) && statSync(file).isFile()) ?? null;
 }
 
+function collectReachable(entry: string): Set<string> {
+  const seen = new Set<string>([entry]);
+  const queue = [entry];
+  while (queue.length > 0) {
+    const file = queue.shift() as string;
+    for (const match of readFileSync(file, 'utf8').matchAll(STATIC_IMPORT)) {
+      const target = resolveLocal(file, match[1]);
+      if (target && !seen.has(target)) {
+        seen.add(target);
+        queue.push(target);
+      }
+    }
+  }
+  return seen;
+}
+
 function findForbiddenChains(entry: string): string[] {
   const parent = new Map<string, string | null>([[entry, null]]);
   const queue = [entry];
@@ -50,5 +66,15 @@ function findForbiddenChains(entry: string): string[] {
 describe('headless cli imports', () => {
   it('never statically imports electron, electron-log or @sentry/electron', () => {
     expect(findForbiddenChains(CLI_ENTRY)).toEqual([]);
+  });
+
+  it('bundles the queue and schedule modules but not their Electron-bound siblings', () => {
+    const reached = new Set([...collectReachable(CLI_ENTRY)].map((file) => path.basename(file)));
+    for (const name of ['task-queue-manager.ts', 'schedule-service.ts', 'schedule-file-store.ts', 'webhook-core.ts']) {
+      expect(reached.has(name), `${name} should be reachable`).toBe(true);
+    }
+    for (const name of ['app-logger.ts', 'settings-utils.ts', 'schedule-store.ts', 'task-webhook.ts']) {
+      expect(reached.has(name), `${name} must not be reachable`).toBe(false);
+    }
   });
 });

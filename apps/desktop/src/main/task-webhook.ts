@@ -18,22 +18,11 @@ import {
   type WebhookEvent,
   type WebhookPayload
 } from './task-webhook-core';
+import { mapOutcomeToWebhookEvent } from './webhook-core';
 
 export { validateWebhookUrl, buildWebhookPayload } from './task-webhook-core';
+export { mapOutcomeToWebhookEvent } from './webhook-core';
 export type { WebhookEvent, WebhookPayload } from './task-webhook-core';
-
-export function mapOutcomeToWebhookEvent(
-  status: TaskStatus | string,
-  reviewReason?: ReviewReason | string | null
-): WebhookEvent | null {
-  if (status === 'error') return 'failed';
-  if (status === 'human_review') {
-    if (reviewReason === 'completed') return 'review_ready';
-    if (reviewReason === 'qa_rejected' || reviewReason === 'errors') return 'blocked';
-  }
-  if (status === 'pr_created') return 'pr_opened';
-  return null;
-}
 
 function safeWarn(message: string): void {
   try {
