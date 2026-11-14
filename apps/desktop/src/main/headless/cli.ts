@@ -1,6 +1,7 @@
 /**
  * zeenha fork: headless command line entry (`node out/main/cli.js run <spec>`).
  * Runs one task through the planner -> coder -> QA pipeline without Electron.
+ * `serve` is long-running: it runs the project's task queue and recurring schedules until stopped.
  * No Sentry, no app-logger and no electron import may appear below this file.
  */
 import { readFileSync, realpathSync } from 'node:fs';
@@ -8,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runHeadlessTask } from './run-task';
+import { runServe } from './serve';
 
 const FALLBACK_VERSION = 'unknown';
 
@@ -15,6 +17,7 @@ export const USAGE = `Usage: cli.js <command> [options]
 
 Commands:
   run <spec>      Run the spec's build (plan, code, QA) and open a pull request
+  serve           Run the project's task queue and recurring schedules until stopped
   help            Show this help
 
 Options for run:
@@ -26,6 +29,22 @@ Options for run:
   --verbose             Print detailed progress
   --help                Show this help
   --version             Print the version
+
+Options for serve:
+  --project <dir>            Project directory (default: current directory)
+  --config <file>            JSON config file
+  --schedules <file>         JSON schedules file
+  --project-id <id>          Project id used for the queue and schedules
+  --base-branch <name>       Branch the task worktrees are created from
+  --no-push                  Do not push task branches
+  --shutdown-timeout <sec>   Seconds to wait for running tasks on SIGTERM/SIGINT
+  --json                     Print machine-readable events
+  --verbose                  Print detailed progress
+
+Exit codes for serve:
+  0  stopped cleanly
+  1  error
+  3  the project queue is held by another process
 `;
 
 export interface CliIo {
@@ -36,6 +55,7 @@ export interface CliIo {
 export interface CliDeps extends Partial<CliIo> {
   workerPath?: string;
   readVersion?: () => string;
+  runServe?: typeof runServe;
 }
 
 function readPackageVersion(): string {
@@ -84,6 +104,35 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
     out(USAGE);
     return 0;
   }
+  if (command === 'serve') {
+    if (spec || extra.length > 0) {
+      err(`Too many arguments\n\n${USAGE}`);
+      return 1;
+    }
+    let shutdownTimeoutMs: number | undefined;
+    if (values['shutdown-timeout'] !== undefined) {
+      const seconds = Number(values['shutdown-timeout']);
+      if (!Number.isFinite(seconds) || seconds < 0) {
+        err(`Invalid --shutdown-timeout: ${values['shutdown-timeout']}\n\n${USAGE}`);
+        return 1;
+      }
+      shutdownTimeoutMs = seconds * 1000;
+    }
+    return (deps.runServe ?? runServe)({
+      projectPath: path.resolve(values.project ?? process.cwd()),
+      projectId: values['project-id'],
+      configPath: values.config,
+      schedulesPath: values.schedules,
+      baseBranch: values['base-branch'],
+      noPush: values['no-push'],
+      shutdownTimeoutMs,
+      json: values.json,
+      verbose: values.verbose,
+      workerPath: deps.workerPath ?? defaultWorkerPath(),
+      out,
+      err,
+    });
+  }
   if (command !== 'run') {
     err(`${command ? `Unknown command: ${command}` : 'Missing command'}\n\n${USAGE}`);
     return 1;
@@ -110,6 +159,9 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
 const OPTIONS = {
   project: { type: 'string' },
   config: { type: 'string' },
+  schedules: { type: 'string' },
+  'project-id': { type: 'string' },
+  'shutdown-timeout': { type: 'string' },
   'base-branch': { type: 'string' },
   'no-push': { type: 'boolean' },
   json: { type: 'boolean' },

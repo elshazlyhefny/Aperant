@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const runHeadlessTask = vi.hoisted(() => vi.fn());
 vi.mock('../run-task', () => ({ runHeadlessTask }));
 
+const runServe = vi.hoisted(() => vi.fn());
+
 import { runCli } from '../cli';
 
 function harness() {
@@ -18,7 +20,10 @@ function harness() {
 }
 
 describe('headless cli', () => {
-  beforeEach(() => runHeadlessTask.mockReset().mockResolvedValue(0));
+  beforeEach(() => {
+    runHeadlessTask.mockReset().mockResolvedValue(0);
+    runServe.mockReset().mockResolvedValue(0);
+  });
 
   it('prints usage and exits 0 for --help and help', async () => {
     for (const argv of [['--help'], ['help']]) {
@@ -64,6 +69,50 @@ describe('headless cli', () => {
         workerPath: '/w/worker.js',
       }),
     );
+  });
+
+  it('dispatches serve with parsed options and returns its exit code', async () => {
+    runServe.mockResolvedValue(3);
+    const h = harness();
+    const code = await runCli(
+      ['serve', '--project', '/p', '--config', 'c.json', '--schedules', 's.json', '--project-id', 'pid',
+        '--base-branch', 'main', '--no-push', '--shutdown-timeout', '5', '--json', '--verbose'],
+      { ...h.deps, runServe },
+    );
+    expect(code).toBe(3);
+    expect(runServe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectPath: '/p',
+        configPath: 'c.json',
+        schedulesPath: 's.json',
+        projectId: 'pid',
+        baseBranch: 'main',
+        noPush: true,
+        shutdownTimeoutMs: 5000,
+        json: true,
+        verbose: true,
+        workerPath: '/w/worker.js',
+      }),
+    );
+    expect(runHeadlessTask).not.toHaveBeenCalled();
+  });
+
+  it('rejects extra serve arguments and a bad shutdown timeout', async () => {
+    for (const argv of [['serve', 'extra'], ['serve', '--shutdown-timeout', 'abc']]) {
+      const h = harness();
+      expect(await runCli(argv, { ...h.deps, runServe })).toBe(1);
+      expect(h.err.join('')).toContain('Usage:');
+    }
+    expect(runServe).not.toHaveBeenCalled();
+  });
+
+  it('documents serve and its exit codes in the usage text', async () => {
+    const h = harness();
+    await runCli(['help'], h.deps);
+    const text = h.out.join('');
+    expect(text).toContain('serve');
+    expect(text).toContain('--shutdown-timeout');
+    expect(text).toContain('held by another process');
   });
 
   it('defaults the project to the current directory', async () => {
