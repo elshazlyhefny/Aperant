@@ -65,7 +65,7 @@ describe('assertWriteAllowed', () => {
 
   it('blocks a symlink inside the project pointing into .git', () => {
     const link = path.join(projectDir, 'src', 'link');
-    fs.symlinkSync(path.join(projectDir, '.git'), link);
+    fs.symlinkSync(path.join(projectDir, '.git'), link, 'junction');
     expect(() => assertWriteAllowed('src/link/config', ctx())).toThrow();
   });
 

@@ -41,6 +41,7 @@
     "start:packaged:win": "start \"\" \"dist\\win-unpacked\\Aperant.exe\"",
     "start:packaged:linux": "./dist/linux-unpacked/aperant",
     "test": "vitest run",
+    "test:windows-summary": "node scripts/windows-test-summary.cjs",
     "test:unit": "vitest run --exclude src/__tests__/integration/ --exclude src/__tests__/e2e/",
     "test:integration": "vitest run src/__tests__/integration/",
     "test:watch": "vitest",
