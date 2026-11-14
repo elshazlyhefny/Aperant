@@ -50,9 +50,20 @@ export function mrReviewRef(mrIid: number): string {
   return `refs/aperant/pr-review/mr-${mrIid}`;
 }
 
+/**
+ * zeenha fork: Bitbucket Cloud has no `refs/pull`-style ref, so its private ref
+ * is fetched from the source branch (or by sha) instead.
+ */
+export function bbReviewRef(prId: number): string {
+  return `refs/aperant/pr-review/bb-${prId}`;
+}
+
 interface CheckoutSpec {
   number: number;
-  sourceRef: string;
+  /** Refspecs tried in order; the first whose fetch succeeds (and matches expectedSha) wins. */
+  fetchAttempts: string[];
+  /** When set, a fetched commit with a different sha is rejected. */
+  expectedSha?: string;
   privateRef: string;
   label: 'PR' | 'MR';
   dirPrefix: string;
@@ -61,20 +72,40 @@ interface CheckoutSpec {
 async function prepareReviewCheckout(
   projectDir: string,
   remote: string,
-  { number, sourceRef, privateRef: ref, label, dirPrefix }: CheckoutSpec,
+  { number, fetchAttempts, expectedSha, privateRef: ref, label, dirPrefix }: CheckoutSpec,
 ): Promise<PRReviewCheckout> {
   if (!Number.isInteger(number) || number <= 0) return { kind: 'base', reason: `invalid ${label} number ${number}` };
-  try {
-    await git(['fetch', '--quiet', '--no-tags', remote, `+${sourceRef}:${ref}`], projectDir, FETCH_TIMEOUT_MS);
-  } catch (error) {
-    return { kind: 'base', reason: `could not fetch the ${label} head (${(error as Error).message.split('\n')[0]})` };
-  }
 
-  let sha: string;
-  try {
-    sha = (await git(['rev-parse', '--verify', `${ref}^{commit}`], projectDir)).trim();
-  } catch {
-    return { kind: 'base', reason: `the fetched ${label} head is not a commit` };
+  let sha = '';
+  let failure = `could not fetch the ${label} head`;
+  for (const refspec of fetchAttempts) {
+    try {
+      await git(['fetch', '--quiet', '--no-tags', remote, refspec], projectDir, FETCH_TIMEOUT_MS);
+    } catch (error) {
+      failure = `could not fetch the ${label} head (${(error as Error).message.split('\n')[0]})`;
+      continue;
+    }
+    let fetched: string;
+    try {
+      fetched = (await git(['rev-parse', '--verify', `${ref}^{commit}`], projectDir)).trim();
+    } catch {
+      failure = `the fetched ${label} head is not a commit`;
+      continue;
+    }
+    if (expectedSha && fetched.toLowerCase() !== expectedSha.toLowerCase()) {
+      failure = `the fetched ${label} head (${fetched.slice(0, 12)}) is not the reviewed commit (${expectedSha.slice(0, 12)})`;
+      continue;
+    }
+    sha = fetched;
+    break;
+  }
+  if (!sha) {
+    try {
+      await git(['update-ref', '-d', ref], projectDir);
+    } catch {
+      // nothing was fetched
+    }
+    return { kind: 'base', reason: failure };
   }
 
   const root = path.join(projectDir, PR_REVIEW_DIR);
@@ -121,7 +152,7 @@ async function prepareReviewCheckout(
 export function preparePRReviewCheckout(projectDir: string, prNumber: number, remote = 'origin'): Promise<PRReviewCheckout> {
   return prepareReviewCheckout(projectDir, remote, {
     number: prNumber,
-    sourceRef: `refs/pull/${prNumber}/head`,
+    fetchAttempts: [`+refs/pull/${prNumber}/head:${prReviewRef(prNumber)}`],
     privateRef: prReviewRef(prNumber),
     label: 'PR',
     dirPrefix: 'pr',
@@ -132,10 +163,59 @@ export function preparePRReviewCheckout(projectDir: string, prNumber: number, re
 export function prepareMRReviewCheckout(projectDir: string, mrIid: number, remote = 'origin'): Promise<PRReviewCheckout> {
   return prepareReviewCheckout(projectDir, remote, {
     number: mrIid,
-    sourceRef: `refs/merge-requests/${mrIid}/head`,
+    fetchAttempts: [`+refs/merge-requests/${mrIid}/head:${mrReviewRef(mrIid)}`],
     privateRef: mrReviewRef(mrIid),
     label: 'MR',
     dirPrefix: 'mr',
+  });
+}
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what is rejected
+const UNSAFE_BRANCH = /[\x00-\x20\x7f:~^?*[\\]/;
+
+function isSafeBranchName(branch: string): boolean {
+  return branch.length > 0 && !branch.startsWith('-') && !branch.includes('..') && !UNSAFE_BRANCH.test(branch);
+}
+
+export interface BitbucketCheckoutInput {
+  prId: number;
+  sourceBranch: string;
+  headSha: string;
+  /** Full name of the repository the PR branch lives in, when the API reports one. */
+  sourceRepository?: string;
+  configuredRepository: string;
+}
+
+/**
+ * Check out a Bitbucket Cloud PR's head. Fetches only from the configured remote
+ * (no credentials in argv or URLs); a fork PR or a head that moved after the API
+ * read falls back to the base checkout rather than reviewing a different commit.
+ */
+export function prepareBitbucketReviewCheckout(
+  projectDir: string,
+  { prId, sourceBranch, headSha, sourceRepository, configuredRepository }: BitbucketCheckoutInput,
+  remote = 'origin',
+): Promise<PRReviewCheckout> {
+  if (!isSafeBranchName(sourceBranch)) {
+    return Promise.resolve({ kind: 'base', reason: 'the PR source branch name is not usable' });
+  }
+  if (!/^[0-9a-f]{40}$/i.test(headSha)) {
+    return Promise.resolve({ kind: 'base', reason: 'the PR head commit sha is not valid' });
+  }
+  if (sourceRepository && sourceRepository.toLowerCase() !== configuredRepository.toLowerCase()) {
+    return Promise.resolve({
+      kind: 'base',
+      reason: 'the PR comes from a fork, which is not fetched (no credentials are sent to other repositories)',
+    });
+  }
+  const privateRef = bbReviewRef(prId);
+  return prepareReviewCheckout(projectDir, remote, {
+    number: prId,
+    fetchAttempts: [`+refs/heads/${sourceBranch}:${privateRef}`, `+${headSha}:${privateRef}`],
+    expectedSha: headSha,
+    privateRef,
+    label: 'PR',
+    dirPrefix: 'bb',
   });
 }
 
