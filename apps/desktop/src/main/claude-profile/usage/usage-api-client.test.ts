@@ -120,4 +120,9 @@ describe('fetchProviderUsage', () => {
     expect(init.headers.Authorization).toBe('Bearer tok-123');
     expect(init.headers['anthropic-beta']).toBeUndefined();
   });
+
+  it.each([401, 403])('throws an error with statusCode %i for openrouter auth failure', async (status) => {
+    fetchMock.mockResolvedValue(jsonResponse(status, {}));
+    await expect(run('openrouter', 'https://openrouter.ai/api')).rejects.toMatchObject({ statusCode: status });
+  });
 });

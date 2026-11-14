@@ -11,7 +11,7 @@
  * API Provider type for usage monitoring
  * Determines which usage endpoint to query and how to normalize responses
  */
-export type ApiProvider = 'anthropic' | 'openai' | 'zai' | 'zhipu' | 'unknown';
+export type ApiProvider = 'anthropic' | 'openai' | 'zai' | 'zhipu' | 'openrouter' | 'unknown';
 
 /**
  * Provider detection patterns
@@ -38,6 +38,10 @@ const PROVIDER_PATTERNS: readonly ProviderPattern[] = [
   {
     provider: 'zhipu',
     domainPatterns: ['open.bigmodel.cn', 'dev.bigmodel.cn', 'bigmodel.cn']
+  },
+  {
+    provider: 'openrouter',
+    domainPatterns: ['openrouter.ai']
   }
 ] as const;
 
@@ -46,12 +50,13 @@ const PROVIDER_PATTERNS: readonly ProviderPattern[] = [
  * Extracts domain and matches against known provider patterns
  *
  * @param baseUrl - The API base URL (e.g., 'https://api.z.ai/api/anthropic')
- * @returns The detected provider type ('anthropic' | 'zai' | 'zhipu' | 'unknown')
+ * @returns The detected provider type ('anthropic' | 'openai' | 'zai' | 'zhipu' | 'openrouter' | 'unknown')
  *
  * @example
  * detectProvider('https://api.anthropic.com') // returns 'anthropic'
  * detectProvider('https://api.z.ai/api/anthropic') // returns 'zai'
  * detectProvider('https://open.bigmodel.cn/api/anthropic') // returns 'zhipu'
+ * detectProvider('https://openrouter.ai/api') // returns 'openrouter'
  * detectProvider('https://unknown.com/api') // returns 'unknown'
  */
 export function detectProvider(baseUrl: string): ApiProvider {
@@ -93,6 +98,8 @@ export function getProviderLabel(provider: ApiProvider): string {
       return 'OpenAI';
     case 'zhipu':
       return 'ZHIPU AI';
+    case 'openrouter':
+      return 'OpenRouter';
     case 'unknown':
       return 'Unknown';
   }
@@ -114,6 +121,8 @@ export function getProviderBadgeColor(provider: ApiProvider): string {
       return 'bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500/15';
     case 'zhipu':
       return 'bg-purple-500/10 text-purple-500 border-purple-500/20 hover:bg-purple-500/15';
+    case 'openrouter':
+      return 'bg-violet-500/10 text-violet-500 border-violet-500/20 hover:bg-violet-500/15';
     case 'unknown':
       return 'bg-gray-500/10 text-gray-500 border-gray-500/20 hover:bg-gray-500/15';
   }
