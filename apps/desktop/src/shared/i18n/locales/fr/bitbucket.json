@@ -66,6 +66,43 @@
       "title": "Bitbucket n'est pas configuré",
       "description": "Ajoutez vos identifiants Bitbucket et le dépôt dans les paramètres du projet pour voir les pull requests.",
       "action": "Ouvrir les paramètres Bitbucket"
+    },
+    "review": {
+      "title": "Revue IA",
+      "start": "Lancer la revue IA",
+      "rerun": "Relancer la revue",
+      "cancel": "Annuler",
+      "running": "Revue en cours...",
+      "notOpen": "La revue IA n'est disponible que pour les pull requests ouvertes",
+      "progress": "Progression de la revue",
+      "logsTitle": "Journaux de la revue",
+      "summary": "Résumé",
+      "status": {
+        "approve": "Tout est bon",
+        "request_changes": "Modifications demandées",
+        "comment": "Commentaires",
+        "in_progress": "En cours"
+      },
+      "findingsTitle": "Constats",
+      "noFindings": "Aucun problème trouvé",
+      "inlineOption": "Publier aussi les constats sélectionnés en commentaires en ligne",
+      "postButton": "Publier les constats sélectionnés sur Bitbucket",
+      "posting": "Publication...",
+      "confirm": {
+        "title": "Publier les constats sur Bitbucket ?",
+        "description_one": "{{count}} constat sera publié en commentaire sur cette pull request dans Bitbucket.",
+        "description_other": "{{count}} constats seront publiés en commentaire sur cette pull request dans Bitbucket.",
+        "inline": "Des commentaires en ligne seront aussi publiés sur les lignes concernées.",
+        "noInline": "Aucun commentaire en ligne ne sera publié.",
+        "confirm": "Publier",
+        "cancel": "Annuler"
+      },
+      "postSuccess": "Constats publiés sur Bitbucket",
+      "inlinePartial": "{{count}} commentaires en ligne n'ont pas pu être placés :",
+      "errors": {
+        "review": "Échec de la revue : {{error}}",
+        "post": "Échec de la publication : {{error}}"
+      }
     }
   }
 }

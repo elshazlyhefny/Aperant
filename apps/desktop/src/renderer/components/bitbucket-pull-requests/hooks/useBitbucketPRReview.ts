@@ -32,6 +32,7 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
   const [postedIds, setPostedIds] = useState<Set<string>>(new Set());
   const [isPosting, setIsPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+  const [inlineFailed, setInlineFailed] = useState<Array<{ findingId: string; reason: string }>>([]);
 
   const logsRef = useRef<PRLogs | null>(null);
   const logsSeqRef = useRef(0);
@@ -179,6 +180,7 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
       if (prId === null) return false;
       setIsPosting(true);
       setPostError(null);
+      setInlineFailed([]);
       try {
         const res = await window.electronAPI.postBitbucketPRReview(
           projectId,
@@ -190,6 +192,7 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
           setPostError(res.error || 'Failed to post review');
           return false;
         }
+        setInlineFailed(res.data?.inlineFailed ?? []);
         const saved = await window.electronAPI.getBitbucketPRReview(projectId, prId);
         if (saved) {
           const posted = new Set(saved.postedFindingIds ?? []);
@@ -220,6 +223,7 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
     postedIds,
     isPosting,
     postError,
+    inlineFailed,
     startReview,
     cancelReview,
     postSelected
