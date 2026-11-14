@@ -19,6 +19,8 @@ export interface TaskQueueDeps {
   getTasks: (projectId: string) => Task[];
   promote: (taskId: string, projectId: string) => Promise<PromoteResult>;
   emitState?: (projectId: string, state: QueueState) => void;
+  /** zeenha fork: false while another process (the daemon) holds this project's queue lock. */
+  canProcess?: (projectId: string) => { ok: true } | { ok: false; heldBy: string };
 }
 
 const isActive = (t: Task): boolean => !t.metadata?.archivedAt;
@@ -127,6 +129,17 @@ export class TaskQueueManager {
 
   private async processProject(projectId: string): Promise<void> {
     const deps = this.requireDeps();
+    let lockedBy: string | undefined;
+    try {
+      const gate = deps.canProcess?.(projectId);
+      if (gate && !gate.ok) {
+        lockedBy = gate.heldBy;
+        deps.emitState?.(projectId, { ...this.getState(projectId), lockedBy });
+        return;
+      }
+    } catch (error) {
+      appLogPort.error(`[Queue] Lock check failed for project ${projectId}:`, error);
+    }
     try {
       const attempted = new Set<string>();
       let consecutiveFailures = 0;

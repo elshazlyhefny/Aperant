@@ -58,6 +58,8 @@ import { DEFAULT_APP_SETTINGS, IPC_CHANNELS, SPELL_CHECK_LANGUAGE_MAP, DEFAULT_S
 import { getAppLanguage, initAppLanguage } from './app-language';
 import { readSettingsFile, updateSettingsFile, secureSettingsFilePermissions } from './settings-utils';
 import { projectStore } from './project-store';
+import { taskQueueManager } from './task-queue-manager';
+import { ensureQueueLock, releaseAllQueueLocks } from './desktop-queue-lock';
 import { registerSettingsAccessor } from './ai/auth/resolver';
 import { appLog, setupErrorLogging } from './app-logger';
 import { initSentryMain } from './sentry';
@@ -549,6 +551,13 @@ app.whenReady().then(() => {
   const activeScheduleService = scheduleService;
   agentManager.on('exit', (taskId: string) => activeScheduleService.onAgentExit(taskId));
   scheduleService.start();
+  // zeenha fork: claim every project's queue lock at startup
+  try {
+    for (const project of projectStore.getProjects()) ensureQueueLock(project);
+  } catch (error) {
+    console.warn('[main] Failed to take queue locks:', error);
+  }
+  void taskQueueManager.requestProcess();
 
   // Create window
   createWindow();
@@ -695,6 +704,7 @@ app.on('before-quit', (event) => {
   // Stop synchronous services immediately
   stopPeriodicUpdates();
   scheduleService?.stop();
+  releaseAllQueueLocks();
 
   const usageMonitor = getUsageMonitor();
   usageMonitor.stop();

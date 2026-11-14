@@ -10,6 +10,7 @@ import type { IPCResult } from '../../shared/types';
 import type { RecurringSchedule, ScheduleInput, ScheduleRunNowResult } from '../../shared/types/schedule';
 import { computeNextRun, validateCadence } from '../../shared/utils/schedule-time';
 import type { AgentManager } from '../agent/agent-manager';
+import { ensureQueueLock } from '../desktop-queue-lock';
 import { projectStore } from '../project-store';
 import { createScheduleService, readTaskTokensFromDisk, type ScheduleService } from '../schedule-service';
 import * as scheduleStore from '../schedule-store';
@@ -87,6 +88,10 @@ export function registerScheduleHandlers(
       return project ? readTaskTokensFromDisk(project, specId) : 0;
     },
     stopTask: (taskId) => stopTask(agentManager, taskId),
+    canRun: (projectId) => {
+      const project = projectStore.getProject(projectId);
+      return project ? ensureQueueLock(project).ok : true;
+    },
   });
 
   ipcMain.handle(

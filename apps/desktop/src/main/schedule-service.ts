@@ -42,6 +42,8 @@ export interface ScheduleServiceDeps {
   readTaskTokens(projectId: string, specId: string): number;
   /** Stops a running task (execution-handlers stopTask; it emits USER_STOPPED itself). */
   stopTask(taskId: string): void;
+  /** False while another process holds the project's queue lock; the run stays due. */
+  canRun?(projectId: string): boolean;
 }
 
 function sumTokens(directory: string): number {
@@ -92,6 +94,14 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
   /** Schedule ids with a manual run in progress; processSchedule skips them. */
   const inFlight = new Set<string>();
 
+  function allowed(projectId: string): boolean {
+    try {
+      return deps.canRun ? deps.canRun(projectId) : true;
+    } catch {
+      return true;
+    }
+  }
+
   function isUnfinished(projectId: string, taskId: string | undefined): boolean {
     if (!taskId) return false;
     const task = deps.listTasks(projectId).find((t) => t.id === taskId);
@@ -102,6 +112,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
 
   async function processSchedule(schedule: RecurringSchedule, project: Project, now: number): Promise<boolean> {
     if (inFlight.has(schedule.id)) return false;
+    if (!allowed(project.id)) return false;
     if (!schedule.enabled || schedule.nextRunAt === null || schedule.nextRunAt > now) return false;
     inFlight.add(schedule.id);
     try {
@@ -164,7 +175,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     for (const projectId of projectIds) {
       try {
         const project = deps.getProject(projectId);
-        if (!project) continue;
+        if (!project || !allowed(projectId)) continue;
         const tasks = deps.listTasks(projectId).filter((t) => !t.metadata?.archivedAt);
         let active = tasks.filter((t) => t.status === 'in_progress' || deps.isRunning(t.id) || starting.has(t.id)).length;
         const limit = project.settings?.maxParallelTasks ?? DEFAULT_MAX_PARALLEL_TASKS;
@@ -203,6 +214,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     }
     for (const projectId of projectIds) {
       try {
+        if (!allowed(projectId)) continue;
         for (const task of deps.listTasks(projectId)) {
           const scheduleId = task.metadata?.scheduleId;
           if (!scheduleId || budgetStopped.has(task.id) || task.metadata?.archivedAt) continue;
@@ -304,6 +316,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     const project = deps.getProject(schedule.projectId);
     if (!project) return { started: false, reason: 'not_found' };
     if (inFlight.has(schedule.id)) return { started: false, reason: 'unfinished' };
+    if (!allowed(project.id)) return { started: false, reason: 'locked' };
 
     inFlight.add(schedule.id);
     let result: ScheduleRunNowResult;
