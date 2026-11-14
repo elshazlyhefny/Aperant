@@ -10,6 +10,8 @@ import { parseEnvFile } from './utils';
 import { describeProjectMcpTrust, parseSecureOrigins } from '../ai/mcp/project-settings';
 import { approveChromeExecutable, approveServer, getApprovals } from '../mcp-approval-store';
 import { isAutoBuildEnvTrackedByGit } from '../project-initializer';
+import { WEBHOOK_ENV_KEYS, parseWebhookEvents } from '../project-webhook-config';
+import { validateWebhookUrl } from '../task-webhook';
 
 // Bitbucket environment variable keys
 const BITBUCKET_ENV_KEYS = {
@@ -138,6 +140,24 @@ export function registerEnvHandlers(
     }
     if (config.jiraProjectKey !== undefined) {
       existingVars[JIRA_ENV_KEYS.PROJECT_KEY] = config.jiraProjectKey;
+    }
+    // zeenha fork: per-project task-outcome webhook
+    if (config.webhookUrl !== undefined) {
+      const url = config.webhookUrl.replace(/[\r\n]/g, '').trim();
+      if (url) existingVars[WEBHOOK_ENV_KEYS.URL] = url;
+      else {
+        for (const key of Object.values(WEBHOOK_ENV_KEYS)) delete existingVars[key];
+      }
+    }
+    if (config.webhookEnabled !== undefined && existingVars[WEBHOOK_ENV_KEYS.URL]) {
+      existingVars[WEBHOOK_ENV_KEYS.ENABLED] = config.webhookEnabled ? 'true' : 'false';
+    }
+    if (config.webhookEvents && existingVars[WEBHOOK_ENV_KEYS.URL]) {
+      const ev = config.webhookEvents;
+      existingVars[WEBHOOK_ENV_KEYS.EVENT_REVIEW_READY] = ev.reviewReady ? 'true' : 'false';
+      existingVars[WEBHOOK_ENV_KEYS.EVENT_FAILED] = ev.failed ? 'true' : 'false';
+      existingVars[WEBHOOK_ENV_KEYS.EVENT_BLOCKED] = ev.blocked ? 'true' : 'false';
+      existingVars[WEBHOOK_ENV_KEYS.EVENT_PR_OPENED] = ev.prOpened ? 'true' : 'false';
     }
     // Git/Worktree Settings
     if (config.defaultBranch !== undefined) {
@@ -294,6 +314,15 @@ ${envLine(existingVars, JIRA_ENV_KEYS.SITE_URL, 'https://your-site.atlassian.net
 ${envLine(existingVars, JIRA_ENV_KEYS.EMAIL)}
 ${envLine(existingVars, JIRA_ENV_KEYS.API_TOKEN)}
 ${envLine(existingVars, JIRA_ENV_KEYS.PROJECT_KEY, 'PROJ')}
+
+# =============================================================================
+# PROJECT TASK-OUTCOME WEBHOOK (OPTIONAL)
+# =============================================================================
+${existingVars[WEBHOOK_ENV_KEYS.ENABLED] !== undefined ? `${WEBHOOK_ENV_KEYS.ENABLED}=${existingVars[WEBHOOK_ENV_KEYS.ENABLED]}` : `# ${WEBHOOK_ENV_KEYS.ENABLED}=true`}
+${envLine(existingVars, WEBHOOK_ENV_KEYS.URL, 'https://hooks.example.com/...')}
+${[WEBHOOK_ENV_KEYS.EVENT_REVIEW_READY, WEBHOOK_ENV_KEYS.EVENT_FAILED, WEBHOOK_ENV_KEYS.EVENT_BLOCKED, WEBHOOK_ENV_KEYS.EVENT_PR_OPENED]
+  .map((key) => (existingVars[key] !== undefined ? `${key}=${existingVars[key]}` : `# ${key}=true`))
+  .join('\n')}
 
 # =============================================================================
 # GIT/WORKTREE SETTINGS (OPTIONAL)
@@ -503,6 +532,13 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         config.jiraProjectKey = vars[JIRA_ENV_KEYS.PROJECT_KEY];
       }
 
+      // Per-project webhook config
+      if (vars[WEBHOOK_ENV_KEYS.URL]) {
+        config.webhookUrl = vars[WEBHOOK_ENV_KEYS.URL];
+        config.webhookEnabled = vars[WEBHOOK_ENV_KEYS.ENABLED]?.trim().toLowerCase() !== 'false';
+      }
+      config.webhookEvents = parseWebhookEvents(vars);
+
       // Git/Worktree config
       if (vars['DEFAULT_BRANCH']) {
         config.defaultBranch = vars['DEFAULT_BRANCH'];
@@ -627,6 +663,16 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
       }
 
       const envPath = path.join(project.path, project.autoBuildPath, '.env');
+
+      // zeenha fork: refuse to persist an enabled webhook with an unsafe URL.
+      const incomingUrl = typeof config.webhookUrl === 'string' ? config.webhookUrl.replace(/[\r\n]/g, '').trim() : '';
+      if (
+        config.webhookEnabled !== false &&
+        incomingUrl &&
+        (incomingUrl !== config.webhookUrl?.trim() || !validateWebhookUrl(incomingUrl).ok)
+      ) {
+        return { success: false, error: 'invalid_webhook_url' };
+      }
 
       try {
         // Read existing content if file exists (atomic read, no TOCTOU)
