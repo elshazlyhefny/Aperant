@@ -196,6 +196,20 @@ export const integrationMock = {
     }
   }),
 
+  // Azure DevOps Integration Operations
+  checkAzureDevOpsConnection: async () => ({
+    success: true,
+    data: {
+      connected: false,
+      error: 'Not available in browser mock'
+    }
+  }),
+
+  detectAzureDevOpsRepository: async () => ({
+    success: true,
+    data: null
+  }),
+
   // Bitbucket Integration Operations
   checkBitbucketConnection: async () => ({
     success: true,

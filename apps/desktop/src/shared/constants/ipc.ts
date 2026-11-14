@@ -381,6 +381,10 @@ export const IPC_CHANNELS = {
   BITBUCKET_GET_PULL_REQUEST_DIFF: 'bitbucket:getPullRequestDiff',
   BITBUCKET_POST_PULL_REQUEST_COMMENT: 'bitbucket:postPullRequestComment',
 
+  // Azure DevOps integration
+  AZUREDEVOPS_CHECK_CONNECTION: 'azuredevops:checkConnection',
+  AZUREDEVOPS_DETECT_REPOSITORY: 'azuredevops:detectRepository',
+
   // GitLab Issue Analysis Preview (proactive batch workflow)
   GITLAB_AUTOFIX_ANALYZE_PREVIEW: 'gitlab:autofix:analyzePreview',
   GITLAB_AUTOFIX_ANALYZE_PREVIEW_PROGRESS: 'gitlab:autofix:analyzePreviewProgress',

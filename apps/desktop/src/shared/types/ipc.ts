@@ -147,7 +147,9 @@ import type {
   GitLabNewCommitsCheck,
   BitbucketPullRequest,
   BitbucketSyncStatus,
-  BitbucketDetectedRepository
+  BitbucketDetectedRepository,
+  AzureDevOpsSyncStatus,
+  AzureDevOpsDetectedRepository
 } from './integrations';
 import type { APIProfile, ProfilesFile, TestConnectionResult, DiscoverModelsResult } from './profile';
 import type { ProviderAccount } from './provider-account';
@@ -591,6 +593,10 @@ export interface ElectronAPI extends ScheduleAPI {
   getBitbucketPullRequest: (projectId: string, prId: number) => Promise<IPCResult<BitbucketPullRequest>>;
   getBitbucketPullRequestDiff: (projectId: string, prId: number) => Promise<IPCResult<string>>;
   postBitbucketPullRequestComment: (projectId: string, prId: number, body: string) => Promise<IPCResult<{ id: number }>>;
+
+  // Azure DevOps integration operations
+  checkAzureDevOpsConnection: (projectId: string) => Promise<IPCResult<AzureDevOpsSyncStatus>>;
+  detectAzureDevOpsRepository: (projectId: string) => Promise<IPCResult<AzureDevOpsDetectedRepository | null>>;
 
   // GitLab integration operations
   getGitLabProjects: (projectId: string) => Promise<IPCResult<GitLabProject[]>>;
