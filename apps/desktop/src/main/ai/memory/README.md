@@ -149,6 +149,11 @@ agent session
 
 - Turso cloud sync: `getMemoryClient(tursoSyncUrl, authToken)` and
   `getWebMemoryClient` support it, but no caller passes those arguments, so
-  `memory.db` is local only.
+  `memory.db` is local only. Shared team memory through Turso sync is
+  deliberately not planned: it would send code-derived memories to a hosted
+  service, which conflicts with this fork's local-first position and its
+  zero-incident security goal. Reopen it only on explicit demand from several
+  users who accept a hosted dependency, together with a documented
+  data-handling decision.
 - The Convex auth and team features described in [Memory.md](../../../../../../Memory.md)
   do not exist in `src`.
