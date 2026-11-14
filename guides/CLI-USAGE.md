@@ -35,7 +35,7 @@ App-wide configuration is done through the app's Settings UI. Two per-project fi
 
 ## Running a task headlessly
 
-The headless command runs one existing spec through the planner, coder and QA pipeline without opening the app, then leaves the work on a task branch for you to push or open as a pull request.
+The headless command runs one existing spec through the planner, coder and QA pipeline without opening the app, then leaves the work on a task branch for you to push or open as a pull request. A spec no longer has to be written by hand: the `new` command creates one from a one-line description (see [Creating a spec from a description](#creating-a-spec-from-a-description)).
 
 ### Prerequisites
 
@@ -43,7 +43,28 @@ The headless command runs one existing spec through the planner, coder and QA pi
 - Dependencies installed with `npm run install:all`.
 - A build: `npm run build` in `apps/desktop`. This produces `apps/desktop/out/main/cli.js`.
 - The project is a git repository.
-- A spec at `.auto-claude/specs/<id>/` with a `spec.md`. `.auto-claude/` is gitignored in this repository, so a CI job must create or restore the spec before it runs the command.
+- A spec at `.auto-claude/specs/<id>/spec.md`, or create one with `new`. `.auto-claude/` is gitignored in this repository, so a CI job must create or restore the spec before it runs `run`.
+
+### Creating a spec from a description
+
+```bash
+node apps/desktop/out/main/cli.js new "<description>" [--project <dir>] [--config <file>] \
+  [--run] [--base-branch <b>] [--no-push] [--json] [--verbose]
+
+# or, from apps/desktop
+npm run cli -- new "<description>" ...
+```
+
+`new` runs the same spec pipeline as the app: complexity assessment, then discovery, requirements, spec writing, planning and validation as needed. It writes `spec.md`, `implementation_plan.json` and the other plan files to `.auto-claude/specs/<NNN-slug>/`.
+
+- The number `NNN` is the next free one. The command takes a lock while it picks it, and it also counts specs in task worktrees.
+- In text mode it prints `RESULT success exit=0 spec=<id>`. With `--json` the same `progress` and `log` events as `run --json` are printed, followed by a final `{"type":"result",...,"spec":"<id>"}`.
+- Credentials, `--config` and exit codes work as for `run`. Without `--run`, the exit codes are 0 (spec created) and 1 (error).
+- On failure the command exits 1 and removes the half-written spec folder, so nothing is left under `.auto-claude/specs`.
+- Spec creation has no token budget. The budget applies only to the build, through `task_metadata.json` (see [Token budget](#token-budget)).
+- With `--run` the command continues into the build in the same process and returns the exit codes of `run` (0, 1 or 2). A single `RESULT` line is printed at the end. `--base-branch` and `--no-push` apply to the build.
+
+Then run the spec with `run <id>`, or pass `--run` to do both in one step.
 
 ### Command
 
@@ -61,6 +82,7 @@ npm run cli -- run <spec> ...
 |------|---------|
 | `--project <dir>` | Project directory. Default: the current directory. |
 | `--config <file>` | JSON config file (see [Credentials](#credentials)). |
+| `--run` | `new` only: continue into the build in the same process. Returns the exit codes of `run` (0, 1, 2). |
 | `--base-branch <b>` | Branch the task worktree is created from. Overrides `.aperant.json` and the config file. Default: `main`. |
 | `--no-push` | Do not push the task branch. |
 | `--json` | Print one JSON event per line on stdout. |
@@ -199,6 +221,23 @@ jobs:
 
 The issue text is passed through `env` and not interpolated into the shell script, so it cannot inject commands.
 
+To let Aperant write the spec from the issue text instead, replace the "Write the spec" and "Run the task" steps with one step. `new` prints the spec id, so give the job `SPEC` from the `RESULT` line, or list the new folder under `.auto-claude/specs/`:
+
+```yaml
+      - name: Create the spec and run the task
+        id: task
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          set +e
+          node apps/desktop/out/main/cli.js new "$ISSUE_TITLE: $ISSUE_BODY" --run --base-branch main
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+```
+
+The issue text is again passed through `env`. The later steps need the spec id for the branch name `auto-claude/<id>`.
+
 ### Troubleshooting
 
 Exit code 1:
@@ -208,5 +247,7 @@ Exit code 1:
 - `Spec not found: .../spec.md does not exist`: create `.auto-claude/specs/<id>/spec.md` first.
 - `... is not inside a git repository`: pass `--project` or run from the repository.
 - `Cannot read config file ...`: the `--config` file is missing or not valid JSON.
+- `Missing <description> argument`: pass the description after `new`, in quotes.
+- Spec creation failed (`new` exited 1): the half-written spec folder was removed. Run the command again, or write the spec by hand.
 
 Exit code 2: QA did not pass. Read `qa_report.md` in the worktree's spec directory, `.auto-claude/worktrees/tasks/<id>/.auto-claude/specs/<id>/qa_report.md`, for the remaining issues.
