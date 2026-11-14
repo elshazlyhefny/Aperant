@@ -6,7 +6,7 @@
  * and requirement memories to guide targeted validation.
  */
 
-import type { Memory, MemoryService } from '../types';
+import type { InjectionMemorySource, Memory } from '../types';
 
 // ============================================================
 // PUBLIC API
@@ -24,7 +24,7 @@ import type { Memory, MemoryService } from '../types';
 export async function buildQaSessionContext(
   specDescription: string,
   relevantModules: string[],
-  memoryService: MemoryService,
+  memoryService: InjectionMemorySource,
   projectId: string,
 ): Promise<string> {
   try {

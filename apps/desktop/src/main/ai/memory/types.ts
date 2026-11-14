@@ -236,6 +236,9 @@ export interface MemoryService {
   deleteMemory(memoryId: string): Promise<void>;
 }
 
+/** Read-only memory surface used by prompt/context injection builders. */
+export type InjectionMemorySource = Pick<MemoryService, 'search' | 'searchWorkflowRecipe'>;
+
 export interface MemoryMethodologyPlugin {
   id: string;
   displayName: string;
