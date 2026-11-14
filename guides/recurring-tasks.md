@@ -38,14 +38,14 @@ Examples:
 
 ## When does a schedule run?
 
-- **The app must be open.** The scheduler runs in the app's main process, so the Kanban view does not need to be open. A closed app runs nothing.
+- **The app or the daemon must be running.** The scheduler runs in the app's main process, so the Kanban view does not need to be open. A closed app runs nothing, unless you run the queue as a daemon instead; see [Running the queue and schedules as a daemon](CLI-USAGE.md#running-the-queue-and-schedules-as-a-daemon). The app and the daemon cannot run the same project at once.
 - **When it checks.** The first check happens 10 seconds after launch, then one every 30 seconds.
 - **One task per run.** Each run creates one task and adds it to the Queue.
 - **Starting.** Scheduled tasks start only while the project is under its parallel limit (the project setting `maxParallelTasks`, default 3). Otherwise they wait in the Queue.
 
 ## Missed runs
 
-A run is recorded as **missed** when it is more than 5 minutes late, or when more than one run has become due since the last check. This happens, for example, when the app was closed over the time of a run.
+A run is recorded as **missed** when it is more than 5 minutes late, or when more than one run has become due since the last check. This happens, for example, when the app was closed over the time of a run. A daemon (`cli.js serve`) records missed runs the same way, for example after the machine was off.
 
 Only one catch-up task is created, and the history entry records how many runs were missed.
 
@@ -73,17 +73,17 @@ The default is 2,000,000 tokens, input plus output, for each run. The usage of a
 
 ## Where schedules are stored
 
-Schedules are stored in `schedules.json` in the app's user data folder. They belong to the machine, not to the repository, and are not shared through git. If the file is missing or corrupt, the app reads it as having no schedules, and nothing runs.
+Schedules are stored in `schedules.json` in the app's user data folder. They belong to the machine, not to the repository, and are not shared through git. If the file is missing or corrupt, the app reads it as having no schedules, and nothing runs. The daemon reads `<project>/.auto-claude/schedules.json` by default, or the file given with `--schedules`.
 
 ## Troubleshooting
 
-**It did not run overnight.** The app must be open. If it was closed, the next check after launch records a missed run and creates one catch-up task. If it was open, check that the schedule is **Active** and look at its **Run history**.
+**It did not run overnight.** The app (or the daemon) must be running. If it was stopped, the next check after launch records a missed run and creates one catch-up task. If it was open, check that the schedule is **Active** and look at its **Run history**.
 
 **One task appeared instead of several.** That is the catch-up behaviour. Look for a "Missed N runs" entry in the history.
 
 **A run was skipped.** The previous task was still not Done, PR Created or failed. Look for the "Skipped because the previous task is unfinished" entry. Finish the previous task, or archive it.
 
-**Nothing starts although tasks are queued.** The project may be at its parallel limit (`maxParallelTasks`, default 3). Scheduled tasks start when a running task finishes. Also check that the app is open.
+**Nothing starts although tasks are queued.** The project may be at its parallel limit (`maxParallelTasks`, default 3). Scheduled tasks start when a running task finishes. Also check that the app or the daemon is running.
 
 ## Keeping the code and this guide in sync
 

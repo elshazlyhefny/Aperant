@@ -143,6 +143,8 @@ The webhook is read only from the app's own user settings. It is never read from
 
 No `WEBHOOK_URL` environment key exists, and one must not be added.
 
+The headless daemon (`cli.js serve`) does not read the app's `settings.json`. Its webhook comes from the `webhook` key of the `--config` file you pass to it (`enabled`, `url`, `events`), which is a file you control on that machine. See [Config file keys](CLI-USAGE.md#config-file-keys). The same URL rules and delivery behaviour apply.
+
 The URL is masked in the field and is never logged. Treat it like a secret: anyone who has it can post messages to the channel.
 
 ## Receivers other than Slack
