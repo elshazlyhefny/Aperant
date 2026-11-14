@@ -483,6 +483,7 @@ export function Sidebar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                // zeenha fork: intentional upstream credit, the sponsor link stays with the original author.
                 onClick={() => window.open('https://github.com/sponsors/AndyMik90', '_blank')}
                 className={cn(
                   'flex w-full items-center text-xs transition-colors',

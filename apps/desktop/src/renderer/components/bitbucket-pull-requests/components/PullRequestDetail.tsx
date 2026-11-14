@@ -5,6 +5,8 @@ import { Button } from '../../ui/button';
 import { Badge } from '../../ui/badge';
 import { ScrollArea } from '../../ui/scroll-area';
 import { Textarea } from '../../ui/textarea';
+import { BitbucketReviewPanel } from './BitbucketReviewPanel';
+import type { useBitbucketPRReview } from '../hooks/useBitbucketPRReview';
 import type { BitbucketPullRequest } from '../../../../shared/types';
 
 export function PullRequestStateBadge({ state }: { state: BitbucketPullRequest['state'] }) {
@@ -27,13 +29,14 @@ function diffLineClass(line: string): string {
 
 interface PullRequestDetailProps {
   pr: BitbucketPullRequest;
+  review: ReturnType<typeof useBitbucketPRReview>;
   diff: string | null;
   isLoading: boolean;
   error: string | null;
   onPostComment: (body: string) => Promise<boolean>;
 }
 
-export function PullRequestDetail({ pr, diff, isLoading, error, onPostComment }: PullRequestDetailProps) {
+export function PullRequestDetail({ pr, review, diff, isLoading, error, onPostComment }: PullRequestDetailProps) {
   const { t } = useTranslation('bitbucket');
   const [comment, setComment] = useState('');
   const [isPosting, setIsPosting] = useState(false);
@@ -81,6 +84,8 @@ export function PullRequestDetail({ pr, diff, isLoading, error, onPostComment }:
         </div>
 
         {pr.description && <p className="text-sm whitespace-pre-wrap">{pr.description}</p>}
+
+        <BitbucketReviewPanel review={review} prId={pr.id} prState={pr.state} />
 
         {error && (
           <div className="flex items-center gap-2 text-sm text-destructive" role="alert">

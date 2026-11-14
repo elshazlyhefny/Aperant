@@ -202,6 +202,11 @@ describe('runHeadlessTask outcome webhook', () => {
 
   const bodies = (): Array<{ text: string; blocks: unknown[] }> =>
     fetchMock.mock.calls.map((c) => JSON.parse((c[1] as { body: string }).body));
+  /** The link of every "View PR" button in a posted body (exact values, not substring matches). */
+  const prLinks = (body: { blocks: unknown[] }): string[] =>
+    (body.blocks as Array<{ type?: string; elements?: Array<{ url?: string }> }>)
+      .filter((block) => block.type === 'actions')
+      .flatMap((block) => (block.elements ?? []).map((element) => element.url ?? ''));
 
   beforeEach(() => {
     fetchMock = vi.fn().mockResolvedValue({ status: 200 });
@@ -262,8 +267,10 @@ describe('runHeadlessTask outcome webhook', () => {
     const config = configWith({ url: HOOK, events: { prOpened: true } });
     expect(await runHook({ configPath: config })).toBe(0);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    const texts = bodies().map((b) => b.text);
-    expect(texts.some((t) => t.includes(PR))).toBe(true);
+    const [reviewReady, prOpened] = bodies();
+    expect(prLinks(reviewReady)).toEqual([]);
+    expect(prLinks(prOpened)).toEqual([PR]);
+    expect(prOpened.text.split(' ').at(-1)).toBe(PR);
   });
 
   it('sends no pr_opened when events.prOpened is false', async () => {
@@ -272,7 +279,9 @@ describe('runHeadlessTask outcome webhook', () => {
     const config = configWith({ url: HOOK, events: { prOpened: false } });
     expect(await runHook({ configPath: config })).toBe(0);
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(bodies().some((b) => b.text.includes(PR))).toBe(false);
+    const [reviewReady] = bodies();
+    expect(prLinks(reviewReady)).toEqual([]);
+    expect(reviewReady.text.split(' ').at(-1)).not.toBe(PR);
   });
 
   it('keeps exit 0 and warns without the URL when the server returns 500', async () => {

@@ -20,8 +20,12 @@ export interface BitbucketAPIPullRequest {
   title?: string;
   description?: string | null;
   state?: string;
-  source?: { branch?: { name?: string } };
-  destination?: { branch?: { name?: string } };
+  source?: {
+    branch?: { name?: string };
+    commit?: { hash?: string };
+    repository?: { full_name?: string };
+  };
+  destination?: { branch?: { name?: string }; commit?: { hash?: string } };
   author?: BitbucketAPIUser | null;
   reviewers?: Array<BitbucketAPIUser | null>;
   participants?: Array<{ user?: BitbucketAPIUser | null; role?: string }>;
@@ -47,4 +51,18 @@ export interface BitbucketAPIRepository {
 export interface BitbucketAPIComment {
   id: number;
   content?: { raw?: string };
+}
+
+export interface BitbucketAPIDiffStat {
+  status?: string;
+  lines_added?: number;
+  lines_removed?: number;
+  old?: { path?: string } | null;
+  new?: { path?: string } | null;
+}
+
+export interface BitbucketAPICommit {
+  hash: string;
+  message?: string;
+  date?: string;
 }
