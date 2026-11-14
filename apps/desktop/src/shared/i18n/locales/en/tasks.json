@@ -536,6 +536,7 @@
       "auth_required": "GitHub authentication is required to send feedback. Sign in to GitHub and refresh.",
       "no_github_config": "GitHub is not configured for this project.",
       "no_gitlab_config": "GitLab is not configured for this project.",
+      "no_azuredevops_config": "Azure DevOps is not configured for this project.",
       "branch_mismatch": "The task's worktree is not on the pull request's branch, so no follow-up can run here."
     }
   },

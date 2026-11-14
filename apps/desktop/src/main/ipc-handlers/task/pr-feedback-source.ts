@@ -11,16 +11,24 @@ import {
   PRFeedbackError,
   type PRFeedbackFetchResult,
 } from '../github/pr/task-feedback';
+import { getAzureDevOpsConfig } from '../azuredevops/utils';
+import {
+  fetchAzureDevOpsPRFeedback,
+  parseAzureDevOpsPRIdFromUrl,
+  parseAzureDevOpsPullRequestUrl,
+} from '../azuredevops/pr-feedback';
 import { getGitLabConfig, normalizeProjectReference } from '../gitlab/utils';
 import { fetchMRFeedback, parseMRIidFromUrl, parseMergeRequestUrl } from '../gitlab/mr-feedback';
 
-export type PRRef = { provider: 'github' | 'gitlab'; number: number };
+export type PRRef = { provider: 'github' | 'gitlab' | 'azuredevops'; number: number };
 
 export type LoadPRFeedbackResult =
   | { ok: true; fetched: PRFeedbackFetchResult }
-  | { ok: false; code: 'no_github_config' | 'no_gitlab_config' | 'fetch_failed'; error: string };
+  | { ok: false; code: 'no_github_config' | 'no_gitlab_config' | 'no_azuredevops_config' | 'fetch_failed'; error: string };
 
 const NOT_ON_CONFIGURED_PROJECT = 'This merge request is not on the GitLab project configured for this project.';
+const NOT_ON_CONFIGURED_AZURE_REPO =
+  'This pull request is not on the Azure DevOps repository configured for this project.';
 
 /** GitHub PR URL -> github; GitLab MR URL -> gitlab (number = iid); else null. */
 export function resolvePRRef(prUrl: string): PRRef | null {
@@ -28,6 +36,8 @@ export function resolvePRRef(prUrl: string): PRRef | null {
   if (ghNumber) return { provider: 'github', number: ghNumber };
   const mr = parseMergeRequestUrl(prUrl);
   if (mr) return { provider: 'gitlab', number: mr.iid };
+  const azure = parseAzureDevOpsPullRequestUrl(prUrl);
+  if (azure) return { provider: 'azuredevops', number: azure.id };
   return null;
 }
 
@@ -43,6 +53,22 @@ export async function loadPRFeedback(project: Project, prUrl: string, ref: PRRef
         };
       }
       return { ok: true, fetched: await fetchPRFeedback(config, ref.number) };
+    }
+
+    // zeenha fork: this branch moves into the forge registry when task 117 lands.
+    if (ref.provider === 'azuredevops') {
+      const azureConfig = await getAzureDevOpsConfig(project);
+      if (!azureConfig) {
+        return {
+          ok: false,
+          code: 'no_azuredevops_config',
+          error: 'Azure DevOps is not configured for this project (organization, project, repository or token missing).',
+        };
+      }
+      if (parseAzureDevOpsPRIdFromUrl(prUrl, azureConfig) !== ref.number) {
+        return { ok: false, code: 'no_azuredevops_config', error: NOT_ON_CONFIGURED_AZURE_REPO };
+      }
+      return { ok: true, fetched: await fetchAzureDevOpsPRFeedback(azureConfig, ref.number) };
     }
 
     const config = await getGitLabConfig(project);

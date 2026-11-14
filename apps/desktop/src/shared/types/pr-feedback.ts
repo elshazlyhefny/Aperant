@@ -27,6 +27,7 @@ export type PRFeedbackBlockedReason =
   | 'auth_required'
   | 'no_github_config'
   | 'no_gitlab_config'
+  | 'no_azuredevops_config'
   | 'branch_mismatch';
 
 export interface PRFeedbackResult {

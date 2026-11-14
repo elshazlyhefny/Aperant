@@ -32,7 +32,8 @@ export type PRFeedbackErrorCode =
   | "forbidden"
   | "unauthorized"
   | "github_error"
-  | "gitlab_error";
+  | "gitlab_error"
+  | "azuredevops_error";
 
 /** Typed error so the IPC handler can map failures to a clear message. */
 export class PRFeedbackError extends Error {

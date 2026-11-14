@@ -134,6 +134,8 @@ function buildUrl(config: Pick<AzureDevOpsConfig, 'organization' | 'project'>, e
     `${AZURE_DEVOPS_API_BASE}/${encodeURIComponent(config.organization)}` +
     `/${encodeURIComponent(config.project)}/_apis`;
   const hashless = endpoint.split('#')[0];
+  // zeenha fork: preview endpoints (policy evaluations) pin their own api-version
+  if (/[?&]api-version=/.test(hashless)) return `${base}${hashless}`;
   const separator = hashless.includes('?') ? '&' : '?';
   return `${base}${hashless}${separator}api-version=${AZURE_DEVOPS_API_VERSION}`;
 }
