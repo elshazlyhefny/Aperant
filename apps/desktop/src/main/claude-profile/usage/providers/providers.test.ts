@@ -15,6 +15,7 @@ import { getCodexAccountId, normalizeCodexResponse } from '../../codex-usage-fet
 import { getUsageEndpoint } from '../endpoints';
 import { anthropicAdapter } from './anthropic';
 import { openaiAdapter } from './openai';
+import { normalizeOpenRouterKeyResponse, openrouterAdapter } from './openrouter';
 import { normalizeQuotaLimitResponse } from './quota-limit';
 import { getAllowedUsageDomains, getUsageProviderAdapter, USAGE_PROVIDER_ADAPTERS } from './registry';
 import { zaiAdapter } from './zai';
@@ -113,16 +114,90 @@ describe('openai adapter', () => {
   });
 });
 
+describe('openrouter adapter', () => {
+  it('uses the key endpoint and no extra headers', () => {
+    expect(openrouterAdapter.usagePath).toBe('/api/v1/key');
+    expect(openrouterAdapter.buildHeaders('x')).toEqual({});
+  });
+
+  it('extracts data envelope or bare response', () => {
+    const data = { usage: 1 };
+    expect(openrouterAdapter.extractData({ data })).toBe(data);
+    const raw = { usage: 2 };
+    expect(openrouterAdapter.extractData(raw)).toBe(raw);
+  });
+
+  it('computes percent and remaining when a limit is set', () => {
+    const r = openrouterAdapter.normalize({ usage: 12.5, limit: 50 }, ids, {});
+    expect(r).toMatchObject({
+      sessionPercent: 25,
+      weeklyPercent: 25,
+      limitType: 'session',
+      profileId: 'p1',
+      sessionUsageValue: 12.5,
+      sessionUsageLimit: 50,
+      creditUsage: { used: 12.5, limit: 50, remaining: 37.5, resetPeriod: null },
+      usageWindows: {
+        sessionWindowLabel: 'common:usage.windowCredit',
+        weeklyWindowLabel: 'common:usage.windowCredit'
+      }
+    });
+  });
+
+  it('prefers limit_remaining when provided', () => {
+    const r = normalizeOpenRouterKeyResponse({ usage: 10, limit: 50, limit_remaining: 30 }, 'p', 'n');
+    expect(r?.creditUsage?.remaining).toBe(30);
+  });
+
+  it('clamps to 100 when usage exceeds limit', () => {
+    const r = normalizeOpenRouterKeyResponse({ usage: 80, limit: 50 }, 'p', 'n');
+    expect(r?.sessionPercent).toBe(100);
+    expect(r?.creditUsage?.remaining).toBe(0);
+  });
+
+  it('reports 0 percent and no limit fields when limit is null', () => {
+    const r = normalizeOpenRouterKeyResponse({ usage: 7, limit: null }, 'p', 'n');
+    expect(r?.sessionPercent).toBe(0);
+    expect(r?.weeklyPercent).toBe(0);
+    expect(r?.creditUsage).toEqual({ used: 7, limit: null, remaining: null, resetPeriod: null });
+    expect(r).not.toHaveProperty('sessionUsageLimit');
+    expect(r).not.toHaveProperty('sessionUsageValue');
+  });
+
+  it('treats limit 0 as no limit', () => {
+    const r = normalizeOpenRouterKeyResponse({ usage: 3, limit: 0 }, 'p', 'n');
+    expect(r?.sessionPercent).toBe(0);
+    expect(r?.creditUsage?.limit).toBeNull();
+    expect(r).not.toHaveProperty('sessionUsageLimit');
+  });
+
+  it('passes limit_reset through', () => {
+    const r = normalizeOpenRouterKeyResponse({ usage: 1, limit: 10, limit_reset: 'monthly' }, 'p', 'n');
+    expect(r?.creditUsage?.resetPeriod).toBe('monthly');
+  });
+
+  it.each([[null], ['str'], [{}], [{ usage: 'x' }], [{ usage: Number.NaN }]])(
+    'returns null and warns for invalid payload %j',
+    (payload) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      expect(normalizeOpenRouterKeyResponse(payload, 'p', 'n')).toBeNull();
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    }
+  );
+});
+
 describe('registry', () => {
   it('derives the allowed domain set', () => {
     expect(getAllowedUsageDomains()).toEqual(
-      new Set(['api.anthropic.com', 'api.z.ai', 'open.bigmodel.cn', 'chatgpt.com'])
+      new Set(['api.anthropic.com', 'api.z.ai', 'open.bigmodel.cn', 'chatgpt.com', 'openrouter.ai'])
     );
-    expect(USAGE_PROVIDER_ADAPTERS).toHaveLength(4);
+    expect(USAGE_PROVIDER_ADAPTERS).toHaveLength(5);
   });
 
   it('looks up adapters and returns undefined for unknown', () => {
     expect(getUsageProviderAdapter('zai')).toBe(zaiAdapter);
+    expect(getUsageProviderAdapter('openrouter')).toBe(openrouterAdapter);
     expect(getUsageProviderAdapter('unknown')).toBeUndefined();
   });
 
@@ -137,6 +212,7 @@ describe('registry', () => {
     expect(getUsageEndpoint('zhipu', 'https://open.bigmodel.cn/api/anthropic')).toBe(
       'https://open.bigmodel.cn/api/monitor/usage/quota/limit'
     );
+    expect(getUsageEndpoint('openrouter', 'https://openrouter.ai/api')).toBe('https://openrouter.ai/api/v1/key');
     expect(getUsageEndpoint('unknown', 'https://example.com')).toBeNull();
   });
 });

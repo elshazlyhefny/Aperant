@@ -6,6 +6,7 @@ import type { ApiProvider } from '../../../../shared/utils/provider-detection';
 import type { UsageProviderAdapter } from '../types';
 import { anthropicAdapter } from './anthropic';
 import { openaiAdapter } from './openai';
+import { openrouterAdapter } from './openrouter';
 import { zaiAdapter } from './zai';
 import { zhipuAdapter } from './zhipu';
 
@@ -13,7 +14,8 @@ export const USAGE_PROVIDER_ADAPTERS: readonly UsageProviderAdapter[] = [
   anthropicAdapter,
   openaiAdapter,
   zaiAdapter,
-  zhipuAdapter
+  zhipuAdapter,
+  openrouterAdapter
 ];
 
 export function getUsageProviderAdapter(provider: ApiProvider): UsageProviderAdapter | undefined {
