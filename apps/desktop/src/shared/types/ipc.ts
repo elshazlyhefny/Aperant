@@ -883,10 +883,18 @@ export interface ElectronAPI extends ScheduleAPI {
   readFile: (filePath: string) => Promise<IPCResult<string>>;
 
   // Git operations
-  /** @deprecated Will return GitBranchDetail[] in future - see getGitBranchesWithInfo */
+  /**
+   * @deprecated Will return GitBranchDetail[] in future - see getGitBranchesWithInfo.
+   * Returns local refs immediately; a background fetch may follow with an onGitBranchesUpdated event.
+   */
   getGitBranches: (projectPath: string) => Promise<IPCResult<string[]>>;
-  /** Get branches with structured type information (local vs remote) */
+  /**
+   * Get branches with structured type information (local vs remote).
+   * Returns local refs immediately; a background fetch may follow with an onGitBranchesUpdated event.
+   */
   getGitBranchesWithInfo: (projectPath: string) => Promise<IPCResult<GitBranchDetail[]>>;
+  /** Subscribe to background-fetch completion; returns an unsubscribe function */
+  onGitBranchesUpdated: (callback: (projectPath: string) => void) => () => void;
   getCurrentGitBranch: (projectPath: string) => Promise<IPCResult<string | null>>;
   detectMainBranch: (projectPath: string, options?: { declaredOnly?: boolean }) => Promise<IPCResult<string | null>>;
   checkGitStatus: (projectPath: string) => Promise<IPCResult<GitStatus>>;

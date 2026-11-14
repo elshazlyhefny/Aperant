@@ -1,6 +1,5 @@
 import { ipcMain } from 'electron';
 import { existsSync } from 'fs';
-import { execFileSync } from 'child_process';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type {
   Project,
@@ -19,7 +18,13 @@ import {
   checkGitStatus,
   initializeGit
 } from '../project-initializer';
-import { getToolPath } from '../cli-tool-manager';
+import {
+  getGitBranches,
+  getGitBranchesWithInfo,
+  getCurrentGitBranch,
+  getDefaultRemoteBranchRef,
+  scheduleBackgroundFetch
+} from './git-branches';
 import { readProjectRepoConfig } from '../ai/worktree/project-repo-config';
 import type { BrowserWindow } from 'electron';
 
@@ -29,181 +34,23 @@ import { appLog } from '../app-logger';
 // ============================================
 
 /**
- * Get list of git branches for a directory (both local and remote)
+ * Tell the renderer that a background fetch finished and branch lists may be stale.
  */
-function getGitBranches(projectPath: string): string[] {
-  try {
-    // First fetch to ensure we have latest remote refs
-    try {
-      execFileSync(getToolPath('git'), ['fetch', '--prune'], {
-        cwd: projectPath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 10000 // 10 second timeout for fetch
-      });
-    } catch {
-      // Fetch may fail if offline or no remote, continue with local refs
+function makeBranchesUpdatedNotifier(getMainWindow: () => BrowserWindow | null) {
+  return (projectPath: string): void => {
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC_CHANNELS.GIT_BRANCHES_UPDATED, projectPath);
     }
-
-    // Get all branches (local + remote) using --all flag
-    const result = execFileSync(getToolPath('git'), ['branch', '--all', '--format=%(refname:short)'], {
-      cwd: projectPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    const branches = result.trim().split('\n')
-      .filter(b => b.trim())
-      .map(b => {
-        // Remote branches come as "origin/branch-name", keep the full name
-        // but remove the "origin/" prefix for display while keeping it usable
-        return b.trim();
-      })
-      // Remove HEAD pointer entries like "origin/HEAD"
-      .filter(b => !b.endsWith('/HEAD'))
-      // Remove duplicates (local branch may exist alongside remote)
-      .filter((branch, index, self) => {
-        // If it's a remote branch (origin/x) and local version exists, keep local
-        if (branch.startsWith('origin/')) {
-          const localName = branch.replace('origin/', '');
-          return !self.includes(localName);
-        }
-        return self.indexOf(branch) === index;
-      });
-
-    // Sort: local branches first, then remote branches
-    return branches.sort((a, b) => {
-      const aIsRemote = a.startsWith('origin/');
-      const bIsRemote = b.startsWith('origin/');
-      if (aIsRemote && !bIsRemote) return 1;
-      if (!aIsRemote && bIsRemote) return -1;
-      return a.localeCompare(b);
-    });
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Get structured branch information for a directory (both local and remote)
- * Returns GitBranchDetail[] with type indicators, keeping both local and remote versions
- * when a branch exists in both places (no deduplication)
- */
-function getGitBranchesWithInfo(projectPath: string): GitBranchDetail[] {
-  try {
-    // First fetch to ensure we have latest remote refs
-    try {
-      execFileSync(getToolPath('git'), ['fetch', '--prune'], {
-        cwd: projectPath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 10000 // 10 second timeout for fetch
-      });
-    } catch {
-      // Fetch may fail if offline or no remote, continue with local refs
-    }
-
-    // Get current branch for isCurrent indicator
-    let currentBranch: string | null = null;
-    try {
-      const currentResult = execFileSync(getToolPath('git'), ['rev-parse', '--abbrev-ref', 'HEAD'], {
-        cwd: projectPath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-      currentBranch = currentResult.trim() || null;
-    } catch {
-      // Ignore - current branch detection may fail in some edge cases
-    }
-
-    // Get local branches
-    const localResult = execFileSync(getToolPath('git'), ['branch', '--format=%(refname:short)'], {
-      cwd: projectPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    const localBranches: GitBranchDetail[] = localResult.trim().split('\n')
-      .filter(b => b.trim())
-      .map(b => {
-        const name = b.trim();
-        return {
-          name,
-          type: 'local' as const,
-          displayName: name,
-          isCurrent: name === currentBranch
-        };
-      });
-
-    // Get remote branches
-    let remoteBranches: GitBranchDetail[] = [];
-    try {
-      const remoteResult = execFileSync(getToolPath('git'), ['branch', '-r', '--format=%(refname:short)'], {
-        cwd: projectPath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-
-      remoteBranches = remoteResult.trim().split('\n')
-        .filter(b => b.trim())
-        .map(b => b.trim())
-        // Remove HEAD pointer entries like "origin/HEAD"
-        .filter(b => !b.endsWith('/HEAD'))
-        .map(fullName => {
-          // Strip "origin/" prefix so branch names are clean for PR targets etc.
-          const name = fullName.replace(/^origin\//, '');
-          return {
-            name,
-            type: 'remote' as const,
-            displayName: name,
-            isCurrent: false
-          };
-        });
-    } catch {
-      // Remote branches may not exist, continue with local only
-    }
-
-    // Deduplicate: if a branch exists locally and remotely, keep only the local entry
-    const localNames = new Set(localBranches.map(b => b.name));
-    remoteBranches = remoteBranches.filter(b => !localNames.has(b.name));
-
-    // Combine and sort: local branches first, then remote branches, alphabetically within each group
-    const allBranches = [...localBranches, ...remoteBranches];
-
-    return allBranches.sort((a, b) => {
-      // Local branches come first
-      if (a.type === 'local' && b.type === 'remote') return -1;
-      if (a.type === 'remote' && b.type === 'local') return 1;
-      // Within same type, sort alphabetically
-      return a.name.localeCompare(b.name);
-    });
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Get the current git branch for a directory
- */
-function getCurrentGitBranch(projectPath: string): string | null {
-  try {
-    const result = execFileSync(getToolPath('git'), ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd: projectPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    return result.trim() || null;
-  } catch {
-    return null;
-  }
+  };
 }
 
 /**
  * Detect the main branch for a git repository
  * Checks for common main branch names in order of preference
  */
-function detectMainBranch(projectPath: string): string | null {
-  const branches = getGitBranches(projectPath);
+async function detectMainBranch(projectPath: string): Promise<string | null> {
+  const branches = await getGitBranches(projectPath);
   if (branches.length === 0) return null;
 
   // zeenha fork: a repository that names its base branch is not guessed at.
@@ -221,20 +68,11 @@ function detectMainBranch(projectPath: string): string | null {
   }
 
   // If none of the common names found, check for origin/HEAD reference
-  try {
-    const result = execFileSync(getToolPath('git'), ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
-      cwd: projectPath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    const ref = result.trim();
-    // Extract branch name from refs/remotes/origin/main
-    const match = ref.match(/refs\/remotes\/origin\/(.+)/);
-    if (match && branches.includes(match[1])) {
-      return match[1];
-    }
-  } catch {
-    // origin/HEAD not set, continue with fallback
+  const ref = await getDefaultRemoteBranchRef(projectPath);
+  // Extract branch name from refs/remotes/origin/main
+  const match = ref?.match(/refs\/remotes\/origin\/(.+)/);
+  if (match && branches.includes(match[1])) {
+    return match[1];
   }
 
   // Fallback: return the first branch (usually the current one)
@@ -247,6 +85,8 @@ function detectMainBranch(projectPath: string): string | null {
 export function registerProjectHandlers(
   getMainWindow: () => BrowserWindow | null
 ): void {
+  const notifyBranchesUpdated = makeBranchesUpdatedNotifier(getMainWindow);
+
   // ============================================
   // Project Operations
   // ============================================
@@ -445,7 +285,8 @@ export function registerProjectHandlers(
         if (!existsSync(projectPath)) {
           return { success: false, error: 'Directory does not exist' };
         }
-        const branches = getGitBranches(projectPath);
+        const branches = await getGitBranches(projectPath);
+        scheduleBackgroundFetch(projectPath, notifyBranchesUpdated);
         return { success: true, data: branches };
       } catch (error) {
         return {
@@ -464,7 +305,8 @@ export function registerProjectHandlers(
         if (!existsSync(projectPath)) {
           return { success: false, error: 'Directory does not exist' };
         }
-        const branches = getGitBranchesWithInfo(projectPath);
+        const branches = await getGitBranchesWithInfo(projectPath);
+        scheduleBackgroundFetch(projectPath, notifyBranchesUpdated);
         return { success: true, data: branches };
       } catch (error) {
         return {
@@ -483,7 +325,7 @@ export function registerProjectHandlers(
         if (!existsSync(projectPath)) {
           return { success: false, error: 'Directory does not exist' };
         }
-        const branch = getCurrentGitBranch(projectPath);
+        const branch = await getCurrentGitBranch(projectPath);
         return { success: true, data: branch };
       } catch (error) {
         return {
@@ -505,7 +347,7 @@ export function registerProjectHandlers(
         if (options?.declaredOnly) {
           return { success: true, data: readProjectRepoConfig(projectPath).baseBranch ?? null };
         }
-        const mainBranch = detectMainBranch(projectPath);
+        const mainBranch = await detectMainBranch(projectPath);
         return { success: true, data: mainBranch };
       } catch (error) {
         return {

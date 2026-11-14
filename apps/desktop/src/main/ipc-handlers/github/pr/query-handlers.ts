@@ -9,7 +9,7 @@ import { withProjectOrNull } from "../utils/project-middleware";
 import type { PRReviewStateManager } from "../../../pr-review-state-manager";
 import type { PRData, PRListResult, PRReviewResult } from "./types";
 import { debugLog } from "./shared";
-import { loadPRLogs, type PRLogs } from "./review-logs";
+import { loadPRLogsIfChanged, type PRLogs, type PRLogsKnownVersion } from "./review-logs";
 import { getReviewResult } from "./review-results";
 import { fetchPRsFromGraphQL } from "./graphql";
 
@@ -161,29 +161,39 @@ export function registerPRQueryHandlers(stateManager: PRReviewStateManager): voi
   /**
    * Get PR review logs (IPC Handler)
    *
-   * This handler is called by the frontend's polling mechanism to retrieve
-   * the latest log data from disk.
+   * Polling is a cheap change check: the frontend passes the version it already
+   * holds ({updated_at, entryCount}) and receives 'unchanged' when nothing new
+   * exists, so no log data is read or serialized. Live updates arrive as deltas
+   * via GITHUB_PR_LOGS_UPDATED; this handler is the initial load / fallback.
    *
    * Polling Strategy (Frontend):
    * ============================
    * 1. **Initial Load**: When logs section expands, loads logs once via this handler
-   * 2. **Active Review Polling**: Every 1.5s while review is running (isReviewing = true)
+   * 2. **Active Review Polling**: Every 1.5s while review is running AND the logs
+   *    section is expanded (no polling or pushed-update handling while collapsed)
    * 3. **Final Refresh**: One final poll when review completes to capture final status
    * 4. **Fallback Load**: 500ms delayed load after completion if polling missed final logs
    *
    * Why Polling + Push Hybrid?
    * ===========================
-   * - Push (IPC events): Fast notifications when logs are saved by PRLogCollector
-   * - Pull (polling): Guarantees logs are fetched even if IPC events are missed
-   * - File-based: Simple, debuggable, survives app crashes/restarts
+   * - Push (IPC deltas): Only newly appended entries, sent by PRLogCollector
+   * - Pull (cheap poll): Safety net if a push is missed; replies 'unchanged' when
+   *   the held version is current
+   * - Logs are held in memory while live and persisted to disk (throttled), so
+   *   they survive app restarts
    *
    * Returns null if logs file doesn't exist yet (review hasn't started).
    */
   ipcMain.handle(
     IPC_CHANNELS.GITHUB_PR_GET_LOGS,
-    async (_, projectId: string, prNumber: number): Promise<PRLogs | null> => {
+    async (
+      _,
+      projectId: string,
+      prNumber: number,
+      known?: PRLogsKnownVersion
+    ): Promise<PRLogs | null | "unchanged"> => {
       return withProjectOrNull(projectId, async (project) => {
-        return loadPRLogs(project, prNumber);
+        return loadPRLogsIfChanged(project, prNumber, known);
       });
     }
   );
