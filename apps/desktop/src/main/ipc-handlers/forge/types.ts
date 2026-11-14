@@ -33,11 +33,19 @@ export interface OutcomeWriter {
   }): void;
 }
 
-/** A code host: resolves its PR/MR URLs, loads CI + review feedback, and can post outcomes. */
-export interface Forge extends OutcomeWriter {
+/** A code host's pull requests: resolves its PR/MR URLs and loads CI + review feedback. */
+export interface PRHost {
   providerId: string;
   resolvePR(prUrl: string): PRRef | null;
   loadFeedback(project: Project, prUrl: string, ref: PRRef): Promise<ForgeLoadResult>;
   /** Shown when the project has no usable credentials for this forge. */
   notConfiguredMessage: string;
+}
+
+/** A code host that can also post task outcomes to its issues. */
+export interface Forge extends PRHost, OutcomeWriter {}
+
+/** True when a code host also writes task outcomes back (Bitbucket does not). */
+export function isOutcomeWriter(host: PRHost): host is Forge {
+  return typeof (host as Partial<Forge>).postOutcome === 'function';
 }

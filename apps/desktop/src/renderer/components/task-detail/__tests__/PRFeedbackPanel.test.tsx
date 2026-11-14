@@ -85,6 +85,16 @@ describe('PRFeedbackPanel', () => {
     expect(screen.queryByTestId('pr-feedback-send')).not.toBeInTheDocument();
   });
 
+  it('explains a missing Bitbucket configuration', async () => {
+    getPRFeedback.mockResolvedValue({
+      success: true,
+      data: feedback({ canStartFollowUp: false, blockedReason: 'no_bitbucket_config' }),
+    });
+    await renderPanel();
+    expect(screen.getByTestId('pr-feedback-blocked')).toHaveTextContent('tasks:prFeedback.blocked.no_bitbucket_config');
+    expect(screen.queryByTestId('pr-feedback-send')).not.toBeInTheDocument();
+  });
+
   it('renders GitHub text as plain text', async () => {
     const evil = '<img src=x onerror="alert(1)"> **bold** [l](http://x)';
     getPRFeedback.mockResolvedValue({

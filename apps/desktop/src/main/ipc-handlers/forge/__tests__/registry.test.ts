@@ -163,7 +163,8 @@ describe('loadPRFeedback', () => {
 
 describe('not_configured IPC code', () => {
   it('maps an unlisted provider to the generic code', () => {
-    expect(notConfiguredBlockedReason('bitbucket')).toBe('not_configured');
+    expect(notConfiguredBlockedReason('gitea')).toBe('not_configured');
     expect(notConfiguredBlockedReason('github')).toBe('no_github_config');
+    expect(notConfiguredBlockedReason('bitbucket')).toBe('no_bitbucket_config');
   });
 });

@@ -3,24 +3,26 @@
  * writeback look providers up here instead of branching on provider names.
  */
 
+import { bitbucketForge } from './bitbucket-forge';
 import { githubForge } from './github-forge';
 import { gitlabForge } from './gitlab-forge';
 import { linearWriter } from './linear-writer';
-import type { Forge, OutcomeWriter, PRRef } from './types';
+import { isOutcomeWriter, type OutcomeWriter, type PRHost, type PRRef } from './types';
 
 export interface ForgeRegistry {
-  forges: readonly Forge[];
+  forges: readonly PRHost[];
   writers: readonly OutcomeWriter[];
-  getForgeForPrUrl(prUrl: string): { forge: Forge; ref: PRRef } | null;
-  getForgeById(id: string): Forge | undefined;
+  getForgeForPrUrl(prUrl: string): { forge: PRHost; ref: PRRef } | null;
+  getForgeById(id: string): PRHost | undefined;
   getOutcomeWriter(sourceType: string): OutcomeWriter | undefined;
 }
 
 export function createForgeRegistry(
-  forges: readonly Forge[],
+  forges: readonly PRHost[],
   extraWriters: readonly OutcomeWriter[] = []
 ): ForgeRegistry {
-  const writers: readonly OutcomeWriter[] = [...forges, ...extraWriters];
+  // A code host without issue writeback (Bitbucket) is a PRHost only and is not a writer.
+  const writers: readonly OutcomeWriter[] = [...forges.filter(isOutcomeWriter), ...extraWriters];
   return {
     forges,
     writers,
@@ -36,14 +38,15 @@ export function createForgeRegistry(
   };
 }
 
-/** GitHub is tried before GitLab when resolving a PR URL. */
-export const FORGES: readonly Forge[] = [githubForge, gitlabForge];
-export const OUTCOME_WRITERS: readonly OutcomeWriter[] = [...FORGES, linearWriter];
+/** Tried in this order when resolving a PR URL: GitHub, GitLab, then Bitbucket. */
+export const FORGES: readonly PRHost[] = [githubForge, gitlabForge, bitbucketForge];
 
 const defaultRegistry = createForgeRegistry(FORGES, [linearWriter]);
 
-export const getForgeForPrUrl = (prUrl: string): { forge: Forge; ref: PRRef } | null =>
+export const OUTCOME_WRITERS: readonly OutcomeWriter[] = defaultRegistry.writers;
+
+export const getForgeForPrUrl = (prUrl: string): { forge: PRHost; ref: PRRef } | null =>
   defaultRegistry.getForgeForPrUrl(prUrl);
-export const getForgeById = (id: string): Forge | undefined => defaultRegistry.getForgeById(id);
+export const getForgeById = (id: string): PRHost | undefined => defaultRegistry.getForgeById(id);
 export const getOutcomeWriter = (sourceType: string): OutcomeWriter | undefined =>
   defaultRegistry.getOutcomeWriter(sourceType);

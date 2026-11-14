@@ -10,14 +10,18 @@ to the registry here. They never name a provider.
   It has a `sourceType` (matches `task_metadata.json`), a `settingKey` (the
   opt-in flag in `IssueWritebackSettings`) and `postOutcome()`, which is
   fire-and-forget and never throws.
-- `Forge`: an `OutcomeWriter` that is also a code host. It resolves its PR/MR
-  URLs (`resolvePR`), loads CI and review feedback (`loadFeedback`) and has a
+- `PRHost`: a code host's pull requests. It resolves its PR/MR URLs
+  (`resolvePR`), loads CI and review feedback (`loadFeedback`) and has a
   `notConfiguredMessage`.
+- `Forge`: a `PRHost` that is also an `OutcomeWriter` (GitHub, GitLab).
+  Bitbucket is a `PRHost` only: it has PR feedback but no issue writeback, so
+  the registry does not list it as a writer.
 
 ## Adding a provider
 
 1. Create one file in `forge/` (e.g. `bitbucket-forge.ts`) implementing `Forge`
-   (or just `OutcomeWriter` for an issue tracker with no PRs).
+   (or just `PRHost` for a code host with no issue writeback, or just
+   `OutcomeWriter` for an issue tracker with no PRs).
 2. Add it to `FORGES` in `registry.ts` (trackers go in the extra writers list).
    Order matters: the first forge whose `resolvePR` matches a URL wins.
 3. If the provider needs its own writeback toggle, add the key to
@@ -28,5 +32,7 @@ to the registry here. They never name a provider.
 When a forge has no usable credentials, `loadFeedback` returns
 `{ ok: false, code: 'not_configured', error }`. The IPC layer maps it with
 `notConfiguredBlockedReason(provider)` (`shared/types/pr-feedback.ts`): if a
-legacy code `no_<provider>_config` exists (GitHub, GitLab) that is returned so
-existing UI keeps working; otherwise the generic `not_configured` is used.
+per-provider code `no_<provider>_config` exists (GitHub, GitLab, Bitbucket) that
+is returned so existing UI keeps working; otherwise the generic `not_configured`
+is used. The error text is the forge's own (`error`), so a PR on another
+repository gets its specific message.
