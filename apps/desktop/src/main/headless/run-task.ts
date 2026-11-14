@@ -47,6 +47,12 @@ export interface HeadlessRunOptions {
   /** Spec id (e.g. 001-my-feature) or a path to the spec directory. */
   spec: string;
   configPath?: string;
+  /** Already-loaded config; used instead of reading configPath. */
+  config?: HeadlessConfig;
+  /** Aborting behaves like SIGTERM: the bridge is terminated. */
+  signal?: AbortSignal;
+  /** Register SIGINT/SIGTERM handlers (default true). The daemon passes false. */
+  handleProcessSignals?: boolean;
   baseBranch?: string;
   noPush?: boolean;
   json?: boolean;
@@ -56,6 +62,15 @@ export interface HeadlessRunOptions {
   createBridge?: (options: WorkerBridgeCoreOptions) => HeadlessBridge;
   out?: (text: string) => void;
   err?: (text: string) => void;
+}
+
+export interface HeadlessRunResult {
+  exitCode: number;
+  outcome: RunOutcome | undefined;
+  specId?: string;
+  branch?: string;
+  worktreePath?: string;
+  aborted: boolean;
 }
 
 const AUTO_BUILD_PATH = '.auto-claude';
@@ -96,6 +111,10 @@ function providerPhaseModels(config: HeadlessConfig) {
 }
 
 export async function runHeadlessTask(options: HeadlessRunOptions): Promise<number> {
+  return (await runHeadlessTaskDetailed(options)).exitCode;
+}
+
+export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Promise<HeadlessRunResult> {
   // Secrets resolved later in the run; every line written goes through redact().
   const secrets: string[] = [];
   const redact = (text: string): string => {
@@ -111,13 +130,15 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
     out: (t) => rawOut(redact(t)),
     err: (t) => rawErr(redact(t)),
   });
-  const fail = (message: string, specId?: string): number => {
+  const fail = (message: string, specId?: string): HeadlessRunResult => {
     reporter.error(message);
-    reporter.summary({ kind: 'error', exitCode: EXIT_ERROR, reason: message }, { spec: specId });
-    return EXIT_ERROR;
+    const outcome: RunOutcome = { kind: 'error', exitCode: EXIT_ERROR, reason: message };
+    reporter.summary(outcome, { spec: specId });
+    return { exitCode: EXIT_ERROR, outcome, specId, aborted: false };
   };
 
   let specId: string | undefined;
+  let aborted = false;
   try {
     // (1) project and spec
     const projectPath = findGitRoot(path.resolve(options.projectPath ?? process.cwd()));
@@ -129,7 +150,7 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
     }
 
     // (2) config and project settings
-    const config = loadHeadlessConfig(options.configPath);
+    const config = options.config ?? loadHeadlessConfig(options.configPath);
     const settings = resolveProjectSettings(projectPath, config, {
       baseBranch: options.baseBranch,
       noPush: options.noPush,
@@ -215,6 +236,7 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
     const errors: string[] = [];
     let exitInfo: { code: number | null; signal?: string | null } | undefined;
     let abortSignal: string | undefined;
+    const handleProcessSignals = options.handleProcessSignals !== false;
 
     const info = { spec: specId, branch, worktree: worktreePath };
     reporter.log(`Running ${specId} in worktree ${worktreePath} (branch ${branch})`);
@@ -223,9 +245,16 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
       let settled = false;
       const onSigint = () => abort('SIGINT');
       const onSigterm = () => abort('SIGTERM');
+      const onAbortSignal = () => {
+        const reason = options.signal?.reason;
+        abort(typeof reason === 'string' && reason ? reason : 'abort signal');
+      };
       const removeHandlers = () => {
-        process.off('SIGINT', onSigint);
-        process.off('SIGTERM', onSigterm);
+        if (handleProcessSignals) {
+          process.off('SIGINT', onSigint);
+          process.off('SIGTERM', onSigterm);
+        }
+        options.signal?.removeEventListener('abort', onAbortSignal);
       };
       const finish = () => {
         if (settled) return;
@@ -253,25 +282,34 @@ export async function runHeadlessTask(options: HeadlessRunOptions): Promise<numb
       const abort = (signal: string) => {
         if (abortSignal) return;
         abortSignal = signal;
+        aborted = true;
         Promise.resolve(bridge.terminate())
           .catch(() => {
             // Already gone
           })
           .finally(finish);
       };
-      process.on('SIGINT', onSigint);
-      process.on('SIGTERM', onSigterm);
+      if (handleProcessSignals) {
+        process.on('SIGINT', onSigint);
+        process.on('SIGTERM', onSigterm);
+      }
 
       try {
         bridge.spawn(executorConfig);
       } catch (error) {
         errors.push(error instanceof Error ? error.message : String(error));
         finish();
+        return;
+      }
+      // Registered after spawn so an already-aborted signal terminates a live bridge.
+      if (options.signal) {
+        if (options.signal.aborted) onAbortSignal();
+        else options.signal.addEventListener('abort', onAbortSignal, { once: true });
       }
     });
 
     reporter.summary(reported, info);
-    return reported.exitCode;
+    return { exitCode: reported.exitCode, outcome: reported, specId, branch, worktreePath, aborted };
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error), specId);
   }

@@ -39,6 +39,48 @@ describe('loadHeadlessConfig', () => {
   });
 });
 
+describe('loadHeadlessConfig webhook and maxParallelTasks', () => {
+  const write = (value: unknown) => {
+    const file = path.join(dir, 'w.json');
+    writeFileSync(file, JSON.stringify(value));
+    return file;
+  };
+
+  it('parses webhook and merges events over the defaults', () => {
+    const config = loadHeadlessConfig(
+      write({ webhook: { enabled: true, url: 'https://example.com/hook', events: { prOpened: true, failed: false } } }),
+    );
+    expect(config.webhook).toEqual({
+      enabled: true,
+      url: 'https://example.com/hook',
+      events: { reviewReady: true, failed: false, blocked: true, prOpened: true },
+    });
+  });
+
+  it('parses maxParallelTasks', () => {
+    expect(loadHeadlessConfig(write({ project: { maxParallelTasks: 3 } })).project?.maxParallelTasks).toBe(3);
+  });
+
+  it('rejects bad webhook values', () => {
+    expect(() => loadHeadlessConfig(write({ webhook: 'x' }))).toThrow(/webhook must be an object/);
+    expect(() => loadHeadlessConfig(write({ webhook: [] }))).toThrow(/webhook must be an object/);
+    expect(() => loadHeadlessConfig(write({ webhook: { enabled: 'yes' } }))).toThrow(/webhook.enabled/);
+    expect(() => loadHeadlessConfig(write({ webhook: { url: 5 } }))).toThrow(/webhook.url must be a string/);
+    expect(() => loadHeadlessConfig(write({ webhook: { enabled: true, url: 'http://example.com/x' } }))).toThrow(
+      /https_required/,
+    );
+    expect(() => loadHeadlessConfig(write({ webhook: { enabled: true } }))).toThrow(/webhook.url is not valid/);
+    expect(() => loadHeadlessConfig(write({ webhook: { events: { failed: 'no' } } }))).toThrow(/events.failed/);
+    expect(() => loadHeadlessConfig(write({ webhook: { events: 1 } }))).toThrow(/events must be an object/);
+  });
+
+  it('rejects bad maxParallelTasks', () => {
+    for (const bad of [0, -1, 1.5, '2']) {
+      expect(() => loadHeadlessConfig(write({ project: { maxParallelTasks: bad } }))).toThrow(/maxParallelTasks/);
+    }
+  });
+});
+
 describe('resolveProjectSettings', () => {
   it('defaults and always lands through pull requests', () => {
     const s = resolveProjectSettings(dir, {});

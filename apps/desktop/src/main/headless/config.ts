@@ -16,6 +16,9 @@ import { parseEnvPassthrough } from '../ai/security/child-env';
 import { parseSandboxMode } from '../ai/security/sandbox';
 import { parseWebFetchProvider } from '../ai/tools/providers/types';
 import type { SerializableSessionConfig } from '../ai/agent/types';
+import { DEFAULT_APP_SETTINGS } from '../../shared/constants/config';
+import type { WebhookSettings } from '../../shared/types/settings';
+import { validateWebhookUrl } from '../webhook-core';
 
 export interface HeadlessProjectConfig {
   mainBranch?: string;
@@ -23,6 +26,8 @@ export interface HeadlessProjectConfig {
   envPassthrough?: unknown;
   bashSandbox?: unknown;
   webFetchProvider?: unknown;
+  /** Daemon only: how many queued tasks may run at once. */
+  maxParallelTasks?: number;
 }
 
 export interface HeadlessConfig {
@@ -30,6 +35,7 @@ export interface HeadlessConfig {
   globalPriorityOrder?: string[];
   providerAgentConfig?: Record<string, unknown>;
   project?: HeadlessProjectConfig;
+  webhook?: WebhookSettings;
 }
 
 export interface HeadlessFlags {
@@ -49,6 +55,41 @@ export interface HeadlessProjectSettings {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const WEBHOOK_EVENT_KEYS = ['reviewReady', 'failed', 'blocked', 'prOpened'] as const;
+
+function parseWebhook(value: unknown, configPath: string): WebhookSettings {
+  if (!isRecord(value)) {
+    throw new Error(`Config file ${configPath}: webhook must be an object`);
+  }
+  const { enabled, url, events } = value;
+  if (enabled !== undefined && typeof enabled !== 'boolean') {
+    throw new Error(`Config file ${configPath}: webhook.enabled must be a boolean`);
+  }
+  if (url !== undefined && typeof url !== 'string') {
+    throw new Error(`Config file ${configPath}: webhook.url must be a string`);
+  }
+  if (events !== undefined && !isRecord(events)) {
+    throw new Error(`Config file ${configPath}: webhook.events must be an object`);
+  }
+  const mergedEvents = { ...DEFAULT_APP_SETTINGS.webhook.events };
+  for (const key of WEBHOOK_EVENT_KEYS) {
+    const flag = events?.[key];
+    if (flag === undefined) continue;
+    if (typeof flag !== 'boolean') {
+      throw new Error(`Config file ${configPath}: webhook.events.${key} must be a boolean`);
+    }
+    mergedEvents[key] = flag;
+  }
+  const webhookUrl = url ?? DEFAULT_APP_SETTINGS.webhook.url;
+  if (enabled === true || webhookUrl !== '') {
+    const check = validateWebhookUrl(webhookUrl);
+    if (!check.ok) {
+      throw new Error(`Config file ${configPath}: webhook.url is not valid (${check.error})`);
+    }
+  }
+  return { enabled: enabled === true, url: webhookUrl, events: mergedEvents };
 }
 
 /** Load the optional --config file. Missing path = defaults; a bad explicit file throws. */
@@ -89,14 +130,24 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
     if (!isRecord(raw.project)) {
       throw new Error(`Config file ${configPath}: project must be an object`);
     }
-    const { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider } = raw.project;
+    const { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider, maxParallelTasks } =
+      raw.project;
     if (mainBranch !== undefined && typeof mainBranch !== 'string') {
       throw new Error(`Config file ${configPath}: project.mainBranch must be a string`);
     }
     if (pushNewBranches !== undefined && typeof pushNewBranches !== 'boolean') {
       throw new Error(`Config file ${configPath}: project.pushNewBranches must be a boolean`);
     }
-    config.project = { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider };
+    if (
+      maxParallelTasks !== undefined &&
+      (typeof maxParallelTasks !== 'number' || !Number.isInteger(maxParallelTasks) || maxParallelTasks < 1)
+    ) {
+      throw new Error(`Config file ${configPath}: project.maxParallelTasks must be a positive integer`);
+    }
+    config.project = { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider, maxParallelTasks };
+  }
+  if (raw.webhook !== undefined) {
+    config.webhook = parseWebhook(raw.webhook, configPath);
   }
   return config;
 }
