@@ -116,6 +116,41 @@ vi.mock('../../gitlab/mr-feedback', () => {
   };
 });
 
+const bitbucket = vi.hoisted(() => ({
+  config: { username: 'u', token: 't', repository: 'ws/repo' } as {
+    username: string;
+    token: string;
+    repository: string;
+  } | null,
+}));
+vi.mock('../../bitbucket/utils', () => ({ getBitbucketConfig: async () => bitbucket.config }));
+
+const BB_PATH = /^\/([^/]+)\/([^/]+)\/pull-requests\/(\d+)$/;
+const fetchBitbucketMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    prNumber: 7,
+    prUrl: 'https://bitbucket.org/ws/repo/pull-requests/7',
+    prState: 'open' as const,
+    headRef: 'auto-claude/001-x',
+    headSha: 'bb789',
+    checks: [{ id: 'check:step-1', kind: 'check', title: 'Build', summary: 'step failed', truncated: false }],
+    threads: [],
+    reviews: [],
+  })),
+);
+vi.mock('../../bitbucket/pr-feedback', () => ({
+  parseBitbucketPullRequestUrl: (u: string) => {
+    try {
+      const url = new URL(u);
+      const m = BB_PATH.exec(url.pathname);
+      return url.hostname === 'bitbucket.org' && m ? { id: Number(m[3]), workspace: m[1], repoSlug: m[2] } : null;
+    } catch {
+      return null;
+    }
+  },
+  fetchBitbucketPRFeedback: fetchBitbucketMock,
+}));
+
 const stateManager = vi.hoisted(() => ({
   prepareForRestart: vi.fn(),
   startPRFollowUp: vi.fn(),
@@ -142,6 +177,7 @@ beforeEach(() => {
   feedback.prState = 'open';
   ref.prUrl = 'https://github.com/o/r/pull/7';
   gitlab.config = { token: 't', instanceUrl: 'https://gitlab.com', project: 'g/r' };
+  bitbucket.config = { username: 'u', token: 't', repository: 'ws/repo' };
   ref.status = 'pr_created';
   ref.branch = 'auto-claude/001-x';
   ref.projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'prfu-proj-'));
@@ -310,5 +346,59 @@ describe('GitLab merge requests', () => {
     const res = await get();
     expect(res).toMatchObject({ success: false, code: 'no_open_pr' });
     expect(res.error).toBe('The pull request link of this task is not valid.');
+  });
+});
+
+describe('Bitbucket pull requests', () => {
+  const BB_URL = 'https://bitbucket.org/ws/repo/pull-requests/7';
+
+  it('loads PR feedback through Bitbucket and can start a follow-up', async () => {
+    ref.prUrl = BB_URL;
+    const res = await get();
+    expect(res.success).toBe(true);
+    expect(res.data.canStartFollowUp).toBe(true);
+    expect(fetchBitbucketMock).toHaveBeenCalledTimes(1);
+    expect(fetchPRFeedbackMock).not.toHaveBeenCalled();
+    expect(fetchMRFeedbackMock).not.toHaveBeenCalled();
+    const started = await start(['check:step-1']);
+    expect(started).toMatchObject({ success: true, data: { started: true, itemCount: 1 } });
+    expect(agentManager.startQAProcess).toHaveBeenCalledTimes(1);
+  });
+
+  it('matches the configured repository case-insensitively', async () => {
+    ref.prUrl = 'https://bitbucket.org/WS/Repo/pull-requests/7';
+    expect((await get()).success).toBe(true);
+  });
+
+  it('answers no_bitbucket_config without crashing when credentials are missing', async () => {
+    ref.prUrl = BB_URL;
+    bitbucket.config = null;
+    const res = await get();
+    expect(res.success).toBe(false);
+    expect(res.code).toBe('no_bitbucket_config');
+    expect(res.error).toMatch(/Bitbucket is not configured/);
+    expect(fetchBitbucketMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a PR on another repository with a clear message and fetches nothing', async () => {
+    ref.prUrl = 'https://bitbucket.org/other/repo/pull-requests/7';
+    const res = await get();
+    expect(res.success).toBe(false);
+    expect(res.code).toBe('no_bitbucket_config');
+    expect(res.error).toMatch(/not on the Bitbucket repository configured for this project/);
+    expect(fetchBitbucketMock).not.toHaveBeenCalled();
+    const started = await start(['check:step-1']);
+    expect(started.success).toBe(false);
+    expect(fetchBitbucketMock).not.toHaveBeenCalled();
+    expect(agentManager.startQAProcess).not.toHaveBeenCalled();
+  });
+
+  it('still routes GitHub and GitLab URLs to their own providers', async () => {
+    expect((await get()).success).toBe(true);
+    ref.prUrl = 'https://gitlab.com/g/r/-/merge_requests/7';
+    expect((await get()).success).toBe(true);
+    expect(fetchPRFeedbackMock).toHaveBeenCalledTimes(1);
+    expect(fetchMRFeedbackMock).toHaveBeenCalledTimes(1);
+    expect(fetchBitbucketMock).not.toHaveBeenCalled();
   });
 });

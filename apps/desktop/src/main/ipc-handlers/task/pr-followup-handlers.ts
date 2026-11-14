@@ -5,7 +5,7 @@
  * Two entry points:
  * - TASK_PR_FEEDBACK_GET is read-only. It never starts anything.
  * - TASK_PR_FOLLOWUP_START is the only place a run starts. The renderer sends
- *   item IDs only. Main re-fetches the feedback from GitHub and builds the
+ *   item IDs only. Main re-fetches the feedback from the code host (GitHub, GitLab or Bitbucket) and builds the
  *   request text itself, so renderer-supplied text can never reach the agent.
  */
 
@@ -51,6 +51,8 @@ const BLOCKED_MESSAGES: Record<PRFeedbackBlockedReason, string> = {
   auth_required: 'Authentication required. Add an account in Settings > Accounts, then try again. Nothing was started.',
   no_github_config: 'GitHub is not configured for this project (token or repository missing). Nothing was started.',
   no_gitlab_config: 'GitLab is not configured for this project (token or project missing). Nothing was started.',
+  no_bitbucket_config:
+    'Bitbucket is not configured for this project (username, token or repository missing). Nothing was started.',
   branch_mismatch:
     "The task's worktree is not on the pull request branch, so the follow-up cannot push to the same PR. Nothing was started.",
 };
@@ -60,7 +62,7 @@ interface TaskPRContext {
   project: Project;
   prUrl: string;
   provider: PRRef['provider'];
-  /** GitHub PR number or GitLab MR iid. */
+  /** GitHub PR number, GitLab MR iid or Bitbucket PR id. */
   number: number;
 }
 
@@ -146,6 +148,15 @@ function readRawQASignoff(planPath: string): string | null {
   }
 }
 
+type LoadFailure = Extract<Awaited<ReturnType<typeof loadPRFeedback>>, { ok: false }>;
+
+/** Bitbucket refusals carry their own clear message (missing config or wrong repository). */
+function loadFailureMessage(loaded: LoadFailure): string {
+  if (loaded.code === 'fetch_failed') return loaded.error;
+  if (loaded.code === 'no_bitbucket_config') return `${loaded.error} Nothing was started.`;
+  return BLOCKED_MESSAGES[loaded.code];
+}
+
 export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
   ipcMain.handle(
     IPC_CHANNELS.TASK_PR_FEEDBACK_GET,
@@ -159,7 +170,7 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
         return {
           success: false,
           code: loaded.code,
-          error: loaded.code === 'fetch_failed' ? loaded.error : BLOCKED_MESSAGES[loaded.code],
+          error: loadFailureMessage(loaded),
         };
       }
       const fetched = loaded.fetched;
@@ -219,7 +230,7 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
         return {
           success: false,
           code: loaded.code,
-          error: loaded.code === 'fetch_failed' ? loaded.error : BLOCKED_MESSAGES[loaded.code],
+          error: loadFailureMessage(loaded),
         };
       }
       const fetched = loaded.fetched;

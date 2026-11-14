@@ -1,5 +1,5 @@
 /**
- * zeenha fork: pick the code host (GitHub or GitLab) for a task's PR/MR URL and
+ * zeenha fork: pick the code host (GitHub, GitLab or Bitbucket) for a task's PR/MR URL and
  * load its CI + review feedback in the shared PRFeedbackFetchResult shape.
  */
 
@@ -13,21 +13,34 @@ import {
 } from '../github/pr/task-feedback';
 import { getGitLabConfig, normalizeProjectReference } from '../gitlab/utils';
 import { fetchMRFeedback, parseMRIidFromUrl, parseMergeRequestUrl } from '../gitlab/mr-feedback';
+import { getBitbucketConfig } from '../bitbucket/utils';
+import { fetchBitbucketPRFeedback, parseBitbucketPullRequestUrl } from '../bitbucket/pr-feedback';
 
-export type PRRef = { provider: 'github' | 'gitlab'; number: number };
+export type PRRef = { provider: 'github' | 'gitlab' | 'bitbucket'; number: number };
 
 export type LoadPRFeedbackResult =
   | { ok: true; fetched: PRFeedbackFetchResult }
-  | { ok: false; code: 'no_github_config' | 'no_gitlab_config' | 'fetch_failed'; error: string };
+  | {
+      ok: false;
+      code: 'no_github_config' | 'no_gitlab_config' | 'no_bitbucket_config' | 'fetch_failed';
+      error: string;
+    };
 
 const NOT_ON_CONFIGURED_PROJECT = 'This merge request is not on the GitLab project configured for this project.';
 
-/** GitHub PR URL -> github; GitLab MR URL -> gitlab (number = iid); else null. */
+const NOT_ON_CONFIGURED_REPOSITORY = 'This pull request is not on the Bitbucket repository configured for this project.';
+
+/**
+ * GitHub PR URL -> github; GitLab MR URL -> gitlab (number = iid);
+ * Bitbucket PR URL -> bitbucket; else null.
+ */
 export function resolvePRRef(prUrl: string): PRRef | null {
   const ghNumber = parsePRNumberFromUrl(prUrl);
   if (ghNumber) return { provider: 'github', number: ghNumber };
   const mr = parseMergeRequestUrl(prUrl);
   if (mr) return { provider: 'gitlab', number: mr.iid };
+  const bb = parseBitbucketPullRequestUrl(prUrl);
+  if (bb) return { provider: 'bitbucket', number: bb.id };
   return null;
 }
 
@@ -43,6 +56,26 @@ export async function loadPRFeedback(project: Project, prUrl: string, ref: PRRef
         };
       }
       return { ok: true, fetched: await fetchPRFeedback(config, ref.number) };
+    }
+
+    if (ref.provider === 'bitbucket') {
+      const config = await getBitbucketConfig(project);
+      if (!config) {
+        return {
+          ok: false,
+          code: 'no_bitbucket_config',
+          error: 'Bitbucket is not configured for this project (username, token or repository missing).',
+        };
+      }
+      const parsed = parseBitbucketPullRequestUrl(prUrl);
+      if (
+        !parsed ||
+        parsed.id !== ref.number ||
+        `${parsed.workspace}/${parsed.repoSlug}`.toLowerCase() !== config.repository.toLowerCase()
+      ) {
+        return { ok: false, code: 'no_bitbucket_config', error: NOT_ON_CONFIGURED_REPOSITORY };
+      }
+      return { ok: true, fetched: await fetchBitbucketPRFeedback(config, ref.number) };
     }
 
     const config = await getGitLabConfig(project);
