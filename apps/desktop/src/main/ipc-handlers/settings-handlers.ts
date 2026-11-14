@@ -1,5 +1,4 @@
 import { ipcMain, dialog, app, shell, session } from 'electron';
-import { withKeyStatusReset } from '../../shared/utils/api-key-status';
 import { existsSync, mkdirSync, statSync, readFileSync } from 'fs';
 import { execFileSync } from 'node:child_process';
 import path from 'path';
@@ -21,7 +20,7 @@ import type {
 import { AgentManager } from '../agent';
 import type { BrowserWindow } from 'electron';
 import { setUpdateChannel, setUpdateChannelWithDowngradeCheck } from '../app-updater';
-import { readSettingsFile, writeSettingsFile } from '../settings-utils';
+import { readSettingsFile, updateSettingsFile } from '../settings-utils';
 import { resetMemoryService } from './context/memory-service-factory';
 import { configureTools, getToolPath, getToolInfo, isPathFromWrongPlatform, preWarmToolCache } from '../cli-tool-manager';
 import type { ProviderAccount } from '../../shared/types/provider-account';
@@ -381,6 +380,7 @@ export function registerSettingsHandlers(
       // when settings were synced/transferred between platforms
       // See: https://github.com/AndyMik90/Auto-Claude/issues/XXX
       const pathFields = ['pythonPath', 'gitPath', 'githubCLIPath', 'gitlabCLIPath', 'claudePath', 'autoBuildPath'] as const;
+      const clearedPathFields: Array<(typeof pathFields)[number]> = [];
       for (const field of pathFields) {
         const pathValue = settings[field];
         if (pathValue && isPathFromWrongPlatform(pathValue)) {
@@ -388,6 +388,7 @@ export function registerSettingsHandlers(
             `[SETTINGS_GET] Clearing ${field} - path from different platform: ${pathValue}`
           );
           delete settings[field];
+          clearedPathFields.push(field);
           needsSave = true;
         }
       }
@@ -403,7 +404,10 @@ export function registerSettingsHandlers(
       // Persist migration changes
       if (needsSave) {
         try {
-          writeSettingsFile(settings);
+          await updateSettingsFile((s) => {
+            for (const field of clearedPathFields) delete s[field];
+            Object.assign(s, settings);
+          });
         } catch (error) {
           console.error('[SETTINGS_GET] Failed to persist migration:', error);
           // Continue anyway - settings will be migrated in-memory for this session
@@ -445,71 +449,77 @@ export function registerSettingsHandlers(
     IPC_CHANNELS.SETTINGS_SAVE,
     async (_, settings: Partial<AppSettings>): Promise<IPCResult> => {
       try {
-        // Load current settings using shared helper
-        const savedSettings = readSettingsFile();
-        const currentSettings = { ...DEFAULT_APP_SETTINGS, ...savedSettings };
+        const INVALID_WEBHOOK = Symbol('invalid_webhook_url');
+        const result = await updateSettingsFile((s) => {
+          const currentSettings = { ...DEFAULT_APP_SETTINGS, ...s };
 
-        // Strip providerAccounts and globalPriorityOrder — these are managed
-        // exclusively by their dedicated IPC handlers (PROVIDER_ACCOUNTS_*)
-        // to prevent the general settings save from clobbering them.
-        const { providerAccounts: _pa, globalPriorityOrder: _gpo, ...safeSettings } = settings;
-        const newSettings = { ...currentSettings, ...safeSettings };
+          // Strip providerAccounts and globalPriorityOrder — these are managed
+          // exclusively by their dedicated IPC handlers (PROVIDER_ACCOUNTS_*)
+          // to prevent the general settings save from clobbering them.
+          const { providerAccounts: _pa, globalPriorityOrder: _gpo, ...safeSettings } = settings;
+          const newSettings = { ...currentSettings, ...safeSettings };
 
-        if (safeSettings.webhook !== undefined) {
-          const raw = (safeSettings.webhook ?? {}) as Partial<NonNullable<AppSettings['webhook']>>;
-          const url = typeof raw.url === 'string' ? raw.url.trim() : '';
-          const enabled = raw.enabled === true;
-          if (enabled && !validateWebhookUrl(url).ok) {
-            return { success: false, error: 'invalid_webhook_url' };
+          if (safeSettings.webhook !== undefined) {
+            const raw = (safeSettings.webhook ?? {}) as Partial<NonNullable<AppSettings['webhook']>>;
+            const url = typeof raw.url === 'string' ? raw.url.trim() : '';
+            const enabled = raw.enabled === true;
+            if (enabled && !validateWebhookUrl(url).ok) {
+              return INVALID_WEBHOOK;
+            }
+            newSettings.webhook = {
+              enabled,
+              url,
+              events: {
+                reviewReady: raw.events?.reviewReady === true,
+                failed: raw.events?.failed === true,
+                blocked: raw.events?.blocked === true,
+                // zeenha fork: must be listed here, otherwise the rebuilt events object drops the toggle on every save.
+                prOpened: raw.events?.prOpened === true,
+              },
+            };
           }
-          newSettings.webhook = {
-            enabled,
-            url,
-            events: {
-              reviewReady: raw.events?.reviewReady === true,
-              failed: raw.events?.failed === true,
-              blocked: raw.events?.blocked === true,
-              // zeenha fork: must be listed here, otherwise the rebuilt events object drops the toggle on every save.
-              prOpened: raw.events?.prOpened === true,
-            },
-          };
-        }
 
-        // zeenha fork: Jira write-back settings, rebuilt from strictly-typed fields.
-        if (safeSettings.jiraWriteback !== undefined) {
-          const raw = (safeSettings.jiraWriteback ?? {}) as Partial<NonNullable<AppSettings['jiraWriteback']>>;
-          const defaults = DEFAULT_APP_SETTINGS.jiraWriteback;
-          const statusName = typeof raw.transitionStatusName === 'string'
-            // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars on purpose
-            ? raw.transitionStatusName.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 100).trim()
-            : '';
-          newSettings.jiraWriteback = {
-            enabled: raw.enabled === true,
-            comment: raw.comment === true,
-            transitionOnReview: raw.transitionOnReview === true,
-            transitionStatusName: statusName || defaults?.transitionStatusName || 'In Review',
-          };
-        }
-
-        // zeenha fork: issue write-back settings, rebuilt from strictly-typed booleans.
-        if (safeSettings.issueWriteback !== undefined) {
-          const raw = (safeSettings.issueWriteback ?? {}) as Partial<NonNullable<AppSettings['issueWriteback']>>;
-          newSettings.issueWriteback = {
-            github: raw.github === true,
-            gitlab: raw.gitlab === true,
-            linear: raw.linear === true,
-          };
-        }
-
-        // Sync defaultModel when agent profile changes (#414)
-        if (settings.selectedAgentProfile) {
-          const profile = DEFAULT_AGENT_PROFILES.find(p => p.id === settings.selectedAgentProfile);
-          if (profile) {
-            newSettings.defaultModel = profile.model;
+          // zeenha fork: Jira write-back settings, rebuilt from strictly-typed fields.
+          if (safeSettings.jiraWriteback !== undefined) {
+            const raw = (safeSettings.jiraWriteback ?? {}) as Partial<NonNullable<AppSettings['jiraWriteback']>>;
+            const defaults = DEFAULT_APP_SETTINGS.jiraWriteback;
+            const statusName = typeof raw.transitionStatusName === 'string'
+              // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control chars on purpose
+              ? raw.transitionStatusName.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 100).trim()
+              : '';
+            newSettings.jiraWriteback = {
+              enabled: raw.enabled === true,
+              comment: raw.comment === true,
+              transitionOnReview: raw.transitionOnReview === true,
+              transitionStatusName: statusName || defaults?.transitionStatusName || 'In Review',
+            };
           }
-        }
 
-        writeSettingsFile(newSettings);
+          // zeenha fork: issue write-back settings, rebuilt from strictly-typed booleans.
+          if (safeSettings.issueWriteback !== undefined) {
+            const raw = (safeSettings.issueWriteback ?? {}) as Partial<NonNullable<AppSettings['issueWriteback']>>;
+            newSettings.issueWriteback = {
+              github: raw.github === true,
+              gitlab: raw.gitlab === true,
+              linear: raw.linear === true,
+            };
+          }
+
+          // Sync defaultModel when agent profile changes (#414)
+          if (settings.selectedAgentProfile) {
+            const profile = DEFAULT_AGENT_PROFILES.find(p => p.id === settings.selectedAgentProfile);
+            if (profile) {
+              newSettings.defaultModel = profile.model;
+            }
+          }
+          Object.assign(s, newSettings);
+          return newSettings;
+        });
+        if (result === INVALID_WEBHOOK) {
+          return { success: false, error: 'invalid_webhook_url' };
+        }
+        const newSettings = result;
+
 
         // Apply Python path if changed
         if (settings.pythonPath || settings.autoBuildPath) {
@@ -948,251 +958,6 @@ export function registerSettingsHandlers(
           success: false,
           error: error instanceof Error ? error.message : 'Failed to set spell check languages'
         };
-      }
-    }
-  );
-
-  // ============================================
-  // Provider Account CRUD Handlers
-  // ============================================
-
-  const genAccountId = () => `pa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-  /** Read providerAccounts array from settings.json */
-  function readProviderAccounts(): ProviderAccount[] {
-    const settings = readSettingsFile();
-    if (!settings) return [];
-    return settings.providerAccounts ?? [];
-  }
-
-  /** Write providerAccounts array back to settings.json (merges with existing settings) */
-  function writeProviderAccounts(accounts: ProviderAccount[]): void {
-    const settings = readSettingsFile() ?? {};
-    settings.providerAccounts = accounts;
-    writeSettingsFile(settings);
-  }
-
-  // GET all provider accounts
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_ACCOUNTS_GET,
-    async (): Promise<IPCResult<{ accounts: ProviderAccount[] }>> => {
-      try {
-        const accounts = readProviderAccounts();
-        return { success: true, data: { accounts } };
-      } catch (error) {
-        console.error('[PROVIDER_ACCOUNTS_GET] Error:', error);
-        return { success: false, error: error instanceof Error ? error.message : 'Failed to get provider accounts' };
-      }
-    }
-  );
-
-  // SAVE (create) a new provider account
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_ACCOUNTS_SAVE,
-    async (_event, account: Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>): Promise<IPCResult<ProviderAccount>> => {
-      try {
-        const settings = readSettingsFile() ?? {};
-        const accounts: ProviderAccount[] = settings.providerAccounts ?? [];
-
-        // Prevent duplicate: same email + provider already registered
-        if (account.email) {
-          const duplicate = accounts.find(
-            (a) => a.provider === account.provider && a.email?.toLowerCase() === account.email!.toLowerCase()
-          );
-          if (duplicate) {
-            return {
-              success: false,
-              error: `DUPLICATE_EMAIL:${duplicate.name}`,
-            };
-          }
-        }
-
-        const now = Date.now();
-        // New accounts always start unverified: ignore client-supplied key status
-        const { keyStatus: _ks, keyStatusAt: _ksAt, ...accountFields } = account as typeof account & Partial<ProviderAccount>;
-        const newAccount: ProviderAccount = {
-          ...accountFields,
-          id: genAccountId(),
-          createdAt: now,
-          updatedAt: now,
-        };
-        accounts.push(newAccount);
-        settings.providerAccounts = accounts;
-
-        // Add to globalPriorityOrder — prepend so new account becomes active
-        const queue: string[] = settings.globalPriorityOrder ?? [];
-        queue.unshift(newAccount.id);
-        settings.globalPriorityOrder = queue;
-
-        writeSettingsFile(settings);
-        console.warn('[PROVIDER_ACCOUNTS_SAVE] Created account:', newAccount.id, newAccount.name, newAccount.provider, '| Queue position: #1 of', queue.length);
-        return { success: true, data: newAccount };
-      } catch (error) {
-        console.error('[PROVIDER_ACCOUNTS_SAVE] Error:', error);
-        return { success: false, error: error instanceof Error ? error.message : 'Failed to save provider account' };
-      }
-    }
-  );
-
-  // UPDATE an existing provider account
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_ACCOUNTS_UPDATE,
-    async (_event, id: string, updates: Partial<ProviderAccount>): Promise<IPCResult<ProviderAccount>> => {
-      try {
-        const accounts = readProviderAccounts();
-        const index = accounts.findIndex(a => a.id === id);
-        if (index === -1) {
-          return { success: false, error: `Account not found: ${id}` };
-        }
-        const existing = accounts[index];
-        // zeenha fork: a changed key or endpoint starts unverified; status is never client-set
-        const { keyStatus: _ks, keyStatusAt: _ksAt, ...safeUpdates } = updates;
-        const credentialsChanged =
-          (safeUpdates.apiKey !== undefined && safeUpdates.apiKey !== existing.apiKey) ||
-          (safeUpdates.baseUrl !== undefined && safeUpdates.baseUrl !== existing.baseUrl);
-        const updated: ProviderAccount = {
-          ...(credentialsChanged ? withKeyStatusReset(existing) : existing),
-          ...safeUpdates,
-          id, // prevent id override
-          updatedAt: Date.now(),
-        };
-        accounts[index] = updated;
-        writeProviderAccounts(accounts);
-        console.warn('[PROVIDER_ACCOUNTS_UPDATE] Updated account:', id);
-        return { success: true, data: updated };
-      } catch (error) {
-        console.error('[PROVIDER_ACCOUNTS_UPDATE] Error:', error);
-        return { success: false, error: error instanceof Error ? error.message : 'Failed to update provider account' };
-      }
-    }
-  );
-
-  // DELETE a provider account
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_ACCOUNTS_DELETE,
-    async (_event, id: string): Promise<IPCResult> => {
-      try {
-        const settings = readSettingsFile() ?? {};
-        const accounts: ProviderAccount[] = settings.providerAccounts ?? [];
-        const filtered = accounts.filter(a => a.id !== id);
-        if (filtered.length === accounts.length) {
-          return { success: false, error: `Account not found: ${id}` };
-        }
-        settings.providerAccounts = filtered;
-
-        // Remove from globalPriorityOrder
-        const queue: string[] = settings.globalPriorityOrder ?? [];
-        settings.globalPriorityOrder = queue.filter(qid => qid !== id);
-
-        // Remove from crossProviderPriorityOrder
-        const cpQueue: string[] = settings.crossProviderPriorityOrder ?? [];
-        if (cpQueue.length > 0) {
-          settings.crossProviderPriorityOrder = cpQueue.filter(qid => qid !== id);
-        }
-
-        writeSettingsFile(settings);
-        console.warn('[PROVIDER_ACCOUNTS_DELETE] Deleted account:', id);
-        return { success: true };
-      } catch (error) {
-        console.error('[PROVIDER_ACCOUNTS_DELETE] Error:', error);
-        return { success: false, error: error instanceof Error ? error.message : 'Failed to delete provider account' };
-      }
-    }
-  );
-
-  // SET QUEUE ORDER for provider accounts (global priority queue)
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_ACCOUNTS_SET_QUEUE_ORDER,
-    async (_event, order: string[]): Promise<IPCResult> => {
-      try {
-        const settings = readSettingsFile() ?? {};
-        settings.globalPriorityOrder = order;
-        writeSettingsFile(settings);
-
-        // Sync to claude-profiles.json so usage-monitor (which reads from profileManager) stays in sync
-        try {
-          const { getClaudeProfileManager } = await import('../claude-profile-manager');
-          const manager = getClaudeProfileManager();
-          manager.setAccountPriorityOrder(order);
-        } catch {
-          // Non-fatal: usage-monitor may use stale order until next app restart
-        }
-
-        console.warn('[PROVIDER_ACCOUNTS_SET_QUEUE_ORDER] Queue order updated:', order.length, 'accounts');
-        return { success: true };
-      } catch (error) {
-        console.error('[PROVIDER_ACCOUNTS_SET_QUEUE_ORDER] Error:', error);
-        return { success: false, error: error instanceof Error ? error.message : 'Failed to set queue order' };
-      }
-    }
-  );
-
-  // SET CROSS-PROVIDER QUEUE ORDER (separate priority for cross-provider mode)
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_ACCOUNTS_SET_CROSS_PROVIDER_QUEUE_ORDER,
-    async (_event, order: string[]): Promise<IPCResult> => {
-      try {
-        const settings = readSettingsFile() ?? {};
-        settings.crossProviderPriorityOrder = order;
-        writeSettingsFile(settings);
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : 'Failed to set cross-provider queue order' };
-      }
-    }
-  );
-
-  // SAVE MODEL OVERRIDES (cross-provider model equivalence user overrides)
-  ipcMain.handle(
-    IPC_CHANNELS.MODEL_OVERRIDES_SAVE,
-    async (_event, overrides: NonNullable<AppSettings['modelOverrides']>): Promise<IPCResult> => {
-      try {
-        const settings = readSettingsFile() ?? {};
-        settings.modelOverrides = overrides;
-        writeSettingsFile(settings);
-        console.warn('[MODEL_OVERRIDES_SAVE] Model overrides saved');
-        return { success: true };
-      } catch (error) {
-        console.error('[MODEL_OVERRIDES_SAVE] Error:', error);
-        return { success: false, error: error instanceof Error ? error.message : 'Failed to save model overrides' };
-      }
-    }
-  );
-
-  // TEST CONNECTION for a provider account
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_ACCOUNTS_TEST_CONNECTION,
-    async (_event, _provider: string, _config: { apiKey?: string; baseUrl?: string; region?: string }): Promise<IPCResult<{ success: boolean; error?: string }>> => {
-      // Basic stub - connection testing can be enhanced later per-provider
-      return { success: true, data: { success: true } };
-    }
-  );
-
-  // CHECK ENV credentials (detect which providers have env vars set)
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_ACCOUNTS_CHECK_ENV,
-    async (): Promise<IPCResult<Record<string, boolean>>> => {
-      try {
-        const envMap: Record<string, boolean> = {};
-        const envVarMapping: Record<string, string> = {
-          ANTHROPIC_API_KEY: 'anthropic',
-          OPENAI_API_KEY: 'openai',
-          GOOGLE_GENERATIVE_AI_API_KEY: 'google',
-          MISTRAL_API_KEY: 'mistral',
-          GROQ_API_KEY: 'groq',
-          XAI_API_KEY: 'xai',
-          AWS_ACCESS_KEY_ID: 'amazon-bedrock',
-          AZURE_OPENAI_API_KEY: 'azure',
-        };
-        for (const [envVar, provider] of Object.entries(envVarMapping)) {
-          if (process.env[envVar]) {
-            envMap[provider] = true;
-          }
-        }
-        return { success: true, data: envMap };
-      } catch (error) {
-        console.error('[PROVIDER_ACCOUNTS_CHECK_ENV] Error:', error);
-        return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' };
       }
     }
   );

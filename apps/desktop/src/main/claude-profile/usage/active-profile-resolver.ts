@@ -15,7 +15,7 @@ import type { AppSettings } from '../../../shared/types/settings';
 import { getCredentialsFromKeychain } from '../credential-utils';
 import { ensureValidToken } from '../token-refresh';
 import { ensureValidCodexToken } from '../../ai/auth/codex-oauth';
-import { readSettingsFileAsync, writeSettingsFile } from '../../settings-utils';
+import { readSettingsFileAsync, updateSettingsFile } from '../../settings-utils';
 import { getCredentialFingerprint } from './usage-log';
 import type { UsageLogger } from './usage-log';
 import type { ActiveProfileResult } from './types';
@@ -112,17 +112,11 @@ async function resolveAnthropicOAuth(
     if (email) {
       const discoveredEmail = email;
       const accountId = account.id;
-      readSettingsFileAsync().then(currentSettings => {
-        if (!currentSettings) return;
-        const accounts = currentSettings.providerAccounts ?? [];
-        const target = accounts.find(a => a.id === accountId);
+      // Non-critical: email will be discovered again next poll if this fails
+      updateSettingsFile((s) => {
+        const target = s.providerAccounts?.find(a => a.id === accountId);
         if (target && !target.email) {
           target.email = discoveredEmail;
-          try {
-            writeSettingsFile(currentSettings);
-          } catch {
-            // Non-critical — email will be discovered again next poll
-          }
         }
       }).catch(() => {});
     }

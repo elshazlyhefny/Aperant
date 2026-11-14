@@ -18,7 +18,7 @@ import { IPC_CHANNELS, DEFAULT_APP_SETTINGS } from '../../shared/constants';
 import type { IPCResult } from '../../shared/types';
 import type { ClaudeCodeVersionInfo, ClaudeInstallationList, ClaudeInstallationInfo } from '../../shared/types/cli';
 import { getToolInfo, configureTools, sortNvmVersionDirs, getClaudeDetectionPaths, validateClaudeAsync } from '../cli-tool-manager';
-import { readSettingsFile, writeSettingsFile } from '../settings-utils';
+import { readSettingsFile, updateSettingsFile } from '../settings-utils';
 import { isSecurePath, getWhereExePath, getTaskkillExePath } from '../utils/windows-paths';
 import { isWindows, isMacOS, isLinux } from '../platform';
 import { getClaudeProfileManager } from '../claude-profile-manager';
@@ -680,13 +680,9 @@ export function registerClaudeCodeHandlers(): void {
         }
 
         // Save to settings using established pattern: merge with DEFAULT_APP_SETTINGS
-        const currentSettings = readSettingsFile() || {};
-        const mergedSettings = {
-          ...DEFAULT_APP_SETTINGS,
-          ...currentSettings,
-          claudePath: normalizedPath,
-        } as Record<string, unknown>;
-        writeSettingsFile(mergedSettings);
+        await updateSettingsFile((s) => {
+          Object.assign(s, { ...DEFAULT_APP_SETTINGS, ...s, claudePath: normalizedPath });
+        });
 
         // Update CLI tool manager cache
         configureTools({ claudePath: normalizedPath });
