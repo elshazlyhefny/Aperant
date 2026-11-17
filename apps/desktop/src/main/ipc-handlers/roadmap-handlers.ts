@@ -3,7 +3,6 @@ import type { BrowserWindow } from "electron";
 import {
   IPC_CHANNELS,
   AUTO_BUILD_PATHS,
-  getSpecsDir,
 } from "../../shared/constants";
 import type {
   IPCResult,
@@ -17,7 +16,7 @@ import type {
 } from "../../shared/types";
 import type { RoadmapConfig } from "../agent/types";
 import path from "path";
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, unlinkSync } from "fs";
 import { projectStore } from "../project-store";
 import { AgentManager } from "../agent";
 import { debugLog, debugError } from "../../shared/utils/debug-logger";
@@ -25,7 +24,7 @@ import { safeSendToRenderer } from "./utils";
 import { writeFileWithRetry, readFileWithRetry } from "../utils/atomic-file";
 import { withFileLock } from "../utils/file-lock";
 import { getActiveProviderFeatureSettings } from "./feature-settings-helper";
-import { buildSpecId } from "../utils/spec-slug";
+import { allocateSpecDir } from "../utils/spec-number-lock";
 
 /**
  * Read roadmap feature settings using per-provider resolution
@@ -513,38 +512,8 @@ ${(feature.user_stories || []).map((s: string) => `- ${s}`).join("\n") || "N/A"}
 ${(feature.acceptance_criteria || []).map((c: string) => `- [ ] ${c}`).join("\n") || "N/A"}
 `;
 
-        // Generate proper spec directory (like task creation)
-        const specsBaseDir = getSpecsDir(project.autoBuildPath);
-        const specsDir = path.join(project.path, specsBaseDir);
-
-        // Ensure specs directory exists
-        if (!existsSync(specsDir)) {
-          mkdirSync(specsDir, { recursive: true });
-        }
-
-        // Find next available spec number
-        let specNumber = 1;
-        const existingDirs = existsSync(specsDir)
-          ? readdirSync(specsDir, { withFileTypes: true })
-              .filter((d) => d.isDirectory())
-              .map((d) => d.name)
-          : [];
-        const existingNumbers = existingDirs
-          .map((name) => {
-            const match = name.match(/^(\d+)/);
-            return match ? parseInt(match[1], 10) : 0;
-          })
-          .filter((n) => n > 0);
-        if (existingNumbers.length > 0) {
-          specNumber = Math.max(...existingNumbers) + 1;
-        }
-
-        // Create spec ID with zero-padded number and slugified title
-        const specId = buildSpecId(specNumber, feature.title);
-
-        // Create spec directory
-        const specDir = path.join(specsDir, specId);
-        mkdirSync(specDir, { recursive: true });
+        // Allocate the spec number and directory under the cross-process lock
+        const { specId, specDir } = await allocateSpecDir(project, feature.title);
 
         // Create initial implementation_plan.json
         const now = new Date().toISOString();
