@@ -6,6 +6,9 @@
  * 2. Scanning ALL spec locations (main + worktrees)
  * 3. Finding global maximum spec number
  * 4. Allowing atomic spec directory creation
+ *
+ * allocateSpecDir() is the one-call entry point: it takes the lock, picks the
+ * next number, creates the spec directory, and only then releases the lock.
  */
 
 import {
@@ -17,6 +20,8 @@ import {
   readFileSync
 } from 'fs';
 import path from 'path';
+import { getSpecsDir } from '../../shared/constants';
+import { buildSpecId } from './spec-slug';
 
 export class SpecNumberLockError extends Error {
   constructor(message: string) {
@@ -191,7 +196,7 @@ export class SpecNumberLock {
       const entries = readdirSync(specsDir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          const match = entry.name.match(/^(\d{3})-/);
+          const match = entry.name.match(/^(\d+)-/);
           if (match) {
             const num = parseInt(match[1], 10);
             if (!Number.isNaN(num)) {
@@ -222,4 +227,21 @@ export async function withSpecNumberLock<T>(
   } finally {
     lock.release();
   }
+}
+
+/**
+ * Allocate the next spec number and create its directory while the lock is
+ * held, so concurrent callers can never receive the same number.
+ */
+export async function allocateSpecDir(
+  project: { path: string; autoBuildPath?: string },
+  title: string
+): Promise<{ specId: string; specDir: string }> {
+  return withSpecNumberLock(project.path, (lock) => {
+    const specNumber = lock.getNextSpecNumber(project.autoBuildPath);
+    const specId = buildSpecId(specNumber, title);
+    const specDir = path.join(project.path, getSpecsDir(project.autoBuildPath), specId);
+    mkdirSync(specDir, { recursive: true });
+    return { specId, specDir };
+  });
 }
