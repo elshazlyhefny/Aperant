@@ -1,16 +1,16 @@
 import { ipcMain } from 'electron';
 import type { BrowserWindow } from 'electron';
-import { IPC_CHANNELS, getSpecsDir, AUTO_BUILD_PATHS } from '../../shared/constants';
-import type { IPCResult, LinearIssue, LinearTeam, LinearProject, LinearImportResult, LinearSyncStatus, Project, TaskMetadata } from '../../shared/types';
+import { IPC_CHANNELS, AUTO_BUILD_PATHS } from '../../shared/constants';
+import type { IPCResult, LinearIssue, LinearTeam, LinearProject, LinearImportResult, LinearSyncStatus, TaskMetadata } from '../../shared/types';
 import path from 'path';
-import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import { writeFileSync } from 'fs';
 import { projectStore } from '../project-store';
 import { getLinearApiKey, linearGraphQL } from './linear-client';
 import { sanitizeText, sanitizeUrl } from './shared/sanitize';
 
 
 import { AgentManager } from '../agent';
-import { buildSpecId } from '../utils/spec-slug';
+import { allocateSpecDir } from '../utils/spec-number-lock';
 
 /**
  * Register all linear-related IPC handlers
@@ -380,13 +380,6 @@ export function registerLinearHandlers(
         let failed = 0;
         const errors: string[] = [];
 
-        // Set up specs directory
-                const specsBaseDir = getSpecsDir(project.autoBuildPath);
-        const specsDir = path.join(project.path, specsBaseDir);
-        if (!existsSync(specsDir)) {
-          mkdirSync(specsDir, { recursive: true });
-        }
-
         // Create tasks for each imported issue
         for (const issue of data.issues.nodes) {
           try {
@@ -413,27 +406,8 @@ ${labelsStr ? `**Labels:** ${labelsStr}` : ''}
 ${safeDescription || 'No description provided.'}
 `;
 
-            // Find next available spec number
-            let specNumber = 1;
-            const existingDirs = readdirSync(specsDir, { withFileTypes: true })
-              .filter(d => d.isDirectory())
-              .map(d => d.name);
-            const existingNumbers = existingDirs
-              .map(name => {
-                const match = name.match(/^(\d+)/);
-                return match ? parseInt(match[1], 10) : 0;
-              })
-              .filter(n => n > 0);
-            if (existingNumbers.length > 0) {
-              specNumber = Math.max(...existingNumbers) + 1;
-            }
-
-            // Create spec ID with zero-padded number and slugified title
-            const specId = buildSpecId(specNumber, safeTitle);
-
-            // Create spec directory
-            const specDir = path.join(specsDir, specId);
-            mkdirSync(specDir, { recursive: true });
+            // Allocate spec number and directory under the cross-process lock
+            const { specId, specDir } = await allocateSpecDir(project, safeTitle);
 
             // Create initial implementation_plan.json
             const now = new Date().toISOString();

@@ -299,8 +299,13 @@ describe('jira write calls', () => {
 
 describe('jira spec files', () => {
   let dir: string;
+  let specsDir: string;
+  let project: { path: string; autoBuildPath: string };
   beforeEach(() => {
     dir = mkdtempSync(path.join(tmpdir(), 'jira-spec-'));
+    specsDir = path.join(dir, '.auto-claude', 'specs');
+    mkdirSync(specsDir, { recursive: true });
+    project = { path: dir, autoBuildPath: '.auto-claude' };
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -319,9 +324,9 @@ describe('jira spec files', () => {
     url: '',
   };
 
-  it('creates spec files in next numbered dir', () => {
-    mkdirSync(path.join(dir, '003-existing'));
-    const res = createSpecFromJiraIssue(dir, 'acme.atlassian.net', issue);
+  it('creates spec files in next numbered dir', async () => {
+    mkdirSync(path.join(specsDir, '003-existing'));
+    const res = await createSpecFromJiraIssue(project, 'acme.atlassian.net', issue);
     expect(res.specId).toMatch(/^004-fix-login/);
     for (const f of ['implementation_plan.json', 'requirements.json', 'task_metadata.json']) {
       expect(existsSync(path.join(res.specDir, f))).toBe(true);
@@ -340,35 +345,35 @@ describe('jira spec files', () => {
     });
   });
 
-  it('uses feature category for non-bugs and sanitizes malicious titles', () => {
-    const res = createSpecFromJiraIssue(dir, 'acme.atlassian.net', {
+  it('uses feature category for non-bugs and sanitizes malicious titles', async () => {
+    const res = await createSpecFromJiraIssue(project, 'acme.atlassian.net', {
       ...issue,
       issueType: 'Story',
       summary: '../../etc/passwd\x00\x1b[31m',
     });
     expect(res.metadata.category).toBe('feature');
-    expect(res.specDir.startsWith(dir + path.sep)).toBe(true);
-    expect(path.dirname(res.specDir)).toBe(dir);
+    expect(res.specDir.startsWith(specsDir + path.sep)).toBe(true);
+    expect(path.dirname(res.specDir)).toBe(specsDir);
     expect(res.description).not.toContain('\x00');
     expect(res.description).not.toContain('\x1b');
   });
 
-  it('rejects invalid keys and sites', () => {
-    expect(() => createSpecFromJiraIssue(dir, 'evil.com', issue)).toThrow();
-    expect(() => createSpecFromJiraIssue(dir, 'acme.atlassian.net', { ...issue, key: 'x/../y' })).toThrow();
+  it('rejects invalid keys and sites', async () => {
+    await expect(createSpecFromJiraIssue(project, 'evil.com', issue)).rejects.toThrow();
+    await expect(createSpecFromJiraIssue(project, 'acme.atlassian.net', { ...issue, key: 'x/../y' })).rejects.toThrow();
   });
 
-  it('finds existing specs, tolerating bad files', () => {
-    const a = createSpecFromJiraIssue(dir, 'acme.atlassian.net', issue);
-    const other = createSpecFromJiraIssue(dir, 'other.atlassian.net', { ...issue, key: 'PROJ-8' });
-    mkdirSync(path.join(dir, '900-bad'));
-    writeFileSync(path.join(dir, '900-bad', 'task_metadata.json'), '{not json');
-    mkdirSync(path.join(dir, '901-empty'));
-    writeFileSync(path.join(dir, 'file.txt'), 'x');
-    const map = findExistingJiraSpecs(dir, 'https://acme.atlassian.net/');
+  it('finds existing specs, tolerating bad files', async () => {
+    const a = await createSpecFromJiraIssue(project, 'acme.atlassian.net', issue);
+    const other = await createSpecFromJiraIssue(project, 'other.atlassian.net', { ...issue, key: 'PROJ-8' });
+    mkdirSync(path.join(specsDir, '900-bad'));
+    writeFileSync(path.join(specsDir, '900-bad', 'task_metadata.json'), '{not json');
+    mkdirSync(path.join(specsDir, '901-empty'));
+    writeFileSync(path.join(specsDir, 'file.txt'), 'x');
+    const map = findExistingJiraSpecs(specsDir, 'https://acme.atlassian.net/');
     expect(map.get('PROJ-7')).toBe(a.specId);
     expect(map.has('PROJ-8')).toBe(false);
     expect(other.specId).toBeTruthy();
-    expect(findExistingJiraSpecs(path.join(dir, 'missing'), 'acme.atlassian.net').size).toBe(0);
+    expect(findExistingJiraSpecs(path.join(specsDir, 'missing'), 'acme.atlassian.net').size).toBe(0);
   });
 });

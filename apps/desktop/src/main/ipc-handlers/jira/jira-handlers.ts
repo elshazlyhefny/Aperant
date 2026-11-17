@@ -192,7 +192,7 @@ export function registerJiraHandlers(
             continue;
           }
           try {
-            const spec = createSpecFromJiraIssue(specsDir, config.siteUrl, issue);
+            const spec = await createSpecFromJiraIssue(project, config.siteUrl, issue);
             agentManager.startSpecCreation(spec.specId, project.path, spec.description, spec.specDir, spec.metadata);
             imported++;
           } catch (err) {
