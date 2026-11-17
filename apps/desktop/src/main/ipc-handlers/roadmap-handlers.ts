@@ -26,6 +26,7 @@ import { writeFileWithRetry, readFileWithRetry } from "../utils/atomic-file";
 import { withFileLock } from "../utils/file-lock";
 import { getActiveProviderFeatureSettings } from "./feature-settings-helper";
 import { buildSpecId } from "../utils/spec-slug";
+import { loadRoadmapFromDisk } from "./roadmap/transformers";
 
 /**
  * Read roadmap feature settings using per-provider resolution
@@ -45,6 +46,7 @@ export function registerRoadmapHandlers(
   // Roadmap Operations
   // ============================================
 
+  // roadmap.json is parsed only in roadmap/transformers.ts (shared with other consumers)
   ipcMain.handle(
     IPC_CHANNELS.ROADMAP_GET,
     async (_, projectId: string): Promise<IPCResult<Roadmap | null>> => {
@@ -53,138 +55,8 @@ export function registerRoadmapHandlers(
         return { success: false, error: "Project not found" };
       }
 
-      const roadmapPath = path.join(
-        project.path,
-        AUTO_BUILD_PATHS.ROADMAP_DIR,
-        AUTO_BUILD_PATHS.ROADMAP_FILE
-      );
-
-      if (!existsSync(roadmapPath)) {
-        return { success: true, data: null };
-      }
-
       try {
-        const content = await readFileWithRetry(roadmapPath, { encoding: "utf-8" }) as string;
-        const rawRoadmap = JSON.parse(content);
-
-        // Load competitor analysis if available (competitor_analysis.json)
-        const competitorAnalysisPath = path.join(
-          project.path,
-          AUTO_BUILD_PATHS.ROADMAP_DIR,
-          AUTO_BUILD_PATHS.COMPETITOR_ANALYSIS
-        );
-        let competitorAnalysis: CompetitorAnalysis | undefined;
-        if (existsSync(competitorAnalysisPath)) {
-          try {
-            const competitorContent = await readFileWithRetry(competitorAnalysisPath, { encoding: "utf-8" }) as string;
-            const rawCompetitor = JSON.parse(competitorContent);
-            // Transform snake_case to camelCase for frontend
-            competitorAnalysis = {
-              projectContext: {
-                projectName: rawCompetitor.project_context?.project_name || "",
-                projectType: rawCompetitor.project_context?.project_type || "",
-                targetAudience: rawCompetitor.project_context?.target_audience || "",
-              },
-              competitors: (rawCompetitor.competitors || []).map((c: Record<string, unknown>) => ({
-                id: c.id,
-                name: c.name,
-                url: c.url,
-                description: c.description,
-                relevance: c.relevance || "medium",
-                painPoints: ((c.pain_points as Array<Record<string, unknown>>) || []).map((p) => ({
-                  id: p.id,
-                  description: p.description,
-                  source: p.source,
-                  severity: p.severity || "medium",
-                  frequency: p.frequency || "",
-                  opportunity: p.opportunity || "",
-                })),
-                strengths: (c.strengths as string[]) || [],
-                marketPosition: (c.market_position as string) || "",
-                source: c.source || undefined,
-              })),
-              marketGaps: (rawCompetitor.market_gaps || []).map((g: Record<string, unknown>) => ({
-                id: g.id,
-                description: g.description,
-                affectedCompetitors: (g.affected_competitors as string[]) || [],
-                opportunitySize: g.opportunity_size || "medium",
-                suggestedFeature: (g.suggested_feature as string) || "",
-              })),
-              insightsSummary: {
-                topPainPoints: rawCompetitor.insights_summary?.top_pain_points || [],
-                differentiatorOpportunities:
-                  rawCompetitor.insights_summary?.differentiator_opportunities || [],
-                marketTrends: rawCompetitor.insights_summary?.market_trends || [],
-              },
-              researchMetadata: {
-                searchQueriesUsed: rawCompetitor.research_metadata?.search_queries_used || [],
-                sourcesConsulted: rawCompetitor.research_metadata?.sources_consulted || [],
-                limitations: rawCompetitor.research_metadata?.limitations || [],
-              },
-              createdAt: rawCompetitor.metadata?.created_at
-                ? new Date(rawCompetitor.metadata.created_at)
-                : new Date(),
-            };
-          } catch {
-            // Ignore competitor analysis parsing errors - it's optional
-          }
-        }
-
-        // Transform snake_case to camelCase for frontend
-        const roadmap: Roadmap = {
-          id: rawRoadmap.id || `roadmap-${Date.now()}`,
-          projectId,
-          projectName: rawRoadmap.project_name || project.name,
-          version: rawRoadmap.version || "1.0",
-          vision: rawRoadmap.vision || "",
-          targetAudience: {
-            primary: rawRoadmap.target_audience?.primary || "",
-            secondary: rawRoadmap.target_audience?.secondary || [],
-          },
-          phases: (rawRoadmap.phases || []).map((phase: Record<string, unknown>) => ({
-            id: phase.id,
-            name: phase.name,
-            description: phase.description,
-            order: phase.order,
-            status: phase.status || "planned",
-            features: phase.features || [],
-            milestones: ((phase.milestones as Array<Record<string, unknown>>) || []).map((m) => ({
-              id: m.id,
-              title: m.title,
-              description: m.description,
-              features: m.features || [],
-              status: m.status || "planned",
-              targetDate: m.target_date ? new Date(m.target_date as string) : undefined,
-            })),
-          })),
-          features: (rawRoadmap.features || []).map((feature: Record<string, unknown>) => ({
-            id: feature.id,
-            title: feature.title,
-            description: feature.description,
-            rationale: feature.rationale || "",
-            priority: feature.priority || "should",
-            complexity: feature.complexity || "medium",
-            impact: feature.impact || "medium",
-            phaseId: feature.phase_id,
-            dependencies: feature.dependencies || [],
-            status: feature.status || "under_review",
-            acceptanceCriteria: feature.acceptance_criteria || [],
-            userStories: feature.user_stories || [],
-            linkedSpecId: feature.linked_spec_id,
-            taskOutcome: feature.task_outcome,
-            previousStatus: feature.previous_status,
-            competitorInsightIds: (feature.competitor_insight_ids as string[]) || undefined,
-          })),
-          status: rawRoadmap.status || "draft",
-          competitorAnalysis,
-          createdAt: rawRoadmap.metadata?.created_at
-            ? new Date(rawRoadmap.metadata.created_at)
-            : new Date(),
-          updatedAt: rawRoadmap.metadata?.updated_at
-            ? new Date(rawRoadmap.metadata.updated_at)
-            : new Date(),
-        };
-
+        const roadmap = await loadRoadmapFromDisk(project.path, projectId, project.name);
         return { success: true, data: roadmap };
       } catch (error) {
         return {
