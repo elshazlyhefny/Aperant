@@ -15,6 +15,8 @@ Only tasks that were imported from an issue get a comment. Aperant reads the `so
 | `linear` | Linear |
 | `jira` | Jira |
 
+Bitbucket Cloud issues are not supported. Aperant cannot import issues from Bitbucket, so no task has a Bitbucket issue to comment on, and Bitbucket's built-in issue tracker is per repository and often switched off. If your team uses Bitbucket for code and Jira for tracking, the outcome comment goes on the task's Jira ticket (see the Jira rows above and below).
+
 Tasks created by hand (`manual`) or from the roadmap, ideation, insights or a schedule get no comment. Only the one issue the task was imported from is touched.
 
 Each provider also has guards. All of them must hold, or nothing is posted:
