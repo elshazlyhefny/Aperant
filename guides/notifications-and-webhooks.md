@@ -30,6 +30,8 @@ The failure text gives no reason. The reason is in the app log (see [Delivery](#
 
 `pr_opened` fires once each time a task moves into the `pr_created` state. A PR follow-up (sending a task with an open PR back to coding) does not send it again while that follow-up starts. Every other state sends nothing. A message is sent only when **Enable webhook** is on, the toggle for that event is on, and the saved URL is valid.
 
+The same `review_ready`, `failed` and `blocked` events can also be written back as a comment on the issue a task was imported from. This is off by default, and `pr_opened` is never written back. See [issue-writeback.md](issue-writeback.md).
+
 ## Payload
 
 The body is JSON with a `text` line and two Slack `blocks`. This is what a Ready for review event looks like for a project named "My App" and a task titled "Add login page":
