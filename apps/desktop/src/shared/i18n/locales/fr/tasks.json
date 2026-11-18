@@ -476,6 +476,16 @@
   },
   "delivery": {
     "title": "Livraison et utilisation des jetons",
+    "failedTasks": "Tâches en échec avant tout travail",
+    "failedTruncated": "Affichage de {{shown}} tâches sur {{count}}.",
+    "failedOpenTask": "Ouvrir la tâche",
+    "phases": {
+      "spec": "Création de la spec",
+      "planning": "Planification",
+      "coding": "Codage",
+      "qa": "Revue QA",
+      "unknown": "Inconnu"
+    },
     "refresh": "Actualiser",
     "loading": "Chargement des métriques de livraison…",
     "error": "Échec du chargement des métriques de livraison",

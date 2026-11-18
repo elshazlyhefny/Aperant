@@ -476,6 +476,16 @@
   },
   "delivery": {
     "title": "Delivery and token usage",
+    "failedTasks": "Tasks that failed before any work",
+    "failedTruncated": "Showing {{shown}} of {{count}} tasks.",
+    "failedOpenTask": "Open task",
+    "phases": {
+      "spec": "Spec creation",
+      "planning": "Planning",
+      "coding": "Coding",
+      "qa": "QA review",
+      "unknown": "Unknown"
+    },
     "refresh": "Refresh",
     "loading": "Loading delivery metrics…",
     "error": "Failed to load delivery metrics",
