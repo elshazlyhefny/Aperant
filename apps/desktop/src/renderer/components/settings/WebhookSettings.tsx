@@ -33,6 +33,13 @@ function isValidWebhookUrl(url: string): boolean {
   return false;
 }
 
+const MAX_SECRET_LENGTH = 256;
+
+/** Mirrors the main-process secret rules: at most 256 chars, no line breaks. */
+function isValidWebhookSecret(secret: string): boolean {
+  return secret.length <= MAX_SECRET_LENGTH && !/[\r\n]/.test(secret);
+}
+
 type EventKey = keyof WebhookConfig['events'];
 
 const EVENT_ITEMS: Array<{ key: EventKey; labelKey: string; descriptionKey: string }> = [
@@ -54,12 +61,15 @@ export function WebhookSettings({ settings, onSettingsChange }: WebhookSettingsP
   };
 
   const [showUrl, setShowUrl] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'failure' | null>(null);
 
   const trimmedUrl = webhook.url.trim();
   const urlInvalid = trimmedUrl.length > 0 && !isValidWebhookUrl(trimmedUrl);
-  const canTest = trimmedUrl.length > 0 && !urlInvalid && !isTesting;
+  const secret = webhook.secret ?? '';
+  const secretInvalid = !isValidWebhookSecret(secret);
+  const canTest = trimmedUrl.length > 0 && !urlInvalid && !secretInvalid && !isTesting;
 
   const update = (patch: Partial<WebhookConfig>) => {
     onSettingsChange({ ...settings, webhook: { ...webhook, ...patch } });
@@ -70,7 +80,7 @@ export function WebhookSettings({ settings, onSettingsChange }: WebhookSettingsP
     setIsTesting(true);
     setTestResult(null);
     try {
-      const result = await window.electronAPI.sendTestWebhook(trimmedUrl);
+      const result = await window.electronAPI.sendTestWebhook(trimmedUrl, secret);
       setTestResult(result.success ? 'success' : 'failure');
     } catch {
       setTestResult('failure');
@@ -134,6 +144,42 @@ export function WebhookSettings({ settings, onSettingsChange }: WebhookSettingsP
           </p>
         )}
         <p className="text-xs text-muted-foreground">{t('notifications.webhook.storedLocallyNote')}</p>
+
+        <div className="space-y-2 pt-2">
+          <Label htmlFor="webhook-secret" className="font-medium text-foreground">
+            {t('notifications.webhook.secretLabel')}
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="webhook-secret"
+              type={showSecret ? 'text' : 'password'}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={t('notifications.webhook.secretPlaceholder')}
+              value={secret}
+              aria-invalid={secretInvalid}
+              onChange={(e) => {
+                setTestResult(null);
+                update({ secret: e.target.value });
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => setShowSecret((v) => !v)}
+              aria-label={showSecret ? t('notifications.webhook.secretHide') : t('notifications.webhook.secretShow')}
+            >
+              {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </Button>
+          </div>
+          {secretInvalid && (
+            <p role="alert" className="text-sm text-destructive">
+              {t('notifications.webhook.secretInvalid')}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">{t('notifications.webhook.secretHint')}</p>
+        </div>
 
         <div className="flex items-center gap-3 pt-2">
           <Button type="button" size="sm" variant="outline" onClick={handleTest} disabled={!canTest}>

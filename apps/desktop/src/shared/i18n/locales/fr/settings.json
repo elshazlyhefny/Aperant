@@ -362,6 +362,12 @@
       "urlInvalid": "Saisissez une URL https:// valide (http n'est autorisé que pour localhost), sans identifiants.",
       "show": "Afficher l'URL",
       "hide": "Masquer l'URL",
+      "secretLabel": "Secret de signature",
+      "secretPlaceholder": "Secret partagé facultatif",
+      "secretHint": "Facultatif. Si défini, les requêtes incluent les en-têtes X-Aperant-Timestamp et X-Aperant-Signature pour que votre point de terminaison puisse les vérifier. Le secret est stocké uniquement dans les paramètres de cette application et n'est jamais enregistré dans un projet. Laissez vide pour envoyer des requêtes non signées.",
+      "secretShow": "Afficher le secret",
+      "secretHide": "Masquer le secret",
+      "secretInvalid": "Le secret doit contenir au plus 256 caractères et ne peut pas contenir de sauts de ligne.",
       "storedLocallyNote": "L'URL du webhook est stockée uniquement dans les paramètres de cette application et n'est jamais lue depuis un projet.",
       "events": {
         "reviewReady": "Revue prête",
