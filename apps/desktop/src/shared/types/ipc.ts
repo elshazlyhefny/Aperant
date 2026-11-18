@@ -29,7 +29,7 @@ import type {
 } from './project';
 import type { PRFeedbackResult, StartPRFollowUpResult } from './pr-feedback';
 import type { TaskRunMetrics, ProjectRunMetrics } from './run-metrics';
-import type { TaskQueueState } from './task-queue';
+import type { TaskQueueState, DaemonStopResultEvent } from './task-queue';
 import type { ScreenshotSource } from './screenshot';
 import type {
   Task,
@@ -276,6 +276,8 @@ export interface ElectronAPI extends ScheduleAPI {
   onTaskExecutionProgress: (callback: (taskId: string, progress: ExecutionProgress, projectId?: string) => void) => () => void;
   getTaskQueueState: (projectId: string) => Promise<IPCResult<TaskQueueState>>;
   onTaskQueueStateChange: (callback: (state: TaskQueueState) => void) => () => void;
+  daemonStopTask: (taskId: string) => Promise<IPCResult>;
+  onDaemonStopResult: (callback: (event: DaemonStopResultEvent) => void) => () => void;
 
   // Terminal operations
   createTerminal: (options: TerminalCreateOptions) => Promise<IPCResult>;
