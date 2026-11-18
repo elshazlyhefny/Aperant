@@ -1076,7 +1076,13 @@ export function App() {
                   <Schedules projectId={activeProjectId || selectedProjectId!} />
                 )}
                 {activeView === 'delivery' && (activeProjectId || selectedProjectId) && (
-                  <DeliveryMetrics projectId={activeProjectId || selectedProjectId!} />
+                  <DeliveryMetrics
+                    projectId={activeProjectId || selectedProjectId!}
+                    onOpenTask={(specId) => {
+                      setActiveView('kanban');
+                      setPendingTaskTarget({ projectId: activeProjectId || selectedProjectId!, taskId: specId });
+                    }}
+                  />
                 )}
                 {activeView === 'agent-tools' && <AgentTools />}
                 </Suspense>
