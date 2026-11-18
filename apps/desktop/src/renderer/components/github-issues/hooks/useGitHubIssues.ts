@@ -4,7 +4,6 @@ import {
   useSyncStatusStore,
   loadGitHubIssues,
   loadMoreGitHubIssues,
-  loadAllGitHubIssues,
   checkGitHubConnection,
 } from "../../../stores/github";
 import type { FilterState } from "../types";
@@ -46,10 +45,9 @@ export function useGitHubIssues(projectId: string | undefined) {
     }
   }, [projectId]);
 
-  // Load issues when filter changes or after connection is established
-  // Note: isSearchActive is NOT in deps because handleSearchStart/handleSearchClear
-  // already handle loading issues when search state changes. Including it would cause
-  // duplicate API calls.
+  // Single loading path: loads issues when projectId, filter, connection or
+  // search mode (isSearchActive) changes. handleSearchStart/handleSearchClear
+  // only toggle isSearchActive, so each change triggers exactly one fetch.
   useEffect(() => {
     if (projectId && syncStatus?.connected) {
       // If search is active, load all issues for complete search
@@ -84,20 +82,18 @@ export function useGitHubIssues(projectId: string | undefined) {
   // When user starts searching, load all issues
   const handleSearchStart = useCallback(() => {
     if (!isSearchActive && projectId) {
+      // Only toggle the flag - the load effect fetches all issues
       setIsSearchActive(true);
-      // Load all issues for search
-      loadAllGitHubIssues(projectId, filterState);
     }
-  }, [isSearchActive, projectId, filterState]);
+  }, [isSearchActive, projectId]);
 
   // When user clears search, reset to paginated mode
   const handleSearchClear = useCallback(() => {
     if (isSearchActive && projectId) {
+      // Only toggle the flag - the load effect reloads in paginated mode
       setIsSearchActive(false);
-      // Reset to paginated loading
-      loadGitHubIssues(projectId, filterState, false);
     }
-  }, [isSearchActive, projectId, filterState]);
+  }, [isSearchActive, projectId]);
 
   // Compute selectedIssue from issues array
   const selectedIssue = useMemo(() => {

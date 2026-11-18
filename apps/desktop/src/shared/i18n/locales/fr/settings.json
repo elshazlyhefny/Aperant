@@ -400,6 +400,10 @@
       "gitlabDescription": "Commenter le ticket GitLab d'origine lorsqu'une tâche se termine",
       "linear": "Tickets Linear",
       "linearDescription": "Commenter le ticket Linear d'origine lorsqu'une tâche se termine",
+      "linearTransitionOnReview": "Déplacer le ticket quand la revue est prête",
+      "linearTransitionOnReviewDescription": "Déplacer le ticket Linear vers l'état de workflow ci-dessous lorsque la tâche est prête pour la revue. Si aucun état de workflow n'a ce nom, rien ne se passe.",
+      "linearStateNameLabel": "Nom de l'état de workflow cible",
+      "linearStateNamePlaceholder": "In Review",
       "note": "Seul le ticket d'où la tâche a été importée est commenté, avec les identifiants existants du projet. Ces paramètres sont stockés uniquement dans les paramètres de cette application et sont désactivés par défaut."
     }
   },
