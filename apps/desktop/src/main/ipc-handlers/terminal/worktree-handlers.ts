@@ -335,6 +335,9 @@ async function createTerminalWorktree(
         debugLog('[TerminalWorktree] No origin remote found, skipping push for local-only repo');
       }
 
+      // zeenha fork: no secret scan here. This publishes a brand-new branch at the
+      // base commit, which holds no agent work. Any later push goes through
+      // pushBranch/prepareBranch, which scans first.
       if (hasOrigin && shouldPushNewBranches(projectPath)) {
         try {
           await execFileAsync(getToolPath('git'), ['push', '-u', 'origin', branchName], {

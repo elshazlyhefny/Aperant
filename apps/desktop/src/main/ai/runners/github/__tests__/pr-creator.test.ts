@@ -38,6 +38,11 @@ vi.mock('node:child_process', () => ({
     const call = { command, args, options };
     state.calls.push(call);
     const outcome = state.respond(call);
+    // zeenha fork: the secret gate needs a resolvable base; tests that leave
+    // rev-list unanswered get "one commit ahead" so they reach the code under test.
+    if (command === 'git' && args[0] === 'rev-list' && !outcome.error && !outcome.stdout?.trim()) {
+      outcome.stdout = '1\n';
+    }
     setImmediate(() => {
       if (outcome.error) {
         const err = Object.assign(new Error(outcome.error.message ?? 'Command failed'), {
@@ -54,6 +59,11 @@ vi.mock('node:child_process', () => ({
 
 vi.mock('../../../../env-utils', () => ({
   getAugmentedEnv: () => ({ PATH: '/augmented/bin:/usr/bin', HOME: '/home/u' }),
+}));
+vi.mock('../../../security/secret-gate', () => ({
+  listBranchFiles: () => [],
+  scanChangedFiles: () => [],
+  formatSecretFindings: () => '',
 }));
 vi.mock('../../../client/factory', () => ({
   createSimpleClient: vi.fn(async () => ({ model: {}, systemPrompt: '' })),
@@ -325,11 +335,12 @@ describe('createPR for a task that changed no code (zeenha fork)', () => {
     expect(pushCalls()).toHaveLength(1);
   });
 
-  it('proceeds as before when the count cannot be read', async () => {
+  it('refuses to push when the base cannot be resolved, because the secret scan cannot run', async () => {
     revList({ error: { message: 'unknown revision' } });
     const result = await createPR(config());
-    expect(result.success).toBe(true);
-    expect(pushCalls()).toHaveLength(1);
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('SECRETS_DETECTED');
+    expect(pushCalls()).toHaveLength(0);
   });
 });
 

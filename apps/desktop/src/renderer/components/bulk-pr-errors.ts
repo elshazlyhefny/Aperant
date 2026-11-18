@@ -44,7 +44,7 @@ export function getBulkPRErrorMessageKey(code: WorktreeCreatePRErrorCode | undef
     case 'RETRIES_EXHAUSTED':
       return 'taskReview:bulkPR.errors.retriesExhausted';
     default:
-      // NO_CHANGES, GH_FAILED, MR_FAILED, UNKNOWN, undefined: use the server message
+      // NO_CHANGES, SECRETS_DETECTED (the server message lists the files and lines), GH_FAILED, MR_FAILED, UNKNOWN, undefined: use the server message
       return null;
   }
 }

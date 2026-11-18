@@ -5,7 +5,8 @@
  * Scans file content for potential secrets before commit.
  * Designed to prevent accidental exposure of API keys, tokens, and credentials.
  *
- * See apps/desktop/src/main/ai/security/secret-scanner.ts for the TypeScript implementation.
+ * Called through secret-gate.ts by the Bash hook (validateGitCommitSecrets in
+ * validators/git-validators.ts, on `git commit`) and by the app-side push gate.
  */
 
 import * as fs from 'node:fs';

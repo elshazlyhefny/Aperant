@@ -598,7 +598,7 @@ ls -la [path-to-files]  # Make sure the path is correct from your current locati
 
 ### Secret Scanning (Automatic)
 
-The system **automatically scans for secrets** before every commit. If secrets are detected, the commit will be blocked and you'll receive detailed instructions on how to fix it.
+The system **automatically scans for secrets**. The scan runs when you run `git commit`: the command is refused and you get the file, line and a masked value for each finding. It runs again before the app pushes the branch or opens a PR/MR, and that check cannot be skipped. Hard-coded values found there block the PR, not just the commit.
 
 **If your commit is blocked due to secrets:**
 
@@ -615,8 +615,10 @@ The system **automatically scans for secrets** before every commit. If secrets a
 4. **Re-stage and retry** - `git add . ':!.auto-claude' && git commit ...`
 
 **If it's a false positive:**
-- Add the file pattern to `.secretsignore` in the project root
-- Example: `echo 'tests/fixtures/' >> .secretsignore`
+- Add an entry to `.secretsignore` in the repo root of your working directory
+- Each line is a **regular expression** (not a glob) matched against the repo-relative path; `#` starts a comment
+- Example: `echo '^tests/fixtures/' >> .secretsignore`
+- Only use it for real fixtures or test data. Never use it to hide a real credential.
 
 ### Create the Commit
 

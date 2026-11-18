@@ -18,6 +18,8 @@
  *     0. Does the string name a credential path (~/.ssh, ~/.aws, ...)? → DENY
  *        (always on; a speed bump, see validators/credential-validators.ts)
  *     0b. PR-only landing on and a push/merge off the task branch? → DENY
+ *     0c. `git commit` with a cwd known and secrets in the files it would
+ *        commit? → DENY (a speed bump; the push gate is the control)
  *     1. Is command name in BLOCKED_COMMANDS? → DENY with reason
  *     2. Does command have a validator in VALIDATORS? → Run validator → DENY or ALLOW
  *     3. Otherwise → ALLOW
@@ -30,7 +32,11 @@ import {
 } from './command-parser';
 import { BLOCKED_COMMANDS, isCommandBlocked } from './denylist';
 import { validateRmCommand, validateChmodCommand } from './validators/filesystem-validators';
-import { validateGitCommand, validateGitInternalsWrite } from './validators/git-validators';
+import {
+  validateGitCommand,
+  validateGitCommitSecrets,
+  validateGitInternalsWrite,
+} from './validators/git-validators';
 import { validateLandingPolicy } from './validators/landing-validators';
 import { validateCredentialPaths } from './validators/credential-validators';
 import { landsThroughPullRequestsOnly } from '../../../shared/utils/landing-policy';
@@ -285,6 +291,20 @@ export function bashSecurityHook(
     };
   }
 
+  // zeenha fork: secret scan of the files a `git commit` would record (only with a cwd)
+  if (inputData.cwd) {
+    const [secretsAllowed, secretsReason] = validateGitCommitSecrets(command, inputData.cwd);
+    if (!secretsAllowed) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: secretsReason,
+        },
+      };
+    }
+  }
+
   // Split into segments for per-command validation
   const segments = splitCommandSegments(command);
 
@@ -337,6 +357,7 @@ export function bashSecurityHook(
 export function validateCommand(
   command: string,
   profile?: SecurityProfile | null,
+  cwd?: string,
 ): ValidationResult {
   const commands = extractCommands(command);
 
@@ -360,6 +381,14 @@ export function validateCommand(
   const landing = checkLandingPolicy(command, profile);
   if (!landing[0]) {
     return landing;
+  }
+
+  // zeenha fork: secret scan of the files a `git commit` would record (only with a cwd)
+  if (cwd) {
+    const secrets = validateGitCommitSecrets(command, cwd);
+    if (!secrets[0]) {
+      return secrets;
+    }
   }
 
   const segments = splitCommandSegments(command);
