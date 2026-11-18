@@ -70,7 +70,7 @@ describe('headless cli imports', () => {
 
   it('bundles the queue and schedule modules but not their Electron-bound siblings', () => {
     const reached = new Set([...collectReachable(CLI_ENTRY)].map((file) => path.basename(file)));
-    for (const name of ['task-queue-manager.ts', 'schedule-service.ts', 'schedule-file-store.ts', 'webhook-core.ts']) {
+    for (const name of ['task-queue-manager.ts', 'schedule-service.ts', 'schedule-file-store.ts', 'webhook-core.ts', 'task-store.ts', 'shared.ts']) {
       expect(reached.has(name), `${name} should be reachable`).toBe(true);
     }
     for (const name of ['app-logger.ts', 'settings-utils.ts', 'schedule-store.ts', 'task-webhook.ts']) {
