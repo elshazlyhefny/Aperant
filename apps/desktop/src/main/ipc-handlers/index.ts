@@ -152,7 +152,7 @@ export function setupIpcHandlers(
   registerBitbucketHandlers(getMainWindow);
 
   // Azure DevOps integration handlers
-  registerAzureDevOpsHandlers();
+  registerAzureDevOpsHandlers(getMainWindow);
 
   // Ideation handlers
   registerIdeationHandlers(agentManager, getMainWindow);

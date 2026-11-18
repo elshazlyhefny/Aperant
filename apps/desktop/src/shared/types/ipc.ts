@@ -154,7 +154,11 @@ import type {
   BitbucketPostReviewOptions,
   BitbucketPostReviewResult,
   AzureDevOpsSyncStatus,
-  AzureDevOpsDetectedRepository
+  AzureDevOpsDetectedRepository,
+  AzureDevOpsPullRequest,
+  AzureDevOpsPRReviewProgress,
+  AzureDevOpsPostReviewOptions,
+  AzureDevOpsPostReviewResult
 } from './integrations';
 import type { PRReviewResult } from './pr-review';
 import type {
@@ -636,6 +640,38 @@ export interface ElectronAPI extends ScheduleAPI {
   // Azure DevOps integration operations
   checkAzureDevOpsConnection: (projectId: string) => Promise<IPCResult<AzureDevOpsSyncStatus>>;
   detectAzureDevOpsRepository: (projectId: string) => Promise<IPCResult<AzureDevOpsDetectedRepository | null>>;
+  getAzureDevOpsPullRequests: (projectId: string, state?: string) => Promise<IPCResult<AzureDevOpsPullRequest[]>>;
+  getAzureDevOpsPullRequest: (projectId: string, prId: number) => Promise<IPCResult<AzureDevOpsPullRequest>>;
+  getAzureDevOpsPullRequestDiff: (projectId: string, prId: number) => Promise<IPCResult<string>>;
+  postAzureDevOpsPullRequestComment: (projectId: string, prId: number, body: string) => Promise<IPCResult<{ id: number }>>;
+
+  // Azure DevOps PR AI review operations
+  runAzureDevOpsPRReview: (projectId: string, prId: number) => void;
+  cancelAzureDevOpsPRReview: (projectId: string, prId: number) => Promise<boolean>;
+  getAzureDevOpsPRReview: (projectId: string, prId: number) => Promise<PRReviewResult | null>;
+  getAzureDevOpsPRLogs: (
+    projectId: string,
+    prId: number,
+    known?: PRLogsKnownVersion
+  ) => Promise<PRLogs | null | 'unchanged'>;
+  postAzureDevOpsPRReview: (
+    projectId: string,
+    prId: number,
+    selectedFindingIds: string[],
+    options: AzureDevOpsPostReviewOptions
+  ) => Promise<IPCResult<AzureDevOpsPostReviewResult>>;
+  onAzureDevOpsPRReviewProgress: (
+    callback: (projectId: string, progress: AzureDevOpsPRReviewProgress) => void
+  ) => () => void;
+  onAzureDevOpsPRReviewComplete: (
+    callback: (projectId: string, result: PRReviewResult) => void
+  ) => () => void;
+  onAzureDevOpsPRReviewError: (
+    callback: (projectId: string, error: { prId: number; error: string }) => void
+  ) => () => void;
+  onAzureDevOpsPRLogsUpdated: (
+    callback: (projectId: string, data: PRLogsUpdatedPayload) => void
+  ) => () => void;
 
   // GitLab integration operations
   getGitLabProjects: (projectId: string) => Promise<IPCResult<GitLabProject[]>>;

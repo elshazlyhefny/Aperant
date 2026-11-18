@@ -382,6 +382,52 @@ export interface BitbucketPostReviewResult {
   postedFindingIds: string[];
 }
 
+/**
+ * Azure DevOps pull request. Same shape as BitbucketPullRequest so shared
+ * renderer components work. State mapping from Azure DevOps:
+ * active -> OPEN, completed -> MERGED, abandoned -> DECLINED.
+ */
+export interface AzureDevOpsPullRequest {
+  id: number;
+  title: string;
+  description?: string;
+  state: 'OPEN' | 'MERGED' | 'DECLINED';
+  sourceBranch: string;
+  targetBranch: string;
+  author: {
+    displayName: string;
+    avatarUrl?: string;
+  };
+  reviewers: Array<{
+    displayName: string;
+    avatarUrl?: string;
+  }>;
+  commentCount: number;
+  webUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AzureDevOpsPRReviewProgress {
+  phase: 'fetching' | 'analyzing' | 'generating' | 'posting' | 'complete';
+  prId: number;
+  progress: number;
+  message: string;
+}
+
+export interface AzureDevOpsPostReviewOptions {
+  confirmed: boolean;
+  postInline: boolean;
+}
+
+export interface AzureDevOpsPostReviewResult {
+  /** Id of the summary comment thread. */
+  summaryCommentId: number;
+  inlinePosted: number;
+  inlineFailed: Array<{ findingId: string; reason: string }>;
+  postedFindingIds: string[];
+}
+
 export interface GitLabImportResult {
   success: boolean;
   imported: number;

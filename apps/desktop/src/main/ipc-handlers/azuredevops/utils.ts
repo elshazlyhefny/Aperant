@@ -11,6 +11,8 @@ import type {
   AzureDevOpsConfig,
   AzureDevOpsAPIPullRequest,
   AzureDevOpsAPIPage,
+  AzureDevOpsAPIThread,
+  AzureDevOpsAPIInlineAnchor,
   AzureDevOpsRepoRef
 } from './types';
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
@@ -20,6 +22,9 @@ export const AZURE_DEVOPS_API_VERSION = '7.1';
 
 // Default timeout for Azure DevOps API requests (30 seconds)
 export const AZURE_DEVOPS_API_TIMEOUT_MS = 30000;
+
+/** Azure's hard limit is 150000; stay conservative like Bitbucket */
+export const MAX_COMMENT_LENGTH = 32768;
 
 const MAX_PAT_LENGTH = 512;
 const MAX_NAME_LENGTH = 256;
@@ -265,6 +270,33 @@ export async function findOpenPullRequestForBranch(
     repoEndpoint(config, `/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName=${ref}&$top=1`)
   )) as AzureDevOpsAPIPage<AzureDevOpsAPIPullRequest>;
   return page.value?.[0] ?? null;
+}
+
+/**
+ * Post a comment thread on a pull request, optionally anchored inline to a file/line.
+ * Inline threads are created with status 1 (active).
+ */
+export async function postAzureDevOpsThread(
+  config: AzureDevOpsConfig,
+  prId: number,
+  content: string,
+  inline?: AzureDevOpsAPIInlineAnchor
+): Promise<AzureDevOpsAPIThread> {
+  const payload: Record<string, unknown> = {
+    comments: [{ parentCommentId: 0, content, commentType: 1 }]
+  };
+  if (inline) {
+    payload.status = 1;
+    payload.threadContext = {
+      filePath: `/${inline.path.replace(/^\/+/, '')}`,
+      rightFileStart: { line: inline.line, offset: 1 },
+      rightFileEnd: { line: inline.endLine ?? inline.line, offset: 1 }
+    };
+  }
+  return (await azureDevOpsFetch(config, repoEndpoint(config, `/pullrequests/${prId}/threads`), {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })) as AzureDevOpsAPIThread;
 }
 
 function decodeSegment(value: string): string | null {
