@@ -38,7 +38,7 @@ async function seedMemory(
 
 function makeMockEmbeddingService(): EmbeddingService {
   return {
-    embed: vi.fn().mockResolvedValue(new Array(256).fill(0.1)),
+    embed: vi.fn().mockResolvedValue(new Array(1024).fill(0.1)),
     embedBatch: vi.fn().mockResolvedValue([]),
     embedMemory: vi.fn().mockResolvedValue(new Array(1024).fill(0.1)),
     embedChunk: vi.fn().mockResolvedValue(new Array(1024).fill(0.1)),
@@ -199,6 +199,35 @@ describe('RetrievalPipeline', () => {
     });
 
     expect(embeddingService.embed).not.toHaveBeenCalled();
+  });
+
+  it('does not embed the query on an empty database', async () => {
+    const embeddingService = makeMockEmbeddingService();
+    const pipeline = new RetrievalPipeline(client, embeddingService, new Reranker('none'));
+
+    await pipeline.search('anything at all', { phase: 'explore', projectId: 'proj-a' });
+
+    expect(embeddingService.embed).not.toHaveBeenCalled();
+  });
+
+  it('returns a memory via the dense path when BM25 has no keyword overlap', async () => {
+    await seedMemory(client, 'mem-dense', 'zebra giraffe habitat notes', 'proj-a');
+    const vec = new Array(1024).fill(0.1);
+    await client.execute({
+      sql: `INSERT INTO memory_embeddings (memory_id, embedding, model_id, dims, created_at)
+        VALUES (?, ?, 'test', 1024, ?)`,
+      args: ['mem-dense', Buffer.from(new Float32Array(vec).buffer), new Date().toISOString()],
+    });
+
+    const embeddingService = makeMockEmbeddingService();
+    const pipeline = new RetrievalPipeline(client, embeddingService, new Reranker('none'));
+
+    const result = await pipeline.search('quantum spreadsheet', {
+      phase: 'explore',
+      projectId: 'proj-a',
+    });
+
+    expect(result.memories.map((m) => m.id)).toContain('mem-dense');
   });
 
   it('works with different phases', async () => {
