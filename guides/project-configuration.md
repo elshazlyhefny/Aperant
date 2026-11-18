@@ -108,7 +108,7 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `BITBUCKET_TOKEN` | Bitbucket access token. A secret, see [Secrets](#secrets). | Yes |
 | `BITBUCKET_REPOSITORY` | `workspace/repo_slug`. Each side starts with a letter or digit and may contain letters, digits, `.`, `_` and `-`. At most 256 characters. | Yes |
 
-Only Bitbucket Cloud (bitbucket.org, API `https://api.bitbucket.org/2.0`) is supported. Bitbucket Server and Data Center are not. The **Detect** button reads the `origin` remote and only matches bitbucket.org ssh and https remotes. The Bitbucket Pull Requests view can list pull requests, show a pull request and its diff, and post a comment.
+Only Bitbucket Cloud (bitbucket.org, API `https://api.bitbucket.org/2.0`) is supported. Bitbucket Server and Data Center are not. The **Detect** button reads the `origin` remote and only matches bitbucket.org ssh and https remotes. The Bitbucket Pull Requests view can list pull requests, show a pull request and its diff, post a comment, and run an AI review. A task's **Create PR** button opens a Bitbucket pull request, and pull request feedback can be followed up as described in [PR follow-ups](pr-follow-ups.md#bitbucket-cloud).
 
 #### Troubleshooting
 
