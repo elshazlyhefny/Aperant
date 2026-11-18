@@ -4,17 +4,18 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readlinkSync,
   realpathSync,
   symlinkSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { readProjectRepoConfig } from '../project-repo-config';
-import { linkWorktreeDependencies } from '../worktree-dependency-links';
+import { createLink, linkWorktreeDependencies } from '../worktree-dependency-links';
 import { createOrGetWorktree } from '../worktree-manager';
 
 const git = (cwd: string, ...args: string[]) =>
@@ -108,6 +109,21 @@ describe('project repo config and dependency links', () => {
     });
   });
 
+  describe('createLink', () => {
+    it('creates parent directories and links to the source', () => {
+      const source = join(project, 'node_modules');
+      const target = join(project, 'deep/nested/dir/node_modules');
+
+      createLink(source, target);
+
+      expect(lstatSync(target).isSymbolicLink()).toBe(true);
+      expect(realpathSync.native(target)).toBe(source);
+      if (process.platform !== 'win32') {
+        expect(isAbsolute(readlinkSync(target))).toBe(false);
+      }
+    });
+  });
+
   describe('linkWorktreeDependencies', () => {
     let worktree: string;
 
@@ -141,6 +157,18 @@ describe('project repo config and dependency links', () => {
 
       expect(await linkWorktreeDependencies(project, worktree)).toEqual([]);
       expect(lstatSync(join(worktree, 'node_modules')).isDirectory()).toBe(true);
+    });
+
+    it('links nothing without .aperant.json even when node_modules exists', async () => {
+      expect(await linkWorktreeDependencies(project, worktree)).toEqual([]);
+      expect(existsSync(join(worktree, 'node_modules'))).toBe(false);
+    });
+
+    it('links nothing when linkDependencies is empty', async () => {
+      declare({ linkDependencies: [] });
+
+      expect(await linkWorktreeDependencies(project, worktree)).toEqual([]);
+      expect(existsSync(join(worktree, 'node_modules'))).toBe(false);
     });
 
     it('skips a dependency the main checkout does not have', async () => {
