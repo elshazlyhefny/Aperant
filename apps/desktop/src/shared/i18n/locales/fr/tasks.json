@@ -159,6 +159,7 @@
       "github": "GitHub",
       "gitlab": "GitLab",
       "jira": "Jira",
+      "azure_boards": "Azure Boards",
       "linear": "Linear",
       "ideation": "Idéation",
       "roadmap": "Feuille de route",
@@ -237,6 +238,7 @@
     "severity": "sévérité",
     "pullRequest": "Pull Request",
     "openInJira": "Ouvrir {{key}} dans Jira",
+    "openInAzureBoards": "Ouvrir l'élément de travail AB#{{id}}",
     "showMore": "Afficher plus",
     "showLess": "Afficher moins"
   },

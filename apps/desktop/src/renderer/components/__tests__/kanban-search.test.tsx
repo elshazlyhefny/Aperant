@@ -175,6 +175,15 @@ describe('taskMatchesSearch issue keys', () => {
     expect(taskMatchesSearch(t, '#9')).toBe(true);
   });
 
+  it('matches an Azure Boards work item only as AB#id', () => {
+    const t = withMeta({ azureBoardsWorkItemId: 42 });
+    expect(taskMatchesSearch(t, 'AB#42')).toBe(true);
+    expect(taskMatchesSearch(t, 'ab#42')).toBe(true);
+    expect(taskMatchesSearch(t, 'AB#421')).toBe(false);
+    expect(taskMatchesSearch(t, '#42')).toBe(false);
+    expect(taskMatchesSearch(t, '42')).toBe(false);
+  });
+
   it('does not produce prefix false positives', () => {
     expect(taskMatchesSearch(withMeta({ jiraIssueKey: 'PROJ-1234' }), 'PROJ-123')).toBe(false);
     expect(taskMatchesSearch(withMeta({ githubIssueNumber: 871 }), '#87')).toBe(false);
@@ -195,6 +204,7 @@ describe('filterColumnsByFacets', () => {
       makeTask('b', 'backlog', 'B', '002-b', '', { sourceType: 'jira', priority: 'low' }),
       makeTask('c', 'backlog', 'C', '003-c', '', { priority: 'high' }),
       makeTask('d', 'backlog', 'D', '004-d'),
+      makeTask('z', 'backlog', 'Z', '006-z', '', { sourceType: 'azure_boards', azureBoardsWorkItemId: 42 }),
       makeTask('e', 'backlog', 'E', '005-e', '', { sourceType: 'github', priority: 'low' }),
     ],
     done: [] as never[],
@@ -209,6 +219,11 @@ describe('filterColumnsByFacets', () => {
   it('filters by source', () => {
     const r = filterColumnsByFacets(columns, { ...none, sources: ['github'] });
     expect(ids(r.backlog)).toEqual(['a', 'e']);
+  });
+
+  it('filters by the azure_boards source', () => {
+    const r = filterColumnsByFacets(columns, { ...none, sources: ['azure_boards'] });
+    expect(ids(r.backlog)).toEqual(['z']);
   });
 
   it('treats a missing sourceType as manual', () => {
