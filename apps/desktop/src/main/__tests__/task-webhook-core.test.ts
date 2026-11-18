@@ -1,8 +1,12 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
 import {
   buildWebhookPayload,
   sendWebhook,
+  signWebhookBody,
   validateWebhookUrl,
+  WEBHOOK_SIGNATURE_HEADER,
+  WEBHOOK_TIMESTAMP_HEADER,
   type WebhookEvent
 } from '../task-webhook-core';
 
@@ -126,6 +130,70 @@ describe('sendWebhook', () => {
     expect(logged).not.toContain('SECRET');
     expect(logged).not.toContain('hooks.example.com');
     expect(logged).not.toContain('failed for');
+  });
+
+  describe('signing', () => {
+    const SECRET = 'whsec-test-secret';
+    const expected = (ts: string, body: string) =>
+      `sha256=${createHmac('sha256', SECRET).update(`${ts}.${body}`).digest('hex')}`;
+
+    it('signWebhookBody matches an independent HMAC computation', () => {
+      expect(signWebhookBody(SECRET, '1700000000', '{"a":1}')).toBe(expected('1700000000', '{"a":1}'));
+      expect(signWebhookBody(SECRET, '1700000000', '{"a":1}')).toMatch(/^sha256=[0-9a-f]{64}$/);
+    });
+
+    it('adds timestamp and verifiable signature headers when a secret is set', async () => {
+      fetchMock.mockResolvedValueOnce(res(200));
+      await sendWebhook(URL_OK, payload, { secret: SECRET, now: () => 1_700_000_123_456 });
+      const init = fetchMock.mock.calls[0][1];
+      expect(init.headers[WEBHOOK_TIMESTAMP_HEADER]).toBe('1700000123');
+      expect(init.headers['Content-Type']).toBe('application/json');
+      expect(init.body).toBe(JSON.stringify(payload));
+      expect(init.headers[WEBHOOK_SIGNATURE_HEADER]).toBe(expected('1700000123', init.body));
+    });
+
+    it.each([undefined, ''])('adds no extra headers when secret is %j', async (secret) => {
+      fetchMock.mockResolvedValueOnce(res(200));
+      await sendWebhook(URL_OK, payload, { secret });
+      const init = fetchMock.mock.calls[0][1];
+      expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+      expect(init.body).toBe(JSON.stringify(payload));
+    });
+
+    it('uses a fresh timestamp on each retry attempt', async () => {
+      fetchMock.mockResolvedValue(res(500));
+      let t = 1_700_000_000_000;
+      await sendWebhook(URL_OK, payload, {
+        secret: SECRET,
+        now: () => {
+          t += 5000;
+          return t;
+        },
+        delay: () => Promise.resolve()
+      });
+      const stamps = fetchMock.mock.calls.map((c) => c[1].headers[WEBHOOK_TIMESTAMP_HEADER]);
+      expect(new Set(stamps).size).toBe(3);
+      for (const c of fetchMock.mock.calls) {
+        const h = c[1].headers;
+        expect(h[WEBHOOK_SIGNATURE_HEADER]).toBe(expected(h[WEBHOOK_TIMESTAMP_HEADER], c[1].body));
+      }
+    });
+
+    it('never logs the secret, timestamp or signature', async () => {
+      fetchMock.mockResolvedValue(res(500));
+      const warn = vi.fn();
+      await sendWebhook(URL_OK, payload, {
+        secret: SECRET,
+        now: () => 1_700_000_123_456,
+        delay: () => Promise.resolve(),
+        warn
+      });
+      expect(warn).toHaveBeenCalledTimes(3);
+      const logged = JSON.stringify(warn.mock.calls);
+      expect(logged).not.toContain(SECRET);
+      expect(logged).not.toContain('sha256=');
+      expect(logged).not.toContain('1700000123');
+    });
   });
 
   it('never throws, even if warn or delay throw', async () => {
