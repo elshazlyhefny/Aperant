@@ -5,7 +5,7 @@
  */
 
 import type { Project } from '../../../shared/types';
-import type { IssueWritebackSettings } from '../../../shared/types/settings';
+import type { IssueWritebackProviderKey, IssueWritebackSettings } from '../../../shared/types/settings';
 import type { WebhookEvent } from '../../task-webhook';
 import type { PRFeedbackFetchResult } from '../github/pr/task-feedback';
 
@@ -24,12 +24,13 @@ export interface OutcomeWriter {
   /** Value of task_metadata.json `sourceType` this writer handles. */
   sourceType: string;
   /** Key of the opt-in flag in IssueWritebackSettings. */
-  settingKey: keyof IssueWritebackSettings;
+  settingKey: IssueWritebackProviderKey;
   postOutcome(input: {
     meta: Record<string, unknown>;
     project: Project;
     event: WebhookEvent;
     text: string;
+    settings: IssueWritebackSettings;
   }): void;
 }
 

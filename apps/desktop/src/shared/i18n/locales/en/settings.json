@@ -400,6 +400,10 @@
       "gitlabDescription": "Comment on the originating GitLab issue when a task finishes",
       "linear": "Linear issues",
       "linearDescription": "Comment on the originating Linear issue when a task finishes",
+      "linearTransitionOnReview": "Move issue when ready for review",
+      "linearTransitionOnReviewDescription": "Move the Linear issue to the workflow state below when the task is ready for review. If no workflow state has that name, nothing happens.",
+      "linearStateNameLabel": "Target workflow state name",
+      "linearStateNamePlaceholder": "In Review",
       "note": "Only the one issue the task was imported from is commented on, using the project's existing credentials. These settings are stored only in this app's settings and are off by default."
     }
   },

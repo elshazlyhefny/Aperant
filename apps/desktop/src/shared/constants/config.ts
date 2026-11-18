@@ -61,7 +61,13 @@ export const DEFAULT_APP_SETTINGS = {
     transitionStatusName: 'In Review'
   },
   // zeenha fork: issue write-back to GitHub/GitLab/Linear is opt-in, off by default
-  issueWriteback: { github: false, gitlab: false, linear: false },
+  issueWriteback: {
+    github: false,
+    gitlab: false,
+    linear: false,
+    linearTransitionOnReview: false,
+    linearTransitionStateName: 'In Review'
+  },
   // Global API keys (used as defaults for all projects)
   globalOpenAIApiKey: undefined as string | undefined,
   // Selected agent profile - defaults to 'auto' for per-phase optimized model selection
