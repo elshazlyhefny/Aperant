@@ -10,7 +10,7 @@ import { AUTO_BUILD_PATHS } from '../../shared/constants';
 import { detectRateLimit, createSDKRateLimitInfo } from '../rate-limit-detector';
 import { debugLog, debugError } from '../../shared/utils/debug-logger';
 import { transformIdeaFromSnakeCase, transformSessionFromSnakeCase } from '../ipc-handlers/ideation/transformers';
-import { transformRoadmapFromSnakeCase } from '../ipc-handlers/roadmap/transformers';
+import { loadRoadmapFromDisk } from '../ipc-handlers/roadmap/transformers';
 import type { RawIdea } from '../ipc-handlers/ideation/types';
 import { readIdeasByType, syncIdeationFile } from '../ipc-handlers/ideation/file-utils';
 import { debounce } from '../utils/debounce';
@@ -494,25 +494,22 @@ export class AgentQueueManager {
         this.clearRoadmapProgress(projectPath);
 
         // Load and emit the complete roadmap
-        const roadmapFilePath = path.join(projectPath, '.auto-claude', 'roadmap', 'roadmap.json');
-        if (existsSync(roadmapFilePath)) {
-          try {
-            const content = await fsPromises.readFile(roadmapFilePath, 'utf-8');
-            const rawRoadmap = JSON.parse(content);
-            const transformedRoadmap = transformRoadmapFromSnakeCase(rawRoadmap, projectId);
+        try {
+          const transformedRoadmap = await loadRoadmapFromDisk(projectPath, projectId);
+          if (transformedRoadmap) {
             debugLog('[Agent Queue] Loaded roadmap:', {
               featuresCount: transformedRoadmap.features?.length || 0,
               phasesCount: transformedRoadmap.phases?.length || 0
             });
             this.emitter.emit('roadmap-complete', projectId, transformedRoadmap);
-          } catch (err) {
-            debugError('[Roadmap] Failed to load roadmap:', err);
-            this.emitter.emit('roadmap-error', projectId,
-              `Failed to load roadmap: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          } else {
+            debugError('[Roadmap] roadmap.json not found');
+            this.emitter.emit('roadmap-error', projectId, 'Roadmap completed but file not found.');
           }
-        } else {
-          debugError('[Roadmap] roadmap.json not found');
-          this.emitter.emit('roadmap-error', projectId, 'Roadmap completed but file not found.');
+        } catch (err) {
+          debugError('[Roadmap] Failed to load roadmap:', err);
+          this.emitter.emit('roadmap-error', projectId,
+            `Failed to load roadmap: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
       } else {
         debugError('[Agent Queue] Roadmap generation failed:', { projectId, error: result.error });
