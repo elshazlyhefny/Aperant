@@ -11,7 +11,7 @@ export interface SettingsAPI {
   // App Settings
   getSettings: () => Promise<IPCResult<AppSettings>>;
   saveSettings: (settings: Partial<AppSettings>) => Promise<IPCResult>;
-  sendTestWebhook: (url: string) => Promise<IPCResult<{ success: boolean }>>;
+  sendTestWebhook: (url: string, secret?: string) => Promise<IPCResult<{ success: boolean }>>;
 
   // CLI Tools Detection
   getCliToolsInfo: () => Promise<IPCResult<{
@@ -59,8 +59,8 @@ export const createSettingsAPI = (): SettingsAPI => ({
   saveSettings: (settings: Partial<AppSettings>): Promise<IPCResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SAVE, settings),
 
-  sendTestWebhook: (url: string): Promise<IPCResult<{ success: boolean }>> =>
-    ipcRenderer.invoke(IPC_CHANNELS.WEBHOOK_SEND_TEST, url),
+  sendTestWebhook: (url: string, secret?: string): Promise<IPCResult<{ success: boolean }>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WEBHOOK_SEND_TEST, url, secret),
 
   // CLI Tools Detection
   getCliToolsInfo: (): Promise<IPCResult<{

@@ -278,6 +278,8 @@ export interface IssueWritebackSettings extends Record<IssueWritebackProviderKey
 export interface WebhookSettings {
   enabled: boolean;
   url: string;
+  // zeenha fork: HMAC signing secret. User settings only, never read from a project .env.
+  secret?: string;
   events: { reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean };
 }
 

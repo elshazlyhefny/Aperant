@@ -4,7 +4,12 @@ const toolkit = vi.hoisted(() => ({ is: { dev: true } }));
 vi.mock('@electron-toolkit/utils', () => toolkit);
 
 const webhook = vi.hoisted(() => ({
-  sendTestWebhook: vi.fn(async () => ({ success: true })),
+  sendTestWebhook: vi.fn(async (..._args: unknown[]) => ({ success: true })),
+  saved: undefined as Record<string, unknown> | undefined,
+}));
+vi.mock('../settings-utils', async (orig) => ({
+  ...(await orig<typeof import('../settings-utils')>()),
+  readSettingsFile: () => webhook.saved,
 }));
 vi.mock('../task-webhook', async (orig) => ({
   ...(await orig<typeof import('../task-webhook')>()),
@@ -32,12 +37,14 @@ function getHandler() {
     registered = true;
   }
   const mock = ipcMain as never as { invokeHandler: (c: string, ...a: unknown[]) => Promise<Res> };
-  return (event: unknown, url: unknown) => mock.invokeHandler(IPC_CHANNELS.WEBHOOK_SEND_TEST, event, url);
+  return (event: unknown, url: unknown, ...rest: unknown[]) =>
+    mock.invokeHandler(IPC_CHANNELS.WEBHOOK_SEND_TEST, event, url, ...rest);
 }
 
 describe('WEBHOOK_SEND_TEST handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    webhook.saved = undefined;
     toolkit.is.dev = true;
     process.env['ELECTRON_RENDERER_URL'] = DEV_URL;
   });
@@ -62,4 +69,30 @@ describe('WEBHOOK_SEND_TEST handler', () => {
     const bad = await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL);
     expect(bad).toEqual({ success: false, error: 'delivery_failed' });
   });
+
+  it('signs with the secret argument', async () => {
+    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, ' arg-secret ');
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { secret: 'arg-secret' });
+  });
+
+  it('falls back to the saved secret when the argument is undefined', async () => {
+    webhook.saved = { webhook: { secret: 'saved-secret' } };
+    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL);
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { secret: 'saved-secret' });
+  });
+
+  it('an empty argument overrides the saved secret', async () => {
+    webhook.saved = { webhook: { secret: 'saved-secret' } };
+    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, '');
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { secret: '' });
+  });
+
+  it.each([['too long', 'a'.repeat(257)], ['newline', 'a\nb'], ['non-string', 5]])(
+    'rejects an invalid secret (%s)',
+    async (_n, bad) => {
+      const res = await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, bad);
+      expect(res).toEqual({ success: false, error: 'invalid_webhook_secret' });
+      expect(webhook.sendTestWebhook).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -356,3 +356,57 @@ describe('sendTestWebhook', () => {
     expect(JSON.stringify(r)).not.toContain('SECRET');
   });
 });
+
+describe('webhook signing secret', () => {
+  const PROJECT_URL = 'https://hooks.example.com/project/PROJSECRET/PATH';
+  const project = { path: '/proj', autoBuildPath: '.auto-claude' };
+  const input = { status: 'error', projectName: 'P', taskTitle: 'T', project };
+  const events = { reviewReady: true, failed: true, blocked: true, prOpened: false };
+  const withSecret = (secret?: string) => ({ webhook: { enabled: true, url: URL_OK, events, secret } });
+  const approved = { url: PROJECT_URL, hash: 'h', status: 'approved', events };
+
+  it('signs app-wide sends with the saved secret', async () => {
+    mocks.settings = withSecret('s3cret');
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const h = fetchMock.mock.calls[0][1].headers;
+    expect(h['X-Aperant-Signature']).toMatch(/^sha256=[0-9a-f]{64}$/);
+    expect(h['X-Aperant-Timestamp']).toMatch(/^\d+$/);
+  });
+
+  it('signs approved project sends with the app-wide secret', async () => {
+    mocks.settings = withSecret('s3cret');
+    mocks.projectConfig.mockReturnValue(approved);
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toBe(PROJECT_URL);
+    expect(fetchMock.mock.calls[0][1].headers['X-Aperant-Signature']).toMatch(/^sha256=/);
+  });
+
+  it('adds no signature headers without a secret', async () => {
+    mocks.settings = withSecret(undefined);
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const h = fetchMock.mock.calls[0][1].headers;
+    expect(h['X-Aperant-Signature']).toBeUndefined();
+    expect(h['X-Aperant-Timestamp']).toBeUndefined();
+  });
+
+  it('ignores a WEBHOOK_SECRET supplied by the project .env', async () => {
+    mocks.settings = withSecret(undefined);
+    mocks.projectConfig.mockReturnValue({ ...approved, secret: 'env-secret', WEBHOOK_SECRET: 'env-secret' });
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][1].headers['X-Aperant-Signature']).toBeUndefined();
+  });
+
+  it('signs the test message', async () => {
+    fetchMock.mockResolvedValue(res(200));
+    await sendTestWebhook(URL_OK, { delay: noDelay, secret: 'k' });
+    expect(fetchMock.mock.calls[0][1].headers['X-Aperant-Signature']).toMatch(/^sha256=/);
+  });
+});

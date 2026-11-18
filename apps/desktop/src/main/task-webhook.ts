@@ -40,6 +40,8 @@ export function sendWebhook(
     delay?: (ms: number) => Promise<void>;
     eventName?: string;
     warn?: (message: string) => void;
+    secret?: string;
+    now?: () => number;
   } = {}
 ): Promise<boolean> {
   return sendWebhookCore(url, payload, { ...options, warn: options.warn ?? safeWarn });
@@ -53,6 +55,7 @@ function loadWebhookSettings(): WebhookSettings {
   return {
     enabled: w.enabled === true,
     url: typeof w.url === 'string' ? w.url : def.url,
+    secret: typeof w.secret === 'string' ? w.secret : '',
     events: { ...def.events, ...(w.events ?? {}) }
   };
 }
@@ -91,7 +94,7 @@ export function dispatchTaskOutcomeWebhook(input: {
         event,
         prUrl: input.prUrl
       });
-      void sendWebhook(projectConfig.url, projectPayload, { eventName: event }).catch(() => undefined);
+      void sendWebhook(projectConfig.url, projectPayload, { eventName: event, secret: loadWebhookSettings().secret }).catch(() => undefined);
       return;
     }
     const settings = loadWebhookSettings();
@@ -103,7 +106,7 @@ export function dispatchTaskOutcomeWebhook(input: {
       event,
       prUrl: input.prUrl
     });
-    void sendWebhook(settings.url, payload, { eventName: event }).catch(() => undefined);
+    void sendWebhook(settings.url, payload, { eventName: event, secret: settings.secret }).catch(() => undefined);
   } catch {
     // never let webhook problems affect task flow
   }
@@ -111,7 +114,7 @@ export function dispatchTaskOutcomeWebhook(input: {
 
 export async function sendTestWebhook(
   url: string,
-  options: { delay?: (ms: number) => Promise<void> } = {}
+  options: { delay?: (ms: number) => Promise<void>; secret?: string; now?: () => number } = {}
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const check = validateWebhookUrl(url);
@@ -125,7 +128,7 @@ export async function sendTestWebhook(
         }
       ]
     };
-    const ok = await sendWebhook(url, payload, { eventName: 'test', delay: options.delay });
+    const ok = await sendWebhook(url, payload, { eventName: 'test', delay: options.delay, secret: options.secret, now: options.now });
     return ok ? { success: true } : { success: false, error: 'delivery_failed' };
   } catch {
     return { success: false, error: 'delivery_failed' };
