@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,7 @@ const runServe = vi.hoisted(() => vi.fn());
 const createHeadlessSpec = vi.hoisted(() => vi.fn());
 vi.mock('../new-spec', () => ({ createHeadlessSpec }));
 
+import { acquireProjectQueueLock } from '../../utils/project-queue-lock';
 import { runCli } from '../cli';
 
 function harness() {
@@ -290,6 +291,104 @@ describe('headless cli', () => {
       createHeadlessSpec.mockResolvedValue({ exitCode: 1 });
       expect(await runCli(['new', 'x', '--queue', '--project', root], harness().deps)).toBe(1);
       expect(existsSync(path.join(root, '.auto-claude', 'specs', '007-new', 'implementation_plan.json'))).toBe(false);
+    });
+
+    describe('stop', () => {
+      const locksDir = (root: string) => path.join(root, '.auto-claude', '.locks');
+      const stopFiles = (root: string) =>
+        existsSync(locksDir(root)) ? readdirSync(locksDir(root)).filter((f) => f.startsWith('stop-request-')) : [];
+
+      async function withDaemon(root: string, kind: 'daemon' | 'desktop', fn: () => Promise<void>): Promise<void> {
+        const lock = acquireProjectQueueLock(root, kind);
+        if (!lock.ok) throw new Error('lock not acquired');
+        try {
+          await fn();
+        } finally {
+          lock.lock.release();
+        }
+      }
+
+      it('writes one stop request for a running task, also by prefix', async () => {
+        const root = makeProject({ '001-a': 'in_progress' });
+        await withDaemon(root, 'daemon', async () => {
+          const h = harness();
+          expect(await runCli(['stop', '001-a', '--project', root], h.deps)).toBe(0);
+          expect(h.out.join('')).toBe('Requested stop of 001-a\n');
+          expect(stopFiles(root)).toHaveLength(1);
+          const file = path.join(locksDir(root), stopFiles(root)[0]);
+          expect(JSON.parse(readFileSync(file, 'utf-8'))).toMatchObject({ specId: '001-a', requeue: false });
+          const p = harness();
+          expect(await runCli(['stop', '001', '--project', root], p.deps)).toBe(0);
+          expect(p.out.join('')).toContain('Requested stop of 001-a');
+        });
+      });
+
+      it('--requeue writes requeue true and --json prints a result object', async () => {
+        const root = makeProject({ '001-a': 'in_progress' });
+        await withDaemon(root, 'daemon', async () => {
+          const h = harness();
+          expect(await runCli(['stop', '001-a', '--requeue', '--project', root], h.deps)).toBe(0);
+          expect(h.out.join('')).toContain('it will be requeued');
+          const file = path.join(locksDir(root), stopFiles(root)[0]);
+          expect(JSON.parse(readFileSync(file, 'utf-8')).requeue).toBe(true);
+          const j = harness();
+          expect(await runCli(['stop', '001-a', '--json', '--project', root], j.deps)).toBe(0);
+          expect(JSON.parse(j.out.join(''))).toEqual({ specId: '001-a', requeue: false, requested: true });
+        });
+      });
+
+      it('fails without a serve daemon and writes nothing', async () => {
+        const root = makeProject({ '001-a': 'in_progress' });
+        const h = harness();
+        expect(await runCli(['stop', '001-a', '--project', root], h.deps)).toBe(1);
+        expect(h.err.join('')).toContain('No serve daemon');
+        expect(stopFiles(root)).toHaveLength(0);
+      });
+
+      it('fails when the desktop holds the lock', async () => {
+        const root = makeProject({ '001-a': 'in_progress' });
+        await withDaemon(root, 'desktop', async () => {
+          const h = harness();
+          expect(await runCli(['stop', '001-a', '--project', root], h.deps)).toBe(1);
+          expect(h.err.join('')).not.toBe('');
+          expect(stopFiles(root)).toHaveLength(0);
+        });
+      });
+
+      it('refuses unknown and non-running specs and writes nothing', async () => {
+        const root = makeProject({ '001-a': 'queue', '002-b': 'backlog' });
+        await withDaemon(root, 'daemon', async () => {
+          for (const spec of ['999-zzz', '001-a', '002-b']) {
+            const h = harness();
+            expect(await runCli(['stop', spec, '--project', root], h.deps)).toBe(1);
+            expect(h.err.join('')).not.toBe('');
+          }
+          const h = harness();
+          await runCli(['stop', '001-a', '--project', root], h.deps);
+          expect(h.err.join('')).toContain('only running tasks can be stopped');
+          expect(stopFiles(root)).toHaveLength(0);
+        });
+      });
+
+      it('rejects bad stop arguments and documents stop and --requeue', async () => {
+        const root = makeProject();
+        for (const argv of [
+          ['stop'],
+          ['stop', 'a', 'b'],
+          ['stop', 'a', '--run'],
+          ['stop', 'a', '--queue'],
+          ['queue', 'a', '--requeue'],
+          ['list', '--requeue'],
+        ]) {
+          const h = harness();
+          expect(await runCli([...argv, '--project', root], h.deps)).toBe(1);
+          expect(h.err.join('')).toContain('Usage:');
+        }
+        const h = harness();
+        await runCli(['help'], h.deps);
+        expect(h.out.join('')).toContain('stop <spec>');
+        expect(h.out.join('')).toContain('--requeue');
+      });
     });
 
     it('rejects --queue on run and serve and documents list, queue and --queue', async () => {
