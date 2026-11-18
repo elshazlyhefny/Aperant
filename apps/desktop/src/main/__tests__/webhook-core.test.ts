@@ -51,3 +51,23 @@ describe('dispatchTaskOutcomeWebhookWith', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('dispatchTaskOutcomeWebhookWith format', () => {
+  it('posts a Teams card when settings.format is teams', () => {
+    dispatchTaskOutcomeWebhookWith(settings({ format: 'teams' }), input);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.attachments[0].contentType).toBe('application/vnd.microsoft.card.adaptive');
+  });
+
+  it('posts a Discord embed when settings.format is discord', () => {
+    dispatchTaskOutcomeWebhookWith(settings({ format: 'discord' }), input);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(Array.isArray(body.embeds)).toBe(true);
+  });
+
+  it('keeps the Slack body when format is absent', () => {
+    dispatchTaskOutcomeWebhookWith(settings(), input);
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.blocks).toBeDefined();
+  });
+});

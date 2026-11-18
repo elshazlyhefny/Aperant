@@ -356,3 +356,67 @@ describe('sendTestWebhook', () => {
     expect(JSON.stringify(r)).not.toContain('SECRET');
   });
 });
+
+describe('webhook format at send sites', () => {
+  const events = { reviewReady: true, failed: true, blocked: true, prOpened: false };
+  const input = { status: 'error', projectName: 'P', taskTitle: 'T' };
+  const bodyOf = () => JSON.parse(String(fetchMock.mock.calls[0][1].body));
+
+  async function dispatch(webhook: Record<string, unknown>) {
+    mocks.settings = { webhook: { enabled: true, events, ...webhook } };
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  }
+
+  it('posts a Teams card for format teams', async () => {
+    await dispatch({ url: URL_OK, format: 'teams' });
+    expect(bodyOf().attachments[0].contentType).toBe('application/vnd.microsoft.card.adaptive');
+  });
+
+  it('posts a Discord embed for format discord', async () => {
+    await dispatch({ url: URL_OK, format: 'discord' });
+    expect(Array.isArray(bodyOf().embeds)).toBe(true);
+  });
+
+  it('posts the Slack body for format slack and for an absent format', async () => {
+    await dispatch({ url: URL_OK, format: 'slack' });
+    expect(bodyOf().blocks).toBeDefined();
+  });
+
+  it('keeps the Slack body for an absent format on a Slack-compatible host', async () => {
+    await dispatch({ url: ['https://hooks', 'slack.com/services/A/B/C'].join('.') });
+    expect(bodyOf().blocks).toBeDefined();
+    expect(bodyOf().attachments).toBeUndefined();
+  });
+
+  it('keeps the Slack body for an absent format on an unknown host', async () => {
+    await dispatch({ url: URL_OK });
+    expect(bodyOf().blocks).toBeDefined();
+  });
+
+  it('auto-detects a Teams workflow URL when no format is set', async () => {
+    await dispatch({ url: 'https://prod-12.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?sig=x' });
+    expect(bodyOf().attachments).toBeDefined();
+  });
+
+  it('ignores an invalid stored format', async () => {
+    await dispatch({ url: URL_OK, format: 'bogus' });
+    expect(bodyOf().blocks).toBeDefined();
+  });
+
+  it('uses the approved project webhook format', async () => {
+    mocks.settings = { webhook: { enabled: true, url: URL_OK, events } };
+    mocks.projectConfig.mockReturnValue({ url: URL_OK, hash: 'h', status: 'approved', events, format: 'teams' });
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook({ ...input, project: { path: '/p', autoBuildPath: '.auto-claude' } });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(bodyOf().attachments).toBeDefined();
+  });
+
+  it('sendTestWebhook sends the format test body', async () => {
+    fetchMock.mockResolvedValue(res(200));
+    await sendTestWebhook(URL_OK, { delay: noDelay, format: 'teams' });
+    expect(bodyOf().attachments).toBeDefined();
+  });
+});
