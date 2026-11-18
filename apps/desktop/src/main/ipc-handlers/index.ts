@@ -51,6 +51,7 @@ import { taskStateManager } from '../task-state-manager';
 import { taskQueueManager } from '../task-queue-manager';
 import { ensureQueueLock } from '../desktop-queue-lock';
 import { formatLockHolder } from '../utils/project-queue-lock';
+import { readServeRunningTaskIds } from '../utils/serve-running-file';
 import { applyTaskStatusUpdate } from './task/execution-handlers';
 
 /**
@@ -88,7 +89,12 @@ export function setupIpcHandlers(
       const project = projectStore.getProject(projectId);
       if (!project) return { ok: true };
       const lock = ensureQueueLock(project);
-      return lock.ok ? { ok: true } : { ok: false, heldBy: formatLockHolder(lock.holder) };
+      if (lock.ok) return { ok: true };
+      const heldBy = formatLockHolder(lock.holder);
+      // zeenha fork: tell the board which tasks the daemon runs
+      return lock.holder?.kind === 'daemon'
+        ? { ok: false, heldBy, runningTaskIds: readServeRunningTaskIds(project.path) }
+        : { ok: false, heldBy };
     }
   });
   taskStateManager.onStatusEmitted((taskId, status, projectId) => {
@@ -98,7 +104,7 @@ export function setupIpcHandlers(
     IPC_CHANNELS.TASK_QUEUE_GET_STATE,
     async (_, projectId: string): Promise<IPCResult<TaskQueueState>> => {
       try {
-        return { success: true, data: taskQueueManager.getState(projectId) };
+        return { success: true, data: taskQueueManager.getStateWithLock(projectId) };
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
