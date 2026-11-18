@@ -21,6 +21,14 @@ function flatKeys(obj: Record<string, unknown>, prefix = ''): string[] {
   );
 }
 
+const DEFAULTS = {
+  github: false,
+  gitlab: false,
+  linear: false,
+  linearTransitionOnReview: false,
+  linearTransitionStateName: 'In Review'
+};
+
 describe('IssueWritebackSettings', () => {
   const onSettingsChange = vi.fn();
 
@@ -28,10 +36,10 @@ describe('IssueWritebackSettings', () => {
     vi.clearAllMocks();
   });
 
-  it('renders three switches, all off by default', () => {
+  it('renders four switches, all off by default', () => {
     render(<IssueWritebackSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />);
     const switches = screen.getAllByRole('switch');
-    expect(switches).toHaveLength(3);
+    expect(switches).toHaveLength(4);
     for (const s of switches) {
       expect(s).not.toBeChecked();
     }
@@ -45,20 +53,61 @@ describe('IssueWritebackSettings', () => {
       );
       fireEvent.click(container.querySelector(`#issue-writeback-${key}`) as HTMLElement);
       const next = onSettingsChange.mock.calls[0][0] as AppSettings;
-      expect(next.issueWriteback).toEqual({ github: false, gitlab: false, linear: false, [key]: true });
+      expect(next.issueWriteback).toEqual({ ...DEFAULTS, [key]: true });
     }
   );
 
   it('preserves other enabled providers when toggling one', () => {
     const { container } = render(
       <IssueWritebackSettings
-        settings={makeSettings({ github: true, gitlab: false, linear: true })}
+        settings={makeSettings({ ...DEFAULTS, github: true, linear: true })}
         onSettingsChange={onSettingsChange}
       />
     );
     fireEvent.click(container.querySelector('#issue-writeback-gitlab') as HTMLElement);
     const next = onSettingsChange.mock.calls[0][0] as AppSettings;
-    expect(next.issueWriteback).toEqual({ github: true, gitlab: true, linear: true });
+    expect(next.issueWriteback).toEqual({ ...DEFAULTS, github: true, gitlab: true, linear: true });
+  });
+
+  it('toggling the Linear transition switch emits linearTransitionOnReview: true', () => {
+    const { container } = render(
+      <IssueWritebackSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />
+    );
+    fireEvent.click(container.querySelector('#issue-writeback-linearTransitionOnReview') as HTMLElement);
+    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    expect(next.issueWriteback).toEqual({ ...DEFAULTS, linearTransitionOnReview: true });
+  });
+
+  it('typing in the state name input emits the new name', () => {
+    const { container } = render(
+      <IssueWritebackSettings
+        settings={makeSettings({ ...DEFAULTS, linearTransitionOnReview: true })}
+        onSettingsChange={onSettingsChange}
+      />
+    );
+    fireEvent.change(container.querySelector('#issue-writeback-linear-state-name') as HTMLElement, {
+      target: { value: 'Done' }
+    });
+    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    expect(next.issueWriteback).toEqual({
+      ...DEFAULTS,
+      linearTransitionOnReview: true,
+      linearTransitionStateName: 'Done'
+    });
+  });
+
+  it('disables the state name input while the transition toggle is off', () => {
+    const { container, rerender } = render(
+      <IssueWritebackSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />
+    );
+    expect(container.querySelector('#issue-writeback-linear-state-name')).toBeDisabled();
+    rerender(
+      <IssueWritebackSettings
+        settings={makeSettings({ ...DEFAULTS, linearTransitionOnReview: true })}
+        onSettingsChange={onSettingsChange}
+      />
+    );
+    expect(container.querySelector('#issue-writeback-linear-state-name')).not.toBeDisabled();
   });
 
   it('has identical notifications.issueWriteback.* keys in en and fr', () => {
