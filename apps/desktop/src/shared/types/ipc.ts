@@ -158,7 +158,12 @@ import type {
   AzureDevOpsPullRequest,
   AzureDevOpsPRReviewProgress,
   AzureDevOpsPostReviewOptions,
-  AzureDevOpsPostReviewResult
+  AzureDevOpsPostReviewResult,
+  AzureBoardsSavedQuery,
+  AzureBoardsMetadata,
+  AzureBoardsQueryRequest,
+  AzureBoardsQueryResult,
+  AzureBoardsImportResult
 } from './integrations';
 import type { PRReviewResult } from './pr-review';
 import type {
@@ -636,6 +641,19 @@ export interface ElectronAPI extends ScheduleAPI {
   onBitbucketPRLogsUpdated: (
     callback: (projectId: string, data: PRLogsUpdatedPayload) => void
   ) => () => void;
+
+  // Azure Boards integration operations
+  getAzureBoardsSavedQueries: (projectId: string) => Promise<IPCResult<AzureBoardsSavedQuery[]>>;
+  getAzureBoardsMetadata: (projectId: string) => Promise<IPCResult<AzureBoardsMetadata>>;
+  queryAzureBoardsWorkItems: (
+    projectId: string,
+    request: AzureBoardsQueryRequest
+  ) => Promise<IPCResult<AzureBoardsQueryResult>>;
+  importAzureBoardsWorkItems: (
+    projectId: string,
+    ids: number[],
+    allowDuplicates?: boolean
+  ) => Promise<IPCResult<AzureBoardsImportResult>>;
 
   // Azure DevOps integration operations
   checkAzureDevOpsConnection: (projectId: string) => Promise<IPCResult<AzureDevOpsSyncStatus>>;

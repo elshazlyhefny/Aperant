@@ -269,6 +269,12 @@ export const IPC_CHANNELS = {
   JIRA_GET_ISSUES: 'jira:getIssues',
   JIRA_IMPORT_ISSUES: 'jira:importIssues',
 
+  // Azure Boards integration
+  AZUREBOARDS_GET_SAVED_QUERIES: 'azureboards:getSavedQueries',
+  AZUREBOARDS_GET_METADATA: 'azureboards:getMetadata',
+  AZUREBOARDS_QUERY_WORK_ITEMS: 'azureboards:queryWorkItems',
+  AZUREBOARDS_IMPORT_WORK_ITEMS: 'azureboards:importWorkItems',
+
   // GitHub integration
   GITHUB_GET_REPOSITORIES: 'github:getRepositories',
   GITHUB_GET_ISSUES: 'github:getIssues',
