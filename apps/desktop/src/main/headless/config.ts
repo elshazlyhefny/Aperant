@@ -34,12 +34,29 @@ export interface HeadlessWebhookConfig {
   events?: Partial<{ reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean }>;
 }
 
+/**
+ * Write task outcomes back to the source issue. Everything is off by default.
+ * `jira.enabled` is an addition: the Jira settings need an on/off switch.
+ */
+export interface HeadlessWritebackConfig {
+  github?: boolean;
+  gitlab?: boolean;
+  linear?: boolean;
+  jira?: {
+    enabled?: boolean;
+    comment?: boolean;
+    transitionOnReview?: boolean;
+    transitionStatusName?: string;
+  };
+}
+
 export interface HeadlessConfig {
   providerAccounts?: ProviderAccount[];
   globalPriorityOrder?: string[];
   providerAgentConfig?: Record<string, unknown>;
   project?: HeadlessProjectConfig;
   webhook?: HeadlessWebhookConfig;
+  writeback?: HeadlessWritebackConfig;
 }
 
 export interface HeadlessFlags {
@@ -145,6 +162,43 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
       webhook.events = parsed;
     }
     config.webhook = webhook;
+  }
+  if (raw.writeback !== undefined) {
+    if (!isRecord(raw.writeback)) {
+      throw new Error(`Config file ${configPath}: writeback must be an object`);
+    }
+    const writeback: HeadlessWritebackConfig = {};
+    for (const key of ['github', 'gitlab', 'linear'] as const) {
+      const value = raw.writeback[key];
+      if (value === undefined) continue;
+      if (typeof value !== 'boolean') {
+        throw new Error(`Config file ${configPath}: writeback.${key} must be a boolean`);
+      }
+      writeback[key] = value;
+    }
+    const jira = raw.writeback.jira;
+    if (jira !== undefined) {
+      if (!isRecord(jira)) {
+        throw new Error(`Config file ${configPath}: writeback.jira must be an object`);
+      }
+      const parsed: NonNullable<HeadlessWritebackConfig['jira']> = {};
+      for (const key of ['enabled', 'comment', 'transitionOnReview'] as const) {
+        const value = jira[key];
+        if (value === undefined) continue;
+        if (typeof value !== 'boolean') {
+          throw new Error(`Config file ${configPath}: writeback.jira.${key} must be a boolean`);
+        }
+        parsed[key] = value;
+      }
+      if (jira.transitionStatusName !== undefined) {
+        if (typeof jira.transitionStatusName !== 'string') {
+          throw new Error(`Config file ${configPath}: writeback.jira.transitionStatusName must be a string`);
+        }
+        parsed.transitionStatusName = jira.transitionStatusName;
+      }
+      writeback.jira = parsed;
+    }
+    config.writeback = writeback;
   }
   return config;
 }
