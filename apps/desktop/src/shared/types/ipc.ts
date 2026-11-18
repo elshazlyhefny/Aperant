@@ -129,6 +129,8 @@ import type {
   JiraSyncStatus,
   GitHubRepository,
   GitHubIssue,
+  GitHubIssuesCursor,
+  PaginatedIssuesResult,
   GitHubSyncStatus,
   GitHubImportResult,
   GitHubInvestigationResult,
@@ -152,7 +154,11 @@ import type {
   BitbucketPostReviewOptions,
   BitbucketPostReviewResult,
   AzureDevOpsSyncStatus,
-  AzureDevOpsDetectedRepository
+  AzureDevOpsDetectedRepository,
+  AzureDevOpsPullRequest,
+  AzureDevOpsPRReviewProgress,
+  AzureDevOpsPostReviewOptions,
+  AzureDevOpsPostReviewResult
 } from './integrations';
 import type { PRReviewResult } from './pr-review';
 import type {
@@ -538,9 +544,9 @@ export interface ElectronAPI extends ScheduleAPI {
   getGitHubIssues: (
     projectId: string,
     state?: 'open' | 'closed' | 'all',
-    page?: number,
+    cursor?: GitHubIssuesCursor | null,
     fetchAll?: boolean
-  ) => Promise<IPCResult<{ issues: GitHubIssue[]; hasMore: boolean }>>;
+  ) => Promise<IPCResult<PaginatedIssuesResult>>;
   getGitHubIssue: (projectId: string, issueNumber: number) => Promise<IPCResult<GitHubIssue>>;
   checkGitHubConnection: (projectId: string) => Promise<IPCResult<GitHubSyncStatus>>;
   investigateGitHubIssue: (projectId: string, issueNumber: number, selectedCommentIds?: number[]) => void;
@@ -634,6 +640,38 @@ export interface ElectronAPI extends ScheduleAPI {
   // Azure DevOps integration operations
   checkAzureDevOpsConnection: (projectId: string) => Promise<IPCResult<AzureDevOpsSyncStatus>>;
   detectAzureDevOpsRepository: (projectId: string) => Promise<IPCResult<AzureDevOpsDetectedRepository | null>>;
+  getAzureDevOpsPullRequests: (projectId: string, state?: string) => Promise<IPCResult<AzureDevOpsPullRequest[]>>;
+  getAzureDevOpsPullRequest: (projectId: string, prId: number) => Promise<IPCResult<AzureDevOpsPullRequest>>;
+  getAzureDevOpsPullRequestDiff: (projectId: string, prId: number) => Promise<IPCResult<string>>;
+  postAzureDevOpsPullRequestComment: (projectId: string, prId: number, body: string) => Promise<IPCResult<{ id: number }>>;
+
+  // Azure DevOps PR AI review operations
+  runAzureDevOpsPRReview: (projectId: string, prId: number) => void;
+  cancelAzureDevOpsPRReview: (projectId: string, prId: number) => Promise<boolean>;
+  getAzureDevOpsPRReview: (projectId: string, prId: number) => Promise<PRReviewResult | null>;
+  getAzureDevOpsPRLogs: (
+    projectId: string,
+    prId: number,
+    known?: PRLogsKnownVersion
+  ) => Promise<PRLogs | null | 'unchanged'>;
+  postAzureDevOpsPRReview: (
+    projectId: string,
+    prId: number,
+    selectedFindingIds: string[],
+    options: AzureDevOpsPostReviewOptions
+  ) => Promise<IPCResult<AzureDevOpsPostReviewResult>>;
+  onAzureDevOpsPRReviewProgress: (
+    callback: (projectId: string, progress: AzureDevOpsPRReviewProgress) => void
+  ) => () => void;
+  onAzureDevOpsPRReviewComplete: (
+    callback: (projectId: string, result: PRReviewResult) => void
+  ) => () => void;
+  onAzureDevOpsPRReviewError: (
+    callback: (projectId: string, error: { prId: number; error: string }) => void
+  ) => () => void;
+  onAzureDevOpsPRLogsUpdated: (
+    callback: (projectId: string, data: PRLogsUpdatedPayload) => void
+  ) => () => void;
 
   // GitLab integration operations
   getGitLabProjects: (projectId: string) => Promise<IPCResult<GitLabProject[]>>;
@@ -1027,6 +1065,7 @@ export interface ElectronAPI extends ScheduleAPI {
   testMcpConnection: (server: CustomMcpServer, projectId?: string) => Promise<IPCResult<McpTestConnectionResult>>;
   approveMcpServer: (projectId: string, serverId: string, hash: string) => Promise<IPCResult>;
   approveChromeExecutable: (projectId: string, exePath: string) => Promise<IPCResult>;
+  approveProjectWebhook: (projectId: string, expectedHash: string) => Promise<IPCResult>;
 
   // Screenshot capture operations
   getSources: () => Promise<IPCResult<ScreenshotSource[]> & { devMode?: boolean }>;

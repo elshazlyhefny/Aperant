@@ -397,6 +397,23 @@ export const IPC_CHANNELS = {
   // Azure DevOps integration
   AZUREDEVOPS_CHECK_CONNECTION: 'azuredevops:checkConnection',
   AZUREDEVOPS_DETECT_REPOSITORY: 'azuredevops:detectRepository',
+  AZUREDEVOPS_GET_PULL_REQUESTS: 'azuredevops:getPullRequests',
+  AZUREDEVOPS_GET_PULL_REQUEST: 'azuredevops:getPullRequest',
+  AZUREDEVOPS_GET_PULL_REQUEST_DIFF: 'azuredevops:getPullRequestDiff',
+  AZUREDEVOPS_POST_PULL_REQUEST_COMMENT: 'azuredevops:postPullRequestComment',
+
+  // Azure DevOps PR AI review
+  AZUREDEVOPS_PR_REVIEW: 'azuredevops:pr:review',
+  AZUREDEVOPS_PR_REVIEW_CANCEL: 'azuredevops:pr:reviewCancel',
+  AZUREDEVOPS_PR_GET_REVIEW: 'azuredevops:pr:getReview',
+  AZUREDEVOPS_PR_GET_LOGS: 'azuredevops:pr:getLogs',
+  AZUREDEVOPS_PR_POST_REVIEW: 'azuredevops:pr:postReview',
+
+  // Azure DevOps PR review events (main -> renderer)
+  AZUREDEVOPS_PR_REVIEW_PROGRESS: 'azuredevops:pr:reviewProgress',
+  AZUREDEVOPS_PR_REVIEW_ERROR: 'azuredevops:pr:reviewError',
+  AZUREDEVOPS_PR_REVIEW_COMPLETE: 'azuredevops:pr:reviewComplete',
+  AZUREDEVOPS_PR_LOGS_UPDATED: 'azuredevops:pr:logsUpdated',
 
   // GitLab Issue Analysis Preview (proactive batch workflow)
   GITLAB_AUTOFIX_ANALYZE_PREVIEW: 'gitlab:autofix:analyzePreview',
@@ -613,6 +630,7 @@ export const IPC_CHANNELS = {
   MCP_CHECK_HEALTH: 'mcp:checkHealth',           // Quick connectivity check
   MCP_TEST_CONNECTION: 'mcp:testConnection',     // Full MCP protocol test
   MCP_APPROVE_SERVER: 'mcp:approveServer',       // Approve a project-declared custom server
+  WEBHOOK_APPROVE_PROJECT: 'webhook:approveProject', // Approve the project-declared webhook URL
   MCP_APPROVE_CHROME_EXECUTABLE: 'mcp:approveChromeExecutable', // Approve CHROME_DEVTOOLS_EXECUTABLE
 
   // Sentry error reporting

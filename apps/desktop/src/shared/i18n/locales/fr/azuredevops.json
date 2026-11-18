@@ -37,5 +37,78 @@
     "connectedGeneric": "Connecté",
     "failed": "Échec de la connexion",
     "notChecked": "Saisissez votre organisation, projet, dépôt et jeton pour vérifier la connexion"
+  },
+  "pullRequests": {
+    "title": "Pull requests",
+    "refresh": "Actualiser",
+    "loading": "Chargement des pull requests",
+    "empty": "Aucune pull request trouvée",
+    "filters": {
+      "OPEN": "Ouvertes",
+      "MERGED": "Terminées",
+      "DECLINED": "Abandonnées",
+      "ALL": "Toutes"
+    },
+    "states": {
+      "OPEN": "Ouverte",
+      "MERGED": "Terminée",
+      "DECLINED": "Abandonnée",
+      "SUPERSEDED": "Remplacée"
+    },
+    "author": "Auteur : {{name}}",
+    "reviewers": "Relecteurs : {{names}}",
+    "noReviewers": "Aucun relecteur",
+    "openInAzureDevOps": "Ouvrir dans Azure DevOps",
+    "openExternal": "Ouvrir dans Azure DevOps",
+    "diff": "Modifications",
+    "noDiff": "Aucun diff disponible",
+    "addComment": "Ajouter un commentaire",
+    "commentPlaceholder": "Écrire un commentaire...",
+    "postComment": "Publier le commentaire",
+    "posting": "Publication...",
+    "selectPrompt": "Sélectionnez une pull request pour voir les détails",
+    "retry": "Réessayer",
+    "notConfigured": {
+      "title": "Azure DevOps n'est pas configuré",
+      "description": "Ajoutez vos identifiants Azure DevOps et le dépôt dans les paramètres du projet pour voir les pull requests.",
+      "action": "Ouvrir les paramètres Azure DevOps"
+    },
+    "review": {
+      "title": "Revue IA",
+      "start": "Lancer la revue IA",
+      "rerun": "Relancer la revue",
+      "cancel": "Annuler",
+      "running": "Revue en cours...",
+      "notOpen": "La revue IA n'est disponible que pour les pull requests ouvertes",
+      "progress": "Progression de la revue",
+      "logsTitle": "Journaux de la revue",
+      "summary": "Résumé",
+      "status": {
+        "approve": "Tout est bon",
+        "request_changes": "Modifications demandées",
+        "comment": "Commentaires",
+        "in_progress": "En cours"
+      },
+      "findingsTitle": "Constats",
+      "noFindings": "Aucun problème trouvé",
+      "inlineOption": "Publier aussi les constats sélectionnés en commentaires en ligne",
+      "postButton": "Publier les constats sélectionnés sur Azure DevOps",
+      "posting": "Publication...",
+      "confirm": {
+        "title": "Publier les constats sur Azure DevOps ?",
+        "description_one": "{{count}} constat sera publié en commentaire sur cette pull request dans Azure DevOps.",
+        "description_other": "{{count}} constats seront publiés en commentaire sur cette pull request dans Azure DevOps.",
+        "inline": "Des commentaires en ligne seront aussi publiés sur les lignes concernées.",
+        "noInline": "Aucun commentaire en ligne ne sera publié.",
+        "confirm": "Publier",
+        "cancel": "Annuler"
+      },
+      "postSuccess": "Constats publiés sur Azure DevOps",
+      "inlinePartial": "{{count}} commentaires en ligne n'ont pas pu être placés :",
+      "errors": {
+        "review": "Échec de la revue : {{error}}",
+        "post": "Échec de la publication : {{error}}"
+      }
+    }
   }
 }

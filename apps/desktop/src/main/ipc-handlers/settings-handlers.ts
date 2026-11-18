@@ -23,6 +23,7 @@ import { setUpdateChannel, setUpdateChannelWithDowngradeCheck } from '../app-upd
 import { readSettingsFile, updateSettingsFile } from '../settings-utils';
 import { resetMemoryService } from './context/memory-service-factory';
 import { configureTools, getToolPath, getToolInfo, isPathFromWrongPlatform, preWarmToolCache } from '../cli-tool-manager';
+import { normalizeIssueWritebackSettings } from '../../shared/utils/issue-writeback-settings';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import type { APIProfile } from '../../shared/types/profile';
 import type { ClaudeProfile } from '../../shared/types/agent';
@@ -496,12 +497,7 @@ export function registerSettingsHandlers(
 
           // zeenha fork: issue write-back settings, rebuilt from strictly-typed booleans.
           if (safeSettings.issueWriteback !== undefined) {
-            const raw = (safeSettings.issueWriteback ?? {}) as Partial<NonNullable<AppSettings['issueWriteback']>>;
-            newSettings.issueWriteback = {
-              github: raw.github === true,
-              gitlab: raw.gitlab === true,
-              linear: raw.linear === true,
-            };
+            newSettings.issueWriteback = normalizeIssueWritebackSettings(safeSettings.issueWriteback);
           }
 
           // Sync defaultModel when agent profile changes (#414)

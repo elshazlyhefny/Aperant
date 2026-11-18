@@ -37,5 +37,78 @@
     "connectedGeneric": "Connected",
     "failed": "Connection failed",
     "notChecked": "Enter your organization, project, repository and token to check the connection"
+  },
+  "pullRequests": {
+    "title": "Pull Requests",
+    "refresh": "Refresh",
+    "loading": "Loading pull requests",
+    "empty": "No pull requests found",
+    "filters": {
+      "OPEN": "Open",
+      "MERGED": "Completed",
+      "DECLINED": "Abandoned",
+      "ALL": "All"
+    },
+    "states": {
+      "OPEN": "Open",
+      "MERGED": "Completed",
+      "DECLINED": "Abandoned",
+      "SUPERSEDED": "Superseded"
+    },
+    "author": "Author: {{name}}",
+    "reviewers": "Reviewers: {{names}}",
+    "noReviewers": "No reviewers",
+    "openInAzureDevOps": "Open in Azure DevOps",
+    "openExternal": "Open in Azure DevOps",
+    "diff": "Changes",
+    "noDiff": "No diff available",
+    "addComment": "Add a comment",
+    "commentPlaceholder": "Write a comment...",
+    "postComment": "Post comment",
+    "posting": "Posting...",
+    "selectPrompt": "Select a pull request to view details",
+    "retry": "Try Again",
+    "notConfigured": {
+      "title": "Azure DevOps is not configured",
+      "description": "Add your Azure DevOps organization, project, repository and token in the project settings to see pull requests.",
+      "action": "Open Azure DevOps Settings"
+    },
+    "review": {
+      "title": "AI Review",
+      "start": "Start AI review",
+      "rerun": "Re-run review",
+      "cancel": "Cancel",
+      "running": "Reviewing...",
+      "notOpen": "AI review is only available for open pull requests",
+      "progress": "Review progress",
+      "logsTitle": "Review logs",
+      "summary": "Summary",
+      "status": {
+        "approve": "Looks good",
+        "request_changes": "Changes requested",
+        "comment": "Comments",
+        "in_progress": "In progress"
+      },
+      "findingsTitle": "Findings",
+      "noFindings": "No issues found",
+      "inlineOption": "Also post selected findings as inline comments",
+      "postButton": "Post selected findings to Azure DevOps",
+      "posting": "Posting...",
+      "confirm": {
+        "title": "Post findings to Azure DevOps?",
+        "description_one": "{{count}} finding will be posted to this pull request on Azure DevOps as a comment.",
+        "description_other": "{{count}} findings will be posted to this pull request on Azure DevOps as a comment.",
+        "inline": "Inline comments will also be posted on the matching lines.",
+        "noInline": "No inline comments will be posted.",
+        "confirm": "Post",
+        "cancel": "Cancel"
+      },
+      "postSuccess": "Findings posted to Azure DevOps",
+      "inlinePartial": "{{count}} inline comments could not be placed:",
+      "errors": {
+        "review": "Review failed: {{error}}",
+        "post": "Posting failed: {{error}}"
+      }
+    }
   }
 }

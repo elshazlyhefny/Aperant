@@ -80,15 +80,20 @@
     "pause": "Mettre en pause",
     "resume": "Reprendre",
     "delete": "Supprimer",
-    "dismiss": "Ignorer"
+    "dismiss": "Ignorer",
+    "retry": "Réessayer"
   },
   "delete": {
     "title": "Supprimer la planification ?",
     "description": "« {{name}} » sera supprimée. Les tâches déjà créées sont conservées."
   },
   "errors": {
-    "saveFailed": "Impossible d'enregistrer la planification"
+    "saveFailed": "Impossible d'enregistrer la planification",
+    "loadFailed": "Impossible de charger les planifications",
+    "actionFailed": "Cette action a échoué. Réessayez.",
+    "deleteFailed": "Impossible de supprimer la planification"
   },
+  "loading": "Chargement des planifications...",
   "banner": {
     "title": "Nécessite votre attention"
   },

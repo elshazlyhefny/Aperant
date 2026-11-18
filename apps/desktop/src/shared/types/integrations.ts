@@ -161,11 +161,23 @@ export interface GitHubIssue {
 }
 
 /**
+ * Cursor for resuming paginated GitHub issue fetching.
+ * apiPage = 1-based GitHub API page to resume at;
+ * offset = index of the first not-yet-returned item inside that 100-item API page.
+ */
+export interface GitHubIssuesCursor {
+  apiPage: number;
+  offset: number;
+}
+
+/**
  * Result type for paginated issue fetching
  */
 export interface PaginatedIssuesResult {
   issues: GitHubIssue[];
   hasMore: boolean;
+  /** Cursor for the next request; null/undefined = nothing left (fetchAll mode returns null) */
+  nextCursor?: GitHubIssuesCursor | null;
 }
 
 export interface GitHubSyncStatus {
@@ -364,6 +376,52 @@ export interface BitbucketPostReviewOptions {
 }
 
 export interface BitbucketPostReviewResult {
+  summaryCommentId: number;
+  inlinePosted: number;
+  inlineFailed: Array<{ findingId: string; reason: string }>;
+  postedFindingIds: string[];
+}
+
+/**
+ * Azure DevOps pull request. Same shape as BitbucketPullRequest so shared
+ * renderer components work. State mapping from Azure DevOps:
+ * active -> OPEN, completed -> MERGED, abandoned -> DECLINED.
+ */
+export interface AzureDevOpsPullRequest {
+  id: number;
+  title: string;
+  description?: string;
+  state: 'OPEN' | 'MERGED' | 'DECLINED';
+  sourceBranch: string;
+  targetBranch: string;
+  author: {
+    displayName: string;
+    avatarUrl?: string;
+  };
+  reviewers: Array<{
+    displayName: string;
+    avatarUrl?: string;
+  }>;
+  commentCount: number;
+  webUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AzureDevOpsPRReviewProgress {
+  phase: 'fetching' | 'analyzing' | 'generating' | 'posting' | 'complete';
+  prId: number;
+  progress: number;
+  message: string;
+}
+
+export interface AzureDevOpsPostReviewOptions {
+  confirmed: boolean;
+  postInline: boolean;
+}
+
+export interface AzureDevOpsPostReviewResult {
+  /** Id of the summary comment thread. */
   summaryCommentId: number;
   inlinePosted: number;
   inlineFailed: Array<{ findingId: string; reason: string }>;

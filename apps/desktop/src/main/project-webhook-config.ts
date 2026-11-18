@@ -9,7 +9,8 @@ import type { Project } from '../shared/types';
 import type { WebhookSettings } from '../shared/types/settings';
 import { DEFAULT_APP_SETTINGS } from '../shared/constants/config';
 import { parseEnvFile } from './ipc-handlers/utils';
-import { validateWebhookUrl } from './task-webhook';
+import { validateProjectWebhookUrl } from './task-webhook-core';
+import { hashWebhookUrl, isWebhookUrlApproved, type WebhookApprovals } from './project-webhook-approval';
 
 export const WEBHOOK_ENV_KEYS = {
   ENABLED: 'WEBHOOK_ENABLED',
@@ -38,9 +39,19 @@ export function parseWebhookEvents(vars: Record<string, string>): WebhookSetting
   return events;
 }
 
+export interface ProjectWebhookDescriptor {
+  url: string;
+  /** hashWebhookUrl(url), safe to log or send to the renderer */
+  hash: string;
+  events: WebhookSettings['events'];
+  /** approved: user approved this exact URL; unapproved: valid but not approved; refused: failed project URL validation */
+  status: 'approved' | 'unapproved' | 'refused';
+}
+
 export function getProjectWebhookConfig(
-  project: Pick<Project, 'path' | 'autoBuildPath'>
-): { url: string; events: WebhookSettings['events'] } | null {
+  project: Pick<Project, 'path' | 'autoBuildPath'>,
+  approvals?: WebhookApprovals
+): ProjectWebhookDescriptor | null {
   try {
     if (!project.autoBuildPath) return null;
     const envPath = path.join(project.path, project.autoBuildPath, '.env');
@@ -50,8 +61,10 @@ export function getProjectWebhookConfig(
     if (vars[WEBHOOK_ENV_KEYS.ENABLED]?.trim().toLowerCase() === 'false') return null;
     const url = (vars[WEBHOOK_ENV_KEYS.URL] ?? '').trim();
     if (!url || /[\r\n]/.test(url)) return null;
-    if (!validateWebhookUrl(url).ok) return null;
-    return { url, events: parseWebhookEvents(vars) };
+    const events = parseWebhookEvents(vars);
+    const hash = hashWebhookUrl(url);
+    if (!validateProjectWebhookUrl(url).ok) return { url, hash, events, status: 'refused' };
+    return { url, hash, events, status: isWebhookUrlApproved(url, approvals) ? 'approved' : 'unapproved' };
   } catch {
     return null;
   }

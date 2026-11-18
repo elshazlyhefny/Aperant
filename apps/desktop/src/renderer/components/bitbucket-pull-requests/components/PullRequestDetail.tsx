@@ -9,8 +9,14 @@ import { BitbucketReviewPanel } from './BitbucketReviewPanel';
 import type { useBitbucketPRReview } from '../hooks/useBitbucketPRReview';
 import type { BitbucketPullRequest } from '../../../../shared/types';
 
-export function PullRequestStateBadge({ state }: { state: BitbucketPullRequest['state'] }) {
-  const { t } = useTranslation('bitbucket');
+export function PullRequestStateBadge({
+  state,
+  i18nNamespace = 'bitbucket'
+}: {
+  state: BitbucketPullRequest['state'];
+  i18nNamespace?: string;
+}) {
+  const { t } = useTranslation(i18nNamespace);
   const variant = state === 'OPEN' ? 'default' : state === 'MERGED' ? 'secondary' : 'outline';
   return (
     <Badge variant={variant} className="shrink-0 text-xs">
@@ -34,10 +40,22 @@ interface PullRequestDetailProps {
   isLoading: boolean;
   error: string | null;
   onPostComment: (body: string) => Promise<boolean>;
+  /** zeenha fork: shared with Azure DevOps; selects the translation namespace. */
+  i18nNamespace?: string;
+  testId?: string;
 }
 
-export function PullRequestDetail({ pr, review, diff, isLoading, error, onPostComment }: PullRequestDetailProps) {
-  const { t } = useTranslation('bitbucket');
+export function PullRequestDetail({
+  pr,
+  review,
+  diff,
+  isLoading,
+  error,
+  onPostComment,
+  i18nNamespace = 'bitbucket',
+  testId
+}: PullRequestDetailProps) {
+  const { t } = useTranslation(i18nNamespace);
   const [comment, setComment] = useState('');
   const [isPosting, setIsPosting] = useState(false);
 
@@ -64,7 +82,7 @@ export function PullRequestDetail({ pr, review, diff, isLoading, error, onPostCo
             <h2 className="text-lg font-semibold">
               #{pr.id} {pr.title}
             </h2>
-            <PullRequestStateBadge state={pr.state} />
+            <PullRequestStateBadge state={pr.state} i18nNamespace={i18nNamespace} />
           </div>
           <div className="text-sm text-muted-foreground space-y-1">
             <div className="font-mono">
@@ -79,13 +97,19 @@ export function PullRequestDetail({ pr, review, diff, isLoading, error, onPostCo
           </div>
           <Button variant="outline" size="sm" onClick={openExternal} className="gap-2">
             <ExternalLink className="h-4 w-4" />
-            {t('pullRequests.openInBitbucket')}
+            {t('pullRequests.openExternal')}
           </Button>
         </div>
 
         {pr.description && <p className="text-sm whitespace-pre-wrap">{pr.description}</p>}
 
-        <BitbucketReviewPanel review={review} prId={pr.id} prState={pr.state} />
+        <BitbucketReviewPanel
+          review={review}
+          prId={pr.id}
+          prState={pr.state}
+          i18nNamespace={i18nNamespace}
+          testId={testId}
+        />
 
         {error && (
           <div className="flex items-center gap-2 text-sm text-destructive" role="alert">

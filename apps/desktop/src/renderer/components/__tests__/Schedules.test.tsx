@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import type { RecurringSchedule } from '../../../shared/types/schedule';
 
 vi.mock('react-i18next', () => ({
@@ -50,7 +50,7 @@ const api = {
 describe('Schedules', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useScheduleStore.setState({ schedules: [], activeProjectId: null, isLoading: false, error: null });
+    useScheduleStore.setState({ schedules: [], activeProjectId: null, isLoading: false, error: null, loadError: null });
     useTaskStore.setState({ tasks: [] });
     (window as unknown as { electronAPI: unknown }).electronAPI = api;
   });
@@ -196,5 +196,89 @@ describe('Schedules', () => {
     render(<Schedules projectId="p1" onOpenTask={vi.fn()} />);
     await screen.findByRole('alert');
     expect(screen.queryByText('schedules:buttons.openTask')).toBeNull();
+  });
+
+  it('shows a loading state while schedules load', async () => {
+    api.listSchedules.mockReturnValue(new Promise(() => undefined));
+    render(<Schedules projectId="p1" />);
+    expect(await screen.findByText('schedules:loading')).toBeTruthy();
+    expect(screen.queryByText('schedules:empty.title')).toBeNull();
+  });
+
+  it('shows a load failure with retry instead of the empty state', async () => {
+    api.listSchedules.mockResolvedValueOnce({ success: false, error: 'boom' });
+    render(<Schedules projectId="p1" />);
+    expect(await screen.findByText('schedules:errors.loadFailed')).toBeTruthy();
+    expect(screen.getByText('schedules:buttons.retry')).toBeTruthy();
+    expect(screen.queryByText('schedules:empty.title')).toBeNull();
+
+    api.listSchedules.mockResolvedValueOnce({ success: true, data: [] });
+    fireEvent.click(screen.getByText('schedules:buttons.retry'));
+    expect(await screen.findByText('schedules:empty.title')).toBeTruthy();
+    expect(api.listSchedules).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('schedules:errors.loadFailed')).toBeNull();
+  });
+
+  it('shows a load failure when listing rejects', async () => {
+    api.listSchedules.mockRejectedValueOnce(new Error('ipc down'));
+    render(<Schedules projectId="p1" />);
+    expect(await screen.findByText('schedules:errors.loadFailed')).toBeTruthy();
+    expect(screen.queryByText('schedules:empty.title')).toBeNull();
+  });
+
+  it('keeps the delete dialog open and shows an error when delete fails', async () => {
+    api.listSchedules.mockResolvedValue({ success: true, data: [makeSchedule()] });
+    api.deleteSchedule.mockResolvedValue({ success: false, error: 'x' });
+    render(<Schedules projectId="p1" />);
+    fireEvent.click(await screen.findByText('schedules:buttons.delete'));
+    expect(await screen.findByText('schedules:delete.title')).toBeTruthy();
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByText('schedules:buttons.delete'));
+    expect(await within(dialog).findByText('schedules:errors.deleteFailed')).toBeTruthy();
+    expect(screen.getByText('schedules:delete.title')).toBeTruthy();
+    expect(screen.getByText('Nightly audit')).toBeTruthy();
+  });
+
+  it('closes the delete dialog when delete succeeds', async () => {
+    api.listSchedules.mockResolvedValue({ success: true, data: [makeSchedule()] });
+    api.deleteSchedule.mockResolvedValue({ success: true });
+    render(<Schedules projectId="p1" />);
+    fireEvent.click(await screen.findByText('schedules:buttons.delete'));
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByText('schedules:buttons.delete'));
+    await waitFor(() => expect(screen.queryByText('schedules:delete.title')).toBeNull());
+    expect(api.deleteSchedule).toHaveBeenCalledWith('s1');
+  });
+
+  it('shows an error when pausing a schedule fails', async () => {
+    api.listSchedules.mockResolvedValue({ success: true, data: [makeSchedule()] });
+    api.setScheduleEnabled.mockResolvedValue({ success: false });
+    render(<Schedules projectId="p1" />);
+    fireEvent.click(await screen.findByText('schedules:buttons.pause'));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('schedules:errors.actionFailed');
+    expect(screen.getByText('Nightly audit')).toBeTruthy();
+  });
+
+  it('shows an error when dismissing a missed-run banner fails', async () => {
+    const schedule = makeSchedule({
+      history: [{ id: 'r1', at: 5, kind: 'missed', missedCount: 3, acknowledged: false }]
+    });
+    api.listSchedules.mockResolvedValue({ success: true, data: [schedule] });
+    api.acknowledgeScheduleReports.mockResolvedValue({ success: false });
+    render(<Schedules projectId="p1" />);
+    fireEvent.click(await screen.findByText('schedules:buttons.dismiss'));
+    expect(await screen.findByText('schedules:errors.actionFailed')).toBeTruthy();
+  });
+
+  it('does not show the load-error screen for a save error', async () => {
+    api.listSchedules.mockResolvedValue({ success: true, data: [] });
+    render(<Schedules projectId="p1" />);
+    expect(await screen.findByText('schedules:empty.title')).toBeTruthy();
+    act(() => {
+      useScheduleStore.setState({ error: 'save failed' });
+    });
+    expect(screen.queryByText('schedules:errors.loadFailed')).toBeNull();
+    expect(screen.getByText('schedules:empty.title')).toBeTruthy();
   });
 });

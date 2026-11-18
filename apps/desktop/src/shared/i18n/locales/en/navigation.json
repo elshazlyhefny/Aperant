@@ -17,6 +17,7 @@
     "gitlabIssues": "GitLab Issues",
     "gitlabMRs": "GitLab MRs",
     "bitbucketPRs": "Bitbucket PRs",
+    "azureDevOpsPRs": "Azure DevOps PRs",
     "worktrees": "Worktrees",
     "agentTools": "MCP Overview",
     "delivery": "Delivery"
