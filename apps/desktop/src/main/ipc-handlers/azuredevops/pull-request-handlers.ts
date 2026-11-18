@@ -22,6 +22,7 @@ import type {
   AzureDevOpsAPIPage,
   AzureDevOpsAPIIdentity
 } from './types';
+import { fetchAzureDevOpsFilePatches } from './review-context';
 import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 const debugLog = createDebugLog('AzureDevOps PR');
@@ -179,6 +180,36 @@ export function registerPostPullRequestComment(): void {
       } catch (error) {
         debugLog('Failed to post comment:', errorMessage(error, 'unknown'));
         return { success: false, error: errorMessage(error, 'Failed to post comment') };
+      }
+    }
+  );
+}
+
+/**
+ * Build the full unified diff text of a pull request (latest iteration).
+ */
+export async function buildAzureDevOpsPullRequestDiff(config: AzureDevOpsConfig, prId: number): Promise<string> {
+  const { files } = await fetchAzureDevOpsFilePatches(config, prId);
+  return files.map(f => f.patch).join('');
+}
+
+export function registerGetPullRequestDiff(): void {
+  ipcMain.handle(
+    IPC_CHANNELS.AZUREDEVOPS_GET_PULL_REQUEST_DIFF,
+    async (_event, projectId: string, prId: number): Promise<IPCResult<string>> => {
+      debugLog('getAzureDevOpsPullRequestDiff handler called', { prId });
+      const project = projectStore.getProject(projectId);
+      if (!project) return { success: false, error: 'Project not found' };
+
+      const config = await getAzureDevOpsConfig(project);
+      if (!config) return { success: false, error: NOT_CONFIGURED };
+      if (!isValidPrId(prId)) return { success: false, error: 'Invalid pull request id' };
+
+      try {
+        return { success: true, data: await buildAzureDevOpsPullRequestDiff(config, prId) };
+      } catch (error) {
+        debugLog('Failed to get pull request diff:', errorMessage(error, 'unknown'));
+        return { success: false, error: errorMessage(error, 'Failed to get pull request diff') };
       }
     }
   );
