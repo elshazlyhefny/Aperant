@@ -15,6 +15,7 @@ Detailed documentation for Auto Claude setup and usage.
 | **[recurring-tasks.md](recurring-tasks.md)** | Recurring task schedules: cadences, when they run, and what missed and skipped runs mean |
 | **[token-budgets.md](token-budgets.md)** | Project default and per-task token budgets, what counts, what happens at the limit, schedules, and how the CLI differs |
 | **[pr-follow-ups.md](pr-follow-ups.md)** | Sending a task's failing CI checks and unresolved review comments back to the agent: when the panel shows, what is listed, how QA checks the fix and Aperant pushes it, and why the panel can be disabled |
+| **[usage-and-account-switching.md](usage-and-account-switching.md)** | The usage monitor, what each provider reports, the automatic account switching settings and their defaults, proactive versus reactive switching, the pending-auth indicator and troubleshooting |
 
 ## Quick Links
 
