@@ -144,4 +144,21 @@ describe('useBitbucketPRReview', () => {
     });
     expect(result.current.postError).toBe('nope');
   });
+
+  it('uses a supplied api adapter instead of window.electronAPI', async () => {
+    const stub = {
+      run: vi.fn(),
+      cancel: vi.fn().mockResolvedValue(true),
+      getReview: vi.fn().mockResolvedValue(review()),
+      getLogs: vi.fn().mockResolvedValue(null),
+      postReview: vi.fn()
+    };
+    const { result } = renderHook(() => useBitbucketPRReview('p1', 7, stub));
+    await waitFor(() => expect(result.current.status).toBe('complete'));
+    expect(stub.getReview).toHaveBeenCalledWith('p1', 7);
+    expect(api.getBitbucketPRReview).not.toHaveBeenCalled();
+    act(() => result.current.startReview());
+    expect(stub.run).toHaveBeenCalledWith('p1', 7);
+    expect(api.runBitbucketPRReview).not.toHaveBeenCalled();
+  });
 });

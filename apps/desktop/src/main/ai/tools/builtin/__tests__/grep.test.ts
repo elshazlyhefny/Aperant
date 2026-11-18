@@ -291,6 +291,36 @@ describe('Grep Tool', () => {
     expect(args).toContain('!**/.auto-claude/.env*');
   });
 
+  it.each(['--pre=sh', '-L', '--follow'])(
+    'should pass pattern %s as the value of -e and the path after --',
+    async (pattern) => {
+      setupRg('', '', 1);
+
+      await grepTool.config.execute({ pattern, path: '/test/project/sub' }, baseContext);
+
+      const args = mockExecFile.mock.calls[0][1] as string[];
+      const eIdx = args.indexOf('-e');
+      const sepIdx = args.indexOf('--');
+      expect(eIdx).toBeGreaterThan(-1);
+      expect(args[eIdx + 1]).toBe(pattern);
+      expect(args.filter((a) => a === pattern)).toHaveLength(1);
+      expect(sepIdx).toBeGreaterThan(eIdx + 1);
+      expect(args[sepIdx + 1]).toBe('/test/project/sub');
+      expect(args[args.length - 1]).toBe('/test/project/sub');
+      expect(args.indexOf(pattern)).toBe(eIdx + 1);
+    },
+  );
+
+  it('should disable rg config files and symlink following', async () => {
+    setupRg('', '', 1);
+
+    await grepTool.config.execute({ pattern: 'x' }, baseContext);
+
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args[0]).toBe('--no-config');
+    expect(args).toContain('--no-follow');
+  });
+
   it('should return no matches without running rg when the path is the protected file', async () => {
     const result = await grepTool.config.execute(
       { pattern: 'TOKEN', path: '/test/project/.auto-claude/.env' },

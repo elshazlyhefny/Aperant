@@ -25,6 +25,7 @@ import { createPRReviewMcpSession, type PRReviewMcpSession } from "../../../ai/r
 import type { PRReviewFinding, PRReviewResult, PRReviewProgress } from "./types";
 import { debugLog, runningReviews, getReviewKey } from "./shared";
 import { PRLogCollector } from "./review-logs";
+import { verdictToOverallStatus } from "../../shared/review-verdict";
 import {
   getGitHubPRSettings,
   saveReviewResultToDisk,
@@ -271,13 +272,7 @@ export async function runPRReview(
     const orchestratorResult = await orchestrator.review(context, abortController.signal);
 
     // Map orchestrator verdict to overallStatus
-    const verdictToStatus: Record<string, "approve" | "request_changes" | "comment"> = {
-      ready_to_merge: "approve",
-      merge_with_changes: "comment",
-      needs_revision: "request_changes",
-      blocked: "request_changes",
-    };
-    const overallStatus = verdictToStatus[orchestratorResult.verdict] ?? "comment";
+    const overallStatus = verdictToOverallStatus(orchestratorResult.verdict);
 
     const result: PRReviewResult = {
       prNumber,

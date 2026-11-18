@@ -9,6 +9,7 @@ import type {
   IPCResult,
   VersionSuggestion,
   PaginatedIssuesResult,
+  GitHubIssuesCursor,
   PRStatusUpdate,
   PollingMetadata,
   GitHubTriageConfig,
@@ -184,7 +185,7 @@ export interface GitHubAPI {
   getGitHubIssues: (
     projectId: string,
     state?: 'open' | 'closed' | 'all',
-    page?: number,
+    cursor?: GitHubIssuesCursor | null,
     fetchAll?: boolean
   ) => Promise<IPCResult<PaginatedIssuesResult>>;
   getGitHubIssue: (projectId: string, issueNumber: number) => Promise<IPCResult<GitHubIssue>>;
@@ -499,10 +500,10 @@ export const createGitHubAPI = (): GitHubAPI => ({
   getGitHubIssues: (
     projectId: string,
     state?: 'open' | 'closed' | 'all',
-    page?: number,
+    cursor?: GitHubIssuesCursor | null,
     fetchAll?: boolean
   ): Promise<IPCResult<PaginatedIssuesResult>> =>
-    invokeIpc(IPC_CHANNELS.GITHUB_GET_ISSUES, projectId, state, page, fetchAll),
+    invokeIpc(IPC_CHANNELS.GITHUB_GET_ISSUES, projectId, state, cursor, fetchAll),
 
   getGitHubIssue: (projectId: string, issueNumber: number): Promise<IPCResult<GitHubIssue>> =>
     invokeIpc(IPC_CHANNELS.GITHUB_GET_ISSUE, projectId, issueNumber),

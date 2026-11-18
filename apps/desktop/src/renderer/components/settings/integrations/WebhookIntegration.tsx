@@ -9,6 +9,7 @@ import { DEFAULT_APP_SETTINGS } from '../../../../shared/constants/config';
 import type { ProjectEnvConfig, WebhookSettings as WebhookConfig } from '../../../../shared/types';
 
 interface WebhookIntegrationProps {
+  projectId: string;
   envConfig: ProjectEnvConfig | null;
   updateEnvConfig: (updates: Partial<ProjectEnvConfig>) => void;
 }
@@ -16,7 +17,14 @@ interface WebhookIntegrationProps {
 const MAX_URL_LENGTH = 2048;
 const DEFAULT_EVENTS = (DEFAULT_APP_SETTINGS.webhook as WebhookConfig).events;
 
-/** Mirrors the main-process validateWebhookUrl rules (https, or http on loopback). */
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '[::1]' || host === '::1' || host === '0.0.0.0') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
+/** Mirrors the main-process validateProjectWebhookUrl rules (https only, no loopback, no credentials). */
 function isValidWebhookUrl(url: string): boolean {
   if (!url || url.length > MAX_URL_LENGTH) return false;
   let parsed: URL;
@@ -26,11 +34,8 @@ function isValidWebhookUrl(url: string): boolean {
     return false;
   }
   if (parsed.username || parsed.password) return false;
-  if (parsed.protocol === 'https:') return true;
-  if (parsed.protocol === 'http:') {
-    return ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
-  }
-  return false;
+  if (parsed.protocol !== 'https:') return false;
+  return !isLoopbackHost(parsed.hostname);
 }
 
 type EventKey = keyof WebhookConfig['events'];
@@ -45,8 +50,10 @@ const EVENT_ITEMS: Array<{ key: EventKey; labelKey: string; descriptionKey: stri
 /**
  * Per-project task-outcome webhook settings. Overrides the app-wide webhook.
  */
-export function WebhookIntegration({ envConfig, updateEnvConfig }: WebhookIntegrationProps) {
+export function WebhookIntegration({ projectId, envConfig, updateEnvConfig }: WebhookIntegrationProps) {
   const { t } = useTranslation('settings');
+  const [isApproving, setIsApproving] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
   const [showUrl, setShowUrl] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'failure' | null>(null);
@@ -57,7 +64,31 @@ export function WebhookIntegration({ envConfig, updateEnvConfig }: WebhookIntegr
   const events = { ...DEFAULT_EVENTS, ...(envConfig.webhookEvents ?? {}) };
   const trimmedUrl = url.trim();
   const urlInvalid = trimmedUrl.length > 0 && !isValidWebhookUrl(trimmedUrl);
-  const canTest = trimmedUrl.length > 0 && !urlInvalid && !isTesting;
+  const approval = envConfig.webhookApproval;
+  const unchanged = !!approval && trimmedUrl === approval.url;
+  const isUnapproved = unchanged && approval?.status === 'unapproved';
+  const isRefused = unchanged && approval?.status === 'refused';
+  const isApproved = unchanged && approval?.status === 'approved';
+  const isEdited = !!approval && !unchanged && trimmedUrl.length > 0;
+  const canTest = trimmedUrl.length > 0 && !urlInvalid && !isTesting && !isUnapproved && !isRefused;
+
+  const handleApprove = async () => {
+    if (!approval || isApproving) return;
+    setIsApproving(true);
+    setApproveError(null);
+    try {
+      const result = await window.electronAPI.approveProjectWebhook(projectId, approval.hash);
+      if (result.success) {
+        updateEnvConfig({ webhookApproval: { ...approval, status: 'approved' } });
+      } else {
+        setApproveError(result.error ?? '');
+      }
+    } catch (error) {
+      setApproveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsApproving(false);
+    }
+  };
 
   const handleTest = async () => {
     if (!canTest) return;
@@ -117,10 +148,36 @@ export function WebhookIntegration({ envConfig, updateEnvConfig }: WebhookIntegr
             {showUrl ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </Button>
         </div>
-        {urlInvalid && (
+        {urlInvalid && !isRefused && (
           <p role="alert" className="text-xs text-destructive">
             {t('projectSections.webhook.urlInvalid')}
           </p>
+        )}
+        {isUnapproved && approval && (
+          <div className="space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3">
+            <p className="text-sm font-medium text-foreground">{t('projectSections.webhook.unapprovedTitle')}</p>
+            <p className="break-all rounded bg-muted p-2 font-mono text-xs text-foreground">{approval.url}</p>
+            <p className="text-xs text-muted-foreground">{t('projectSections.webhook.unapprovedDescription')}</p>
+            {approveError !== null && (
+              <p role="alert" className="text-xs text-destructive">
+                {t('projectSections.webhook.approveFailed', { error: approveError })}
+              </p>
+            )}
+            <Button type="button" size="sm" onClick={handleApprove} disabled={isApproving}>
+              {isApproving ? t('projectSections.webhook.approving') : t('projectSections.webhook.approve')}
+            </Button>
+          </div>
+        )}
+        {isRefused && (
+          <p role="alert" className="text-xs text-destructive">
+            {t('projectSections.webhook.refusedLoopback')}
+          </p>
+        )}
+        {isApproved && (
+          <p role="status" className="text-xs text-success">{t('projectSections.webhook.approved')}</p>
+        )}
+        {isEdited && (
+          <p className="text-xs text-muted-foreground">{t('projectSections.webhook.fallbackNote')}</p>
         )}
         <p className="text-xs text-muted-foreground">{t('projectSections.webhook.overrideNote')}</p>
         <p className="text-xs text-muted-foreground">{t('projectSections.webhook.storedProtectedNote')}</p>

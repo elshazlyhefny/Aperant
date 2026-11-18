@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import '../../../../shared/i18n';
+import i18n from '../../../../shared/i18n';
 import { BitbucketPullRequests } from '../BitbucketPullRequests';
 
 const getPRs = vi.fn();
@@ -86,5 +87,31 @@ describe('BitbucketPullRequests', () => {
     fireEvent.click(await screen.findByText(/#7 Add thing/));
     fireEvent.click(await screen.findByRole('button', { name: /Start AI review/i }));
     expect(runReview).toHaveBeenCalledWith('p1', 7);
+  });
+
+  it('uses supplied adapters and namespace', async () => {
+    i18n.addResourceBundle(
+      i18n.language || 'en',
+      'fakeprovider',
+      { pullRequests: { empty: 'Nothing in fake provider', openExternal: 'Open in Fake' } },
+      true,
+      true
+    );
+    const listPullRequests = vi.fn().mockResolvedValue({ success: true, data: [] });
+    render(
+      <BitbucketPullRequests
+        projectId="p9"
+        i18nNamespace="fakeprovider"
+        listApi={{
+          listPullRequests,
+          getPullRequest: vi.fn(),
+          getDiff: vi.fn(),
+          postComment: vi.fn()
+        }}
+      />
+    );
+    expect(await screen.findByText('Nothing in fake provider')).toBeInTheDocument();
+    expect(listPullRequests).toHaveBeenCalledWith('p9', 'OPEN');
+    expect(getPRs).not.toHaveBeenCalled();
   });
 });

@@ -5,7 +5,8 @@
  *   1. Parallel candidate generation (BM25 + Dense + Graph)
  *   2. Weighted RRF fusion
  *   2b. Graph neighborhood boost
- *   3. Cross-encoder reranking (top 20 → top 8)
+ *   3. Reranking (top 20 → top 8): Cohere cross-encoder API, or for the
+ *      Ollama provider cosine similarity over stored embeddings (no HTTP)
  *   4. Phase-aware context packing
  */
 
@@ -38,11 +39,24 @@ export interface RetrievalResult {
   formattedContext: string;
 }
 
+// Float32 little-endian BLOB -> number[] (same format as dense-search.ts)
+function deserializeEmbedding(buf: ArrayBuffer | Buffer | Uint8Array): number[] {
+  const view = Buffer.isBuffer(buf) ? buf : Buffer.from(buf as ArrayBuffer);
+  const result: number[] = [];
+  for (let i = 0; i + 4 <= view.length; i += 4) {
+    result.push(view.readFloatLE(i));
+  }
+  return result;
+}
+
 // ============================================================
 // PIPELINE CLASS
 // ============================================================
 
 export class RetrievalPipeline {
+  /** Caches only positive "rows exist" results for dense search, keyed by `${projectId}:${dims}`. */
+  private readonly denseRowsCache = new Map<string, boolean>();
+
   constructor(
     private readonly db: Client,
     private readonly embeddingService: EmbeddingService,
@@ -62,7 +76,8 @@ export class RetrievalPipeline {
     // Stage 1: Parallel candidate generation from all three paths
     const [bm25Results, denseResults, graphResults] = await Promise.all([
       searchBM25(this.db, query, config.projectId, 20),
-      searchDense(this.db, query, this.embeddingService, config.projectId, 256, 30),
+      // zeenha fork: 1024 matches the only stored dims (MemoryService.store writes 1024-dim rows).
+      searchDense(this.db, query, this.embeddingService, config.projectId, 1024, 30, this.denseRowsCache),
       searchGraph(this.db, config.recentFiles ?? [], config.projectId, 15),
     ]);
 
@@ -100,15 +115,30 @@ export class RetrievalPipeline {
       return { memories: [], formattedContext: '' };
     }
 
-    // Stage 3: Cross-encoder reranking (top 20 → top maxResults)
+    // Stage 3: Reranking (top 20 → top maxResults).
+    // Cohere path: cross-encoder API. Ollama path: cosine similarity between
+    // the (cached) query embedding and stored memory embeddings, no HTTP.
     const maxResults = config.maxResults ?? 8;
+    let queryEmbedding: number[] | undefined;
+    let stored = new Map<string, number[]>();
+    if (this.reranker.getProvider() === 'ollama') {
+      try {
+        // Cache hit from searchDense (same text, 256 dims)
+        queryEmbedding = await this.embeddingService.embed(query, 256);
+      } catch {
+        queryEmbedding = undefined;
+      }
+      stored = await this.fetchStoredEmbeddings(memories.map((m) => m.id));
+    }
     const reranked = await this.reranker.rerank(
       query,
       memories.map((m) => ({
         memoryId: m.id,
         content: `[${m.type}] ${m.relatedFiles.join(', ')}: ${m.content}`,
+        embedding: stored.get(m.id),
       })),
       maxResults,
+      { queryEmbedding },
     );
 
     // Re-order memories by reranker score
@@ -147,6 +177,26 @@ export class RetrievalPipeline {
       return ids.map((id) => byId.get(id)).filter((m): m is Memory => m !== undefined);
     } catch {
       return [];
+    }
+  }
+
+  private async fetchStoredEmbeddings(ids: string[]): Promise<Map<string, number[]>> {
+    const out = new Map<string, number[]>();
+    if (ids.length === 0) return out;
+
+    try {
+      const placeholders = ids.map(() => '?').join(',');
+      const result = await this.db.execute({
+        sql: `SELECT memory_id, embedding FROM memory_embeddings WHERE memory_id IN (${placeholders})`,
+        args: ids,
+      });
+      for (const row of result.rows) {
+        if (!row.embedding) continue;
+        out.set(row.memory_id as string, deserializeEmbedding(row.embedding as ArrayBuffer));
+      }
+      return out;
+    } catch {
+      return new Map();
     }
   }
 

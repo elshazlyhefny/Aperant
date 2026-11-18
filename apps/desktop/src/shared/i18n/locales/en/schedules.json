@@ -79,15 +79,20 @@
     "pause": "Pause",
     "resume": "Resume",
     "delete": "Delete",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "retry": "Retry"
   },
   "delete": {
     "title": "Delete schedule?",
     "description": "\"{{name}}\" will be removed. Tasks it already created are kept."
   },
   "errors": {
-    "saveFailed": "Could not save the schedule"
+    "saveFailed": "Could not save the schedule",
+    "loadFailed": "Could not load schedules",
+    "actionFailed": "That action failed. Try again.",
+    "deleteFailed": "Could not delete the schedule"
   },
+  "loading": "Loading schedules...",
   "banner": {
     "title": "Needs your attention"
   },

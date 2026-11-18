@@ -15,6 +15,29 @@ export interface DenseResult {
 }
 
 /**
+ * Check whether any non-deprecated memory in the project has an embedding at `dims`.
+ * On query error returns true so callers fall back to the normal search path.
+ */
+export async function hasEmbeddingsForDims(
+  db: Client,
+  projectId: string,
+  dims: number,
+): Promise<boolean> {
+  try {
+    const result = await db.execute({
+      sql: `SELECT 1 FROM memory_embeddings me
+        JOIN memories m ON me.memory_id = m.id
+        WHERE m.project_id = ? AND m.deprecated = 0 AND me.dims = ?
+        LIMIT 1`,
+      args: [projectId, dims],
+    });
+    return result.rows.length > 0;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Search memories using dense vector similarity.
  *
  * Attempts sqlite-vec vector_distance_cos first; falls back to JS-side
@@ -24,17 +47,28 @@ export interface DenseResult {
  * @param query - Query text to embed and search with
  * @param embeddingService - Service for computing query embedding
  * @param projectId - Scope search to this project
- * @param dims - Embedding dimension: 256 for fast candidate gen, 1024 for precision
+ * @param dims - Embedding dimension. Stored rows are 1024-dim (MemoryService.store is
+ *   the only writer), so the query must use the same dims (default 1024).
  * @param limit - Maximum number of results to return
+ * @param rowsKnownCache - Optional cache of positive "rows exist" results, keyed by
+ *   `${projectId}:${dims}`. Negatives are never cached (a memory may be stored later).
  */
 export async function searchDense(
   db: Client,
   query: string,
   embeddingService: EmbeddingService,
   projectId: string,
-  dims: 256 | 1024 = 256,
+  dims: 256 | 1024 = 1024,
   limit: number = 30,
+  rowsKnownCache?: Map<string, boolean>,
 ): Promise<DenseResult[]> {
+  // Skip embedding and vector queries entirely when nothing was stored at these dims.
+  const cacheKey = `${projectId}:${dims}`;
+  if (!rowsKnownCache?.get(cacheKey)) {
+    if (!(await hasEmbeddingsForDims(db, projectId, dims))) return [];
+    rowsKnownCache?.set(cacheKey, true);
+  }
+
   const queryEmbedding = await embeddingService.embed(query, dims);
 
   // Attempt libsql native vector_distance_cos query.

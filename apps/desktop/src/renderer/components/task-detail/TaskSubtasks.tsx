@@ -56,16 +56,16 @@ export function TaskSubtasks({ task }: TaskSubtasksProps) {
       {task.subtasks.length === 0 ? (
         <div className="text-center py-12">
           <ListChecks className="h-10 w-10 mx-auto mb-3 text-muted-foreground/30" />
-          <p className="text-sm font-medium text-muted-foreground mb-1">No subtasks defined</p>
+          <p className="text-sm font-medium text-muted-foreground mb-1">{t('tasks:subtasks.empty')}</p>
           <p className="text-xs text-muted-foreground/70">
-            Implementation subtasks will appear here after planning
+            {t('tasks:subtasks.emptyHint')}
           </p>
         </div>
       ) : (
         <>
           {/* Progress summary */}
           <div className="flex items-center justify-between text-xs text-muted-foreground pb-2 border-b border-border/50">
-            <span>{task.subtasks.filter(c => c.status === 'completed').length} of {task.subtasks.length} completed</span>
+            <span>{t('tasks:subtasks.progressSummary', { completed: task.subtasks.filter(c => c.status === 'completed').length, total: task.subtasks.length })}</span>
             <div className="flex items-center gap-2">
               <span className="tabular-nums">{progress}%</span>
               <button
@@ -153,7 +153,7 @@ export function TaskSubtasks({ task }: TaskSubtasksProps) {
                     )}
                     {subtask.verification && (
                       <div className="mt-2 text-xs text-muted-foreground/80">
-                        <span className="font-medium">Verification:</span> {subtask.verification.type}
+                        <span className="font-medium">{t('tasks:subtasks.verification')}</span> {subtask.verification.type}
                         {subtask.verification.run && (
                           <code className="ml-1 text-[11px] bg-muted px-1 py-0.5 rounded">{subtask.verification.run}</code>
                         )}
