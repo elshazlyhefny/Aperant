@@ -48,6 +48,11 @@ export interface HeadlessWritebackConfig {
     transitionOnReview?: boolean;
     transitionStatusName?: string;
   };
+  azureBoards?: {
+    enabled?: boolean;
+    transitionOnReview?: boolean;
+    transitionStateName?: string;
+  };
 }
 
 export interface HeadlessConfig {
@@ -197,6 +202,28 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
         parsed.transitionStatusName = jira.transitionStatusName;
       }
       writeback.jira = parsed;
+    }
+    const azureBoards = raw.writeback.azureBoards;
+    if (azureBoards !== undefined) {
+      if (!isRecord(azureBoards)) {
+        throw new Error(`Config file ${configPath}: writeback.azureBoards must be an object`);
+      }
+      const parsed: NonNullable<HeadlessWritebackConfig['azureBoards']> = {};
+      for (const key of ['enabled', 'transitionOnReview'] as const) {
+        const value = azureBoards[key];
+        if (value === undefined) continue;
+        if (typeof value !== 'boolean') {
+          throw new Error(`Config file ${configPath}: writeback.azureBoards.${key} must be a boolean`);
+        }
+        parsed[key] = value;
+      }
+      if (azureBoards.transitionStateName !== undefined) {
+        if (typeof azureBoards.transitionStateName !== 'string') {
+          throw new Error(`Config file ${configPath}: writeback.azureBoards.transitionStateName must be a string`);
+        }
+        parsed.transitionStateName = azureBoards.transitionStateName;
+      }
+      writeback.azureBoards = parsed;
     }
     config.writeback = writeback;
   }
