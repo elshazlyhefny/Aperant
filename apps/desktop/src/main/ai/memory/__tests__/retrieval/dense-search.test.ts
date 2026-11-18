@@ -95,9 +95,11 @@ describe('searchDense', () => {
 
     const spy = vi.spyOn(client, 'execute');
     await searchDense(client, 'q', svc, PROJECT, 1024, 30, cache);
-    const existenceCalls = spy.mock.calls.filter((c) =>
-      String((c[0] as { sql: string }).sql).includes('SELECT 1 FROM memory_embeddings'),
-    );
+    const existenceCalls = spy.mock.calls.filter((c) => {
+      const stmt: unknown = c[0];
+      const sql = typeof stmt === 'string' ? stmt : String((stmt as { sql?: string }).sql);
+      return sql.includes('SELECT 1 FROM memory_embeddings');
+    });
     expect(existenceCalls).toHaveLength(0);
   });
 
