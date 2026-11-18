@@ -21,7 +21,14 @@ export function getGitHubDir(project: Project): string {
 /**
  * Provider whose PR reviews the logs belong to
  */
-export type PRLogProvider = "github" | "bitbucket";
+export type PRLogProvider = "github" | "bitbucket" | "azuredevops";
+
+/** Live-update IPC channel per provider */
+const LOGS_UPDATED_CHANNEL: Record<PRLogProvider, string> = {
+  github: IPC_CHANNELS.GITHUB_PR_LOGS_UPDATED,
+  bitbucket: IPC_CHANNELS.BITBUCKET_PR_LOGS_UPDATED,
+  azuredevops: IPC_CHANNELS.AZUREDEVOPS_PR_LOGS_UPDATED,
+};
 
 /**
  * Get the per-provider directory for a project (.auto-claude/<provider>)
@@ -677,10 +684,7 @@ export class PRLogCollector {
       this.sentStatus[phase] = log.status;
     }
 
-    const channel =
-      this.provider === "bitbucket"
-        ? IPC_CHANNELS.BITBUCKET_PR_LOGS_UPDATED
-        : IPC_CHANNELS.GITHUB_PR_LOGS_UPDATED;
+    const channel = LOGS_UPDATED_CHANNEL[this.provider];
     this.mainWindow.webContents.send(channel, this.project.id, {
       prNumber: this.logs.pr_number,
       phaseStatus: {

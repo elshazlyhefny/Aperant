@@ -58,6 +58,11 @@ export function bbReviewRef(prId: number): string {
   return `refs/aperant/pr-review/bb-${prId}`;
 }
 
+/** zeenha fork: Azure DevOps has no `refs/pull` ref either; fetch from the source branch or sha. */
+export function adoReviewRef(prId: number): string {
+  return `refs/aperant/pr-review/ado-${prId}`;
+}
+
 interface CheckoutSpec {
   number: number;
   /** Refspecs tried in order; the first whose fetch succeeds (and matches expectedSha) wins. */
@@ -216,6 +221,47 @@ export function prepareBitbucketReviewCheckout(
     privateRef,
     label: 'PR',
     dirPrefix: 'bb',
+  });
+}
+
+export interface AzureDevOpsCheckoutInput {
+  prId: number;
+  sourceBranch: string;
+  headSha: string;
+  /** True when the PR's source lives in a forked repository. */
+  isFork: boolean;
+}
+
+/**
+ * zeenha fork: check out an Azure DevOps PR's head. Fetches only from the
+ * configured remote; a fork PR or a head that moved after the API read falls
+ * back to the base checkout rather than reviewing a different commit.
+ */
+export function prepareAzureDevOpsReviewCheckout(
+  projectDir: string,
+  { prId, sourceBranch, headSha, isFork }: AzureDevOpsCheckoutInput,
+  remote = 'origin',
+): Promise<PRReviewCheckout> {
+  if (!isSafeBranchName(sourceBranch)) {
+    return Promise.resolve({ kind: 'base', reason: 'the PR source branch name is not usable' });
+  }
+  if (!/^[0-9a-f]{40}$/i.test(headSha)) {
+    return Promise.resolve({ kind: 'base', reason: 'the PR head commit sha is not valid' });
+  }
+  if (isFork) {
+    return Promise.resolve({
+      kind: 'base',
+      reason: 'the PR comes from a fork, which is not fetched (no credentials are sent to other repositories)',
+    });
+  }
+  const privateRef = adoReviewRef(prId);
+  return prepareReviewCheckout(projectDir, remote, {
+    number: prId,
+    fetchAttempts: [`+refs/heads/${sourceBranch}:${privateRef}`, `+${headSha}:${privateRef}`],
+    expectedSha: headSha,
+    privateRef,
+    label: 'PR',
+    dirPrefix: 'ado',
   });
 }
 
