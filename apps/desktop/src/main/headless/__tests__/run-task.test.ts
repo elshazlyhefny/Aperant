@@ -416,3 +416,72 @@ describe('runHeadlessTask outcome webhook', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('runHeadlessTask source write-back', () => {
+  const ON = { writeback: { github: true } };
+  let reportOutcome: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    reportOutcome = vi.fn().mockResolvedValue(undefined);
+    vi.stubEnv('APERANT_WEBHOOK_URL', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const runWb = (overrides: Partial<Parameters<typeof runHeadlessTask>[0]> = {}) =>
+    run({ config: ON, reportOutcome: reportOutcome as never, ...overrides });
+
+  it.each([
+    ['success', [{ type: 'QA_PASSED', prUrl: 'https://github.com/o/r/pull/1' }], 0, 'review_ready'],
+    ['qa_failed', [{ type: 'QA_MAX_ITERATIONS' }], 2, 'blocked'],
+    ['error', [{ type: 'PLANNING_FAILED', error: 'no plan' }], 1, 'failed'],
+  ])('reports %s with the right event', async (_name, events, code, event) => {
+    makeSpec();
+    script(events as Array<Record<string, unknown>>);
+    expect(await runWb()).toBe(code);
+    expect(reportOutcome).toHaveBeenCalledOnce();
+    const input = reportOutcome.mock.calls[0][0];
+    expect(input.event).toBe(event);
+    expect(input.title).toBe('Demo');
+    expect(input.specDirs).toEqual([
+      path.join(projectDir, '.auto-claude/specs/001-demo'),
+      path.join(projectDir, '.auto-claude/worktrees/tasks/001-demo/.auto-claude/specs/001-demo'),
+    ]);
+    expect(input.project.path).toBe(projectDir);
+    if (_name === 'success') expect(input.prUrl).toBe('https://github.com/o/r/pull/1');
+  });
+
+  it('reports a setup failure with only the main spec dir', async () => {
+    makeSpec();
+    mockResolveAuth.mockRejectedValue(new Error('No credentials found.'));
+    expect(await runWb()).toBe(1);
+    expect(reportOutcome).toHaveBeenCalledOnce();
+    expect(reportOutcome.mock.calls[0][0].event).toBe('failed');
+    expect(reportOutcome.mock.calls[0][0].specDirs).toEqual([path.join(projectDir, '.auto-claude/specs/001-demo')]);
+  });
+
+  it('does not report when write-back is off', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED' }]);
+    expect(await runWb({ config: {} })).toBe(0);
+    expect(reportOutcome).not.toHaveBeenCalled();
+  });
+
+  it('does not report when sendWriteback is false', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED' }]);
+    expect(await runWb({ sendWriteback: false })).toBe(0);
+    expect(reportOutcome).not.toHaveBeenCalled();
+  });
+
+  it('keeps the exit code when the dispatcher throws', async () => {
+    makeSpec();
+    script([{ type: 'QA_MAX_ITERATIONS' }]);
+    reportOutcome.mockRejectedValue(new Error('boom'));
+    expect(await runWb()).toBe(2);
+    expect(reportOutcome).toHaveBeenCalledOnce();
+  });
+});
+

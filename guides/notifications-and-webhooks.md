@@ -181,6 +181,38 @@ Behaviour to know:
 - Delivery runs before the process exits and can add up to about 30 seconds to a run when the receiver is down.
 - A webhook problem never changes the exit code. An invalid URL or a failed delivery prints a line starting with `warning:` on stderr and the run result stays as it was. The URL is not printed.
 
+## Reporting back to the issue tracker (write-back)
+
+`cli.js run` and `cli.js serve` can also report a task's outcome back to the issue it was imported from: a comment, and for Jira an optional move to the review status. This is separate from the webhook and has its own `writeback` key in the `--config` file. Everything is off by default.
+
+```json
+{
+  "writeback": {
+    "github": true,
+    "gitlab": false,
+    "linear": false,
+    "jira": {
+      "enabled": true,
+      "comment": true,
+      "transitionOnReview": true,
+      "transitionStatusName": "In Review"
+    }
+  }
+}
+```
+
+- `github`, `gitlab` and `linear` are booleans. `jira` is an object with `enabled`, `comment`, `transitionOnReview` and `transitionStatusName` (the name of the Jira status to move the issue to).
+- Credentials come from the project's `.auto-claude/.env`:
+  - GitHub: `GITHUB_TOKEN` and `GITHUB_REPO`.
+  - GitLab: `GITLAB_TOKEN`, `GITLAB_PROJECT` and `GITLAB_INSTANCE_URL`.
+  - Linear: `LINEAR_API_KEY`.
+  - Jira: `JIRA_SITE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN`.
+- In CI, where there is no `.auto-claude/.env`, `GITHUB_TOKEN` or `GH_TOKEN` (GitHub) and `GITLAB_TOKEN` (GitLab) are also read from the process environment.
+- Only tasks imported from that issue tracker are reported. The tracker is taken from `sourceType` in the task's `task_metadata.json`. Tasks created any other way are skipped.
+- `run` reports after the webhook is sent. `serve` reports once the task's final status is known.
+- A run that was interrupted is not reported.
+- A write-back problem never changes the exit code. A failure prints a line starting with `warning:` on stderr.
+
 ## Security: user-level only
 
 The app-wide webhook lives only in the app's own Settings. It is never read from `.aperant.json`, the project `.env` or any other file in a repository. A repository must not be able to send task data to an address it chooses.

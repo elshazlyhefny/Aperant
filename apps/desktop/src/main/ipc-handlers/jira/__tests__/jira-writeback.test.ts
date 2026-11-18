@@ -12,16 +12,18 @@ let specDirs: string[] = [];
 vi.mock('../../../settings-utils', () => ({ readSettingsFile: (...a: unknown[]) => readSettingsFile(...a) }));
 vi.mock('../jira-config', () => ({ getJiraConfig: (...a: unknown[]) => getJiraConfig(...a) }));
 vi.mock('../../../task-failure-facts', () => ({ taskSpecDirs: () => specDirs }));
-vi.mock('../../../app-logger', () => ({ appLog: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 vi.mock('../jira-client', async (orig) => ({
   ...(await orig<typeof import('../jira-client')>()),
   addIssueComment: (...a: unknown[]) => addIssueComment(...a),
   transitionIssue: (...a: unknown[]) => transitionIssue(...a),
 }));
 
-import { buildJiraComment } from '../jira-writeback';
+import { buildJiraComment, jiraWriter } from '../jira-writeback';
 import { dispatchIssueOutcome } from '../../issue-writeback/issue-writeback';
-import { jiraWriter } from '../../forge/jira-writer';
+import { appLogPort, setLogger } from '../../../log-port';
+
+const defaultLogger = { ...appLogPort };
+const warnMock = vi.fn();
 
 const SITE = 'https://acme.atlassian.net';
 let dir: string;
@@ -48,8 +50,13 @@ beforeEach(() => {
   getJiraConfig.mockReturnValue({ siteUrl: SITE, email: 'a@b.c', token: 'tok' });
   addIssueComment.mockReset().mockResolvedValue(undefined);
   transitionIssue.mockReset().mockResolvedValue({ transitioned: true });
+  warnMock.mockReset();
+  setLogger({ ...defaultLogger, warn: (...a: unknown[]) => warnMock(...a) });
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  setLogger(defaultLogger);
+  rmSync(dir, { recursive: true, force: true });
+});
 
 async function run(event: 'review_ready' | 'failed' | 'blocked' = 'review_ready') {
   dispatchIssueOutcome({ task, project, event });
@@ -143,6 +150,7 @@ describe('dispatchIssueOutcome for jira', () => {
     addIssueComment.mockRejectedValue(new Error('boom'));
     await run();
     expect(transitionIssue).toHaveBeenCalledTimes(1);
+    expect(warnMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not throw on malformed metadata', async () => {

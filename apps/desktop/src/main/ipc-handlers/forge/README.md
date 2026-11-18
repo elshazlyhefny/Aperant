@@ -21,6 +21,18 @@ to the registry here. They never name a provider.
   issue writeback, so the registry does not list them as writers.
 - Linear and Jira are writeback-only trackers (`OutcomeWriter` only, no PRs).
 
+## Electron-free writers
+
+`github-writer.ts`, `gitlab-writer.ts`, `linear-writer.ts` and `jira-writer.ts`
+hold the outcome writers without importing Electron. `github-forge.ts` /
+`gitlab-forge.ts` build their `postOutcome` from the factories with the desktop
+config resolvers (gh/glab token fallback), and `jira/jira-writeback.ts` builds
+the desktop Jira writer with a loader that reads the settings file.
+`headless-writers.ts` builds the CLI set from `.env` plus the process
+environment, with the Jira settings from the CLI config. Both sides dispatch
+through `issue-writeback/issue-writeback-core.ts`. `postOutcome` returns a promise that never rejects, so
+headless callers can await it.
+
 ## Adding a provider
 
 1. Create one file in `forge/` (e.g. `bitbucket-forge.ts`) implementing `Forge`

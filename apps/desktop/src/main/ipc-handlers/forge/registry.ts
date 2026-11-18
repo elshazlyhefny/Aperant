@@ -7,7 +7,7 @@ import { azureDevOpsForge } from './azuredevops-forge';
 import { bitbucketForge } from './bitbucket-forge';
 import { githubForge } from './github-forge';
 import { gitlabForge } from './gitlab-forge';
-import { jiraWriter } from './jira-writer';
+import { jiraWriter } from '../jira/jira-writeback';
 import { linearWriter } from './linear-writer';
 import { isOutcomeWriter, type OutcomeWriter, type PRHost, type PRRef } from './types';
 

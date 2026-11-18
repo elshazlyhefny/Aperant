@@ -18,17 +18,20 @@ let specDirs: string[] = [];
 
 vi.mock('../../../settings-utils', () => ({ readSettingsFile: (...a: unknown[]) => readSettingsFile(...a) }));
 vi.mock('../../../task-failure-facts', () => ({ taskSpecDirs: () => specDirs }));
-vi.mock('../../../app-logger', () => ({
-  appLog: { warn: (...a: unknown[]) => warnMock(...a), info: vi.fn(), error: vi.fn() }
-}));
 vi.mock('../../github/utils', async (orig) => ({
   ...(await orig<typeof import('../../github/utils')>()),
-  getGitHubConfig: (...a: unknown[]) => getGitHubConfig(...a),
+  getGitHubConfig: (...a: unknown[]) => getGitHubConfig(...a)
+}));
+vi.mock('../../github/github-api', async (orig) => ({
+  ...(await orig<typeof import('../../github/github-api')>()),
   githubFetch: (...a: unknown[]) => githubFetch(...a)
 }));
 vi.mock('../../gitlab/utils', async (orig) => ({
   ...(await orig<typeof import('../../gitlab/utils')>()),
-  getGitLabConfig: (...a: unknown[]) => getGitLabConfig(...a),
+  getGitLabConfig: (...a: unknown[]) => getGitLabConfig(...a)
+}));
+vi.mock('../../gitlab/gitlab-api', async (orig) => ({
+  ...(await orig<typeof import('../../gitlab/gitlab-api')>()),
   gitlabFetch: (...a: unknown[]) => gitlabFetch(...a)
 }));
 vi.mock('../../jira/jira-config', () => ({ getJiraConfig: (...a: unknown[]) => getJiraConfig(...a) }));
@@ -44,6 +47,9 @@ vi.mock('../../linear-client', () => ({
 
 import { dispatchIssueOutcome } from '../issue-writeback';
 import { buildOutcomeComment } from '../common';
+import { appLogPort, setLogger } from '../../../log-port';
+
+const defaultLogger = { ...appLogPort };
 
 const TOKEN = 'secret-token-123';
 const PR = 'https://github.com/o/r/pull/1';
@@ -84,8 +90,12 @@ beforeEach(() => {
   getJiraConfig.mockReturnValue({ siteUrl: 'https://acme.atlassian.net', email: 'a@b.c', token: TOKEN });
   addIssueComment.mockReset().mockResolvedValue(undefined);
   transitionIssue.mockReset().mockResolvedValue({ transitioned: true });
+  setLogger({ ...defaultLogger, warn: (...a: unknown[]) => warnMock(...a) });
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  setLogger(defaultLogger);
+  rmSync(dir, { recursive: true, force: true });
+});
 
 async function run(event: 'review_ready' | 'failed' | 'blocked' | 'pr_opened' = 'review_ready') {
   dispatchIssueOutcome({ task, project, event });

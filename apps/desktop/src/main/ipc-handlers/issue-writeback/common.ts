@@ -5,7 +5,7 @@
 
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
-import type { WebhookEvent } from '../../task-webhook';
+import type { WebhookEvent } from '../../task-webhook-core';
 import { sanitizeUrl } from '../shared/sanitize';
 
 const MAX_TITLE_LENGTH = 200;

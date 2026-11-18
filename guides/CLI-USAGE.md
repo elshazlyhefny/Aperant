@@ -137,6 +137,21 @@ The command never reads the desktop app's settings. Credentials come from the en
 
 `webhook` sends a Slack-compatible message when the run ends: `review_ready` on exit 0, `blocked` on exit 2, `failed` on exit 1. The `APERANT_WEBHOOK_URL` environment variable overrides `webhook.url`. A webhook problem never changes the exit code. See [notifications-and-webhooks.md](notifications-and-webhooks.md#headless-runs-clijs-run).
 
+`writeback` reports the outcome back to the issue tracker the task was imported from. It is off by default, applies to both `run` and `serve`, and never changes the exit code. Credentials come from the project's `.auto-claude/.env`. Example:
+
+```json
+{
+  "writeback": {
+    "github": true,
+    "gitlab": false,
+    "linear": false,
+    "jira": { "enabled": false, "comment": true, "transitionOnReview": false, "transitionStatusName": "In Review" }
+  }
+}
+```
+
+See [notifications-and-webhooks.md](notifications-and-webhooks.md#reporting-back-to-the-issue-tracker-write-back) for the credentials, CI fallbacks and rules.
+
 ### Token budget
 
 The budget comes only from the spec's `task_metadata.json`, key `tokenBudget`, at `.auto-claude/specs/<id>/task_metadata.json` in the project directory (`--project`). There is no project default: the CLI never reads the app's project settings, and the `--config` file has no budget key.

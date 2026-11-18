@@ -3,16 +3,16 @@
  *
  * zeenha fork: reports to the same Jira site/issue the user imported from, using
  * the credentials already used for import. The switch lives in user settings only
- * (default off). Comments are built from allow-listed fields only; errors, paths,
- * logs and tokens are never sent or logged. Nothing here throws.
+ * (default off). This is the desktop side: it reads the settings file and builds
+ * the registry's Jira writer from the Electron-free forge/jira-writer.ts.
+ * Nothing here throws.
  */
 
 import type { JiraWritebackSettings } from '../../../shared/types/settings';
 import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
-import { appLog } from '../../app-logger';
 import { readSettingsFile } from '../../settings-utils';
+import { createJiraWriter } from '../forge/jira-writer';
 import { type OutcomeEvent, buildOutcomeComment } from '../issue-writeback/common';
-import { JiraAPIError } from './jira-client';
 
 export function buildJiraComment(input: { event: OutcomeEvent; taskTitle?: string; prUrl?: string }): string {
   return buildOutcomeComment(input.event, input.taskTitle, input.prUrl);
@@ -30,13 +30,5 @@ export function loadSettings(): JiraWritebackSettings {
   };
 }
 
-export function warn(event: string, issueKey: string, what: string, err: unknown): void {
-  try {
-    const detail = err instanceof JiraAPIError
-      ? `${err.message}${err.statusCode ? ` (HTTP ${err.statusCode})` : ''}`
-      : err instanceof Error ? err.name : 'UnknownError';
-    appLog.warn(`[JiraWriteback] ${what} failed event=${event} issue=${issueKey} reason=${detail}`);
-  } catch {
-    // never throw from logging
-  }
-}
+/** The desktop Jira writer, registered in forge/registry.ts. */
+export const jiraWriter = createJiraWriter(loadSettings);

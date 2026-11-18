@@ -31,6 +31,43 @@ describe('loadHeadlessConfig', () => {
     expect(loadHeadlessConfig(file).webhook).toEqual({ url: 'not a url', events: { failed: false, prOpened: true } });
   });
 
+  it('parses the writeback section and ignores unknown keys', () => {
+    const file = path.join(dir, 'wb.json');
+    writeFileSync(file, JSON.stringify({
+      writeback: { github: true, linear: false, other: 1, jira: { enabled: true, transitionStatusName: 'Done', extra: 1 } }
+    }));
+    expect(loadHeadlessConfig(file).writeback).toEqual({
+      github: true,
+      linear: false,
+      jira: { enabled: true, transitionStatusName: 'Done' }
+    });
+  });
+
+  it('leaves writeback undefined by default', () => {
+    const file = path.join(dir, 'nowb.json');
+    writeFileSync(file, JSON.stringify({}));
+    expect(loadHeadlessConfig(file).writeback).toBeUndefined();
+  });
+
+  it('rejects a mistyped writeback section', () => {
+    const bad = path.join(dir, 'wbbad.json');
+    const cases: [unknown, RegExp][] = [
+      ['x', /writeback must be an object/],
+      [{ github: 'yes' }, /writeback\.github must be a boolean/],
+      [{ gitlab: 1 }, /writeback\.gitlab must be a boolean/],
+      [{ linear: {} }, /writeback\.linear must be a boolean/],
+      [{ jira: 'x' }, /writeback\.jira must be an object/],
+      [{ jira: { enabled: 'x' } }, /writeback\.jira\.enabled must be a boolean/],
+      [{ jira: { comment: 1 } }, /writeback\.jira\.comment must be a boolean/],
+      [{ jira: { transitionOnReview: 'y' } }, /writeback\.jira\.transitionOnReview must be a boolean/],
+      [{ jira: { transitionStatusName: 5 } }, /writeback\.jira\.transitionStatusName must be a string/]
+    ];
+    for (const [writeback, message] of cases) {
+      writeFileSync(bad, JSON.stringify({ writeback }));
+      expect(() => loadHeadlessConfig(bad)).toThrow(message);
+    }
+  });
+
   it('rejects a mistyped webhook section', () => {
     const bad = path.join(dir, 'wbad.json');
     const cases: [unknown, RegExp][] = [

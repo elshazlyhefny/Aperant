@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { notConfiguredBlockedReason } from '../../../../shared/types/pr-feedback';
 import { loadPRFeedback } from '../../task/pr-feedback-source';
-import { jiraWriter } from '../jira-writer';
+import { jiraWriter } from '../../jira/jira-writeback';
 import { createForgeRegistry, getForgeForPrUrl, getOutcomeWriter } from '../registry';
 import type { Forge } from '../types';
 

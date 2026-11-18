@@ -3,8 +3,8 @@
  * issue-writeback/common.ts so the Jira writeback does not start importing app-logger.
  */
 
-import { appLog } from '../../app-logger';
-import { GitLabAPIError } from '../gitlab/utils';
+import { appLogPort } from '../../log-port';
+import { GitLabAPIError } from '../gitlab/gitlab-api';
 
 export function warn(provider: string, event: string, ref: string, err: unknown, what = 'comment'): void {
   try {
@@ -15,7 +15,7 @@ export function warn(provider: string, event: string, ref: string, err: unknown,
       // githubFetch embeds the response body in its message, so only the name is logged
       detail = err.name;
     }
-    appLog.warn(`[IssueWriteback] ${provider} ${what} failed event=${event} issue=${ref} reason=${detail}`);
+    appLogPort.warn(`[IssueWriteback] ${provider} ${what} failed event=${event} issue=${ref} reason=${detail}`);
   } catch {
     // never throw from logging
   }

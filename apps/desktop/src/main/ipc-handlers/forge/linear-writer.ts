@@ -63,6 +63,6 @@ export const linearWriter: OutcomeWriter = {
         warn('linear', event, issueId, err, 'transition');
       }
     };
-    void run().catch(() => undefined);
+    return run().catch(() => undefined);
   }
 };

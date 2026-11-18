@@ -19,7 +19,11 @@ export type ForgeLoadResult =
   | { ok: true; fetched: PRFeedbackFetchResult }
   | { ok: false; code: 'not_configured'; error: string };
 
-/** Posts a task outcome comment to the issue a task came from. Fire-and-forget, never throws. */
+/**
+ * Posts a task outcome comment to the issue a task came from. Never throws.
+ * The returned promise never rejects: the desktop ignores it (fire-and-forget),
+ * headless callers (the CLI) await it so the process does not exit mid-request.
+ */
 export interface OutcomeWriter {
   /** Value of task_metadata.json `sourceType` this writer handles. */
   sourceType: string;
@@ -36,7 +40,7 @@ export interface OutcomeWriter {
     event: WebhookEvent;
     text: string;
     settings: IssueWritebackSettings;
-  }): void;
+  }): void | Promise<void>;
 }
 
 /** A code host's pull requests: resolves its PR/MR URLs and loads CI + review feedback. */

@@ -1,0 +1,54 @@
+/**
+ * Electron-free core of the issue write-back dispatcher.
+ *
+ * zeenha fork: raw settings, metadata and writers are injected so the CLI can
+ * reuse it. Writers are matched by the sourceType they declare and enabled by
+ * their isEnabled hook or settingKey; this file does not name providers.
+ * Nothing here throws.
+ */
+
+import type { Project } from '../../../shared/types';
+import type { AppSettings, IssueWritebackSettings } from '../../../shared/types/settings';
+import { normalizeIssueWritebackSettings } from '../../../shared/utils/issue-writeback-settings';
+import type { WebhookEvent } from '../../task-webhook-core';
+import type { OutcomeWriter } from '../forge/types';
+import { buildOutcomeComment } from './common';
+
+export function isWriterEnabled(
+  writer: OutcomeWriter,
+  raw: Partial<AppSettings>,
+  settings: IssueWritebackSettings
+): boolean {
+  if (writer.isEnabled) return writer.isEnabled(raw) === true;
+  return writer.settingKey !== undefined && settings[writer.settingKey] === true;
+}
+
+/** True when at least one writer is switched on, so callers can skip reading metadata. */
+export function anyWriterEnabled(writers: readonly OutcomeWriter[], raw: Partial<AppSettings>): boolean {
+  const settings = normalizeIssueWritebackSettings(raw.issueWriteback);
+  return writers.some((writer) => isWriterEnabled(writer, raw, settings));
+}
+
+export async function dispatchIssueOutcomeWith(input: {
+  title?: string;
+  prUrl?: string;
+  project: Project;
+  event: WebhookEvent;
+  meta: Record<string, unknown> | null;
+  /** The raw settings object (desktop settings file, or one built from the headless config). */
+  raw: Partial<AppSettings>;
+  writers: readonly OutcomeWriter[];
+}): Promise<void> {
+  try {
+    const { title, prUrl, project, event, meta, raw, writers } = input;
+    if (event === 'pr_opened' || !meta) return;
+    const writer = writers.find((w) => w.sourceType === String(meta.sourceType));
+    if (!writer) return;
+    const settings = normalizeIssueWritebackSettings(raw.issueWriteback);
+    if (!isWriterEnabled(writer, raw, settings)) return;
+    const text = buildOutcomeComment(event, title, prUrl);
+    await writer.postOutcome({ meta, project, event, text, settings });
+  } catch {
+    // never let write-back problems affect task flow
+  }
+}
