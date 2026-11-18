@@ -11,6 +11,7 @@ import * as crypto from 'crypto';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { getClaudeProfileManager, initializeClaudeProfileManager } from '../claude-profile-manager';
 import { getFullCredentialsFromKeychain, clearKeychainCache, updateProfileSubscriptionMetadata } from '../claude-profile/credential-utils';
+import type { FullOAuthCredentials } from '../claude-profile/credential-utils';
 import { getEmailFromConfigDir } from '../claude-profile/profile-utils';
 import * as OutputParser from './output-parser';
 import * as SessionHandler from './session-handler';
@@ -133,6 +134,89 @@ function maskEmail(email: string | null | undefined): string {
   const maskedDomain = domainName.charAt(0) + '***' + tld;
 
   return `${maskedLocal}@${maskedDomain}`;
+}
+
+type ClaudeProfileManager = ReturnType<typeof getClaudeProfileManager>;
+type ClaudeProfile = NonNullable<ReturnType<ClaudeProfileManager['getProfile']>>;
+
+/**
+ * Resolve the email to store for a profile.
+ *
+ * The config file is the authoritative email source because terminal parsing
+ * can be corrupted by ANSI escape codes.
+ *
+ * @param candidate - Email parsed from terminal output or read from the keychain
+ * @param configDir - The profile's Claude config directory
+ * @returns The config file email when present, otherwise the candidate (or undefined)
+ */
+function resolveProfileEmail(
+  candidate: string | null | undefined,
+  configDir: string | undefined
+): string | undefined {
+  const configEmail = getEmailFromConfigDir(configDir);
+  if (configEmail) {
+    if (!candidate) {
+      console.warn('[ClaudeIntegration] Email not found in output/keychain, using config file:', maskEmail(configEmail));
+      return configEmail;
+    }
+    if (configEmail !== candidate) {
+      console.warn('[ClaudeIntegration] Email from output differs from config file, using config file:', {
+        outputEmail: maskEmail(candidate),
+        configEmail: maskEmail(configEmail)
+      });
+      return configEmail;
+    }
+  }
+  return candidate ?? undefined;
+}
+
+/**
+ * Mark a profile as authenticated and persist it.
+ *
+ * NOTE: We intentionally do NOT store the OAuth token in the profile.
+ * Storing causes AutoClaude to use a stale cached token instead of letting
+ * Claude CLI read fresh tokens from Keychain (which auto-refreshes).
+ * See: docs/LONG_LIVED_AUTH_PLAN.md for full context.
+ *
+ * @param profileManager - The Claude profile manager
+ * @param profile - The profile to update
+ * @param email - Email to set on the profile (left unchanged when empty)
+ * @param subscriptionSource - Config dir or pre-fetched credentials for subscription metadata
+ * @returns The profile's saved email
+ */
+function markProfileAuthenticated(
+  profileManager: ClaudeProfileManager,
+  profile: ClaudeProfile,
+  email: string | undefined,
+  subscriptionSource: string | undefined | FullOAuthCredentials
+): string | undefined {
+  if (email) {
+    profile.email = email;
+  }
+  updateProfileSubscriptionMetadata(profile, subscriptionSource);
+  profile.isAuthenticated = true;
+  profileManager.saveProfile(profile);
+  clearKeychainCache(profile.configDir);
+  return profile.email;
+}
+
+/**
+ * Send an OAuth token result event to the renderer.
+ *
+ * @param getWindow - Function returning the main window
+ * @param terminalId - Terminal the event relates to
+ * @param payload - Event fields other than terminalId and detectedAt
+ */
+function notifyOAuthResult(
+  getWindow: WindowGetter,
+  terminalId: string,
+  payload: Omit<OAuthTokenEvent, 'terminalId' | 'detectedAt'>
+): void {
+  safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OAUTH_TOKEN, {
+    terminalId,
+    ...payload,
+    detectedAt: new Date().toISOString()
+  } as OAuthTokenEvent);
 }
 
 function normalizePathForBash(envPath: string): string {
