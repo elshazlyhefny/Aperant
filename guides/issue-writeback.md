@@ -131,7 +131,7 @@ The token must be allowed to comment on issues. For Jira, moving an issue also n
 Logging:
 
 - The text of the comment is not logged. The token, the request body and the response text are never logged.
-- When a post fails, one warning line is written to the app log with the provider, the event, the issue reference and the reason. The reason is an error name or an HTTP status. The formats are:
+- When a post fails, one warning line is written to the app log with the provider, the event, the issue reference and the reason. The reason is an error name, with the HTTP status added for GitLab and Jira API errors (for Jira API errors the error message is used in place of the name). The formats are:
 
 ```
 [IssueWriteback] <provider> comment failed event=<event> issue=<ref> reason=<...>
