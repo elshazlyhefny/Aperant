@@ -166,7 +166,15 @@ describe('RetrievalPipeline', () => {
     ).resolves.not.toThrow();
   });
 
-  it('calls embedding service for dense search', async () => {
+  it('calls embedding service at 1024 dims for dense search when embeddings are stored', async () => {
+    await seedMemory(client, 'mem-emb', 'architecture notes', 'proj-a');
+    const buf = Buffer.alloc(1024 * 4);
+    await client.execute({
+      sql: `INSERT INTO memory_embeddings (memory_id, embedding, model_id, dims, created_at)
+        VALUES (?, ?, 'test', 1024, ?)`,
+      args: ['mem-emb', buf, new Date().toISOString()],
+    });
+
     const embeddingService = makeMockEmbeddingService();
     const reranker = new Reranker('none');
     const pipeline = new RetrievalPipeline(client, embeddingService, reranker);
@@ -176,7 +184,21 @@ describe('RetrievalPipeline', () => {
       projectId: 'proj-a',
     });
 
-    expect(embeddingService.embed).toHaveBeenCalled();
+    expect(embeddingService.embed).toHaveBeenCalledWith('semantic query about architecture', 1024);
+  });
+
+  it('skips query embedding when no embeddings are stored', async () => {
+    await seedMemory(client, 'mem-noemb', 'architecture notes', 'proj-a');
+    const embeddingService = makeMockEmbeddingService();
+    const reranker = new Reranker('none');
+    const pipeline = new RetrievalPipeline(client, embeddingService, reranker);
+
+    await pipeline.search('semantic query about architecture', {
+      phase: 'explore',
+      projectId: 'proj-a',
+    });
+
+    expect(embeddingService.embed).not.toHaveBeenCalled();
   });
 
   it('works with different phases', async () => {

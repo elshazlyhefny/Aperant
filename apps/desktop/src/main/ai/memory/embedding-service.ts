@@ -9,7 +9,7 @@
  *   5. Degraded hash-based fallback (no semantic similarity — install Ollama model to improve)
  *
  * Uses contextual embeddings: file/module context prepended to every embed call.
- * Supports MRL (Matryoshka) dimensions: 256-dim for candidate gen, 1024-dim for storage.
+ * Supports MRL (Matryoshka) dimensions: 1024-dim is stored and searched; 256-dim truncation is supported but not persisted.
  * Caches embeddings in the embedding_cache table with 7-day TTL.
  */
 
@@ -351,7 +351,8 @@ export class EmbeddingService {
    * Checks cache first; writes to cache on miss.
    *
    * @param text - The text to embed (should already be contextually formatted)
-   * @param dims - Target dimension: 256 for Stage 1 candidate gen, 1024 for storage (default)
+   * @param dims - Target dimension. 1024 (default) is what is stored and searched.
+   *   256 is a truncated MRL variant that is supported but not persisted.
    */
   async embed(text: string, dims: 256 | 1024 = 1024): Promise<number[]> {
     const modelId = this.getModelId(dims);
