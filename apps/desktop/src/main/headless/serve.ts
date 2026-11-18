@@ -9,6 +9,10 @@
  * run the same queue at once. SIGTERM/SIGINT stop the runs, put the tasks back to
  * 'queue' with stuck subtasks reset (resumable) and release the lock.
  *
+ * `stop-spec` drops a request file in .auto-claude/.locks/; the daemon polls it on
+ * its safety timer and stops that one run, leaving the task in human_review
+ * ('stopped') or, with requeue, back in the queue. Other runs are not touched.
+ *
  * Do not import electron, project-store, app-logger or settings-utils here.
  */
 
@@ -32,6 +36,7 @@ import { loadHeadlessConfig } from './config';
 import type { HeadlessConfig } from './config';
 import { EXIT_ERROR } from './outcome';
 import { runHeadlessTaskDetailed } from './run-task';
+import { consumeStopRequests } from './stop-request';
 import type { HeadlessBridge, HeadlessRunResult } from './run-task';
 import {
   createScheduledTaskSpec,
@@ -76,9 +81,11 @@ export interface ServeOptions {
   dispatchWebhook?: typeof dispatchTaskOutcomeWebhookWith;
   dispatchWriteback?: typeof reportOutcomeToSource;
   lockOptions?: QueueLockOptions;
+  /** Interval of the safety queue pass and stop-request poll. Defaults to 30s. */
+  safetyIntervalMs?: number;
 }
 
-type StopReason = 'budget' | 'shutdown';
+type StopReason = 'budget' | 'shutdown' | 'stop' | 'stop-requeue';
 
 interface ActiveRun {
   controller: AbortController;
@@ -197,6 +204,12 @@ export async function runServe(options: ServeOptions): Promise<number> {
   }
   rmSync(runningFile, { force: true });
 
+  // A request left by a previous daemon must not be applied to a later run
+  const staleRequests = consumeStopRequests(projectPath, log);
+  if (staleRequests.length > 0) {
+    log(`Discarded ${staleRequests.length} stale stop request(s)`);
+  }
+
   const dispatchWebhook = options.dispatchWebhook ?? dispatchTaskOutcomeWebhookWith;
   const dispatchWriteback = options.dispatchWriteback ?? reportOutcomeToSource;
 
@@ -217,8 +230,11 @@ export async function runServe(options: ServeOptions): Promise<number> {
     let reviewReason: ReviewReason | undefined;
     let interrupted = false;
     let reason: string | undefined = failure;
+    const stoppedByRequest = run.stopReason === 'stop' || run.stopReason === 'stop-requeue';
 
-    if (result?.aborted && run.stopReason !== 'budget') {
+    if (stoppedByRequest) {
+      interrupted = true;
+    } else if (result?.aborted && run.stopReason !== 'budget') {
       interrupted = true;
     } else if (result?.aborted && run.stopReason === 'budget') {
       reason = 'token budget reached';
@@ -234,7 +250,14 @@ export async function runServe(options: ServeOptions): Promise<number> {
     }
 
     try {
-      if (interrupted) {
+      if (run.stopReason === 'stop') {
+        await resetPlans(taskId);
+        await setTaskStatus(headlessProject, taskId, 'human_review', 'stopped');
+        log(`${taskId} stopped by request`);
+      } else if (run.stopReason === 'stop-requeue') {
+        await requeue(taskId);
+        log(`${taskId} stopped by request, back in the queue`);
+      } else if (interrupted) {
         await requeue(taskId);
         log(`${taskId} interrupted, back in the queue`);
       } else {
@@ -277,7 +300,9 @@ export async function runServe(options: ServeOptions): Promise<number> {
 
     if (!stopping) {
       try {
-        await queue.onTaskStatusChanged(taskId, interrupted ? 'queue' : status, projectId);
+        const newStatus: TaskStatus =
+          run.stopReason === 'stop' ? 'human_review' : interrupted ? 'queue' : status;
+        await queue.onTaskStatusChanged(taskId, newStatus, projectId);
       } catch (error) {
         log(`Queue update failed: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -396,7 +421,23 @@ export async function runServe(options: ServeOptions): Promise<number> {
     tickTimer.unref?.();
     timers.push(tickTimer);
   }
-  const safetyTimer = setInterval(() => void queue.requestProcess(), SAFETY_PROCESS_INTERVAL_MS);
+  const processStopRequests = () => {
+    for (const request of consumeStopRequests(projectPath, log)) {
+      const run = runs.get(request.specId);
+      if (!run) {
+        log(`Stop requested for ${request.specId}, but it is not running`);
+        continue;
+      }
+      run.stopReason = request.requeue ? 'stop-requeue' : 'stop';
+      log(`Stopping ${request.specId}`);
+      run.controller.abort('stop requested');
+    }
+  };
+  const safetyTimer = setInterval(() => {
+    if (stopping) return;
+    void queue.requestProcess();
+    processStopRequests();
+  }, options.safetyIntervalMs ?? SAFETY_PROCESS_INTERVAL_MS);
   // Not unref'd: this timer is what keeps the daemon alive while it is idle
   timers.push(safetyTimer);
 

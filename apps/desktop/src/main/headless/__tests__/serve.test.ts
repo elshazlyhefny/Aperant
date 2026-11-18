@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
@@ -19,6 +19,7 @@ vi.mock('../../ai/prompts/prompt-loader', () => ({ tryLoadPrompt: () => 'PLANNER
 import { runServe, EXIT_LOCKED } from '../serve';
 import type { ServeOptions } from '../serve';
 import type { HeadlessBridge } from '../run-task';
+import { writeStopRequest } from '../stop-request';
 import { acquireProjectQueueLock, getQueueLockPath } from '../../utils/project-queue-lock';
 import type { RecurringSchedule } from '../../../shared/types/schedule';
 
@@ -301,6 +302,106 @@ describe('runServe schedules', () => {
     expect(webhook).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('runServe stop requests', () => {
+  const locksDir = () => path.join(projectDir, '.auto-claude', '.locks');
+  const requestFile = (id: string) => path.join(locksDir(), `stop-request-${id}.json`);
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const byTask = (id: string) => spawned().find((b) => b.taskId === id) as FakeBridge;
+
+  it('stops only the requested task and leaves it in human_review (stopped)', async () => {
+    makeSpec('001-a', 'queue', {
+      phases: [{ name: 'p', subtasks: [{ id: 's1', status: 'completed' }, { id: 's2', status: 'in_progress' }] }],
+    });
+    makeSpec('002-b');
+    const p = serve({ safetyIntervalMs: 20 });
+    await vi.waitFor(() => expect(spawned()).toHaveLength(2));
+    const file = writeStopRequest(projectDir, { specId: '001-a', requeue: false });
+    await vi.waitFor(() => expect(plan('001-a').status).toBe('human_review'));
+    expect(plan('001-a').reviewReason).toBe('stopped');
+    expect(plan('001-a').phases[0].subtasks.map((s: { status: string }) => s.status)).toEqual(['completed', 'pending']);
+    expect(byTask('001-a').terminate).toHaveBeenCalled();
+    expect(byTask('002-b').terminate).not.toHaveBeenCalled();
+    expect(plan('002-b').status).toBe('in_progress');
+    expect(existsSync(file)).toBe(false);
+    expect(out.join('')).toContain('001-a stopped by request');
+    await sleep(150);
+    expect(spawned()).toHaveLength(2);
+    expect(plan('001-a').status).toBe('human_review');
+    expect(webhook).not.toHaveBeenCalled();
+    expect(writeback).not.toHaveBeenCalled();
+    await stop(p);
+  });
+
+  it('requeue: true puts the task back in the queue and the daemon picks it up again', async () => {
+    makeSpec('001-a');
+    const p = serve({ safetyIntervalMs: 20 });
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    writeStopRequest(projectDir, { specId: '001-a', requeue: true });
+    await vi.waitFor(() => expect(spawned()).toHaveLength(2));
+    expect(spawned().map((b) => b.taskId)).toEqual(['001-a', '001-a']);
+    expect(out.join('')).toContain('001-a stopped by request, back in the queue');
+    expect(webhook).not.toHaveBeenCalled();
+    expect(writeback).not.toHaveBeenCalled();
+    await stop(p);
+  });
+
+  it('ignores a request for a task that is not running', async () => {
+    makeSpec('001-a');
+    const p = serve({ safetyIntervalMs: 20 });
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    const file = writeStopRequest(projectDir, { specId: '999-none', requeue: false });
+    await vi.waitFor(() => expect(existsSync(file)).toBe(false));
+    expect(out.join('')).toContain('Stop requested for 999-none, but it is not running');
+    expect(spawned()[0].terminate).not.toHaveBeenCalled();
+    expect(plan('001-a').status).toBe('in_progress');
+    await stop(p);
+  });
+
+  it('ignores bad names, corrupt JSON and symlinks without following them', async () => {
+    makeSpec('001-a');
+    const p = serve({ safetyIntervalMs: 20 });
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    const outside = path.join(projectDir, 'outside.json');
+    writeFileSync(outside, JSON.stringify({ specId: '001-a', requeue: false }));
+    const badName = path.join(locksDir(), 'stop-request-bad name.json');
+    const corrupt = requestFile('002-x');
+    const link = requestFile('001-a');
+    writeFileSync(badName, JSON.stringify({ specId: '001-a', requeue: false }));
+    writeFileSync(corrupt, '{not json');
+    symlinkSync(outside, link);
+    await vi.waitFor(() => {
+      expect(existsSync(badName)).toBe(false);
+      expect(existsSync(corrupt)).toBe(false);
+      expect(lstatSyncOrNull(link)).toBe(false);
+    });
+    expect(existsSync(outside)).toBe(true);
+    expect(spawned()[0].terminate).not.toHaveBeenCalled();
+    expect(plan('001-a').status).toBe('in_progress');
+    await stop(p);
+  });
+
+  it('discards a stale request present before startup', async () => {
+    makeSpec('001-a');
+    const file = writeStopRequest(projectDir, { specId: '001-a', requeue: false });
+    const p = serve({ safetyIntervalMs: 20 });
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    expect(existsSync(file)).toBe(false);
+    await sleep(150);
+    expect(spawned()[0].terminate).not.toHaveBeenCalled();
+    expect(plan('001-a').status).toBe('in_progress');
+    await stop(p);
+  });
+});
+
+function lstatSyncOrNull(file: string): boolean {
+  try {
+    lstatSync(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 describe('runServe source write-back', () => {
   it('writes back once from settle with the event and spec dirs, and the runner does not', async () => {
