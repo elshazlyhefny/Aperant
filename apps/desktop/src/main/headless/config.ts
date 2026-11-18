@@ -31,6 +31,8 @@ export interface HeadlessWebhookConfig {
   /** Daemon only: `serve` sends the webhook only when this is true. `run` ignores it. */
   enabled?: boolean;
   url?: string;
+  /** HMAC signing secret. Config file only for `serve`; `run` also reads APERANT_WEBHOOK_SECRET. */
+  secret?: string;
   events?: Partial<{ reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean }>;
 }
 
@@ -136,16 +138,20 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
     if (!isRecord(raw.webhook)) {
       throw new Error(`Config file ${configPath}: webhook must be an object`);
     }
-    const { enabled, url, events } = raw.webhook;
+    const { enabled, url, secret, events } = raw.webhook;
     if (enabled !== undefined && typeof enabled !== 'boolean') {
       throw new Error(`Config file ${configPath}: webhook.enabled must be a boolean`);
     }
     if (url !== undefined && typeof url !== 'string') {
       throw new Error(`Config file ${configPath}: webhook.url must be a string`);
     }
+    if (secret !== undefined && typeof secret !== 'string') {
+      throw new Error(`Config file ${configPath}: webhook.secret must be a string`);
+    }
     const webhook: HeadlessWebhookConfig = {};
     if (enabled !== undefined) webhook.enabled = enabled;
     if (url !== undefined) webhook.url = url;
+    if (secret !== undefined) webhook.secret = secret;
     if (events !== undefined) {
       if (!isRecord(events)) {
         throw new Error(`Config file ${configPath}: webhook.events must be an object`);

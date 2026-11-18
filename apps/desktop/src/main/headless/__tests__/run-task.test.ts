@@ -409,6 +409,18 @@ describe('runHeadlessTask outcome webhook', () => {
     expect(text).not.toContain('remote.example.com');
   });
 
+  it('redacts the webhook secret from stderr warnings', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED' }]);
+    fetchMock.mockResolvedValue({ status: 500 });
+    // The secret is chosen to appear in the delivery-failure warning text.
+    const config = configWith({ url: HOOK, secret: 'review_ready' });
+    await runHook({ configPath: config });
+    const text = err.join('');
+    expect(text).toContain('webhook delivery failed for event [REDACTED]');
+    expect(text).not.toContain('review_ready');
+  });
+
   it('never calls fetch when no webhook is configured', async () => {
     makeSpec();
     script([{ type: 'QA_PASSED' }]);

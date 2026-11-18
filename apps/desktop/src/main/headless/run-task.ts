@@ -198,6 +198,10 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
         rawErr(redact(`warning: ${resolvedWebhook.warning}\n`));
       } else {
         webhook = resolvedWebhook;
+        if (resolvedWebhook) {
+          secrets.push(resolvedWebhook.url);
+          if (resolvedWebhook.secret) secrets.push(resolvedWebhook.secret);
+        }
       }
     }
     if (options.sendWriteback !== false) {
