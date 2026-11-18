@@ -6,7 +6,7 @@
  */
 
 import { mkdir, writeFile, stat } from 'fs/promises';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import path from 'path';
 import type { Project } from '../../../shared/types';
 import type { GitLabAPIIssue, GitLabAPINoteBasic, GitLabConfig } from './types';
@@ -414,6 +414,25 @@ export async function createSpecForIssue(
       const specNumber = lock.getNextSpecNumber(project.autoBuildPath);
       const newSpecId = buildSpecId(specNumber, safeIssue.title);
       mkdirSync(path.join(specsDir, newSpecId), { recursive: true });
+      // Write metadata.json inside the lock so a concurrent import of the same
+      // issue finds this spec instead of allocating a second one.
+      // CodeQL: network data validated before write - all values derived from sanitized safeIssue fields
+      const metadata = {
+        source: 'gitlab',
+        gitlab: {
+          issueId: safeIssue.id,
+          issueIid: safeIssue.iid,
+          instanceUrl: safeInstanceUrl,
+          project: safeProject,
+          webUrl: safeIssue.web_url,
+          state: safeIssue.state,
+          labels: safeIssue.labels,
+          createdAt: safeIssue.created_at
+        },
+        createdAt: new Date().toISOString(),
+        status: 'pending'
+      };
+      writeFileSync(path.join(specsDir, newSpecId, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
       return { created: newSpecId };
     });
 
@@ -447,32 +466,11 @@ export async function createSpecForIssue(
 
     const specDirName = allocation.created;
     const specDir = path.join(specsDir, specDirName);
-    const metadataPath = path.join(specDir, 'metadata.json');
-
     try {
       // Create TASK.md with issue context (including selected notes)
       // CodeQL: network data validated before write - safeIssue sanitized via sanitizeIssueForSpec()
       const taskContent = buildIssueContext(safeIssue, safeProject, safeInstanceUrl, notes);
       await writeFile(path.join(specDir, 'TASK.md'), taskContent, 'utf-8');
-
-      // Create metadata.json (legacy format for GitLab-specific data)
-      // CodeQL: network data validated before write - all values derived from sanitized safeIssue fields
-      const metadata = {
-        source: 'gitlab',
-        gitlab: {
-          issueId: safeIssue.id,
-          issueIid: safeIssue.iid,
-          instanceUrl: safeInstanceUrl,
-          project: safeProject,
-          webUrl: safeIssue.web_url,
-          state: safeIssue.state,
-          labels: safeIssue.labels,
-          createdAt: safeIssue.created_at
-        },
-        createdAt: new Date().toISOString(),
-        status: 'pending'
-      };
-      await writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
 
       // Create task_metadata.json (consistent with GitHub format for backend compatibility)
       const taskMetadata = {
