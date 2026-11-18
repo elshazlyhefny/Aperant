@@ -295,6 +295,23 @@ npm run cli -- queue <spec> ...
 - `new "<description>" --queue` does the same for a newly created spec, as an alternative to `--run`.
 - Exit codes: 0 (ok) and 1 (error, such as an unknown spec or a task that is not in the backlog).
 
+## Stopping one task
+
+```bash
+node apps/desktop/out/main/cli.js stop <spec> [--requeue] [--project <dir>] [--json]
+
+# or, from apps/desktop
+npm run cli -- stop <spec> ...
+```
+
+`stop <spec>` asks the [`serve` daemon](#running-the-queue-and-schedules-as-a-daemon) of the same project to stop one running task.
+
+- **Transport.** The request is a file in `.auto-claude/.locks`. There is no network port. The daemon picks it up on its 30 second safety interval, so the task can take up to about 30 seconds to stop.
+- **Default.** The task ends as `human_review` with the reason `stopped`, and its stuck subtasks are reset. Resume it later from the app or the command line.
+- **`--requeue`.** The task goes back to the Queue instead, and the daemon starts it again when a slot is free.
+- **Everything else continues.** Other running tasks and the schedules are not affected.
+- Exit codes: 0 (request sent) and 1 (error, including when no daemon holds the project's lock).
+
 ## Running the queue and schedules as a daemon
 
 `serve` runs one project's task queue and its recurring schedules without opening the app, until you stop it. Use it on a server or a machine where the app is not open. It needs the same prerequisites as `run` (Node 22 or newer, a build, a git repository) and the same [credentials](#credentials).
