@@ -40,5 +40,12 @@
     "reason": "needs major Electron upgrade (Electron 42.11.16), tracked as follow-up.",
     "reviewed": "2026-11-09",
     "scope": "runtime"
+  },
+  {
+    "id": "GHSA-fc5q-39xc-vjpf",
+    "package": "picomatch",
+    "reason": "no patched release exists (all versions <= 4.0.7 affected); picomatch is only pulled in by dev tooling (vite, vitest, lint-staged) and is not shipped in the app. Remove once a fixed version is released.",
+    "reviewed": "2026-11-18",
+    "scope": "build-only"
   }
 ]

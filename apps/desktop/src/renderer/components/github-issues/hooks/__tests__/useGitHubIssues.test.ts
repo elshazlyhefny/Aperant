@@ -41,7 +41,7 @@ beforeEach(() => {
 async function mountLoaded() {
   const hook = renderHook(() => useGitHubIssues('p1'));
   await waitFor(() => expect(getGitHubIssues).toHaveBeenCalledTimes(1));
-  expect(getGitHubIssues).toHaveBeenLastCalledWith('p1', 'open', 1, false);
+  expect(getGitHubIssues).toHaveBeenLastCalledWith('p1', 'open', null, false);
   return hook;
 }
 
