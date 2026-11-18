@@ -74,6 +74,7 @@
   },
   "buttons": {
     "runNow": "Run now",
+    "openTask": "Open task",
     "new": "New schedule",
     "edit": "Edit",
     "pause": "Pause",
@@ -91,6 +92,7 @@
   "banner": {
     "title": "Needs your attention"
   },
-  "lastTask": "Last task: {{id}}",
+  "lastTask": "Last task: {{title}}",
+  "lastTaskMissing": "This task no longer exists",
   "badgeLabel": "Unread reports"
 }

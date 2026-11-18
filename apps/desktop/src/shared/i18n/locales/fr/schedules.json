@@ -74,6 +74,7 @@
   },
   "buttons": {
     "runNow": "Lancer maintenant",
+    "openTask": "Ouvrir la tâche",
     "new": "Nouvelle planification",
     "edit": "Modifier",
     "pause": "Mettre en pause",
@@ -91,6 +92,7 @@
   "banner": {
     "title": "Nécessite votre attention"
   },
-  "lastTask": "Dernière tâche : {{id}}",
+  "lastTask": "Dernière tâche : {{title}}",
+  "lastTaskMissing": "Cette tâche n'existe plus",
   "badgeLabel": "Rapports non lus"
 }
