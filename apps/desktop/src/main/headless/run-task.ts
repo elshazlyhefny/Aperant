@@ -41,6 +41,9 @@ import {
   resolveHeadlessWebhook,
 } from './webhook';
 import type { ResolvedHeadlessWebhook } from './webhook';
+import { isWritebackEnabled, reportOutcomeToSource, resolveHeadlessWritebackSettings, writebackEventForOutcome } from './writeback';
+import type { HeadlessWritebackSettings } from './writeback';
+import type { Project } from '../../shared/types';
 
 export type { HeadlessBridge };
 
@@ -69,6 +72,10 @@ export interface HeadlessRunOptions {
   webhookDelay?: (ms: number) => Promise<void>;
   /** Send the outcome webhook (default true). The daemon passes false and sends its own. */
   sendWebhook?: boolean;
+  /** Write the outcome back to the source issue (default true). The daemon passes false and writes back itself. */
+  sendWriteback?: boolean;
+  /** Test-only: replaces the source write-back dispatcher. */
+  reportOutcome?: typeof reportOutcomeToSource;
 }
 
 export interface HeadlessRunResult {
@@ -125,19 +132,45 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
   let webhook: ResolvedHeadlessWebhook | undefined;
   let webhookProject = '';
   let webhookTitle = '';
+  // zeenha fork: source write-back state, filled in alongside the webhook.
+  let writebackSettings: HeadlessWritebackSettings | undefined;
+  let writebackProjectPath = '';
+  let mainSpecDir: string | undefined;
+  let worktreeSpecDirForWriteback: string | undefined;
   const sendOutcome = async (outcome: RunOutcome): Promise<void> => {
-    if (!webhook) return;
+    if (webhook) {
+      try {
+        await notifyHeadlessOutcome({
+          webhook,
+          outcome,
+          projectName: webhookProject,
+          taskTitle: webhookTitle,
+          warn: (message) => rawErr(redact(`warning: ${message}\n`)),
+          delay: options.webhookDelay,
+        });
+      } catch {
+        // The webhook must never change the run result.
+      }
+    }
+    if (!writebackSettings || !mainSpecDir) return;
     try {
-      await notifyHeadlessOutcome({
-        webhook,
-        outcome,
-        projectName: webhookProject,
-        taskTitle: webhookTitle,
+      // Awaited: cli.ts exits right after this function returns.
+      await (options.reportOutcome ?? reportOutcomeToSource)({
+        settings: writebackSettings,
+        project: {
+          id: webhookProject,
+          name: webhookProject,
+          path: writebackProjectPath,
+          autoBuildPath: AUTO_BUILD_PATH,
+        } as Project,
+        specDirs: worktreeSpecDirForWriteback ? [mainSpecDir, worktreeSpecDirForWriteback] : [mainSpecDir],
+        event: writebackEventForOutcome(outcome),
+        title: webhookTitle,
+        prUrl: outcome.prUrl,
         warn: (message) => rawErr(redact(`warning: ${message}\n`)),
-        delay: options.webhookDelay,
       });
     } catch {
-      // The webhook must never change the run result.
+      // Write-back must never change the run result.
     }
   };
 
@@ -149,6 +182,8 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     const resolved = resolveSpec(projectPath, options.spec);
     specId = resolved.specId;
     const specDir = resolved.specDir;
+    writebackProjectPath = projectPath;
+    mainSpecDir = specDir;
     webhookTitle = specId;
     if (!existsSync(specDir) || !statSync(specDir).isDirectory() || !existsSync(path.join(specDir, 'spec.md'))) {
       throw new HeadlessSetupError(`Spec not found: ${path.join(specDir, 'spec.md')} does not exist`);
@@ -164,6 +199,10 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       } else {
         webhook = resolvedWebhook;
       }
+    }
+    if (options.sendWriteback !== false) {
+      const resolvedWriteback = resolveHeadlessWritebackSettings(config);
+      if (isWritebackEnabled(resolvedWriteback)) writebackSettings = resolvedWriteback;
     }
     const settings = resolveProjectSettings(projectPath, config, {
       baseBranch: options.baseBranch,
@@ -197,6 +236,7 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       );
     }
     const worktreeSpecDir = path.join(worktreePath, getSpecsDir(AUTO_BUILD_PATH), specId);
+    worktreeSpecDirForWriteback = worktreeSpecDir;
 
     // (5) session config, as in startTaskExecution
     const systemPrompt = tryLoadPrompt('planner') ?? buildDefaultPlannerPrompt(specId, projectPath);

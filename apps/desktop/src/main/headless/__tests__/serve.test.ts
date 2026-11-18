@@ -45,6 +45,7 @@ let out: string[];
 let err: string[];
 let signalHandler: ((s: string) => void) | undefined;
 let webhook: ReturnType<typeof vi.fn>;
+let writeback: ReturnType<typeof vi.fn>;
 
 function specDir(id: string) {
   return path.join(projectDir, '.auto-claude', 'specs', id);
@@ -84,6 +85,7 @@ function serve(overrides: Partial<ServeOptions> = {}, limit = 2) {
       };
     },
     dispatchWebhook: webhook as never,
+    dispatchWriteback: writeback as never,
     shutdownTimeoutMs: 2000,
     ...overrides,
   });
@@ -99,6 +101,7 @@ beforeEach(() => {
   err = [];
   signalHandler = undefined;
   webhook = vi.fn();
+  writeback = vi.fn().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -298,3 +301,57 @@ describe('runServe schedules', () => {
     expect(webhook).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('runServe source write-back', () => {
+  it('writes back once from settle with the event and spec dirs, and the runner does not', async () => {
+    makeSpec('001-a');
+    const p = serve({ config: { writeback: { github: true } } });
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    spawned()[0].finish([{ type: 'QA_MAX_ITERATIONS' }]);
+    await vi.waitFor(() => expect(writeback).toHaveBeenCalledTimes(1));
+    const input = writeback.mock.calls[0][0];
+    expect(input.event).toBe('blocked');
+    expect(input.title).toBe('001-a');
+    expect(input.specDirs).toContain(specDir('001-a'));
+    expect(input.settings.issue.github).toBe(true);
+    await stop(p);
+    expect(writeback).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps success to review_ready and an error to failed', async () => {
+    makeSpec('001-a');
+    makeSpec('002-b');
+    const p = serve();
+    await vi.waitFor(() => expect(spawned()).toHaveLength(2));
+    const byTask = (id: string) => spawned().find((b) => b.taskId === id) as FakeBridge;
+    byTask('001-a').finish([{ type: 'QA_PASSED' }]);
+    byTask('002-b').finish([{ type: 'CODING_FAILED', error: 'x' }]);
+    await vi.waitFor(() => expect(writeback).toHaveBeenCalledTimes(2));
+    const events = writeback.mock.calls.map((c) => [c[0].title, c[0].event]);
+    expect(events).toContainEqual(['001-a', 'review_ready']);
+    expect(events).toContainEqual(['002-b', 'failed']);
+    await stop(p);
+  });
+
+  it('does not write back for an interrupted run', async () => {
+    makeSpec('001-a');
+    const p = serve();
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    signalHandler?.('SIGTERM');
+    await p;
+    expect(writeback).not.toHaveBeenCalled();
+  });
+
+  it('still sends the webhook when write-back throws', async () => {
+    makeSpec('001-a');
+    writeback.mockRejectedValue(new Error('boom'));
+    const p = serve();
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    spawned()[0].finish([{ type: 'QA_PASSED' }]);
+    await vi.waitFor(() => expect(writeback).toHaveBeenCalledTimes(1));
+    expect(webhook).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(out.join('')).toContain('Write-back for 001-a failed'));
+    await stop(p);
+  });
+});
+

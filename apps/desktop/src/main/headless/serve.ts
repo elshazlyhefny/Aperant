@@ -3,7 +3,8 @@
  *
  * Runs TaskQueueManager and the schedule service without Electron. Queued and
  * scheduled tasks are started with the headless runner, their outcomes are
- * persisted in the plan files and reported through the outcome webhook. The
+ * persisted in the plan files and reported through the outcome webhook and, when
+ * configured, written back to the source issue (GitHub, GitLab, Linear, Jira). The
  * daemon owns the project's queue lock, so the desktop app and the daemon never
  * run the same queue at once. SIGTERM/SIGINT stop the runs, put the tasks back to
  * 'queue' with stuck subtasks reset (resumable) and release the lock.
@@ -26,7 +27,7 @@ import { writeFileAtomicSync } from '../utils/atomic-file';
 import { acquireProjectQueueLock, formatLockHolder } from '../utils/project-queue-lock';
 import type { QueueLockOptions } from '../utils/project-queue-lock';
 import { findAllSpecPaths } from '../utils/spec-path-helpers';
-import { dispatchTaskOutcomeWebhookWith } from '../webhook-core';
+import { dispatchTaskOutcomeWebhookWith, mapOutcomeToWebhookEvent } from '../webhook-core';
 import { loadHeadlessConfig } from './config';
 import type { HeadlessConfig } from './config';
 import { EXIT_ERROR } from './outcome';
@@ -41,6 +42,8 @@ import {
 import type { HeadlessProject } from './task-store';
 import { AUTO_BUILD_PATH, findGitRoot } from './shared';
 import { resolveServeWebhookSettings } from './webhook';
+import { reportOutcomeToSource, resolveHeadlessWritebackSettings } from './writeback';
+import type { HeadlessWritebackSettings } from './writeback';
 
 export const EXIT_LOCKED = 3;
 
@@ -71,6 +74,7 @@ export interface ServeOptions {
   /** Registers the signal handler; returns the uninstall function. Defaults to process SIGTERM/SIGINT. */
   installSignalHandlers?: (onSignal: (signal: string) => void) => () => void;
   dispatchWebhook?: typeof dispatchTaskOutcomeWebhookWith;
+  dispatchWriteback?: typeof reportOutcomeToSource;
   lockOptions?: QueueLockOptions;
 }
 
@@ -111,10 +115,12 @@ export async function runServe(options: ServeOptions): Promise<number> {
   let projectPath: string;
   let config: HeadlessConfig;
   let webhookSettings: WebhookSettings;
+  let writebackSettings: HeadlessWritebackSettings;
   try {
     projectPath = findGitRoot(path.resolve(options.projectPath));
     config = options.config ?? loadHeadlessConfig(options.configPath);
     webhookSettings = resolveServeWebhookSettings(config);
+    writebackSettings = resolveHeadlessWritebackSettings(config);
   } catch (error) {
     rawErr(`${error instanceof Error ? error.message : String(error)}\n`);
     return EXIT_ERROR;
@@ -192,6 +198,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
   rmSync(runningFile, { force: true });
 
   const dispatchWebhook = options.dispatchWebhook ?? dispatchTaskOutcomeWebhookWith;
+  const dispatchWriteback = options.dispatchWriteback ?? reportOutcomeToSource;
 
   // (4) queue and schedules
   const getTasks = (): Task[] => listHeadlessTasks(headlessProject);
@@ -252,6 +259,20 @@ export async function runServe(options: ServeOptions): Promise<number> {
       } catch (error) {
         log(`Webhook for ${taskId} failed: ${error instanceof Error ? error.message : String(error)}`);
       }
+      try {
+        // Awaited, so shutdown (which waits on run.done) does not drop a pending write.
+        await dispatchWriteback({
+          settings: writebackSettings,
+          project,
+          specDirs: findAllSpecPaths(projectPath, specsBaseDir, taskId, '[headless-serve]'),
+          event: mapOutcomeToWebhookEvent(status, reviewReason) ?? 'failed',
+          title: run.title,
+          prUrl: result?.outcome?.prUrl,
+          warn: log,
+        });
+      } catch (error) {
+        log(`Write-back for ${taskId} failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     if (!stopping) {
@@ -295,6 +316,8 @@ export async function runServe(options: ServeOptions): Promise<number> {
             handleProcessSignals: false,
             // The daemon sends its own webhook in settle(), once the final status is known.
             sendWebhook: false,
+            // Same for the source write-back.
+            sendWriteback: false,
             baseBranch: options.baseBranch,
             noPush: options.noPush,
             json: options.json,
