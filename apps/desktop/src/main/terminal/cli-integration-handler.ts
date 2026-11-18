@@ -572,6 +572,126 @@ export function handleRateLimit(
 }
 
 /**
+ * Handle "Login successful" detection for the claude /login flow.
+ * This is the primary detection method since tokens aren't displayed in output.
+ */
+function handleLoginSuccess(
+  terminal: TerminalProcess,
+  profileId: string,
+  getWindow: WindowGetter
+): void {
+  console.warn('[ClaudeIntegration] Login success detected for profile:', profileId);
+
+  const emailFromOutput = OutputParser.extractEmail(terminal.outputBuffer);
+  const profileManager = getClaudeProfileManager();
+  const profile = profileManager.getProfile(profileId);
+
+  if (!profile) {
+    console.error('[ClaudeIntegration] Profile not found for login success:', profileId);
+    return;
+  }
+
+  // Clear Keychain cache to get fresh credentials
+  clearKeychainCache(profile.configDir);
+
+  // Extract full credentials from Keychain including subscriptionType and rateLimitTier
+  const keychainCreds = getFullCredentialsFromKeychain(profile.configDir);
+
+  // Check if there was a keychain access error (not just "not found")
+  if (keychainCreds.error) {
+    console.error('[ClaudeIntegration] Keychain access error:', keychainCreds.error);
+    // Don't retry on keychain failures - they won't resolve with retries
+    return;
+  }
+
+  if (keychainCreds.token) {
+    const email = resolveProfileEmail(emailFromOutput || keychainCreds.email, profile.configDir);
+    const savedEmail = markProfileAuthenticated(profileManager, profile, email, keychainCreds);
+
+    console.warn('[ClaudeIntegration] Profile credentials verified via Keychain (not caching token):', profileId);
+
+    // Mark onboarding complete so future `claude` invocations skip the wizard.
+    // `claude auth login` creates .claude.json but doesn't set this flag.
+    if (profile.configDir) {
+      ensureOnboardingComplete(profile.configDir);
+    }
+
+    notifyOAuthResult(getWindow, terminal.id, { profileId, email: savedEmail, success: true });
+    return;
+  }
+
+  // Token not in Keychain yet, but profile may still be authenticated via configDir
+  if (profileManager.hasValidAuth(profileId)) {
+    console.warn('[ClaudeIntegration] Profile credentials verified (no Keychain token):', profileId);
+
+    // Mark onboarding complete so future `claude` invocations skip the wizard
+    if (profile.configDir) {
+      ensureOnboardingComplete(profile.configDir);
+    }
+
+    // This branch intentionally does not save the profile or mark it authenticated.
+    notifyOAuthResult(getWindow, terminal.id, {
+      profileId,
+      email: resolveProfileEmail(emailFromOutput, profile.configDir) ?? profile.email,
+      success: true
+    });
+  } else {
+    console.warn('[ClaudeIntegration] Login successful but Keychain token not found and no credentials in configDir - user may need to complete authentication manually');
+  }
+}
+
+/**
+ * Handle a raw OAuth token found in terminal output (legacy method).
+ * The token itself is never stored - see docs/LONG_LIVED_AUTH_PLAN.md.
+ */
+function handleLegacyToken(
+  terminal: TerminalProcess,
+  profileId: string | null,
+  getWindow: WindowGetter
+): void {
+  const outputEmail = OutputParser.extractEmail(terminal.outputBuffer);
+  const profileManager = getClaudeProfileManager();
+
+  if (profileId) {
+    const profile = profileManager.getProfile(profileId);
+
+    if (!profile) {
+      console.error('[ClaudeIntegration] Profile not found for OAuth token:', profileId);
+      return;
+    }
+
+    const email = resolveProfileEmail(outputEmail, profile.configDir);
+    const savedEmail = markProfileAuthenticated(profileManager, profile, email, profile.configDir);
+    console.warn('[ClaudeIntegration] Profile credentials verified (not caching token):', profileId);
+
+    notifyOAuthResult(getWindow, terminal.id, { profileId, email: savedEmail, success: true });
+    return;
+  }
+
+  // No profile-specific terminal, update active profile metadata (GitHub OAuth flow, etc.)
+  console.warn('[ClaudeIntegration] OAuth token detected in non-profile terminal, updating active profile metadata');
+  const activeProfile = profileManager.getActiveProfile();
+
+  // Defensive null check for active profile
+  if (!activeProfile) {
+    console.error('[ClaudeIntegration] Failed to update profile: no active profile found');
+    notifyOAuthResult(getWindow, terminal.id, {
+      profileId: undefined,
+      email: outputEmail ?? undefined,
+      success: false,
+      message: 'No active profile found'
+    });
+    return;
+  }
+
+  const email = resolveProfileEmail(outputEmail, activeProfile.configDir);
+  const savedEmail = markProfileAuthenticated(profileManager, activeProfile, email, activeProfile.configDir);
+  console.warn('[ClaudeIntegration] Active profile credentials verified (not caching token):', activeProfile.name);
+
+  notifyOAuthResult(getWindow, terminal.id, { profileId: activeProfile.id, email: savedEmail, success: true });
+}
+
+/**
  * Handle OAuth token detection and auto-save
  * Also handles "Login successful" detection for claude /login flow
  */
@@ -583,106 +703,8 @@ export function handleOAuthToken(
   // Extract profile ID from auth terminal ID pattern (if this is an auth terminal)
   const profileId = extractProfileIdFromAuthTerminalId(terminal.id);
 
-  // First check for "Login successful" message (claude /login flow)
-  // This is the primary detection method since tokens aren't displayed in output
   if (OutputParser.hasLoginSuccess(data) && profileId) {
-    console.warn('[ClaudeIntegration] Login success detected for profile:', profileId);
-
-    const emailFromOutput = OutputParser.extractEmail(terminal.outputBuffer);
-    const profileManager = getClaudeProfileManager();
-    const profile = profileManager.getProfile(profileId);
-
-    if (!profile) {
-      console.error('[ClaudeIntegration] Profile not found for login success:', profileId);
-      return;
-    }
-
-    // Clear Keychain cache to get fresh credentials
-    clearKeychainCache(profile.configDir);
-
-    // Extract full credentials from Keychain including subscriptionType and rateLimitTier
-    const keychainCreds = getFullCredentialsFromKeychain(profile.configDir);
-
-    // Check if there was a keychain access error (not just "not found")
-    if (keychainCreds.error) {
-      console.error('[ClaudeIntegration] Keychain access error:', keychainCreds.error);
-      // Don't retry on keychain failures - they won't resolve with retries
-      return;
-    }
-
-    if (keychainCreds.token) {
-      // NOTE: We intentionally do NOT store the OAuth token in the profile.
-      // Storing causes AutoClaude to use a stale cached token instead of letting
-      // Claude CLI read fresh tokens from Keychain (which auto-refreshes).
-      // See: docs/LONG_LIVED_AUTH_PLAN.md for full context.
-
-      // Get email from multiple sources, preferring config file as the authoritative source
-      // Terminal output parsing can be corrupted by ANSI escape codes
-      let email = emailFromOutput || keychainCreds.email;
-
-      // Fallback/validation: Read from Claude's config file (authoritative source)
-      const configEmail = getEmailFromConfigDir(profile.configDir);
-      if (configEmail) {
-        if (!email) {
-          console.warn('[ClaudeIntegration] Email not found in output/keychain, using config file:', maskEmail(configEmail));
-          email = configEmail;
-        } else if (configEmail !== email) {
-          // Config file email is different (terminal extraction might be corrupt)
-          console.warn('[ClaudeIntegration] Email from output differs from config file, using config file:', {
-            outputEmail: maskEmail(email),
-            configEmail: maskEmail(configEmail)
-          });
-          email = configEmail;
-        }
-      }
-
-      if (email) {
-        profile.email = email;
-      }
-      // Update subscription metadata from Keychain credentials
-      updateProfileSubscriptionMetadata(profile, keychainCreds);
-      profile.isAuthenticated = true;
-      profileManager.saveProfile(profile);
-
-      console.warn('[ClaudeIntegration] Profile credentials verified via Keychain (not caching token):', profileId);
-
-      // Mark onboarding complete so future `claude` invocations skip the wizard.
-      // `claude auth login` creates .claude.json but doesn't set this flag.
-      if (profile.configDir) {
-        ensureOnboardingComplete(profile.configDir);
-      }
-
-      safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OAUTH_TOKEN, {
-        terminalId: terminal.id,
-        profileId,
-        email: emailFromOutput || keychainCreds.email || profile?.email,
-        success: true,
-        detectedAt: new Date().toISOString()
-      } as OAuthTokenEvent);
-    } else {
-      // Token not in Keychain yet, but profile may still be authenticated via configDir
-      // Check if profile has valid auth (credentials exist in configDir)
-      const hasCredentials = profileManager.hasValidAuth(profileId);
-
-      if (hasCredentials) {
-        console.warn('[ClaudeIntegration] Profile credentials verified (no Keychain token):', profileId);
-
-        // Mark onboarding complete so future `claude` invocations skip the wizard
-        if (profile.configDir) {
-          ensureOnboardingComplete(profile.configDir);
-        }
-
-        safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OAUTH_TOKEN, {
-          terminalId: terminal.id,
-          profileId,
-          email: emailFromOutput || profile?.email,
-          success: true,
-          detectedAt: new Date().toISOString()
-        } as OAuthTokenEvent);
-      } else {
-        console.warn('[ClaudeIntegration] Login successful but Keychain token not found and no credentials in configDir - user may need to complete authentication manually');
-      }
-    }
+    handleLoginSuccess(terminal, profileId, getWindow);
     return;
   }
 
@@ -693,108 +715,7 @@ export function handleOAuthToken(
   }
 
   console.warn('[ClaudeIntegration] OAuth token detected in output');
-
-  let email = OutputParser.extractEmail(terminal.outputBuffer);
-
-  if (profileId) {
-    // Update profile metadata (but NOT the token - see docs/LONG_LIVED_AUTH_PLAN.md)
-    const profileManager = getClaudeProfileManager();
-    const profile = profileManager.getProfile(profileId);
-
-    if (profile) {
-      // Fallback/validation: Read email from Claude's config file (authoritative source)
-      const configEmail = getEmailFromConfigDir(profile.configDir);
-      if (configEmail) {
-        if (!email) {
-          console.warn('[ClaudeIntegration] Email not found in output, using config file:', maskEmail(configEmail));
-          email = configEmail;
-        } else if (configEmail !== email) {
-          console.warn('[ClaudeIntegration] Email from output differs from config file, using config file:', {
-            outputEmail: maskEmail(email),
-            configEmail: maskEmail(configEmail)
-          });
-          email = configEmail;
-        }
-      }
-
-      if (email) {
-        profile.email = email;
-      }
-      // Update subscription metadata from Keychain credentials
-      updateProfileSubscriptionMetadata(profile, profile.configDir);
-      profile.isAuthenticated = true;
-      profileManager.saveProfile(profile);
-
-      // Clear keychain cache so next getCredentialsFromKeychain() fetches fresh token
-      clearKeychainCache(profile.configDir);
-      console.warn('[ClaudeIntegration] Profile credentials verified (not caching token):', profileId);
-
-      safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OAUTH_TOKEN, {
-        terminalId: terminal.id,
-        profileId,
-        email,
-        success: true,
-        detectedAt: new Date().toISOString()
-      } as OAuthTokenEvent);
-    } else {
-      console.error('[ClaudeIntegration] Profile not found for OAuth token:', profileId);
-    }
-  } else {
-    // No profile-specific terminal, update active profile metadata (GitHub OAuth flow, etc.)
-    // NOTE: We do NOT store the token - see docs/LONG_LIVED_AUTH_PLAN.md
-    console.warn('[ClaudeIntegration] OAuth token detected in non-profile terminal, updating active profile metadata');
-    const profileManager = getClaudeProfileManager();
-    const activeProfile = profileManager.getActiveProfile();
-
-    // Defensive null check for active profile
-    if (!activeProfile) {
-      console.error('[ClaudeIntegration] Failed to update profile: no active profile found');
-      safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OAUTH_TOKEN, {
-        terminalId: terminal.id,
-        profileId: undefined,
-        email,
-        success: false,
-        message: 'No active profile found',
-        detectedAt: new Date().toISOString()
-      } as OAuthTokenEvent);
-      return;
-    }
-
-    // Fallback/validation: Read email from Claude's config file (authoritative source)
-    const configEmail = getEmailFromConfigDir(activeProfile.configDir);
-    if (configEmail) {
-      if (!email) {
-        console.warn('[ClaudeIntegration] Email not found in output, using config file:', maskEmail(configEmail));
-        email = configEmail;
-      } else if (configEmail !== email) {
-        console.warn('[ClaudeIntegration] Email from output differs from config file, using config file:', {
-          outputEmail: maskEmail(email),
-          configEmail: maskEmail(configEmail)
-        });
-        email = configEmail;
-      }
-    }
-
-    if (email) {
-      activeProfile.email = email;
-    }
-    // Update subscription metadata from Keychain credentials
-    updateProfileSubscriptionMetadata(activeProfile, activeProfile.configDir);
-    activeProfile.isAuthenticated = true;
-    profileManager.saveProfile(activeProfile);
-
-    // Clear keychain cache so next getCredentialsFromKeychain() fetches fresh token
-    clearKeychainCache(activeProfile.configDir);
-    console.warn('[ClaudeIntegration] Active profile credentials verified (not caching token):', activeProfile.name);
-
-    safeSendToRenderer(getWindow, IPC_CHANNELS.TERMINAL_OAUTH_TOKEN, {
-      terminalId: terminal.id,
-      profileId: activeProfile.id,
-      email,
-      success: true,
-      detectedAt: new Date().toISOString()
-    } as OAuthTokenEvent);
-  }
+  handleLegacyToken(terminal, profileId, getWindow);
 }
 
 /**
