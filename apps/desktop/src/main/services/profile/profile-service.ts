@@ -8,16 +8,90 @@
  * Uses atomic operations with file locking to prevent TOCTOU race conditions.
  */
 
-import Anthropic, {
-  AuthenticationError,
-  NotFoundError,
-  APIConnectionError,
-  APIConnectionTimeoutError
-} from '@anthropic-ai/sdk';
-
 import { loadProfilesFile, generateProfileId, atomicModifyProfiles } from './api-profile-store';
 import { withKeyStatusReset } from '../../../shared/utils/api-key-status';
 import type { APIProfile, TestConnectionResult, ModelInfo, DiscoverModelsResult } from '@shared/types/profile';
+
+/** Error categories shared by testConnection and discoverModels */
+type ProfileErrorKind = 'auth' | 'endpoint' | 'timeout' | 'network' | 'unknown';
+
+const PROFILE_REQUEST_TIMEOUT_MS = 10000;
+const ANTHROPIC_VERSION = '2023-06-01';
+
+const PROFILE_ERROR_MESSAGES: Record<Exclude<ProfileErrorKind, 'endpoint'>, string> = {
+  auth: 'Authentication failed. Please check your API key.',
+  timeout: 'Connection timeout. The endpoint did not respond.',
+  network: 'Network error. Please check your internet connection.',
+  unknown: 'Connection test failed. Please try again.'
+};
+
+/** Request failed before an HTTP response was received */
+class ProfileRequestError extends Error {
+  constructor(public readonly kind: ProfileErrorKind) {
+    super(`Profile request failed: ${kind}`);
+    this.name = 'ProfileRequestError';
+  }
+}
+
+/** Release the connection when the response body is not going to be read */
+async function discardBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Body already consumed or closed; nothing to release
+  }
+}
+
+/**
+ * fetch against an Anthropic-compatible endpoint with the 10 s timeout and no retries.
+ * Does not throw on non-2xx; throws ProfileRequestError for timeout/network/user abort.
+ */
+async function anthropicFetch(
+  url: string,
+  apiKey: string,
+  options: { method?: 'GET' | 'POST'; body?: unknown; signal?: AbortSignal } = {}
+): Promise<Response> {
+  const timeoutSignal = AbortSignal.timeout(PROFILE_REQUEST_TIMEOUT_MS);
+  const combined = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+  const headers: Record<string, string> = {
+    'x-api-key': apiKey,
+    'anthropic-version': ANTHROPIC_VERSION,
+    accept: 'application/json'
+  };
+  if (options.body !== undefined) {
+    headers['content-type'] = 'application/json';
+  }
+
+  try {
+    return await fetch(url, {
+      method: options.method ?? 'GET',
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: combined
+    });
+  } catch {
+    if (options.signal?.aborted) {
+      throw new ProfileRequestError('unknown'); // user abort, like the SDK's APIUserAbortError
+    }
+    if (timeoutSignal.aborted) {
+      throw new ProfileRequestError('timeout');
+    }
+    throw new ProfileRequestError('network');
+  }
+}
+
+/** Map an HTTP status of a failed response to an error kind */
+function mapStatusToErrorKind(status: number): ProfileErrorKind {
+  if (status === 401) return 'auth';
+  if (status === 404) return 'endpoint';
+  return 'unknown';
+}
+
+/** Map a thrown value from anthropicFetch to an error kind */
+function mapFailureToErrorKind(error: unknown): ProfileErrorKind {
+  return error instanceof ProfileRequestError ? error.kind : 'unknown';
+}
+
 
 /**
  * Input type for creating a profile (without id, createdAt, updatedAt)
@@ -309,7 +383,7 @@ export async function getAPIProfileEnv(): Promise<Record<string, string>> {
  * Test API profile connection
  *
  * Validates credentials by making a minimal API request to the /v1/models endpoint.
- * Uses the Anthropic SDK for built-in timeout, retry, and error handling.
+ * Uses fetch with a 10 s timeout and no retries for immediate feedback.
  *
  * @param baseUrl - API base URL (will be normalized)
  * @param apiKey - API key for authentication
@@ -400,112 +474,48 @@ export async function testConnection(
     };
   }
 
+  const endpointResult = (): TestConnectionResult => {
+    const suggestions = getUrlSuggestions(baseUrl.trim());
+    const message = suggestions.length > 0
+      ? `Invalid endpoint. Please check the Base URL.${suggestions.map(s => ' ' + s).join('')}`
+      : 'Invalid endpoint. Please check the Base URL.';
+    return { success: false, errorType: 'endpoint', message };
+  };
+  const failureResult = (kind: ProfileErrorKind): TestConnectionResult =>
+    kind === 'endpoint'
+      ? endpointResult()
+      : { success: false, errorType: kind, message: PROFILE_ERROR_MESSAGES[kind] };
+
   try {
-    // Create Anthropic client with SDK
-    const client = new Anthropic({
-      apiKey,
-      baseURL: normalizedUrl,
-      timeout: 10000, // 10 seconds
-      maxRetries: 0, // Disable retries for immediate feedback
-    });
-
     // Make minimal request to test connection (pass signal for cancellation)
-    // Try models.list first, but some Anthropic-compatible APIs don't support it
-    try {
-      await client.models.list({ limit: 1 }, { signal: signal ?? undefined });
-    } catch (modelsError) {
-      // If models endpoint returns 404, try messages endpoint instead
-      // Many Anthropic-compatible APIs (e.g., MiniMax) only support /v1/messages
-      const modelsErrorName = modelsError instanceof Error ? modelsError.name : '';
-      if (modelsErrorName === 'NotFoundError' || modelsError instanceof NotFoundError) {
-        // Fall back to messages endpoint with minimal request
-        // This will fail with 400 (invalid request) but proves the endpoint is reachable
-        try {
-          await client.messages.create({
-            model: 'test',
-            max_tokens: 1,
-            messages: [{ role: 'user', content: 'test' }]
-          }, { signal: signal ?? undefined });
-        } catch (messagesError) {
-          const messagesErrorName = messagesError instanceof Error ? messagesError.name : '';
-          // 400/422 errors mean the endpoint is valid, just our test request was invalid
-          // This is expected - we're just testing connectivity
-          if (messagesErrorName === 'BadRequestError' ||
-              messagesErrorName === 'InvalidRequestError' ||
-              (messagesError instanceof Error && 'status' in messagesError &&
-               ((messagesError as { status?: number }).status === 400 ||
-                (messagesError as { status?: number }).status === 422))) {
-            // Endpoint is valid, connection successful
-            return {
-              success: true,
-              message: 'Connection successful'
-            };
-          }
-          // Re-throw other errors to be handled by outer catch
-          throw messagesError;
-        }
-        // If messages.create somehow succeeded, connection is valid
-        return {
-          success: true,
-          message: 'Connection successful'
-        };
-      }
-      // Re-throw non-404 errors to be handled by outer catch
-      throw modelsError;
+    // Try models list first, but some Anthropic-compatible APIs don't support it
+    const modelsResponse = await anthropicFetch(`${normalizedUrl}/v1/models?limit=1`, apiKey, { signal });
+    await discardBody(modelsResponse);
+
+    if (modelsResponse.ok) {
+      return { success: true, message: 'Connection successful' };
     }
 
-    return {
-      success: true,
-      message: 'Connection successful'
-    };
+    if (modelsResponse.status !== 404) {
+      return failureResult(mapStatusToErrorKind(modelsResponse.status));
+    }
+
+    // Models endpoint returned 404: try messages endpoint instead
+    // Many Anthropic-compatible APIs (e.g., MiniMax) only support /v1/messages
+    // The test request is invalid (400/422) but proves the endpoint is reachable
+    const messagesResponse = await anthropicFetch(`${normalizedUrl}/v1/messages`, apiKey, {
+      method: 'POST',
+      body: { model: 'test', max_tokens: 1, messages: [{ role: 'user', content: 'test' }] },
+      signal
+    });
+    await discardBody(messagesResponse);
+
+    if (messagesResponse.ok || messagesResponse.status === 400 || messagesResponse.status === 422) {
+      return { success: true, message: 'Connection successful' };
+    }
+    return failureResult(mapStatusToErrorKind(messagesResponse.status));
   } catch (error) {
-    // Map SDK errors to TestConnectionResult error types
-    // Use error.name for instanceof-like checks (works with mocks that set this.name)
-    const errorName = error instanceof Error ? error.name : '';
-
-    if (errorName === 'AuthenticationError' || error instanceof AuthenticationError) {
-      return {
-        success: false,
-        errorType: 'auth',
-        message: 'Authentication failed. Please check your API key.'
-      };
-    }
-
-    if (errorName === 'NotFoundError' || error instanceof NotFoundError) {
-      const suggestions = getUrlSuggestions(baseUrl.trim());
-      const message = suggestions.length > 0
-        ? `Invalid endpoint. Please check the Base URL.${suggestions.map(s => ' ' + s).join('')}`
-        : 'Invalid endpoint. Please check the Base URL.';
-
-      return {
-        success: false,
-        errorType: 'endpoint',
-        message
-      };
-    }
-
-    if (errorName === 'APIConnectionTimeoutError' || error instanceof APIConnectionTimeoutError) {
-      return {
-        success: false,
-        errorType: 'timeout',
-        message: 'Connection timeout. The endpoint did not respond.'
-      };
-    }
-
-    if (errorName === 'APIConnectionError' || error instanceof APIConnectionError) {
-      return {
-        success: false,
-        errorType: 'network',
-        message: 'Network error. Please check your internet connection.'
-      };
-    }
-
-    // APIError or other errors
-    return {
-      success: false,
-      errorType: 'unknown',
-      message: 'Connection test failed. Please try again.'
-    };
+    return failureResult(mapFailureToErrorKind(error));
   }
 }
 
@@ -513,7 +523,7 @@ export async function testConnection(
  * Discover available models from API endpoint
  *
  * Fetches the list of available models from the Anthropic-compatible /v1/models endpoint.
- * Uses the Anthropic SDK for built-in timeout, retry, and error handling.
+ * Uses fetch with a 10 s timeout and no retries for immediate feedback.
  *
  * @param baseUrl - API base URL (will be normalized)
  * @param apiKey - API key for authentication
@@ -566,58 +576,42 @@ export async function discoverModels(
   }
 
   try {
-    // Create Anthropic client with SDK
-    const client = new Anthropic({
-      apiKey,
-      baseURL: normalizedUrl,
-      timeout: 10000, // 10 seconds
-      maxRetries: 0, // Disable retries for immediate feedback
-    });
+    // Fetch models (1000 limit to get all), pass signal for cancellation
+    const response = await anthropicFetch(`${normalizedUrl}/v1/models?limit=1000`, apiKey, { signal });
 
-    // Fetch models with pagination (1000 limit to get all), pass signal for cancellation
-    const response = await client.models.list({ limit: 1000 }, { signal: signal ?? undefined });
+    if (!response.ok) {
+      await discardBody(response);
+      const kind = mapStatusToErrorKind(response.status);
+      throw new ProfileRequestError(kind);
+    }
 
-    // Extract model information from SDK response
-    const models: ModelInfo[] = response.data
+    let payload: { data?: Array<{ id?: string; display_name?: string }> };
+    try {
+      payload = await response.json();
+    } catch {
+      throw new ProfileRequestError('unknown');
+    }
+    if (!payload || !Array.isArray(payload.data)) {
+      throw new ProfileRequestError('unknown');
+    }
+
+    const models: ModelInfo[] = payload.data
       .map((model) => ({
-        id: model.id || '',
-        display_name: model.display_name || model.id || ''
+        id: model?.id || '',
+        display_name: model?.display_name || model?.id || ''
       }))
       .filter((model) => model.id.length > 0);
 
     return { models };
   } catch (error) {
-    // Map SDK errors to thrown errors with errorType property
-    // Use error.name for instanceof-like checks (works with mocks that set this.name)
-    const errorName = error instanceof Error ? error.name : '';
-
-    if (errorName === 'AuthenticationError' || error instanceof AuthenticationError) {
-      const authError: Error & { errorType?: string } = new Error('Authentication failed. Please check your API key.');
-      authError.errorType = 'auth';
-      throw authError;
-    }
-
-    if (errorName === 'NotFoundError' || error instanceof NotFoundError) {
-      const notSupportedError: Error & { errorType?: string } = new Error('This API endpoint does not support model listing. Please enter the model name manually.');
-      notSupportedError.errorType = 'not_supported';
-      throw notSupportedError;
-    }
-
-    if (errorName === 'APIConnectionTimeoutError' || error instanceof APIConnectionTimeoutError) {
-      const timeoutError: Error & { errorType?: string } = new Error('Connection timeout. The endpoint did not respond.');
-      timeoutError.errorType = 'timeout';
-      throw timeoutError;
-    }
-
-    if (errorName === 'APIConnectionError' || error instanceof APIConnectionError) {
-      const networkError: Error & { errorType?: string } = new Error('Network error. Please check your internet connection.');
-      networkError.errorType = 'network';
-      throw networkError;
-    }
-
-    // APIError or other errors
-    const unknownError: Error & { errorType?: string } = new Error('Connection test failed. Please try again.');
-    unknownError.errorType = 'unknown';
-    throw unknownError;
+    const kind = mapFailureToErrorKind(error);
+    // For model listing a 404 means the endpoint has no models route
+    const isNotSupported = kind === 'endpoint';
+    const message = isNotSupported
+      ? 'This API endpoint does not support model listing. Please enter the model name manually.'
+      : PROFILE_ERROR_MESSAGES[kind as Exclude<ProfileErrorKind, 'endpoint'>];
+    const thrown: Error & { errorType?: string } = new Error(message);
+    thrown.errorType = isNotSupported ? 'not_supported' : kind;
+    throw thrown;
   }
 }
