@@ -30,6 +30,7 @@ import { getApprovals } from '../../mcp-approval-store';
 import type { ModelShorthand, ThinkingLevel } from '../../ai/config/types';
 import { safeBreadcrumb, safeCaptureException } from '../../sentry';
 import { createDebugLog } from '../../../shared/utils/debug-logger';
+import { verdictToOverallStatus } from '../shared/review-verdict';
 
 const debugLog = createDebugLog('Bitbucket PR Review');
 
@@ -41,13 +42,6 @@ export function getBitbucketReviewKey(projectId: string, prId: number): string {
 }
 
 const ALLOWED_PHASES = new Set(['fetching', 'analyzing', 'generating', 'posting', 'complete']);
-
-const VERDICT_TO_STATUS: Record<string, PRReviewResult['overallStatus']> = {
-  ready_to_merge: 'approve',
-  merge_with_changes: 'comment',
-  needs_revision: 'request_changes',
-  blocked: 'request_changes'
-};
 
 export async function runBitbucketPRReview(
   project: Project,
@@ -144,7 +138,7 @@ export async function runBitbucketPRReview(
       success: true,
       findings: orchestratorResult.findings as PRReviewFinding[],
       summary: orchestratorResult.summary,
-      overallStatus: VERDICT_TO_STATUS[orchestratorResult.verdict] ?? 'comment',
+      overallStatus: verdictToOverallStatus(orchestratorResult.verdict),
       reviewedAt: new Date().toISOString(),
       reviewedCommitSha: headSha
     };
