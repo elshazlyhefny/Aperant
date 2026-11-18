@@ -16,6 +16,8 @@ export interface PullRequestListApi {
   getPullRequest: (projectId: string, prId: number) => Promise<IPCResult<BitbucketPullRequest>>;
   getDiff: (projectId: string, prId: number) => Promise<IPCResult<string>>;
   postComment: (projectId: string, prId: number, body: string) => Promise<IPCResult<{ id: number }>>;
+  /** Error string the provider returns when not configured; defaults to the Bitbucket one. */
+  notConfiguredError?: string;
 }
 
 /** Default adapter; resolves window.electronAPI at call time. */
@@ -158,7 +160,7 @@ export function useBitbucketPRs(projectId: string, options: UseBitbucketPRsOptio
     isLoadingDetail,
     error,
     detailError,
-    notConfigured: error === BITBUCKET_NOT_CONFIGURED_ERROR,
+    notConfigured: error === (api.notConfiguredError ?? BITBUCKET_NOT_CONFIGURED_ERROR),
     selectedPR,
     selectedPRId,
     diff,
