@@ -2,7 +2,7 @@
 
 Besides the Settings screen, the app reads two files that belong to a single project:
 
-- `.aperant.json` in the project root. It declares the base branch and which dependency folders task worktrees reuse.
+- `.aperant.json` in the project root. It declares the base branch and which dependency folders task worktrees and terminal worktrees reuse.
 - `.auto-claude/.env` inside the project. It holds integration keys, MCP server switches and memory settings.
 
 ## `.aperant.json`
@@ -19,9 +19,9 @@ The file is optional. A project without it behaves as before. Put it in the root
 | Key | Type | Purpose |
 |-----|------|---------|
 | `baseBranch` | string | Branch that task worktrees are based on and merged back into. |
-| `linkDependencies` | array of strings | Folders, relative to the project root, that each task worktree gets as links to the main checkout's folders. |
+| `linkDependencies` | array of strings | Folders, relative to the project root, that each task worktree and each terminal worktree gets as links to the main checkout's folders. |
 
-A git worktree starts without gitignored folders such as `node_modules`. Linking the folders you list lets a task's agents run the project's tests without a full install per task. Folders you do not list are left alone.
+A git worktree starts without gitignored folders such as `node_modules`. Linking the folders you list lets a task's agents run the project's tests without a full install per task. The same applies to terminal worktrees. Folders you do not list are left alone.
 
 ### Validation rules
 
@@ -34,13 +34,21 @@ A git worktree starts without gitignored folders such as `node_modules`. Linking
 - If `.gitignore` does not already ignore the link, its path is added to the repository's `info/exclude` file, so an agent's `git add` does not commit it. The common `node_modules/` pattern matches directories only, not a link, which is why this is needed.
 - Linking is safe to repeat on an existing worktree. A dangling link from an earlier run is replaced.
 
+### Terminal worktrees
+
+Terminal worktrees use the same linker as task worktrees. Only the folders listed in `linkDependencies` are linked, and the links are added to `info/exclude` when `.gitignore` does not cover them.
+
+- There is no implicit `node_modules` link any more. A project that relied on it must add `node_modules`, and any nested folders such as `apps/desktop/node_modules`, to `linkDependencies` in `.aperant.json`.
+- The old `dependency_locations` key in `project_index.json` is gone, and so are the venv recreate and copy strategies. Nothing ever wrote that key.
+- The `.claude` folder is still linked into terminal worktrees automatically. It is not configured through `linkDependencies`.
+
 ### Precedence
 
 A valid `baseBranch` overrides the main branch value in Settings everywhere. While the file declares one, changing the main branch in Settings has no effect, because the declared value is applied again whenever the project is loaded or its settings are saved. Remove the key from `.aperant.json` to go back to the Settings value.
 
 ### Troubleshooting
 
-If a folder you expected is missing from a task worktree, the entry was most likely dropped or misspelled. Check that it is a relative path without `..`, that it matches the real folder name, and that the folder exists in the main checkout.
+If a folder you expected is missing from a task or terminal worktree, the entry was most likely dropped or misspelled. Check that it is a relative path without `..`, that it matches the real folder name, and that the folder exists in the main checkout.
 
 > **Warning:** Never run `npm install` or `npm ci` through a linked folder. The link points at the main checkout, so the command would change the shared dependencies of every task. If a task must change dependencies, remove the links in that worktree first, then run `npm ci` there.
 
