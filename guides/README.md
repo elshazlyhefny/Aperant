@@ -15,6 +15,7 @@ Detailed documentation for Auto Claude setup and usage.
 | **[recurring-tasks.md](recurring-tasks.md)** | Recurring task schedules: cadences, when they run, and what missed and skipped runs mean |
 | **[token-budgets.md](token-budgets.md)** | Project default and per-task token budgets, what counts, what happens at the limit, schedules, and how the CLI differs |
 | **[pr-follow-ups.md](pr-follow-ups.md)** | Sending a task's failing CI checks and unresolved review comments back to the agent: when the panel shows, what is listed, how QA checks the fix and Aperant pushes it, and why the panel can be disabled |
+| **[creating-pull-requests.md](creating-pull-requests.md)** | How **Create PR** picks the forge (GitHub, GitLab, Bitbucket Cloud or Azure DevOps), when it falls back to GitHub, how the title and body are built, and what happens when a pull request already exists |
 
 ## Quick Links
 
