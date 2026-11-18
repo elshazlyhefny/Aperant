@@ -15,6 +15,8 @@ import {
   azureDevOpsFetchText,
   createAzureDevOpsPullRequest,
   findOpenPullRequestForBranch,
+  postAzureDevOpsThread,
+  MAX_COMMENT_LENGTH,
   buildPullRequestWebUrl,
   parseAzureDevOpsRemoteUrl,
   azureDevOpsRemoteMatchesConfig,
@@ -187,5 +189,39 @@ describe('azureDevOpsRemoteMatchesConfig', () => {
   it('rejects mismatches and non-azure remotes', () => {
     expect(azureDevOpsRemoteMatchesConfig('https://dev.azure.com/other/p/_git/r', config)).toBe(false);
     expect(azureDevOpsRemoteMatchesConfig('git@github.com:a/b.git', config)).toBe(false);
+  });
+});
+
+describe('postAzureDevOpsThread', () => {
+  it('posts a plain thread without status or threadContext', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 9, comments: [{ id: 1 }] }));
+    const thread = await postAzureDevOpsThread(config, 5, 'hello');
+    expect(thread.id).toBe(9);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      'https://dev.azure.com/org/My%20Project/_apis/git/repositories/my%20repo/pullrequests/5/threads?api-version=7.1'
+    );
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ comments: [{ parentCommentId: 0, content: 'hello', commentType: 1 }] });
+  });
+  it('posts an inline thread with normalised path and range', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 10 }));
+    await postAzureDevOpsThread(config, 5, 'x', { path: '//src/a.ts', line: 3, endLine: 6 });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.status).toBe(1);
+    expect(body.threadContext).toEqual({
+      filePath: '/src/a.ts',
+      rightFileStart: { line: 3, offset: 1 },
+      rightFileEnd: { line: 6, offset: 1 }
+    });
+  });
+  it('defaults endLine to line', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 11 }));
+    await postAzureDevOpsThread(config, 5, 'x', { path: 'a.ts', line: 4 });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.threadContext.rightFileEnd.line).toBe(4);
+  });
+  it('exposes a conservative comment limit', () => {
+    expect(MAX_COMMENT_LENGTH).toBe(32768);
   });
 });
