@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BitbucketPRReviewProgress, PRReviewResult } from '../../../../shared/types';
-import type { PRLogs, PRLogsKnownVersion } from '../../../../preload/api/modules/github-api';
+import type {
+  BitbucketPRReviewProgress,
+  BitbucketPostReviewOptions,
+  BitbucketPostReviewResult,
+  PRReviewResult
+} from '../../../../shared/types';
+import type { IPCResult } from '../../../../shared/types/common';
+import type { PRLogs, PRLogsKnownVersion, PRLogsUpdatedPayload } from '../../../../preload/api/modules/github-api';
 import { applyPRLogsDelta } from '../../github-prs/utils/applyPRLogsDelta';
 
 export type BitbucketReviewStatus = 'idle' | 'reviewing' | 'complete' | 'error';
@@ -10,6 +16,47 @@ export interface BitbucketReviewProgress {
   progress: number;
   message: string;
 }
+
+type Unsubscribe = (() => void) | undefined;
+
+/**
+ * zeenha fork: shared with Azure DevOps. Each provider supplies an adapter over its
+ * own IPC calls; the default is Bitbucket. Event subscriptions may be absent.
+ */
+export interface PullRequestReviewApi {
+  run: (projectId: string, prId: number) => void;
+  cancel: (projectId: string, prId: number) => Promise<boolean>;
+  getReview: (projectId: string, prId: number) => Promise<PRReviewResult | null>;
+  getLogs: (
+    projectId: string,
+    prId: number,
+    known?: PRLogsKnownVersion
+  ) => Promise<PRLogs | null | 'unchanged'>;
+  postReview: (
+    projectId: string,
+    prId: number,
+    selectedFindingIds: string[],
+    options: BitbucketPostReviewOptions
+  ) => Promise<IPCResult<BitbucketPostReviewResult>>;
+  onProgress?: (cb: (projectId: string, progress: BitbucketPRReviewProgress) => void) => Unsubscribe;
+  onComplete?: (cb: (projectId: string, result: PRReviewResult) => void) => Unsubscribe;
+  onError?: (cb: (projectId: string, error: { prId: number; error: string }) => void) => Unsubscribe;
+  onLogsUpdated?: (cb: (projectId: string, data: PRLogsUpdatedPayload) => void) => Unsubscribe;
+}
+
+/** Default adapter; resolves window.electronAPI at call time. */
+export const bitbucketPRReviewApi: PullRequestReviewApi = {
+  run: (projectId, prId) => window.electronAPI.runBitbucketPRReview(projectId, prId),
+  cancel: (projectId, prId) => window.electronAPI.cancelBitbucketPRReview(projectId, prId),
+  getReview: (projectId, prId) => window.electronAPI.getBitbucketPRReview(projectId, prId),
+  getLogs: (projectId, prId, known) => window.electronAPI.getBitbucketPRLogs(projectId, prId, known),
+  postReview: (projectId, prId, ids, options) =>
+    window.electronAPI.postBitbucketPRReview(projectId, prId, ids, options),
+  onProgress: (cb) => window.electronAPI.onBitbucketPRReviewProgress?.(cb),
+  onComplete: (cb) => window.electronAPI.onBitbucketPRReviewComplete?.(cb),
+  onError: (cb) => window.electronAPI.onBitbucketPRReviewError?.(cb),
+  onLogsUpdated: (cb) => window.electronAPI.onBitbucketPRLogsUpdated?.(cb)
+};
 
 const LOG_POLL_INTERVAL_MS = 1500;
 
@@ -22,7 +69,11 @@ function defaultSelection(result: PRReviewResult | null, posted: Set<string>): S
   );
 }
 
-export function useBitbucketPRReview(projectId: string, prId: number | null) {
+export function useBitbucketPRReview(
+  projectId: string,
+  prId: number | null,
+  api: PullRequestReviewApi = bitbucketPRReviewApi
+) {
   const [status, setStatus] = useState<BitbucketReviewStatus>('idle');
   const [progress, setProgress] = useState<BitbucketReviewProgress | null>(null);
   const [result, setResult] = useState<PRReviewResult | null>(null);
@@ -65,10 +116,10 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
           )
         }
       : undefined;
-    const next = await window.electronAPI.getBitbucketPRLogs(projectId, prId, known);
+    const next = await api.getLogs(projectId, prId, known);
     if (seq !== logsSeqRef.current || next === 'unchanged') return;
     setLogsBoth(next);
-  }, [projectId, prId, setLogsBoth]);
+  }, [api, projectId, prId, setLogsBoth]);
 
   // Reset and load any saved review when the PR or project changes.
   useEffect(() => {
@@ -82,8 +133,8 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
     setLogsBoth(null);
     applyResult(null);
     if (prId === null) return;
-    window.electronAPI
-      .getBitbucketPRReview(projectId, prId)
+    api
+      .getReview(projectId, prId)
       .then((saved) => {
         if (seq !== loadSeqRef.current || !saved) return;
         applyResult(saved);
@@ -97,32 +148,31 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
         }
       })
       .catch(() => {});
-  }, [projectId, prId, applyResult, setLogsBoth]);
+  }, [api, projectId, prId, applyResult, setLogsBoth]);
 
   // Subscribe to review events, filtered by PR id.
   useEffect(() => {
     if (prId === null) return;
-    const api = window.electronAPI;
     const cleanups = [
-      api.onBitbucketPRReviewProgress?.((pid, p) => {
+      api.onProgress?.((pid, p) => {
         if (pid !== projectId || p.prId !== prId) return;
         setStatus('reviewing');
         setProgress({ phase: p.phase, progress: p.progress, message: p.message });
       }),
-      api.onBitbucketPRReviewComplete?.((pid, review) => {
+      api.onComplete?.((pid, review) => {
         if (pid !== projectId || review.prNumber !== prId) return;
         applyResult(review);
         setProgress(null);
         setError(null);
         setStatus('complete');
       }),
-      api.onBitbucketPRReviewError?.((pid, err) => {
+      api.onError?.((pid, err) => {
         if (pid !== projectId || err.prId !== prId) return;
         setProgress(null);
         setError(err.error);
         setStatus('error');
       }),
-      api.onBitbucketPRLogsUpdated?.((pid, data) => {
+      api.onLogsUpdated?.((pid, data) => {
         if (pid !== projectId || data.prNumber !== prId) return;
         if (data.delta) {
           const next = applyPRLogsDelta(logsRef.current, data.delta);
@@ -138,7 +188,7 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
     return () => {
       for (const cleanup of cleanups) cleanup?.();
     };
-  }, [projectId, prId, applyResult, refreshLogs, setLogsBoth]);
+  }, [api, projectId, prId, applyResult, refreshLogs, setLogsBoth]);
 
   // Poll logs while reviewing; fetch once more when the review finishes.
   useEffect(() => {
@@ -161,18 +211,18 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
     setLogsBoth(null);
     logsSeqRef.current++;
     setStatus('reviewing');
-    window.electronAPI.runBitbucketPRReview(projectId, prId);
-  }, [projectId, prId, setLogsBoth]);
+    api.run(projectId, prId);
+  }, [api, projectId, prId, setLogsBoth]);
 
   const cancelReview = useCallback(async () => {
     if (prId === null) return false;
-    const cancelled = await window.electronAPI.cancelBitbucketPRReview(projectId, prId);
+    const cancelled = await api.cancel(projectId, prId);
     if (cancelled) {
       setProgress(null);
       setStatus('idle');
     }
     return cancelled;
-  }, [projectId, prId]);
+  }, [api, projectId, prId]);
 
   /** Posts the selected findings. Only call after the user confirmed in a dialog. */
   const postSelected = useCallback(
@@ -182,7 +232,7 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
       setPostError(null);
       setInlineFailed([]);
       try {
-        const res = await window.electronAPI.postBitbucketPRReview(
+        const res = await api.postReview(
           projectId,
           prId,
           Array.from(selectedIds),
@@ -193,7 +243,7 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
           return false;
         }
         setInlineFailed(res.data?.inlineFailed ?? []);
-        const saved = await window.electronAPI.getBitbucketPRReview(projectId, prId);
+        const saved = await api.getReview(projectId, prId);
         if (saved) {
           const posted = new Set(saved.postedFindingIds ?? []);
           postedRef.current = posted;
@@ -209,7 +259,7 @@ export function useBitbucketPRReview(projectId: string, prId: number | null) {
         setIsPosting(false);
       }
     },
-    [projectId, prId, selectedIds]
+    [api, projectId, prId, selectedIds]
   );
 
   return {

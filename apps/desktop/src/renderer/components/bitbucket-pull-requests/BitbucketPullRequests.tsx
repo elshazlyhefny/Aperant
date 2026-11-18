@@ -4,16 +4,31 @@ import { AlertCircle, Settings } from 'lucide-react';
 import { Button } from '../ui/button';
 import { PullRequestList } from './components/PullRequestList';
 import { PullRequestDetail } from './components/PullRequestDetail';
-import { useBitbucketPRReview } from './hooks/useBitbucketPRReview';
-import { useBitbucketPRs, type BitbucketStateFilter } from './hooks/useBitbucketPRs';
+import { useBitbucketPRReview, type PullRequestReviewApi } from './hooks/useBitbucketPRReview';
+import { useBitbucketPRs, type BitbucketStateFilter, type PullRequestListApi } from './hooks/useBitbucketPRs';
 
 interface BitbucketPullRequestsProps {
   projectId: string;
   onOpenSettings?: () => void;
+  /**
+   * zeenha fork: this UI is shared with Azure DevOps, which passes its own IPC adapters,
+   * translation namespace and test id. Defaults keep the Bitbucket behaviour.
+   */
+  listApi?: PullRequestListApi;
+  reviewApi?: PullRequestReviewApi;
+  i18nNamespace?: string;
+  testId?: string;
 }
 
-export function BitbucketPullRequests({ projectId, onOpenSettings }: BitbucketPullRequestsProps) {
-  const { t } = useTranslation('bitbucket');
+export function BitbucketPullRequests({
+  projectId,
+  onOpenSettings,
+  listApi,
+  reviewApi,
+  i18nNamespace = 'bitbucket',
+  testId
+}: BitbucketPullRequestsProps) {
+  const { t } = useTranslation(i18nNamespace);
   const [stateFilter, setStateFilter] = useState<BitbucketStateFilter>('OPEN');
 
   const {
@@ -29,9 +44,9 @@ export function BitbucketPullRequests({ projectId, onOpenSettings }: BitbucketPu
     selectPR,
     refresh,
     postComment
-  } = useBitbucketPRs(projectId, { stateFilter });
+  } = useBitbucketPRs(projectId, { stateFilter, api: listApi });
 
-  const review = useBitbucketPRReview(projectId, selectedPRId);
+  const review = useBitbucketPRReview(projectId, selectedPRId, reviewApi);
 
   if (notConfigured) {
     return (
@@ -71,6 +86,7 @@ export function BitbucketPullRequests({ projectId, onOpenSettings }: BitbucketPu
           onRefresh={refresh}
           stateFilter={stateFilter}
           onStateFilterChange={setStateFilter}
+          i18nNamespace={i18nNamespace}
         />
       </div>
       <div className="flex-1 flex flex-col min-w-0">
@@ -82,6 +98,8 @@ export function BitbucketPullRequests({ projectId, onOpenSettings }: BitbucketPu
             isLoading={isLoadingDetail}
             error={detailError}
             onPostComment={(body) => postComment(selectedPR.id, body)}
+            i18nNamespace={i18nNamespace}
+            testId={testId}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground">
