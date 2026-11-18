@@ -1073,7 +1073,15 @@ export function App() {
                   <Worktrees projectId={activeProjectId || selectedProjectId!} />
                 )}
                 {activeView === 'schedules' && (activeProjectId || selectedProjectId) && (
-                  <Schedules projectId={activeProjectId || selectedProjectId!} />
+                  <Schedules
+                    projectId={activeProjectId || selectedProjectId!}
+                    onOpenTask={(taskId) => {
+                      const projectId = activeProjectId || selectedProjectId;
+                      if (!projectId) return;
+                      setActiveView('kanban');
+                      setPendingTaskTarget({ projectId, taskId });
+                    }}
+                  />
                 )}
                 {activeView === 'delivery' && (activeProjectId || selectedProjectId) && (
                   <DeliveryMetrics
