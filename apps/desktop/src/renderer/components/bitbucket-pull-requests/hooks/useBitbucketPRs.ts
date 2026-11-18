@@ -1,17 +1,41 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BitbucketPullRequest } from '../../../../shared/types';
+import type { IPCResult } from '../../../../shared/types/common';
 
 export type BitbucketStateFilter = 'OPEN' | 'MERGED' | 'DECLINED' | 'ALL';
 
 /** Error string returned by the main process when credentials/repo are missing. */
 export const BITBUCKET_NOT_CONFIGURED_ERROR = 'Bitbucket not configured';
 
+/**
+ * zeenha fork: the Bitbucket PR components and hooks are shared with Azure DevOps.
+ * Each provider passes an adapter over its own IPC calls; the default is Bitbucket.
+ */
+export interface PullRequestListApi {
+  listPullRequests: (projectId: string, state?: string) => Promise<IPCResult<BitbucketPullRequest[]>>;
+  getPullRequest: (projectId: string, prId: number) => Promise<IPCResult<BitbucketPullRequest>>;
+  getDiff: (projectId: string, prId: number) => Promise<IPCResult<string>>;
+  postComment: (projectId: string, prId: number, body: string) => Promise<IPCResult<{ id: number }>>;
+  /** Error string the provider returns when not configured; defaults to the Bitbucket one. */
+  notConfiguredError?: string;
+}
+
+/** Default adapter; resolves window.electronAPI at call time. */
+export const bitbucketPRApi: PullRequestListApi = {
+  listPullRequests: (projectId, state) => window.electronAPI.getBitbucketPullRequests(projectId, state),
+  getPullRequest: (projectId, prId) => window.electronAPI.getBitbucketPullRequest(projectId, prId),
+  getDiff: (projectId, prId) => window.electronAPI.getBitbucketPullRequestDiff(projectId, prId),
+  postComment: (projectId, prId, body) =>
+    window.electronAPI.postBitbucketPullRequestComment(projectId, prId, body)
+};
+
 interface UseBitbucketPRsOptions {
   stateFilter?: BitbucketStateFilter;
+  api?: PullRequestListApi;
 }
 
 export function useBitbucketPRs(projectId: string, options: UseBitbucketPRsOptions = {}) {
-  const { stateFilter = 'OPEN' } = options;
+  const { stateFilter = 'OPEN', api = bitbucketPRApi } = options;
   const [pullRequests, setPullRequests] = useState<BitbucketPullRequest[]>([]);
   const [selectedPRId, setSelectedPRId] = useState<number | null>(null);
   const [selectedPR, setSelectedPR] = useState<BitbucketPullRequest | null>(null);
@@ -30,7 +54,7 @@ export function useBitbucketPRs(projectId: string, options: UseBitbucketPRsOptio
     setIsLoading(true);
     setError(null);
     try {
-      const result = await window.electronAPI.getBitbucketPullRequests(projectId, stateFilter);
+      const result = await api.listPullRequests(projectId, stateFilter);
       if (requestId !== listRequestRef.current) return;
       if (result.success && result.data) {
         setPullRequests(result.data);
@@ -45,7 +69,7 @@ export function useBitbucketPRs(projectId: string, options: UseBitbucketPRsOptio
     } finally {
       if (requestId === listRequestRef.current) setIsLoading(false);
     }
-  }, [projectId, stateFilter]);
+  }, [api, projectId, stateFilter]);
 
   const loadDetail = useCallback(
     async (prId: number) => {
@@ -54,8 +78,8 @@ export function useBitbucketPRs(projectId: string, options: UseBitbucketPRsOptio
       setDetailError(null);
       try {
         const [prResult, diffResult] = await Promise.all([
-          window.electronAPI.getBitbucketPullRequest(projectId, prId),
-          window.electronAPI.getBitbucketPullRequestDiff(projectId, prId)
+          api.getPullRequest(projectId, prId),
+          api.getDiff(projectId, prId)
         ]);
         if (requestId !== detailRequestRef.current) return;
         if (prResult.success && prResult.data) {
@@ -76,7 +100,7 @@ export function useBitbucketPRs(projectId: string, options: UseBitbucketPRsOptio
         if (requestId === detailRequestRef.current) setIsLoadingDetail(false);
       }
     },
-    [projectId]
+    [api, projectId]
   );
 
   // Reset selection when the project changes.
@@ -114,7 +138,7 @@ export function useBitbucketPRs(projectId: string, options: UseBitbucketPRsOptio
   const postComment = useCallback(
     async (prId: number, body: string): Promise<boolean> => {
       try {
-        const result = await window.electronAPI.postBitbucketPullRequestComment(projectId, prId, body);
+        const result = await api.postComment(projectId, prId, body);
         if (!result.success) {
           setDetailError(result.error || 'Failed to post comment');
           return false;
@@ -127,7 +151,7 @@ export function useBitbucketPRs(projectId: string, options: UseBitbucketPRsOptio
         return false;
       }
     },
-    [projectId, loadList, loadDetail]
+    [api, projectId, loadList, loadDetail]
   );
 
   return {
@@ -136,7 +160,7 @@ export function useBitbucketPRs(projectId: string, options: UseBitbucketPRsOptio
     isLoadingDetail,
     error,
     detailError,
-    notConfigured: error === BITBUCKET_NOT_CONFIGURED_ERROR,
+    notConfigured: error === (api.notConfiguredError ?? BITBUCKET_NOT_CONFIGURED_ERROR),
     selectedPR,
     selectedPRId,
     diff,

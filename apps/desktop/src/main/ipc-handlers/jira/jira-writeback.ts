@@ -1,36 +1,34 @@
 /**
  * Report a Jira-imported task's outcome back to the issue it came from.
  *
- * zeenha fork: desktop wrapper. Reads settings and task metadata, then hands off
- * to the Electron-free core in jira-writeback-core.ts. Nothing here throws.
+ * zeenha fork: reports to the same Jira site/issue the user imported from, using
+ * the credentials already used for import. The switch lives in user settings only
+ * (default off). This is the desktop side: it reads the settings file and builds
+ * the registry's Jira writer from the Electron-free forge/jira-writer.ts.
+ * Nothing here throws.
  */
 
-import type { Project, Task } from '../../../shared/types';
-import { getSpecsDir } from '../../../shared/constants';
+import type { JiraWritebackSettings } from '../../../shared/types/settings';
+import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
 import { readSettingsFile } from '../../settings-utils';
-import { taskSpecDirs } from '../../task-failure-facts';
-import type { WebhookEvent } from '../../task-webhook-core';
-import { readMetadata } from '../issue-writeback/common';
-import { dispatchJiraOutcomeWith, normalizeJiraWritebackSettings } from './jira-writeback-core';
+import { createJiraWriter } from '../forge/jira-writer';
+import { type OutcomeEvent, buildOutcomeComment } from '../issue-writeback/common';
 
-export { buildJiraComment } from './jira-writeback-core';
-
-export function dispatchJiraOutcome(input: { task: Task; project: Project; event: WebhookEvent }): void {
-  try {
-    const { task, project, event } = input;
-    if (event === 'pr_opened') return;
-    const settings = normalizeJiraWritebackSettings(readSettingsFile() ?? {});
-    if (settings.enabled !== true) return;
-    const meta = readMetadata(taskSpecDirs(project.path, getSpecsDir(project.autoBuildPath), task.specId));
-    void dispatchJiraOutcomeWith({
-      title: task.title,
-      prUrl: task.metadata?.prUrl,
-      project,
-      event,
-      meta,
-      settings
-    });
-  } catch {
-    // never let Jira problems affect task flow
-  }
+export function buildJiraComment(input: { event: OutcomeEvent; taskTitle?: string; prUrl?: string }): string {
+  return buildOutcomeComment(input.event, input.taskTitle, input.prUrl);
 }
+
+export function loadSettings(): JiraWritebackSettings {
+  const raw = readSettingsFile() ?? {};
+  const def = DEFAULT_APP_SETTINGS.jiraWriteback;
+  const w = ((raw as { jiraWriteback?: Partial<JiraWritebackSettings> }).jiraWriteback ?? {});
+  return {
+    enabled: w.enabled === true,
+    comment: typeof w.comment === 'boolean' ? w.comment : def.comment,
+    transitionOnReview: w.transitionOnReview === true,
+    transitionStatusName: typeof w.transitionStatusName === 'string' ? w.transitionStatusName : def.transitionStatusName
+  };
+}
+
+/** The desktop Jira writer, registered in forge/registry.ts. */
+export const jiraWriter = createJiraWriter(loadSettings);

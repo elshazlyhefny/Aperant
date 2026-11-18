@@ -157,11 +157,31 @@ usage/
 └── types.ts
 ```
 
+### Provider adapters
+
+`usage/providers/registry.ts` lists the adapters. The outbound domain allowlist is derived from each adapter's `allowedDomains`.
+
+| Provider | Adapter file | Usage endpoint (`usagePath`) | `allowedDomains` | Snapshot carries |
+|----------|--------------|------------------------------|------------------|------------------|
+| `anthropic` | `usage/providers/anthropic.ts` | `/api/oauth/usage` | `api.anthropic.com` | Session (5-hour) and weekly (7-day) percent with reset timestamps |
+| `openai` | `usage/providers/openai.ts` | `/backend-api/wham/usage` | `chatgpt.com` | Codex usage normalized by `normalizeCodexResponse` (session and weekly percent with resets) |
+| `zai` | `usage/providers/zai.ts` | `/api/monitor/usage/quota/limit` | `api.z.ai` | Quota percentages: 5-hour token quota as session, monthly quota as weekly, with reset timestamps |
+| `zhipu` | `usage/providers/zhipu.ts` | `/api/monitor/usage/quota/limit` | `open.bigmodel.cn` | Same quota percentages as `zai` (shared `quota-limit.ts`) |
+| `openrouter` | `usage/providers/openrouter.ts` | `/api/v1/key` | `openrouter.ai` | `creditUsage` in USD (spend-based, no session/weekly percent) |
+
+Every other provider (`provider-detection` returns `'unknown'`) yields `{ kind: 'unsupported' }`: no usage is fetched.
+
+Proactive swapping applies only when the active profile is an OAuth profile. API-key profiles can show usage but are not swapped automatically.
+
+For the user-facing explanation, see [Usage and account switching](../../../../../guides/usage-and-account-switching.md).
+
 ### How to add a usage source
 
 1. Create an adapter file in `usage/providers/` (endpoint, auth headers, response normalization).
-2. Register it in `usage/providers/registry.ts`.
-3. Add the provider to `shared/utils/provider-detection.ts`.
+2. Add the provider's domain to the adapter's `allowedDomains`; the registry derives the outbound allowlist from it.
+3. Register the adapter in `usage/providers/registry.ts`.
+4. Add the provider to `shared/utils/provider-detection.ts` (detection patterns, `getProviderLabel`, `getProviderBadgeColor`).
+5. Add a row to the Provider adapters table above.
 
 No change to `usage-monitor.ts` scheduling or failover is needed.
 

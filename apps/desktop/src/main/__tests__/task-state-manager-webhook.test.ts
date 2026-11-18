@@ -30,11 +30,6 @@ vi.mock('../task-webhook', async () => {
   return { ...actual, dispatchTaskOutcomeWebhook: (...args: unknown[]) => dispatch(...args) };
 });
 
-const jiraDispatch = vi.fn();
-vi.mock('../ipc-handlers/jira/jira-writeback', () => ({
-  dispatchJiraOutcome: (...args: unknown[]) => jiraDispatch(...args),
-}));
-
 const issueDispatch = vi.fn();
 vi.mock('../ipc-handlers/issue-writeback/issue-writeback', () => ({
   dispatchIssueOutcome: (...args: unknown[]) => issueDispatch(...args),
@@ -60,7 +55,6 @@ beforeEach(() => {
   persisted.length = 0;
   seq = 0;
   dispatch.mockReset();
-  jiraDispatch.mockReset();
   issueDispatch.mockReset();
 });
 
@@ -103,7 +97,7 @@ describe('TaskStateManager webhook dispatch', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it('a throwing dispatcher does not block persistence or the renderer event', () => {
+  it('a throwing webhook dispatcher does not block persistence, the renderer event or issueDispatch', () => {
     dispatch.mockImplementation(() => {
       throw new Error('webhook down');
     });
@@ -113,68 +107,7 @@ describe('TaskStateManager webhook dispatch', () => {
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(persisted[persisted.length - 1]?.[1]).toBe('human_review');
     expect(sends[sends.length - 1]?.[2]).toBe('human_review');
-    expect(jiraDispatch).toHaveBeenCalledTimes(1);
-  });
-
-  it('a throwing Jira dispatcher does not block persistence, the renderer event or the webhook', () => {
-    jiraDispatch.mockImplementation(() => {
-      throw new Error('jira down');
-    });
-    const manager = make();
-    send(manager, { type: 'PLANNING_STARTED' });
-    send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
-    expect(jiraDispatch).toHaveBeenCalledTimes(1);
-    expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(persisted[persisted.length - 1]?.[1]).toBe('human_review');
-    expect(sends[sends.length - 1]?.[2]).toBe('human_review');
-  });
-});
-
-describe('TaskStateManager Jira write-back dispatch', () => {
-  it('dispatches failed on error', () => {
-    const manager = make();
-    send(manager, { type: 'PLANNING_STARTED' });
-    send(manager, { type: 'PLANNING_FAILED', error: 'boom', recoverable: true });
-    expect(jiraDispatch).toHaveBeenCalledTimes(1);
-    expect(jiraDispatch).toHaveBeenCalledWith({ task, project, event: 'failed' });
-  });
-
-  it('dispatches review_ready on completed human_review', () => {
-    const manager = make();
-    send(manager, { type: 'PLANNING_STARTED' });
-    send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
-    expect(jiraDispatch).toHaveBeenCalledTimes(1);
-    expect(jiraDispatch).toHaveBeenCalledWith({ task, project, event: 'review_ready' });
-  });
-
-  it('dispatches blocked on qa_rejected', () => {
-    const manager = make();
-    send(manager, { type: 'PLANNING_STARTED' });
-    send(manager, { type: 'QA_STARTED', iteration: 1, maxIterations: 3 });
-    send(manager, { type: 'QA_FAILED', iteration: 1, issueCount: 1, issues: ['x'] });
-    send(manager, { type: 'QA_FAILED', iteration: 2, issueCount: 1, issues: ['x'] });
-    expect(jiraDispatch).toHaveBeenCalledTimes(1);
-    expect(jiraDispatch).toHaveBeenCalledWith({ task, project, event: 'blocked' });
-  });
-
-  it('does not dispatch for in_progress, plan_review or stopped', () => {
-    const manager = make();
-    send(manager, { type: 'PLANNING_STARTED' });
-    send(manager, { type: 'PLANNING_COMPLETE', hasSubtasks: true, subtaskCount: 1, requireReviewBeforeCoding: true });
-    send(manager, { type: 'PLAN_APPROVED' });
-    send(manager, { type: 'CODING_STARTED', subtaskId: 's', subtaskDescription: 'd' });
-    manager.handleUiEvent('t1', { type: 'USER_STOPPED', hasPlan: true }, task, project);
-    expect(jiraDispatch).not.toHaveBeenCalled();
-  });
-
-  it('a throwing webhook dispatcher does not skip the Jira dispatcher', () => {
-    dispatch.mockImplementation(() => {
-      throw new Error('webhook down');
-    });
-    const manager = make();
-    send(manager, { type: 'PLANNING_STARTED' });
-    send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
-    expect(jiraDispatch).toHaveBeenCalledTimes(1);
+    expect(issueDispatch).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -223,12 +156,12 @@ describe('TaskStateManager PR opened webhook', () => {
     send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
     manager.handleUiEvent('t1', { type: 'CREATE_PR' }, withPr, project);
     dispatch.mockClear();
-    jiraDispatch.mockClear();
+    issueDispatch.mockClear();
     manager.handleUiEvent('t1', { type: 'PR_CREATED', prUrl }, withPr, project);
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(dispatch.mock.calls[0][0]).toMatchObject({ status: 'pr_created', prUrl });
-    // The state manager forwards pr_opened to the Jira dispatcher, which ignores it.
-    expect(jiraDispatch.mock.calls.every((c) => c[0].event === 'pr_opened')).toBe(true);
+    // The state manager forwards pr_opened to the issue dispatcher, which ignores it.
+    expect(issueDispatch.mock.calls.every((c) => c[0].event === 'pr_opened')).toBe(true);
   });
 
   it('dispatches pr_created with prUrl undefined when the task has no metadata.prUrl', () => {
@@ -278,7 +211,7 @@ describe('TaskStateManager issue write-back dispatch', () => {
     expect(issueDispatch).not.toHaveBeenCalled();
   });
 
-  it('a throwing issue dispatcher does not block persistence, the renderer event, the webhook or Jira', () => {
+  it('a throwing issue dispatcher does not block persistence, the renderer event or the webhook', () => {
     issueDispatch.mockImplementation(() => {
       throw new Error('issue down');
     });
@@ -287,21 +220,7 @@ describe('TaskStateManager issue write-back dispatch', () => {
     send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
     expect(issueDispatch).toHaveBeenCalledTimes(1);
     expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(jiraDispatch).toHaveBeenCalledTimes(1);
     expect(persisted[persisted.length - 1]?.[1]).toBe('human_review');
     expect(sends[sends.length - 1]?.[2]).toBe('human_review');
-  });
-
-  it('a throwing webhook or Jira dispatcher does not skip the issue dispatcher', () => {
-    dispatch.mockImplementation(() => {
-      throw new Error('webhook down');
-    });
-    jiraDispatch.mockImplementation(() => {
-      throw new Error('jira down');
-    });
-    const manager = make();
-    send(manager, { type: 'PLANNING_STARTED' });
-    send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
-    expect(issueDispatch).toHaveBeenCalledTimes(1);
   });
 });

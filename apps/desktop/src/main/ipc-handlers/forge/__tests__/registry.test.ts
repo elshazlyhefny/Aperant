@@ -5,11 +5,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { notConfiguredBlockedReason } from '../../../../shared/types/pr-feedback';
 import { loadPRFeedback } from '../../task/pr-feedback-source';
+import { jiraWriter } from '../../jira/jira-writeback';
 import { createForgeRegistry, getForgeForPrUrl, getOutcomeWriter } from '../registry';
 import type { Forge } from '../types';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp', isPackaged: false, on: vi.fn() } }));
 vi.mock('../../../app-logger', () => ({ appLog: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
+vi.mock('../../jira/jira-config', () => ({ getJiraConfig: () => null }));
 vi.mock('../../linear-client', () => ({ getLinearApiKey: () => null, linearGraphQL: vi.fn() }));
 
 const cfg = vi.hoisted(() => ({
@@ -96,6 +98,24 @@ describe('getOutcomeWriter', () => {
     expect(getOutcomeWriter('gitlab')?.sourceType).toBe('gitlab');
     expect(getOutcomeWriter('linear')?.settingKey).toBe('linear');
     expect(getOutcomeWriter('jira-unknown')).toBeUndefined();
+  });
+
+  it('finds the jira writer, which uses isEnabled instead of a settingKey', () => {
+    expect(getOutcomeWriter('jira')?.sourceType).toBe('jira');
+    expect(getOutcomeWriter('jira')).toBe(jiraWriter);
+    expect(jiraWriter.settingKey).toBeUndefined();
+    expect(typeof jiraWriter.isEnabled).toBe('function');
+  });
+
+  it('a custom registry supports a writer with isEnabled', () => {
+    const custom = {
+      sourceType: 'custom',
+      isEnabled: () => true,
+      postOutcome: vi.fn(),
+    };
+    const registry = createForgeRegistry([], [custom]);
+    expect(registry.getOutcomeWriter('custom')).toBe(custom);
+    expect(registry.writers).toContain(custom);
   });
 });
 

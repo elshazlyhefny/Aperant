@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
+import { hashWebhookUrl } from '../project-webhook-approval';
 import { getProjectWebhookConfig, WEBHOOK_ENV_KEYS } from '../project-webhook-config';
 
 let root: string;
@@ -49,20 +50,30 @@ describe('getProjectWebhookConfig', () => {
     writeEnv('WEBHOOK_URL=https://hooks.example.com/x\n');
     expect(getProjectWebhookConfig(project())).toEqual({
       url: 'https://hooks.example.com/x',
+      hash: hashWebhookUrl('https://hooks.example.com/x'),
+      status: 'unapproved',
       events: { reviewReady: true, failed: true, blocked: true, prOpened: false }
     });
   });
 
-  it('allows http only on loopback', () => {
-    writeEnv('WEBHOOK_URL=http://localhost:8080/hook\n');
-    expect(getProjectWebhookConfig(project())?.url).toBe('http://localhost:8080/hook');
-    writeEnv('WEBHOOK_URL=http://hooks.example.com/x\n');
-    expect(getProjectWebhookConfig(project())).toBeNull();
+  it('marks a URL approved when its hash is in approvals', () => {
+    const url = 'https://hooks.example.com/x';
+    writeEnv(`WEBHOOK_URL=${url}\n`);
+    expect(getProjectWebhookConfig(project(), { urls: [hashWebhookUrl(url)] })?.status).toBe('approved');
+    expect(getProjectWebhookConfig(project(), { urls: ['other'] })?.status).toBe('unapproved');
   });
 
-  it('rejects URLs with credentials', () => {
-    writeEnv('WEBHOOK_URL=https://user:pass@hooks.example.com/x\n');
-    expect(getProjectWebhookConfig(project())).toBeNull();
+  it('refuses loopback and plain http', () => {
+    writeEnv('WEBHOOK_URL=http://localhost:8080/hook\n');
+    expect(getProjectWebhookConfig(project())?.status).toBe('refused');
+    writeEnv('WEBHOOK_URL=http://hooks.example.com/x\n');
+    expect(getProjectWebhookConfig(project())?.status).toBe('refused');
+  });
+
+  it('refuses URLs with credentials, even if hash is approved', () => {
+    const url = 'https://user:pass@hooks.example.com/x';
+    writeEnv(`WEBHOOK_URL=${url}\n`);
+    expect(getProjectWebhookConfig(project(), { urls: [hashWebhookUrl(url)] })?.status).toBe('refused');
   });
 
   it('applies event overrides', () => {
@@ -81,7 +92,9 @@ describe('getProjectWebhookConfig', () => {
     writeEnv('WEBHOOK_URL=https://hooks.example.com/x\n');
     expect(getProjectWebhookConfig(project())).not.toBeNull();
     // Escape-style value that would carry a newline after parsing
+    // (the env parser splits at the newline, leaving an unterminated quoted value)
     writeEnv('WEBHOOK_URL="https://hooks.example.com/x\r\nEVIL=1"\n');
-    expect(getProjectWebhookConfig(project())).toBeNull();
+    const cfg = getProjectWebhookConfig(project());
+    expect(cfg === null || cfg.status === 'refused').toBe(true);
   });
 });

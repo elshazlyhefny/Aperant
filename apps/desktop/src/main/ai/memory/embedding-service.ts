@@ -9,7 +9,7 @@
  *   5. Degraded hash-based fallback (no semantic similarity — install Ollama model to improve)
  *
  * Uses contextual embeddings: file/module context prepended to every embed call.
- * Supports MRL (Matryoshka) dimensions: 256-dim for candidate gen, 1024-dim for storage.
+ * Supports MRL (Matryoshka) dimensions: 1024-dim is stored and searched; 256-dim truncation is supported but not persisted.
  * Caches embeddings in the embedding_cache table with 7-day TTL.
  */
 
@@ -148,6 +148,37 @@ class EmbeddingCache {
     }
   }
 
+  /**
+   * Batched lookup: returns an array aligned with `texts` (null for misses).
+   * Uses one SELECT per 500 keys. Non-fatal: on error returns all nulls.
+   */
+  async getMany(texts: string[], modelId: string, dims: number): Promise<(number[] | null)[]> {
+    const results: (number[] | null)[] = texts.map(() => null);
+    if (texts.length === 0) return results;
+    try {
+      const keys = texts.map((t) => this.cacheKey(t, modelId, dims));
+      const uniqueKeys = [...new Set(keys)];
+      const byKey = new Map<string, number[]>();
+      const now = Date.now();
+      const CHUNK = 500;
+      for (let i = 0; i < uniqueKeys.length; i += CHUNK) {
+        const chunk = uniqueKeys.slice(i, i + CHUNK);
+        const placeholders = chunk.map(() => '?').join(',');
+        const result = await this.db.execute({
+          sql: `SELECT key, embedding FROM embedding_cache WHERE key IN (${placeholders}) AND expires_at > ?`,
+          args: [...chunk, now],
+        });
+        for (const row of result.rows) {
+          if (!row.embedding) continue;
+          byKey.set(String(row.key), deserializeEmbedding(row.embedding as ArrayBuffer));
+        }
+      }
+      return keys.map((k) => byKey.get(k) ?? null);
+    } catch {
+      return results;
+    }
+  }
+
   async set(text: string, modelId: string, dims: number, embedding: number[]): Promise<void> {
     try {
       const key = this.cacheKey(text, modelId, dims);
@@ -223,9 +254,42 @@ async function ollamaEmbed(model: string, text: string, baseUrl = OLLAMA_BASE_UR
   return data.embedding;
 }
 
+/** Chunk size for the per-text fallback used against Ollama older than 0.3 */
+const OLLAMA_LEGACY_CHUNK_SIZE = 4;
+
 async function ollamaEmbedBatch(model: string, texts: string[], baseUrl = OLLAMA_BASE_URL): Promise<number[][]> {
-  // Ollama doesn't have native batch API — run concurrently
-  return Promise.all(texts.map((text) => ollamaEmbed(model, text, baseUrl)));
+  // Ollama 0.3+ exposes /api/embed, which takes an `input` array and returns
+  // one (L2-normalised) vector per entry in a single request.
+  // CodeQL: file data in outbound request - validate model name and baseUrl from config are strings
+  const safeBaseUrl = typeof baseUrl === 'string' && baseUrl.length > 0 ? baseUrl : OLLAMA_BASE_URL;
+  const safeModel = typeof model === 'string' && model.length > 0 ? model : '';
+  const response = await fetch(`${safeBaseUrl}/api/embed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: safeModel, input: texts }),
+  });
+
+  if (response.status === 404) {
+    // Pre-0.3 Ollama has no /api/embed: fall back to per-text calls, a few at a time
+    const results: number[][] = [];
+    for (let i = 0; i < texts.length; i += OLLAMA_LEGACY_CHUNK_SIZE) {
+      const chunk = texts.slice(i, i + OLLAMA_LEGACY_CHUNK_SIZE);
+      const embeddings = await Promise.all(chunk.map((text) => ollamaEmbed(safeModel, text, safeBaseUrl)));
+      results.push(...embeddings);
+    }
+    return results;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Ollama batch embed failed: ${response.status} ${response.statusText}`);
+  }
+  const data = (await response.json()) as { embeddings?: number[][] };
+  if (!Array.isArray(data.embeddings) || data.embeddings.length !== texts.length) {
+    throw new Error(
+      `Ollama batch embed returned ${Array.isArray(data.embeddings) ? data.embeddings.length : 'no'} embeddings for ${texts.length} inputs`,
+    );
+  }
+  return data.embeddings;
 }
 
 // ============================================================
@@ -351,7 +415,8 @@ export class EmbeddingService {
    * Checks cache first; writes to cache on miss.
    *
    * @param text - The text to embed (should already be contextually formatted)
-   * @param dims - Target dimension: 256 for Stage 1 candidate gen, 1024 for storage (default)
+   * @param dims - Target dimension. 1024 (default) is what is stored and searched.
+   *   256 is a truncated MRL variant that is supported but not persisted.
    */
   async embed(text: string, dims: 256 | 1024 = 1024): Promise<number[]> {
     const modelId = this.getModelId(dims);
@@ -378,9 +443,7 @@ export class EmbeddingService {
     const modelId = this.getModelId(dims);
 
     // Check cache for all texts
-    const results: (number[] | null)[] = await Promise.all(
-      texts.map((text) => this.cache.get(text, modelId, dims)),
-    );
+    const results: (number[] | null)[] = await this.cache.getMany(texts, modelId, dims);
 
     // Identify cache misses
     const missIndices: number[] = [];

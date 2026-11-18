@@ -266,10 +266,13 @@ export interface JiraWritebackSettings {
   transitionStatusName: string;
 }
 
-export interface IssueWritebackSettings {
-  github: boolean;
-  gitlab: boolean;
-  linear: boolean;
+export type IssueWritebackProviderKey = 'github' | 'gitlab' | 'linear';
+
+export interface IssueWritebackSettings extends Record<IssueWritebackProviderKey, boolean> {
+  /** Move the Linear issue to a named workflow state when the task reaches review. */
+  linearTransitionOnReview: boolean;
+  /** Name of the Linear workflow state to move to. */
+  linearTransitionStateName: string;
 }
 
 export interface WebhookSettings {

@@ -3,16 +3,24 @@
  * ==============
  *
  * Validators for git operations:
- * - Commit with secret scanning
+ * - Commit secret scanning (validateGitCommitSecrets, run by bash-validator.ts
+ *   when a cwd is known)
  * - Config protection (prevent setting identity fields)
  * - zeenha fork: block core.hooksPath/core.fsmonitor and writes into
  *   .git/hooks or .git/config. These are speed bumps that obfuscation can
  *   bypass; the OS sandbox is the real control.
  *
- * See apps/desktop/src/main/ai/security/validators/git-validators.ts for the TypeScript implementation.
  */
 
+import { execFileSync } from 'node:child_process';
+
 import type { ValidationResult } from '../bash-validator';
+import {
+  formatSecretFindings,
+  getRepoRoot,
+  listStagedFiles,
+  scanChangedFiles,
+} from '../secret-gate';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -352,10 +360,131 @@ export function validateGitCommand(commandString: string): ValidationResult {
     return validateGitConfig(commandString);
   }
 
-  // git commit: secret scanning is handled at a higher level in the Python backend.
-  // In the TypeScript port we allow git commit (secrets scanning is async/file-based
-  // and would require spawning a subprocess — left to the git hook layer).
-  // The identity protection checks above still apply.
+  // git commit: secret scanning needs the working directory, so it is not done
+  // here. bashSecurityHook()/validateCommand() call validateGitCommitSecrets()
+  // when a cwd is known. The identity protection checks above still apply.
 
   return [true, ''];
+}
+
+// ---------------------------------------------------------------------------
+// Commit secret scan
+// ---------------------------------------------------------------------------
+
+interface GitSegmentInfo {
+  subcommand: string;
+  /** Tokens after the subcommand. */
+  args: string[];
+}
+
+/** Parse one command segment into its git subcommand, or null if it is not a git command. */
+function parseGitSegment(segment: string): GitSegmentInfo | null {
+  const tokens = shellSplit(segment.trim());
+  if (tokens === null) return null;
+  let idx = 0;
+  while (idx < tokens.length && /^\w+=/.test(tokens[idx])) idx++; // leading VAR=value
+  if (tokens[idx] !== 'git') return null;
+  let skipNext = false;
+  for (let i = idx + 1; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    if (token === '-c' || token === '-C' || token === '--git-dir' || token === '--work-tree') {
+      skipNext = true;
+      continue;
+    }
+    if (token.startsWith('-')) continue;
+    return { subcommand: token, args: tokens.slice(i + 1) };
+  }
+  return null;
+}
+
+/** Does a `git commit` argument list stage tracked changes itself (-a, --all, -am, ...)? */
+function commitStagesAll(args: string[]): boolean {
+  for (const arg of args) {
+    if (arg === '--') break;
+    if (arg === '--all') return true;
+    if (/^-[a-zA-Z]+$/.test(arg) && arg.includes('a')) return true;
+  }
+  return false;
+}
+
+function runGitRead(cwd: string, args: string[]): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf-8',
+    timeout: 10_000,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  });
+}
+
+/** Modified and untracked paths from `git status --porcelain -z`. */
+function parsePorcelain(output: string): string[] {
+  const entries = output.split('\0');
+  const files: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.length < 4) continue;
+    const status = entry.slice(0, 2);
+    const file = entry.slice(3);
+    if (status.includes('R') || status.includes('C')) i++; // skip the original path
+    if (status.includes('D') || file.endsWith('/')) continue;
+    files.push(file);
+  }
+  return files;
+}
+
+/**
+ * zeenha fork: refuse a `git commit` when the files it would commit contain
+ * secrets, using the existing secret scanner.
+ *
+ * The hook runs before the command executes, so a `git add` or `commit -a` in
+ * the same command line has not happened yet. To cover that, besides the
+ * staged files this also scans tracked-modified files (commit -a) and
+ * modified/untracked files (a `git add` segment in the same command).
+ *
+ * Limits: `git -C dir` is ignored (cwd is used). This is a lexical guardrail
+ * that obfuscation (scripts, eval, hooks, aliases) can bypass. It fails open
+ * when git cannot be read, because the app-side push gate is the control the
+ * agent cannot skip.
+ */
+export function validateGitCommitSecrets(command: string, cwd: string | undefined): ValidationResult {
+  if (!cwd) return [true, ''];
+
+  const segments = command.split(/&&|\|\||[;&|\n]/);
+  let commit: GitSegmentInfo | null = null;
+  let hasAdd = false;
+  for (const segment of segments) {
+    const info = parseGitSegment(segment);
+    if (!info) continue;
+    if (info.subcommand === 'commit') commit = commit ?? info;
+    else if (info.subcommand === 'add') hasAdd = true;
+  }
+  if (!commit) return [true, ''];
+
+  try {
+    const root = getRepoRoot(cwd);
+    if (!root) return [true, ''];
+
+    const files = new Set<string>(listStagedFiles(cwd));
+    if (commitStagesAll(commit.args)) {
+      for (const file of runGitRead(root, ['diff', '--name-only', '--diff-filter=ACMR', '-z']).split('\0')) {
+        if (file) files.add(file);
+      }
+    }
+    if (hasAdd) {
+      for (const file of parsePorcelain(runGitRead(root, ['status', '--porcelain', '-z', '-uall']))) {
+        files.add(file);
+      }
+    }
+
+    const matches = scanChangedFiles([...files], root);
+    if (matches.length === 0) return [true, ''];
+    return [false, formatSecretFindings(matches, 'commit')];
+  } catch {
+    return [true, '']; // fail open: the push gate is the backstop
+  }
 }

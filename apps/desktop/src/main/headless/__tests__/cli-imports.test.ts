@@ -71,8 +71,9 @@ describe('headless cli imports', () => {
   it('bundles the queue and schedule modules but not their Electron-bound siblings', () => {
     const reached = new Set([...collectReachable(CLI_ENTRY)].map((file) => path.basename(file)));
     for (const name of ['task-queue-manager.ts', 'schedule-service.ts', 'schedule-file-store.ts', 'webhook-core.ts',
-      'github-writer.ts', 'gitlab-writer.ts', 'linear-writer.ts', 'headless-writers.ts',
-      'issue-writeback-core.ts', 'jira-writeback-core.ts', 'github-api.ts', 'gitlab-api.ts', 'writeback.ts',
+      'task-store.ts', 'shared.ts',
+      'github-writer.ts', 'gitlab-writer.ts', 'linear-writer.ts', 'jira-writer.ts', 'headless-writers.ts',
+      'issue-writeback-core.ts', 'issue-writeback-settings.ts', 'github-api.ts', 'gitlab-api.ts', 'writeback.ts',
     ]) {
       expect(reached.has(name), `${name} should be reachable`).toBe(true);
     }

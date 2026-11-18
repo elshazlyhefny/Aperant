@@ -223,9 +223,12 @@ export interface ClaudeProfileSettings {
 
 /**
  * Settings for automatic profile switching
+ *
+ * All toggles default to false. Thresholds are compared with >= and either one
+ * is enough to trigger a proactive swap.
  */
 export interface ClaudeAutoSwitchSettings {
-  /** Master toggle - enables all auto-switch features */
+  /** Master toggle - enables all auto-switch features. Proactive features need this and proactiveSwapEnabled both on. */
   enabled: boolean;
 
   // Proactive monitoring settings
@@ -241,10 +244,10 @@ export interface ClaudeAutoSwitchSettings {
   weeklyThreshold: number;
 
   // Reactive recovery
-  /** Whether to automatically switch on unexpected rate limit (vs. prompting user) */
+  /** Whether to automatically switch on unexpected rate limit (vs. prompting user). Applies to reactive recovery. */
   autoSwitchOnRateLimit: boolean;
 
-  /** Whether to automatically switch on authentication failure (vs. prompting user) */
+  /** Whether to automatically switch on authentication failure (vs. prompting user). Applies to reactive recovery. */
   autoSwitchOnAuthFailure: boolean;
 }
 

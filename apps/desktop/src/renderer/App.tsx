@@ -73,6 +73,9 @@ const GitHubPRs = lazy(() => import('./components/github-prs').then((m) => ({ de
 const GitLabMergeRequests = lazy(() =>
   import('./components/gitlab-merge-requests').then((m) => ({ default: m.GitLabMergeRequests }))
 );
+const AzureDevOpsPullRequests = lazy(() =>
+  import('./components/azuredevops-pull-requests').then((m) => ({ default: m.AzureDevOpsPullRequests }))
+);
 const BitbucketPullRequests = lazy(() =>
   import('./components/bitbucket-pull-requests').then((m) => ({ default: m.BitbucketPullRequests }))
 );
@@ -1054,6 +1057,15 @@ export function App() {
                     }}
                   />
                 )}
+                {activeView === 'azuredevops-pull-requests' && (activeProjectId || selectedProjectId) && (
+                  <AzureDevOpsPullRequests
+                    projectId={activeProjectId || selectedProjectId!}
+                    onOpenSettings={() => {
+                      setSettingsInitialProjectSection('azuredevops');
+                      setIsSettingsDialogOpen(true);
+                    }}
+                  />
+                )}
                 {activeView === 'changelog' && (activeProjectId || selectedProjectId) && (
                   <Changelog />
                 )}
@@ -1061,10 +1073,24 @@ export function App() {
                   <Worktrees projectId={activeProjectId || selectedProjectId!} />
                 )}
                 {activeView === 'schedules' && (activeProjectId || selectedProjectId) && (
-                  <Schedules projectId={activeProjectId || selectedProjectId!} />
+                  <Schedules
+                    projectId={activeProjectId || selectedProjectId!}
+                    onOpenTask={(taskId) => {
+                      const projectId = activeProjectId || selectedProjectId;
+                      if (!projectId) return;
+                      setActiveView('kanban');
+                      setPendingTaskTarget({ projectId, taskId });
+                    }}
+                  />
                 )}
                 {activeView === 'delivery' && (activeProjectId || selectedProjectId) && (
-                  <DeliveryMetrics projectId={activeProjectId || selectedProjectId!} />
+                  <DeliveryMetrics
+                    projectId={activeProjectId || selectedProjectId!}
+                    onOpenTask={(specId) => {
+                      setActiveView('kanban');
+                      setPendingTaskTarget({ projectId: activeProjectId || selectedProjectId!, taskId: specId });
+                    }}
+                  />
                 )}
                 {activeView === 'agent-tools' && <AgentTools />}
                 </Suspense>

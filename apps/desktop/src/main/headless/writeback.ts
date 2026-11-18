@@ -1,18 +1,18 @@
 /**
  * zeenha fork: report a headless run's outcome back to the source issue.
  *
- * Electron-free on purpose: only the issue/Jira cores, the headless writers and
- * the default settings. Nothing here throws, and nothing is logged that could
+ * Electron-free on purpose: only the issue write-back core, the headless writers
+ * (Jira included) and the default settings. Nothing here throws, and nothing is logged that could
  * contain a token, a URL or issue text.
  */
 
 import { DEFAULT_APP_SETTINGS } from '../../shared/constants/config';
 import type { Project } from '../../shared/types';
-import type { IssueWritebackSettings, JiraWritebackSettings } from '../../shared/types/settings';
+import type { AppSettings, IssueWritebackSettings, JiraWritebackSettings } from '../../shared/types/settings';
+import { normalizeIssueWritebackSettings } from '../../shared/utils/issue-writeback-settings';
 import { createHeadlessWriters } from '../ipc-handlers/forge/headless-writers';
 import { readMetadata } from '../ipc-handlers/issue-writeback/common';
 import { dispatchIssueOutcomeWith } from '../ipc-handlers/issue-writeback/issue-writeback-core';
-import { dispatchJiraOutcomeWith } from '../ipc-handlers/jira/jira-writeback-core';
 import type { WebhookEvent } from '../task-webhook-core';
 import type { HeadlessConfig } from './config';
 import type { RunOutcome } from './outcome';
@@ -24,16 +24,11 @@ export interface HeadlessWritebackSettings {
 
 /** Defaults come from the app settings constants; every provider is off unless configured. */
 export function resolveHeadlessWritebackSettings(config: HeadlessConfig): HeadlessWritebackSettings {
-  const issueDefaults = DEFAULT_APP_SETTINGS.issueWriteback;
   const jiraDefaults = DEFAULT_APP_SETTINGS.jiraWriteback;
   const wb = config.writeback ?? {};
   const jira = wb.jira ?? {};
   return {
-    issue: {
-      github: wb.github ?? issueDefaults.github,
-      gitlab: wb.gitlab ?? issueDefaults.gitlab,
-      linear: wb.linear ?? issueDefaults.linear
-    },
+    issue: normalizeIssueWritebackSettings({ github: wb.github, gitlab: wb.gitlab, linear: wb.linear }),
     jira: {
       enabled: jira.enabled ?? jiraDefaults.enabled,
       comment: jira.comment ?? jiraDefaults.comment,
@@ -63,7 +58,6 @@ export interface ReportOutcomeToSourceInput {
   prUrl?: string;
   env?: NodeJS.ProcessEnv;
   dispatchIssue?: typeof dispatchIssueOutcomeWith;
-  dispatchJira?: typeof dispatchJiraOutcomeWith;
   warn?: (message: string) => void;
 }
 
@@ -81,7 +75,7 @@ export async function reportOutcomeToSource(input: ReportOutcomeToSourceInput): 
     if (!isWritebackEnabled(settings)) return;
     const meta = readMetadata(specDirs);
     const dispatchIssue = input.dispatchIssue ?? dispatchIssueOutcomeWith;
-    const dispatchJira = input.dispatchJira ?? dispatchJiraOutcomeWith;
+    const raw: Partial<AppSettings> = { issueWriteback: settings.issue, jiraWriteback: settings.jira };
     try {
       await dispatchIssue({
         title,
@@ -89,16 +83,11 @@ export async function reportOutcomeToSource(input: ReportOutcomeToSourceInput): 
         project,
         event,
         meta,
-        settings: settings.issue,
-        writers: createHeadlessWriters(input.env ?? process.env)
+        raw,
+        writers: createHeadlessWriters(input.env ?? process.env, settings.jira)
       });
     } catch {
       warn('issue write-back failed; the run result is unchanged');
-    }
-    try {
-      await dispatchJira({ title, prUrl, project, event, meta, settings: settings.jira });
-    } catch {
-      warn('jira write-back failed; the run result is unchanged');
     }
   } catch {
     warn('write-back failed; the run result is unchanged');

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarClock, Pause, Pencil, Play, Plus, Trash2, AlertTriangle, Zap } from 'lucide-react';
+import { CalendarClock, Pause, Pencil, Play, Plus, Trash2, AlertTriangle, Zap, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -16,6 +16,7 @@ import {
 } from './ui/alert-dialog';
 import { ScheduleDialog } from './ScheduleDialog';
 import { useScheduleStore } from '../stores/schedule-store';
+import { useTaskStore } from '../stores/task-store';
 import type {
   RecurringSchedule,
   ScheduleCadence,
@@ -26,6 +27,7 @@ import type {
 
 interface SchedulesProps {
   projectId: string;
+  onOpenTask?: (taskId: string) => void;
 }
 
 const REPORT_KINDS: ScheduleRunRecord['kind'][] = [
@@ -39,7 +41,7 @@ function pendingReports(schedule: RecurringSchedule): ScheduleRunRecord[] {
   return schedule.history.filter((r) => !r.acknowledged && REPORT_KINDS.includes(r.kind));
 }
 
-export function Schedules({ projectId }: SchedulesProps) {
+export function Schedules({ projectId, onOpenTask }: SchedulesProps) {
   const { t, i18n } = useTranslation(['schedules', 'common']);
   const schedules = useScheduleStore((s) => s.schedules);
   const loadSchedules = useScheduleStore((s) => s.loadSchedules);
@@ -47,12 +49,23 @@ export function Schedules({ projectId }: SchedulesProps) {
   const deleteSchedule = useScheduleStore((s) => s.deleteSchedule);
   const acknowledgeReports = useScheduleStore((s) => s.acknowledgeReports);
   const runNow = useScheduleStore((s) => s.runNow);
+  const tasks = useTaskStore((s) => s.tasks);
+  const isLoading = useScheduleStore((s) => s.isLoading);
+  const loadError = useScheduleStore((s) => s.loadError);
+  const activeProjectId = useScheduleStore((s) => s.activeProjectId);
 
   const [runningNowId, setRunningNowId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ scheduleId: string; text: string } | null>(null);
+  const [notice, setNotice] = useState<{
+    scheduleId: string;
+    text: string;
+    isError: boolean;
+    scope?: 'card' | 'banner';
+  } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<RecurringSchedule | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RecurringSchedule | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     void loadSchedules(projectId);
@@ -79,20 +92,48 @@ export function Schedules({ projectId }: SchedulesProps) {
     return t(`schedules:history.${record.kind}`, { count: record.missedCount ?? 0 });
   };
 
+  const findTask = (taskId: string) => tasks.find((x) => x.id === taskId || x.specId === taskId);
+
+  const renderOpenTask = (record: ScheduleRunRecord) => {
+    if (!record.taskId) return null;
+    if (record.kind !== 'skipped_unfinished' && record.kind !== 'failed') return null;
+    const taskId = record.taskId;
+    const found = findTask(taskId);
+    return (
+      <Button
+        variant="link"
+        size="sm"
+        className="ml-2 h-auto p-0"
+        disabled={!found || !onOpenTask}
+        title={found ? undefined : t('schedules:lastTaskMissing')}
+        onClick={() => onOpenTask?.(taskId)}
+      >
+        {t('schedules:buttons.openTask')}
+      </Button>
+    );
+  };
+
   const handleRunNow = async (scheduleId: string) => {
     setRunningNowId(scheduleId);
     setNotice(null);
     let text: string;
+    let isError = false;
     try {
       const result = await runNow(scheduleId);
-      if (!result) text = t('schedules:runNow.failed');
-      else if (result.started) text = t('schedules:runNow.started');
+      if (!result) {
+        text = t('schedules:runNow.failed');
+        isError = true;
+      } else if (result.started) text = t('schedules:runNow.started');
       else if (result.reason === 'unfinished') text = t('schedules:runNow.unfinished');
-      else text = t('schedules:runNow.failed');
+      else {
+        text = t('schedules:runNow.failed');
+        isError = true;
+      }
     } catch {
       text = t('schedules:runNow.failed');
+      isError = true;
     }
-    setNotice({ scheduleId, text });
+    setNotice({ scheduleId, text, isError, scope: 'card' });
     setRunningNowId(null);
   };
 
@@ -106,10 +147,58 @@ export function Schedules({ projectId }: SchedulesProps) {
     setDialogOpen(true);
   };
 
-  const confirmDelete = async () => {
-    if (pendingDelete) await deleteSchedule(pendingDelete.id);
-    setPendingDelete(null);
+  const handleToggleEnabled = async (schedule: RecurringSchedule) => {
+    setNotice(null);
+    const ok = await setEnabled(schedule.id, !schedule.enabled);
+    if (!ok) {
+      setNotice({
+        scheduleId: schedule.id,
+        text: t('schedules:errors.actionFailed'),
+        isError: true,
+        scope: 'card'
+      });
+    }
   };
+
+  const handleDismiss = async (schedule: RecurringSchedule) => {
+    setNotice(null);
+    const ok = await acknowledgeReports(
+      schedule.id,
+      pendingReports(schedule).map((r) => r.id)
+    );
+    if (!ok) {
+      setNotice({
+        scheduleId: schedule.id,
+        text: t('schedules:errors.actionFailed'),
+        isError: true,
+        scope: 'banner'
+      });
+    }
+  };
+
+  const requestDelete = (schedule: RecurringSchedule) => {
+    setDeleteError(null);
+    setPendingDelete(schedule);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete || isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const ok = await deleteSchedule(pendingDelete.id);
+      if (ok) {
+        setPendingDelete(null);
+      } else {
+        setDeleteError(t('schedules:errors.deleteFailed'));
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const showLoading =
+    schedules.length === 0 && !loadError && (isLoading || activeProjectId !== projectId);
 
   const withReports = schedules.filter((s) => pendingReports(s).length > 0);
 
@@ -146,29 +235,51 @@ export function Schedules({ projectId }: SchedulesProps) {
                     {pendingReports(schedule).map((record) => (
                       <li key={record.id}>
                         {formatDate(record.at)} - {recordText(record)}
+                        {renderOpenTask(record)}
                       </li>
                     ))}
                   </ul>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    void acknowledgeReports(
-                      schedule.id,
-                      pendingReports(schedule).map((r) => r.id)
-                    )
-                  }
-                >
-                  {t('schedules:buttons.dismiss')}
-                </Button>
+                <div className="flex flex-col items-end gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleDismiss(schedule)}
+                  >
+                    {t('schedules:buttons.dismiss')}
+                  </Button>
+                  {notice?.scheduleId === schedule.id && notice.scope === 'banner' && (
+                    <p role="alert" className="text-destructive">
+                      {notice.text}
+                    </p>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {schedules.length === 0 ? (
+      {showLoading ? (
+        <div
+          role="status"
+          className="flex flex-1 items-center justify-center text-muted-foreground"
+        >
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span className="ml-2 text-sm">{t('schedules:loading')}</span>
+        </div>
+      ) : schedules.length === 0 && loadError ? (
+        <div className="flex flex-1 items-center justify-center">
+          <div role="alert" className="text-center">
+            <AlertCircle className="mx-auto mb-2 h-8 w-8 text-destructive" />
+            <p className="mb-2 text-sm text-destructive">{t('schedules:errors.loadFailed')}</p>
+            <Button variant="outline" size="sm" onClick={() => void loadSchedules(projectId)}>
+              <RefreshCw className="mr-1 h-3 w-3" />
+              {t('schedules:buttons.retry')}
+            </Button>
+          </div>
+        </div>
+      ) : schedules.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           <CalendarClock className="h-10 w-10 text-muted-foreground" />
           <h2 className="text-lg font-medium">{t('schedules:empty.title')}</h2>
@@ -212,7 +323,7 @@ export function Schedules({ projectId }: SchedulesProps) {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => void setEnabled(schedule.id, !schedule.enabled)}
+                      onClick={() => void handleToggleEnabled(schedule)}
                     >
                       {schedule.enabled ? (
                         <Pause className="mr-1 h-4 w-4" />
@@ -227,7 +338,7 @@ export function Schedules({ projectId }: SchedulesProps) {
                       <Pencil className="mr-1 h-4 w-4" />
                       {t('schedules:buttons.edit')}
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => setPendingDelete(schedule)}>
+                    <Button size="sm" variant="outline" onClick={() => requestDelete(schedule)}>
                       <Trash2 className="mr-1 h-4 w-4" />
                       {t('schedules:buttons.delete')}
                     </Button>
@@ -235,8 +346,11 @@ export function Schedules({ projectId }: SchedulesProps) {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
-                {notice?.scheduleId === schedule.id && (
-                  <p role="status" className="text-muted-foreground">
+                {notice?.scheduleId === schedule.id && notice.scope !== 'banner' && (
+                  <p
+                    role={notice.isError ? 'alert' : 'status'}
+                    className={notice.isError ? 'text-destructive' : 'text-muted-foreground'}
+                  >
                     {notice.text}
                   </p>
                 )}
@@ -254,9 +368,22 @@ export function Schedules({ projectId }: SchedulesProps) {
                       date: schedule.lastRunAt ? formatDate(schedule.lastRunAt) : t('schedules:never')
                     })}
                   </span>
-                  {schedule.lastTaskId && (
-                    <span>{t('schedules:lastTask', { id: schedule.lastTaskId })}</span>
-                  )}
+                  {schedule.lastTaskId && (() => {
+                    const lastTaskId = schedule.lastTaskId;
+                    const task = findTask(lastTaskId);
+                    return (
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0"
+                        disabled={!task || !onOpenTask}
+                        title={task ? undefined : t('schedules:lastTaskMissing')}
+                        onClick={() => onOpenTask?.(lastTaskId)}
+                      >
+                        {t('schedules:lastTask', { title: task ? task.title : lastTaskId })}
+                      </Button>
+                    );
+                  })()}
                 </div>
                 <div>
                   <h3 className="mb-1 font-medium">{t('schedules:history.title')}</h3>
@@ -270,6 +397,7 @@ export function Schedules({ projectId }: SchedulesProps) {
                         .map((record) => (
                           <li key={record.id}>
                             {formatDate(record.at)} - {recordText(record)}
+                            {renderOpenTask(record)}
                           </li>
                         ))}
                     </ul>
@@ -291,7 +419,10 @@ export function Schedules({ projectId }: SchedulesProps) {
       <AlertDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingDelete(null);
+          if (!open) {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }
         }}
       >
         <AlertDialogContent>
@@ -301,9 +432,20 @@ export function Schedules({ projectId }: SchedulesProps) {
               {t('schedules:delete.description', { name: pendingDelete?.name ?? '' })}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteError && (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteError}
+            </p>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common:buttons.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void confirmDelete()}>
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDelete();
+              }}
+            >
               {t('schedules:buttons.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>

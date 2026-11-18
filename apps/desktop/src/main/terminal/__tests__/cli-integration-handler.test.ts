@@ -27,6 +27,21 @@ const mockInitializeClaudeProfileManager = vi.fn();
 const mockPersistSession = vi.fn();
 const mockPersistSessionAsync = vi.fn();
 const mockReleaseSessionId = vi.fn();
+const mockGetFullCredentialsFromKeychain = vi.fn();
+const mockClearKeychainCache = vi.fn();
+const mockUpdateProfileSubscriptionMetadata = vi.fn();
+const mockGetEmailFromConfigDir = vi.fn();
+const forwardToWindow = (
+  getWindow: () => { webContents: { send: (...a: unknown[]) => void } } | null,
+  channel: string,
+  ...args: unknown[]
+) => {
+  const win = getWindow();
+  if (!win) return false;
+  win.webContents.send(channel, ...args);
+  return true;
+};
+const mockSafeSendToRenderer = vi.fn(forwardToWindow);
 
 const createMockDisposable = (): pty.IDisposable => ({ dispose: vi.fn() });
 
@@ -66,6 +81,20 @@ vi.mock('../../cli-utils', () => ({
 vi.mock('../../claude-profile-manager', () => ({
   getClaudeProfileManager: mockGetClaudeProfileManager,
   initializeClaudeProfileManager: mockInitializeClaudeProfileManager,
+}));
+
+vi.mock('../../claude-profile/credential-utils', () => ({
+  getFullCredentialsFromKeychain: mockGetFullCredentialsFromKeychain,
+  clearKeychainCache: mockClearKeychainCache,
+  updateProfileSubscriptionMetadata: mockUpdateProfileSubscriptionMetadata,
+}));
+
+vi.mock('../../claude-profile/profile-utils', () => ({
+  getEmailFromConfigDir: mockGetEmailFromConfigDir,
+}));
+
+vi.mock('../../ipc-handlers/utils', () => ({
+  safeSendToRenderer: mockSafeSendToRenderer,
 }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -1115,5 +1144,157 @@ describe('switchClaudeProfile - waitForClaudeExit byte offset', () => {
     const messages = warnSpy.mock.calls.map((c) => String(c[0]));
     expect(messages.some((m) => m.includes('Timed out'))).toBe(true);
     expect(messages.some((m) => m.includes('Claude exited successfully'))).toBe(false);
+  });
+});
+
+describe('handleOAuthToken', () => {
+  const CONFIG_DIR = '/tmp/fake-claude-work';
+  const LOGIN_DATA = 'Login successful';
+  const TOKEN_DATA = 'token: sk-ant-oat01-abcDEF123_-xyz';
+  const AUTH_TERMINAL_ID = 'claude-login-work-1737298800000';
+
+  let profile: Record<string, unknown>;
+  let activeProfile: Record<string, unknown>;
+  let profileManager: {
+    getProfile: ReturnType<typeof vi.fn>;
+    getActiveProfile: ReturnType<typeof vi.fn>;
+    saveProfile: ReturnType<typeof vi.fn>;
+    hasValidAuth: ReturnType<typeof vi.fn>;
+  };
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  const run = async (terminal: TerminalProcess, data: string) => {
+    const { handleOAuthToken } = await import('../cli-integration-handler');
+    handleOAuthToken(terminal, data, () => null);
+  };
+
+  const getPayload = () => {
+    const call = mockSafeSendToRenderer.mock.calls.find((c) => c[1] === 'terminal:oauthToken');
+    expect(call).toBeDefined();
+    return call?.[2] as Record<string, unknown>;
+  };
+
+  beforeEach(() => {
+    mockGetFullCredentialsFromKeychain.mockReset();
+    mockClearKeychainCache.mockReset();
+    mockUpdateProfileSubscriptionMetadata.mockReset();
+    mockGetEmailFromConfigDir.mockReset();
+    mockSafeSendToRenderer.mockReset();
+    mockSafeSendToRenderer.mockImplementation(forwardToWindow);
+    mockGetClaudeProfileManager.mockReset();
+    profile = { id: 'work', name: 'Work', configDir: CONFIG_DIR, isAuthenticated: false };
+    activeProfile = { id: 'active', name: 'Active', configDir: '/tmp/fake-claude-active', isAuthenticated: false };
+    profileManager = {
+      getProfile: vi.fn(() => profile),
+      getActiveProfile: vi.fn(() => activeProfile),
+      saveProfile: vi.fn(),
+      hasValidAuth: vi.fn(() => false),
+    };
+    mockGetClaudeProfileManager.mockReturnValue(profileManager);
+    mockGetEmailFromConfigDir.mockReturnValue(null);
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  const authTerminal = (output: string) =>
+    createMockTerminal({ id: AUTH_TERMINAL_ID, outputBuffer: output });
+
+  it('keychain branch: config email wins over output email and payload matches profile', async () => {
+    const creds = { token: 'tok', email: 'keychain@example.com' };
+    mockGetFullCredentialsFromKeychain.mockReturnValue(creds);
+    mockGetEmailFromConfigDir.mockReturnValue('real@example.com');
+
+    await run(authTerminal('Logged in as corrupt@example.com'), LOGIN_DATA);
+
+    expect(profile.email).toBe('real@example.com');
+    expect(profileManager.saveProfile).toHaveBeenCalledWith(profile);
+    const payload = getPayload();
+    expect(payload.email).toBe('real@example.com');
+    expect(payload.success).toBe(true);
+    expect(payload.email).toBe(profile.email);
+    expect(mockUpdateProfileSubscriptionMetadata).toHaveBeenCalledWith(profile, creds);
+    expect(mockClearKeychainCache).toHaveBeenCalled();
+  });
+
+  it('keychain branch: falls back to keychain email, then config email', async () => {
+    const creds = { token: 'tok', email: 'keychain@example.com' };
+    mockGetFullCredentialsFromKeychain.mockReturnValue(creds);
+    await run(authTerminal('nothing here'), LOGIN_DATA);
+    expect(profile.email).toBe('keychain@example.com');
+    expect(getPayload().email).toBe('keychain@example.com');
+
+    mockSafeSendToRenderer.mockReset();
+    profile = { id: 'work', name: 'Work', configDir: CONFIG_DIR, isAuthenticated: false };
+    mockGetFullCredentialsFromKeychain.mockReturnValue({ token: 'tok' });
+    mockGetEmailFromConfigDir.mockReturnValue('config@example.com');
+    await run(authTerminal('nothing here'), LOGIN_DATA);
+    expect(profile.email).toBe('config@example.com');
+    expect(getPayload().email).toBe('config@example.com');
+  });
+
+  it('legacy token with profile terminal: config email wins and payload matches', async () => {
+    mockGetEmailFromConfigDir.mockReturnValue('real@example.com');
+
+    await run(authTerminal('Logged in as corrupt@example.com'), TOKEN_DATA);
+
+    expect(profile.email).toBe('real@example.com');
+    expect(profileManager.saveProfile).toHaveBeenCalledWith(profile);
+    const payload = getPayload();
+    expect(payload.email).toBe(profile.email);
+    expect(payload.success).toBe(true);
+    expect(mockUpdateProfileSubscriptionMetadata).toHaveBeenCalledWith(profile, CONFIG_DIR);
+    expect(mockClearKeychainCache).toHaveBeenCalled();
+  });
+
+  it('legacy token without profile id updates the active profile', async () => {
+    mockGetEmailFromConfigDir.mockReturnValue('real@example.com');
+
+    await run(createMockTerminal({ id: 'term-1', outputBuffer: 'Logged in as corrupt@example.com' }), TOKEN_DATA);
+
+    expect(activeProfile.email).toBe('real@example.com');
+    expect(profileManager.saveProfile).toHaveBeenCalledWith(activeProfile);
+    const payload = getPayload();
+    expect(payload.email).toBe('real@example.com');
+    expect(payload.profileId).toBe('active');
+    expect(payload.success).toBe(true);
+    expect(mockUpdateProfileSubscriptionMetadata).toHaveBeenCalledWith(activeProfile, '/tmp/fake-claude-active');
+  });
+
+  it('legacy token without profile id and no active profile reports failure', async () => {
+    profileManager.getActiveProfile.mockReturnValue(null);
+
+    await run(createMockTerminal({ id: 'term-1', outputBuffer: '' }), TOKEN_DATA);
+
+    expect(profileManager.saveProfile).not.toHaveBeenCalled();
+    const payload = getPayload();
+    expect(payload.success).toBe(false);
+    expect(payload.message).toBe('No active profile found');
+  });
+
+  it('returns early without notify or save on keychain error', async () => {
+    mockGetFullCredentialsFromKeychain.mockReturnValue({ error: 'denied' });
+
+    await run(authTerminal(''), LOGIN_DATA);
+
+    expect(mockSafeSendToRenderer).not.toHaveBeenCalled();
+    expect(profileManager.saveProfile).not.toHaveBeenCalled();
+  });
+
+  it('masks emails in warning logs', async () => {
+    mockGetFullCredentialsFromKeychain.mockReturnValue({ token: 'tok' });
+    mockGetEmailFromConfigDir.mockReturnValue('real@example.com');
+
+    await run(authTerminal('Logged in as corrupt@example.com'), LOGIN_DATA);
+
+    const logged = JSON.stringify(warnSpy.mock.calls);
+    expect(warnSpy).toHaveBeenCalled();
+    expect(logged).not.toContain('real@example.com');
+    expect(logged).not.toContain('corrupt@example.com');
   });
 });

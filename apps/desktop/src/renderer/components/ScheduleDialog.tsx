@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -31,6 +31,11 @@ interface ScheduleDialogProps {
 }
 
 type CadenceKind = ScheduleCadence['kind'];
+type ScheduleField = 'name' | 'title' | 'description' | 'time' | 'days' | 'interval' | 'budget';
+interface FormError {
+  field: ScheduleField | null;
+  message: string;
+}
 
 const DEFAULT_TIME = '09:00';
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -49,8 +54,16 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
   const [days, setDays] = useState<number[]>([1]);
   const [everyMinutes, setEveryMinutes] = useState('60');
   const [tokenBudget, setTokenBudget] = useState(String(DEFAULT_SCHEDULE_TOKEN_BUDGET));
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<FormError | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const nameRef = useRef<HTMLInputElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const timeRef = useRef<HTMLInputElement>(null);
+  const daysRef = useRef<HTMLDivElement>(null);
+  const intervalRef = useRef<HTMLInputElement>(null);
+  const budgetRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -84,21 +97,50 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
     return { kind, everyMinutes: Number(everyMinutes) };
   };
 
-  const validate = (cadence: ScheduleCadence, budget: number): string | null => {
-    if (!name.trim()) return t('schedules:validation.nameRequired');
-    if (!taskTitle.trim()) return t('schedules:validation.titleRequired');
-    if (!description.trim()) return t('schedules:validation.descriptionRequired');
+  const validate = (cadence: ScheduleCadence, budget: number): FormError | null => {
+    if (!name.trim()) return { field: 'name', message: t('schedules:validation.nameRequired') };
+    if (!taskTitle.trim()) return { field: 'title', message: t('schedules:validation.titleRequired') };
+    if (!description.trim()) {
+      return { field: 'description', message: t('schedules:validation.descriptionRequired') };
+    }
     if (!validateCadence(cadence).ok) {
       if (cadence.kind === 'interval') {
-        return t('schedules:validation.intervalMin', { min: MIN_INTERVAL_MINUTES });
+        return {
+          field: 'interval',
+          message: t('schedules:validation.intervalMin', { min: MIN_INTERVAL_MINUTES })
+        };
       }
       if (cadence.kind === 'weekly' && cadence.days.length === 0) {
-        return t('schedules:validation.noDays');
+        return { field: 'days', message: t('schedules:validation.noDays') };
       }
-      return t('schedules:validation.invalidTime');
+      return { field: 'time', message: t('schedules:validation.invalidTime') };
     }
-    if (!Number.isInteger(budget) || budget <= 0) return t('schedules:validation.budgetInvalid');
+    if (!Number.isInteger(budget) || budget <= 0) {
+      return { field: 'budget', message: t('schedules:validation.budgetInvalid') };
+    }
     return null;
+  };
+
+  const focusField = (field: ScheduleField | null) => {
+    const refs = {
+      name: nameRef,
+      title: titleRef,
+      description: descriptionRef,
+      time: timeRef,
+      days: daysRef,
+      interval: intervalRef,
+      budget: budgetRef
+    };
+    if (field) refs[field].current?.focus();
+  };
+
+  const invalidProps = (field: ScheduleField, hintId?: string) => {
+    const failed = error?.field === field;
+    const describedBy = [hintId, failed ? 'schedule-error' : undefined].filter(Boolean).join(' ');
+    return {
+      'aria-invalid': failed || undefined,
+      'aria-describedby': describedBy || undefined
+    };
   };
 
   const handleSave = async () => {
@@ -107,6 +149,7 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
     const validationError = validate(cadence, budget);
     if (validationError) {
       setError(validationError);
+      focusField(validationError.field);
       return;
     }
     setSaving(true);
@@ -128,7 +171,10 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
     if (saved) {
       onOpenChange(false);
     } else {
-      setError(useScheduleStore.getState().error ?? t('schedules:errors.saveFailed'));
+      setError({
+        field: null,
+        message: useScheduleStore.getState().error ?? t('schedules:errors.saveFailed')
+      });
     }
   };
 
@@ -158,6 +204,8 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
             <Label htmlFor="schedule-name">{t('schedules:form.name')}</Label>
             <Input
               id="schedule-name"
+              ref={nameRef}
+              {...invalidProps('name')}
               value={name}
               placeholder={t('schedules:form.namePlaceholder')}
               onChange={(e) => { setName(e.target.value); setError(null); }}
@@ -168,6 +216,8 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
             <Label htmlFor="schedule-task-title">{t('schedules:form.taskTitle')}</Label>
             <Input
               id="schedule-task-title"
+              ref={titleRef}
+              {...invalidProps('title')}
               value={taskTitle}
               onChange={(e) => { setTaskTitle(e.target.value); setError(null); }}
             />
@@ -177,6 +227,8 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
             <Label htmlFor="schedule-task-description">{t('schedules:form.taskDescription')}</Label>
             <Textarea
               id="schedule-task-description"
+              ref={descriptionRef}
+              {...invalidProps('description')}
               rows={4}
               value={description}
               placeholder={t('schedules:form.taskDescriptionPlaceholder')}
@@ -185,14 +237,15 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
           </div>
 
           <div className="space-y-2">
-            <Label>{t('schedules:form.cadence')}</Label>
-            <div className="flex gap-2">
+            <Label id="schedule-cadence-label">{t('schedules:form.cadence')}</Label>
+            <div role="group" aria-labelledby="schedule-cadence-label" className="flex gap-2">
               {cadenceKinds.map((option) => (
                 <Button
                   key={option.value}
                   type="button"
                   size="sm"
                   variant={kind === option.value ? 'default' : 'outline'}
+                  aria-pressed={kind === option.value}
                   onClick={() => { setKind(option.value); setError(null); }}
                 >
                   {option.label}
@@ -206,6 +259,8 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
               <Label htmlFor="schedule-time">{t('schedules:form.time')}</Label>
               <Input
                 id="schedule-time"
+                ref={timeRef}
+                {...invalidProps('time')}
                 type="time"
                 value={time}
                 onChange={(e) => { setTime(e.target.value); setError(null); }}
@@ -216,8 +271,15 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
 
           {kind === 'weekly' && (
             <div className="space-y-2">
-              <Label>{t('schedules:form.weekdays')}</Label>
-              <div className="flex flex-wrap gap-2">
+              <Label id="schedule-weekdays-label">{t('schedules:form.weekdays')}</Label>
+              <div
+                ref={daysRef}
+                tabIndex={-1}
+                role="group"
+                aria-labelledby="schedule-weekdays-label"
+                aria-describedby={error?.field === 'days' ? 'schedule-error' : undefined}
+                className="flex flex-wrap gap-2"
+              >
                 {WEEKDAYS.map((day) => (
                   <Button
                     key={day}
@@ -240,13 +302,15 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
               <Label htmlFor="schedule-interval">{t('schedules:form.everyMinutes')}</Label>
               <Input
                 id="schedule-interval"
+                ref={intervalRef}
+                {...invalidProps('interval', 'schedule-interval-hint')}
                 type="number"
                 min={MIN_INTERVAL_MINUTES}
                 value={everyMinutes}
                 onChange={(e) => { setEveryMinutes(e.target.value); setError(null); }}
                 className="w-40"
               />
-              <p className="text-sm text-muted-foreground">
+              <p id="schedule-interval-hint" className="text-sm text-muted-foreground">
                 {t('schedules:form.everyMinutesHint', { min: MIN_INTERVAL_MINUTES })}
               </p>
             </div>
@@ -256,15 +320,23 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
             <Label htmlFor="schedule-token-budget">{t('schedules:form.tokenBudget')}</Label>
             <Input
               id="schedule-token-budget"
+              ref={budgetRef}
+              {...invalidProps('budget', 'schedule-budget-hint')}
               type="number"
               min={1}
               value={tokenBudget}
               onChange={(e) => { setTokenBudget(e.target.value); setError(null); }}
             />
-            <p className="text-sm text-muted-foreground">{t('schedules:form.tokenBudgetHint')}</p>
+            <p id="schedule-budget-hint" className="text-sm text-muted-foreground">
+              {t('schedules:form.tokenBudgetHint')}
+            </p>
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <p id="schedule-error" role="alert" className="text-sm text-destructive">
+              {error.message}
+            </p>
+          )}
         </div>
 
         <DialogFooter>

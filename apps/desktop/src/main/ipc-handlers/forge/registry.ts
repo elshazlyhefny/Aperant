@@ -7,6 +7,7 @@ import { azureDevOpsForge } from './azuredevops-forge';
 import { bitbucketForge } from './bitbucket-forge';
 import { githubForge } from './github-forge';
 import { gitlabForge } from './gitlab-forge';
+import { jiraWriter } from '../jira/jira-writeback';
 import { linearWriter } from './linear-writer';
 import { isOutcomeWriter, type OutcomeWriter, type PRHost, type PRRef } from './types';
 
@@ -42,7 +43,7 @@ export function createForgeRegistry(
 /** Tried in this order when resolving a PR URL: GitHub, GitLab, Bitbucket, then Azure DevOps. */
 export const FORGES: readonly PRHost[] = [githubForge, gitlabForge, bitbucketForge, azureDevOpsForge];
 
-const defaultRegistry = createForgeRegistry(FORGES, [linearWriter]);
+const defaultRegistry = createForgeRegistry(FORGES, [linearWriter, jiraWriter]);
 
 export const OUTCOME_WRITERS: readonly OutcomeWriter[] = defaultRegistry.writers;
 

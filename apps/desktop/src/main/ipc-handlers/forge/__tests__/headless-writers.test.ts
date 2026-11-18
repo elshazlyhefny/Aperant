@@ -6,8 +6,11 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_APP_SETTINGS } from '../../../../shared/constants/config';
 import type { Project } from '../../../../shared/types';
 import { createHeadlessWriters } from '../headless-writers';
+
+const settings = DEFAULT_APP_SETTINGS.issueWriteback;
 
 describe('createHeadlessWriters', () => {
   let dir: string;
@@ -25,8 +28,8 @@ describe('createHeadlessWriters', () => {
     vi.unstubAllGlobals();
   });
 
-  it('lists github, gitlab and linear writers', () => {
-    expect(createHeadlessWriters({}).map((w) => w.sourceType)).toEqual(['github', 'gitlab', 'linear']);
+  it('lists github, gitlab, linear and jira writers', () => {
+    expect(createHeadlessWriters({}).map((w) => w.sourceType)).toEqual(['github', 'gitlab', 'linear', 'jira']);
   });
 
   it('github postOutcome resolves when fetch throws, using the env token fallback', async () => {
@@ -39,6 +42,7 @@ describe('createHeadlessWriters', () => {
       project,
       event: 'task_completed' as never,
       text: 'done',
+      settings,
     });
     expect(result).toBeInstanceOf(Promise);
     await expect(result).resolves.toBeUndefined();
@@ -54,6 +58,7 @@ describe('createHeadlessWriters', () => {
       project,
       event: 'task_completed' as never,
       text: 'done',
+      settings,
     });
     expect(result).toBeInstanceOf(Promise);
     await expect(result).resolves.toBeUndefined();
@@ -62,7 +67,7 @@ describe('createHeadlessWriters', () => {
   it('returns nothing when the task has no matching issue metadata', () => {
     const writer = createHeadlessWriters({})[0];
     expect(
-      writer.postOutcome({ meta: {}, project: makeProject(''), event: 'task_completed' as never, text: 'x' })
+      writer.postOutcome({ meta: {}, project: makeProject(''), event: 'task_completed' as never, text: 'x', settings })
     ).toBeUndefined();
   });
 });

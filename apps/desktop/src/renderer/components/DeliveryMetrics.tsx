@@ -12,6 +12,7 @@ import type { ProjectRunMetrics, ProjectRunMetricsGroup } from '../../shared/typ
 
 interface DeliveryMetricsProps {
   projectId: string;
+  onOpenTask?: (specId: string) => void;
 }
 
 type Period = 7 | 30 | 90 | null;
@@ -26,7 +27,7 @@ const PERIODS: Array<{ value: Period; key: string }> = [
 const th = 'text-left font-medium text-muted-foreground px-2 py-1';
 const td = 'px-2 py-1';
 
-export function DeliveryMetrics({ projectId }: DeliveryMetricsProps) {
+export function DeliveryMetrics({ projectId, onOpenTask }: DeliveryMetricsProps) {
   const { t, i18n } = useTranslation(['tasks']);
   const [periodDays, setPeriodDays] = useState<Period>(30);
   const [metrics, setMetrics] = useState<ProjectRunMetrics | null>(null);
@@ -173,7 +174,20 @@ export function DeliveryMetrics({ projectId }: DeliveryMetricsProps) {
   const missingOrCorrupt = metrics.excluded.missing + metrics.excluded.corrupt;
   const maxTrend = Math.max(0, ...metrics.trend.map((p) => p.tokensPerCompletedTask ?? 0));
 
-  const renderGroups = (title: string, firstColumn: string, groups: ProjectRunMetricsGroup[], testId: string) => (
+  const dateFmt = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' });
+  const formatTrendDate = (date: string) => {
+    const d = new Date(`${date}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? date : dateFmt.format(d);
+  };
+  const failedTasks = metrics.failedBeforeWork.tasks ?? [];
+
+  const renderGroups = (
+    title: string,
+    firstColumn: string,
+    groups: ProjectRunMetricsGroup[],
+    testId: string,
+    labelFor?: (key: string) => string
+  ) => (
     <section data-testid={testId}>
       <h3 className="text-sm font-semibold mb-2">{title}</h3>
       <table className="w-full text-xs">
@@ -190,7 +204,7 @@ export function DeliveryMetrics({ projectId }: DeliveryMetricsProps) {
         <tbody>
           {groups.map((g) => (
             <tr key={g.key} className="border-b border-border/50">
-              <td className={td}>{g.key}</td>
+              <td className={td}>{labelFor ? labelFor(g.key) : g.key}</td>
               <td className={td}>{fmt(g.sessions)}</td>
               <td className={td}>{formatDuration(g.durationMs)}</td>
               <td className={td}>{fmt(g.tokens.input)}</td>
@@ -233,6 +247,35 @@ export function DeliveryMetrics({ projectId }: DeliveryMetricsProps) {
           </p>
         )}
 
+        {failedTasks.length > 0 && (
+          <section data-testid="delivery-failed">
+            <h3 className="text-sm font-semibold mb-2">{t('tasks:delivery.failedTasks')}</h3>
+            <ul className="space-y-1">
+              {failedTasks.map((task) => (
+                <li key={task.specId}>
+                  <button
+                    type="button"
+                    data-testid="delivery-failed-task"
+                    disabled={!onOpenTask}
+                    onClick={() => onOpenTask?.(task.specId)}
+                    className="w-full text-left text-xs px-2 py-1 rounded-md enabled:hover:bg-muted enabled:hover:underline disabled:cursor-default"
+                  >
+                    {task.title ?? task.specId}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {metrics.failedBeforeWork.count > failedTasks.length && (
+              <p className="text-xs text-muted-foreground mt-1" data-testid="delivery-failed-truncated">
+                {t('tasks:delivery.failedTruncated', {
+                  shown: failedTasks.length,
+                  count: metrics.failedBeforeWork.count
+                })}
+              </p>
+            )}
+          </section>
+        )}
+
         <section data-testid="delivery-trend">
           <h3 className="text-sm font-semibold mb-2">{t('tasks:delivery.trend')}</h3>
           <table className="w-full text-xs">
@@ -249,7 +292,7 @@ export function DeliveryMetrics({ projectId }: DeliveryMetricsProps) {
                 const pct = value !== null && maxTrend > 0 ? Math.round((value / maxTrend) * 100) : 0;
                 return (
                   <tr key={p.date} className="border-b border-border/50">
-                    <td className={td}>{p.date}</td>
+                    <td className={td}>{formatTrendDate(p.date)}</td>
                     <td className={td}>{fmt(p.completedTasks)}</td>
                     <td className={td}>
                       <div className="flex items-center gap-2">
@@ -270,7 +313,8 @@ export function DeliveryMetrics({ projectId }: DeliveryMetricsProps) {
           t('tasks:delivery.byPhase'),
           t('tasks:delivery.columns.phase'),
           metrics.byPhase,
-          'delivery-by-phase'
+          'delivery-by-phase',
+          (key) => t([`tasks:delivery.phases.${key}`, `tasks:execution.phases.${key}`], { defaultValue: key })
         )}
         {renderGroups(
           t('tasks:delivery.byModel'),

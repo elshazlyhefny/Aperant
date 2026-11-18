@@ -64,7 +64,7 @@ import { UpdateBanner } from './UpdateBanner';
 import { useScheduleStore, countUnacknowledgedReports } from '../stores/schedule-store';
 import type { Project, GitStatus } from '../../shared/types';
 
-export type SidebarView = 'kanban' | 'terminals' | 'roadmap' | 'context' | 'ideation' | 'github-issues' | 'gitlab-issues' | 'github-prs' | 'gitlab-merge-requests' | 'bitbucket-pull-requests' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools' | 'delivery' | 'schedules';
+export type SidebarView = 'kanban' | 'terminals' | 'roadmap' | 'context' | 'ideation' | 'github-issues' | 'gitlab-issues' | 'github-prs' | 'gitlab-merge-requests' | 'bitbucket-pull-requests' | 'azuredevops-pull-requests' | 'changelog' | 'insights' | 'worktrees' | 'agent-tools' | 'delivery' | 'schedules';
 
 interface SidebarProps {
   onSettingsClick: () => void;
@@ -112,6 +112,11 @@ const bitbucketNavItems: NavItem[] = [
   { id: 'bitbucket-pull-requests', labelKey: 'navigation:items.bitbucketPRs', icon: GitPullRequest, shortcut: 'U' }
 ];
 
+// Azure DevOps nav items shown when Azure DevOps is enabled
+const azureDevOpsNavItems: NavItem[] = [
+  { id: 'azuredevops-pull-requests', labelKey: 'navigation:items.azureDevOpsPRs', icon: GitPullRequest, shortcut: 'Z' }
+];
+
 export function Sidebar({
   onSettingsClick,
   onNewTaskClick,
@@ -145,6 +150,7 @@ export function Sidebar({
   const gitlabEnabled = useProjectEnvStore((state) => state.envConfig?.gitlabEnabled ?? false);
 
   const bitbucketEnabled = useProjectEnvStore((state) => state.envConfig?.bitbucketEnabled ?? false);
+  const azureDevOpsEnabled = useProjectEnvStore((state) => state.envConfig?.azureDevOpsEnabled ?? false);
 
   // Track the last loaded project ID to avoid redundant loads
   const lastLoadedProjectIdRef = useRef<string | null>(null);
@@ -165,8 +171,12 @@ export function Sidebar({
       items.push(...bitbucketNavItems);
     }
 
+    if (azureDevOpsEnabled) {
+      items.push(...azureDevOpsNavItems);
+    }
+
     return items;
-  }, [githubEnabled, gitlabEnabled, bitbucketEnabled]);
+  }, [githubEnabled, gitlabEnabled, bitbucketEnabled, azureDevOpsEnabled]);
 
   // Load envConfig when project changes to ensure store is populated
   useEffect(() => {

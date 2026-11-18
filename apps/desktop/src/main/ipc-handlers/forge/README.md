@@ -7,23 +7,30 @@ to the registry here. They never name a provider.
 ## Interfaces (`types.ts`)
 
 - `OutcomeWriter`: posts a task outcome comment to the issue a task came from.
-  It has a `sourceType` (matches `task_metadata.json`), a `settingKey` (the
-  opt-in flag in `IssueWritebackSettings`) and `postOutcome()`, which is
-  fire-and-forget and never throws.
+  It has a `sourceType` (matches `task_metadata.json`), an optional
+  `settingKey` (the opt-in flag in `IssueWritebackSettings`), an optional
+  `isEnabled(raw)` hook and `postOutcome()`, which is fire-and-forget and
+  never throws. A tracker that keeps its own settings block (Jira's
+  `jiraWriteback`) omits `settingKey` and implements `isEnabled(raw)` to read
+  the raw app settings; without it, `issueWriteback[settingKey]` is used.
 - `PRHost`: a code host's pull requests. It resolves its PR/MR URLs
   (`resolvePR`), loads CI and review feedback (`loadFeedback`) and has a
   `notConfiguredMessage`.
 - `Forge`: a `PRHost` that is also an `OutcomeWriter` (GitHub, GitLab).
   Bitbucket and Azure DevOps are `PRHost` only: they have PR feedback but no
   issue writeback, so the registry does not list them as writers.
+- Linear and Jira are writeback-only trackers (`OutcomeWriter` only, no PRs).
 
 ## Electron-free writers
 
-`github-writer.ts`, `gitlab-writer.ts` and `linear-writer.ts` hold the outcome
-writers without importing Electron. `github-forge.ts` / `gitlab-forge.ts` build
-their `postOutcome` from the factories with the desktop config resolvers (gh/glab
-token fallback). `headless-writers.ts` builds the CLI set from `.env` plus the
-process environment. `postOutcome` returns a promise that never rejects, so
+`github-writer.ts`, `gitlab-writer.ts`, `linear-writer.ts` and `jira-writer.ts`
+hold the outcome writers without importing Electron. `github-forge.ts` /
+`gitlab-forge.ts` build their `postOutcome` from the factories with the desktop
+config resolvers (gh/glab token fallback), and `jira/jira-writeback.ts` builds
+the desktop Jira writer with a loader that reads the settings file.
+`headless-writers.ts` builds the CLI set from `.env` plus the process
+environment, with the Jira settings from the CLI config. Both sides dispatch
+through `issue-writeback/issue-writeback-core.ts`. `postOutcome` returns a promise that never rejects, so
 headless callers can await it.
 
 ## Adding a provider
@@ -35,6 +42,8 @@ headless callers can await it.
    Order matters: the first forge whose `resolvePR` matches a URL wins.
 3. If the provider needs its own writeback toggle, add the key to
    `IssueWritebackSettings` in `shared/types/settings.ts` and use it as `settingKey`.
+   A provider with its own settings block implements `isEnabled` instead of
+   adding a key to `IssueWritebackSettings`.
 
 ## The `not_configured` error code
 

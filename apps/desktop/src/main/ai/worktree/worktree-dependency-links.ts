@@ -58,7 +58,7 @@ async function ensureLinkIsIgnored(worktreePath: string, relPath: string): Promi
   appendFileSync(excludePath, `/${relPath.replace(/\\/g, '/')}\n`);
 }
 
-function createLink(source: string, target: string): void {
+export function createLink(source: string, target: string): void {
   mkdirSync(dirname(target), { recursive: true });
   if (isWindows()) {
     symlinkSync(source, target, 'junction');

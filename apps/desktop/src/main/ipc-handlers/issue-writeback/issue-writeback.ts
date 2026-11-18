@@ -10,20 +10,21 @@
  */
 
 import type { Project, Task } from '../../../shared/types';
+import type { AppSettings } from '../../../shared/types/settings';
 import { getSpecsDir } from '../../../shared/constants';
 import { readSettingsFile } from '../../settings-utils';
 import { taskSpecDirs } from '../../task-failure-facts';
 import type { WebhookEvent } from '../../task-webhook-core';
 import { OUTCOME_WRITERS } from '../forge/registry';
 import { readMetadata } from './common';
-import { dispatchIssueOutcomeWith, normalizeIssueWritebackSettings } from './issue-writeback-core';
+import { anyWriterEnabled, dispatchIssueOutcomeWith } from './issue-writeback-core';
 
 export function dispatchIssueOutcome(input: { task: Task; project: Project; event: WebhookEvent }): void {
   try {
     const { task, project, event } = input;
     if (event === 'pr_opened') return;
-    const settings = normalizeIssueWritebackSettings(readSettingsFile() ?? {}, OUTCOME_WRITERS);
-    if (!OUTCOME_WRITERS.some((writer) => settings[writer.settingKey])) return;
+    const raw = (readSettingsFile() ?? {}) as Partial<AppSettings>;
+    if (!anyWriterEnabled(OUTCOME_WRITERS, raw)) return;
 
     const meta = readMetadata(taskSpecDirs(project.path, getSpecsDir(project.autoBuildPath), task.specId));
     void dispatchIssueOutcomeWith({
@@ -32,7 +33,7 @@ export function dispatchIssueOutcome(input: { task: Task; project: Project; even
       project,
       event,
       meta,
-      settings,
+      raw,
       writers: OUTCOME_WRITERS
     });
   } catch {
