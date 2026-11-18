@@ -108,9 +108,50 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `BITBUCKET_TOKEN` | Bitbucket access token. A secret, see [Secrets](#secrets). | Yes |
 | `BITBUCKET_REPOSITORY` | `workspace/repo_slug`. Each side starts with a letter or digit and may contain letters, digits, `.`, `_` and `-`. At most 256 characters. | Yes |
 
-Only Bitbucket Cloud (bitbucket.org, API `https://api.bitbucket.org/2.0`) is supported. Bitbucket Server and Data Center are not. The **Detect** button reads the `origin` remote and only matches bitbucket.org ssh and https remotes. The Bitbucket Pull Requests view can list pull requests, show a pull request and its diff, and post a comment.
+Only Bitbucket Cloud (bitbucket.org, API `https://api.bitbucket.org/2.0`) is supported. Bitbucket Server and Data Center are not. The **Detect** button reads the `origin` remote and only matches bitbucket.org ssh and https remotes. The Bitbucket Pull Requests view can list pull requests, show a pull request and its diff, post a comment, and run an [AI review](#ai-review) of an open pull request and post the findings.
+
+#### AI review
+
+1. In the Bitbucket Pull Requests view, select an open pull request and click **Start AI review**. Once a result exists the button reads **Re-run review**. The review is only available for open pull requests. Progress and logs show live.
+2. Click **Cancel** to abort the run. The run ends with `Review cancelled`.
+3. Starting a review on a pull request that is already being reviewed does not start a second one. The view reconnects to the one in progress (`Review is already in progress. Reconnecting to ongoing review...`). Runs are tracked per project and pull request.
+
+The review is read-only. It reads the pull request's code through a detached git worktree of the pull request head, created under `.auto-claude/pr-review/` and removed when the review ends. The source branch or head commit is fetched, no branch is created and nothing in the worktree is pushable. It reuses the same review specialists and MCP session as the GitHub review, and like the GitHub and GitLab reviews it never changes the pull request or the repository. If the head cannot be fetched (for example a pull request from a fork, an unsafe branch name, or a failed fetch), the review reads the base branch files instead and the log shows a `WARNING` line. The review still judges changed code from the diff.
+
+Where results and logs are stored:
+
+- Result: `<project>/.auto-claude/bitbucket/pr/review_<id>.json`. It is snake_case JSON with the findings, summary, overall status, reviewed commit sha, `posted_finding_ids` and `posted_at`.
+- Logs: `<project>/.auto-claude/bitbucket/pr/logs_<id>.json`.
+
+`.auto-claude` is inside the repository folder and is local to the machine. It is gitignored in this repository. If your own `.gitignore` does not cover it, do not commit it. Re-running a review writes a fresh result file for that pull request.
+
+What **Post selected findings to Bitbucket** sends:
+
+1. A confirmation dialog opens. Nothing is posted until you confirm.
+2. For each selected finding that has a file and a line number, and only if **Also post selected findings as inline comments** is ticked, one inline comment anchored to `file:line`. It holds the severity marker, the title, the description, an optional **Suggested fix**, and the footer `_Aperant PR Review_`.
+3. Then exactly one summary comment titled `Aperant PR Review`, with the review summary and a `Findings (N)` list. Findings without a line number appear only in the summary.
+
+If an inline comment fails, it is reported as `could not be placed` and its finding stays in the summary in full.
+
+Findings are ordered by severity, unknown severities last:
+
+| Severity | Marker |
+|----------|--------|
+| `critical` | 🔴 |
+| `high` | 🟠 |
+| `medium` | 🟡 |
+| `low` | 🔵 |
+| other | ⚪ |
+
+Each comment is capped at 32768 characters (`MAX_COMMENT_LENGTH`). Inline comments are cut with a trailing `...`. The summary lists findings in severity order with full detail first. When it would exceed the cap, findings that no longer fit in full are listed as one compact line, and when even that does not fit they are dropped, lowest severity first, ending with the line `... N more findings omitted`. Findings posted inline appear as a compact line marked `posted as an inline comment`.
+
+There is no double posting. After a successful post the finding ids are saved to `posted_finding_ids` in `review_<id>.json`. A later **Post** ignores those findings, and if every selected finding was already posted the post fails with `No unposted findings among the selection`. If the summary comment fails after inline comments were posted, those inline findings are still marked posted and the error names them.
+
+Token permissions: posting needs a `BITBUCKET_TOKEN` that can create comments on pull requests, meaning pull request read and write access. A read-only token can run the review, which needs repository read for the fetch and pull request read for the diff, but **Post** fails with the Bitbucket error.
 
 #### Troubleshooting
+
+If **Post** fails with a permission error, the token lacks pull request write access. Create a token with pull request read and write access and update `BITBUCKET_TOKEN`.
 
 If the Bitbucket Pull Requests view says Bitbucket is not configured, `getBitbucketConfig()` returned `null`. This happens when:
 
