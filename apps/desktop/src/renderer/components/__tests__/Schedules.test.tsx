@@ -8,7 +8,11 @@ import type { RecurringSchedule } from '../../../shared/types/schedule';
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) =>
-      opts?.count !== undefined ? `${key}:${opts.count}` : key,
+      opts?.count !== undefined
+        ? `${key}:${opts.count}`
+        : opts?.title !== undefined
+          ? `${key}:${opts.title}`
+          : key,
     i18n: { language: 'en' }
   })
 }));
@@ -17,6 +21,7 @@ vi.mock('../ScheduleDialog', () => ({ ScheduleDialog: () => null }));
 
 import { Schedules } from '../Schedules';
 import { useScheduleStore } from '../../stores/schedule-store';
+import { useTaskStore } from '../../stores/task-store';
 
 function makeSchedule(overrides: Partial<RecurringSchedule> = {}): RecurringSchedule {
   return {
@@ -46,6 +51,7 @@ describe('Schedules', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useScheduleStore.setState({ schedules: [], activeProjectId: null, isLoading: false, error: null });
+    useTaskStore.setState({ tasks: [] });
     (window as unknown as { electronAPI: unknown }).electronAPI = api;
   });
 
@@ -110,5 +116,85 @@ describe('Schedules', () => {
     fireEvent.click(screen.getByText('schedules:buttons.dismiss'));
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
     expect(api.acknowledgeScheduleReports).toHaveBeenCalledWith('s1', ['r1']);
+  });
+
+  const seedTasks = () =>
+    useTaskStore.setState({
+      tasks: [{ id: 'task-1', specId: '001-spec', title: 'Audit result' }] as never
+    });
+
+  it('shows the last task title as a button that opens it', async () => {
+    seedTasks();
+    const onOpenTask = vi.fn();
+    api.listSchedules.mockResolvedValue({
+      success: true,
+      data: [makeSchedule({ lastTaskId: 'task-1' })]
+    });
+    render(<Schedules projectId="p1" onOpenTask={onOpenTask} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'schedules:lastTask:Audit result' }));
+    expect(onOpenTask).toHaveBeenCalledWith('task-1');
+  });
+
+  it('matches the last task by specId', async () => {
+    seedTasks();
+    const onOpenTask = vi.fn();
+    api.listSchedules.mockResolvedValue({
+      success: true,
+      data: [makeSchedule({ lastTaskId: '001-spec' })]
+    });
+    render(<Schedules projectId="p1" onOpenTask={onOpenTask} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'schedules:lastTask:Audit result' }));
+    expect(onOpenTask).toHaveBeenCalledWith('001-spec');
+  });
+
+  it('disables the last task button when the task is missing', async () => {
+    api.listSchedules.mockResolvedValue({
+      success: true,
+      data: [makeSchedule({ lastTaskId: 'gone' })]
+    });
+    render(<Schedules projectId="p1" onOpenTask={vi.fn()} />);
+    const button = (await screen.findByRole('button', {
+      name: 'schedules:lastTask:gone'
+    })) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('title')).toBe('schedules:lastTaskMissing');
+  });
+
+  it('shows Open task on skipped runs in the banner and history', async () => {
+    seedTasks();
+    const onOpenTask = vi.fn();
+    api.listSchedules.mockResolvedValue({
+      success: true,
+      data: [
+        makeSchedule({
+          history: [
+            { id: 'r1', at: 5, kind: 'skipped_unfinished', taskId: 'task-1', acknowledged: false }
+          ]
+        })
+      ]
+    });
+    render(<Schedules projectId="p1" onOpenTask={onOpenTask} />);
+    const buttons = await screen.findAllByRole('button', { name: 'schedules:buttons.openTask' });
+    expect(buttons).toHaveLength(2);
+    for (const b of buttons) fireEvent.click(b);
+    expect(onOpenTask).toHaveBeenCalledTimes(2);
+    expect(onOpenTask).toHaveBeenCalledWith('task-1');
+  });
+
+  it('shows no Open task button for missed records or records without a task', async () => {
+    api.listSchedules.mockResolvedValue({
+      success: true,
+      data: [
+        makeSchedule({
+          history: [
+            { id: 'r1', at: 5, kind: 'missed', missedCount: 2, taskId: 'task-1', acknowledged: false },
+            { id: 'r2', at: 6, kind: 'skipped_unfinished', acknowledged: false }
+          ]
+        })
+      ]
+    });
+    render(<Schedules projectId="p1" onOpenTask={vi.fn()} />);
+    await screen.findByRole('alert');
+    expect(screen.queryByText('schedules:buttons.openTask')).toBeNull();
   });
 });
