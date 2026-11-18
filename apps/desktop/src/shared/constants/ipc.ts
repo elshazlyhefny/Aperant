@@ -613,6 +613,7 @@ export const IPC_CHANNELS = {
   MCP_CHECK_HEALTH: 'mcp:checkHealth',           // Quick connectivity check
   MCP_TEST_CONNECTION: 'mcp:testConnection',     // Full MCP protocol test
   MCP_APPROVE_SERVER: 'mcp:approveServer',       // Approve a project-declared custom server
+  WEBHOOK_APPROVE_PROJECT: 'webhook:approveProject', // Approve the project-declared webhook URL
   MCP_APPROVE_CHROME_EXECUTABLE: 'mcp:approveChromeExecutable', // Approve CHROME_DEVTOOLS_EXECUTABLE
 
   // Sentry error reporting

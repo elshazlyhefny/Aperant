@@ -388,6 +388,8 @@ export interface ProjectEnvConfig {
   webhookEnabled?: boolean;
   webhookUrl?: string;
   webhookEvents?: WebhookSettings['events'];
+  /** Approval state of the URL the file declares (hash only, safe for the renderer) */
+  webhookApproval?: { status: 'approved' | 'unapproved' | 'refused'; hash: string; url: string };
 
   // GitHub Integration
   githubEnabled: boolean;

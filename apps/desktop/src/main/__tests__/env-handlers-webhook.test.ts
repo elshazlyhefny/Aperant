@@ -14,11 +14,17 @@ vi.mock('../ai/mcp/project-settings', () => ({
   describeProjectMcpTrust: vi.fn(() => ({ servers: [], chromeExecutable: undefined })),
   parseSecureOrigins: vi.fn(() => [])
 }));
+const approvalMocks = vi.hoisted(() => ({
+  approveWebhookUrlHash: vi.fn(),
+  getWebhookApprovals: vi.fn(() => ({ urls: [] as string[] }))
+}));
+vi.mock('../webhook-approval-store', () => approvalMocks);
 vi.mock('../project-initializer', () => ({ isAutoBuildEnvTrackedByGit: vi.fn(() => false) }));
 
 import { ipcMain } from 'electron';
 import { registerEnvHandlers } from '../ipc-handlers/env-handlers';
 import { IPC_CHANNELS } from '../../shared/constants';
+import { hashWebhookUrl } from '../project-webhook-approval';
 
 type Res = { success: boolean; error?: string; data?: Record<string, unknown> };
 const invoke = (channel: string, ...args: unknown[]) =>
@@ -43,6 +49,8 @@ describe('ENV_UPDATE / ENV_GET webhook keys', () => {
     store.project = { id: 'p1', path: root, autoBuildPath: '.auto-claude' };
   });
   afterEach(() => {
+    vi.clearAllMocks();
+    approvalMocks.getWebhookApprovals.mockReturnValue({ urls: [] });
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -92,5 +100,41 @@ describe('ENV_UPDATE / ENV_GET webhook keys', () => {
     expect(content).toContain('JIRA_API_TOKEN=secret-token');
     expect(content).toContain(`WEBHOOK_URL=${URL_OK}`);
     expect(content).toContain('# PROJECT TASK-OUTCOME WEBHOOK (OPTIONAL)');
+  });
+
+  it('rejects a loopback URL typed on the page', async () => {
+    writeFileSync(envPath, 'FOO=bar\n');
+    const res = await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { webhookEnabled: true, webhookUrl: 'https://localhost/x' });
+    expect(res).toEqual({ success: false, error: 'invalid_webhook_url' });
+    expect(readFileSync(envPath, 'utf-8')).toBe('FOO=bar\n');
+    expect(approvalMocks.approveWebhookUrlHash).not.toHaveBeenCalled();
+  });
+
+  it('does not approve or block on a pre-existing committed URL during an unrelated save', async () => {
+    writeFileSync(envPath, 'WEBHOOK_URL=https://localhost/x\nWEBHOOK_ENABLED=true\n');
+    const res = await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { webhookEnabled: true, webhookUrl: 'https://localhost/x', defaultBranch: 'main' });
+    expect(res.success).toBe(true);
+    writeFileSync(envPath, `WEBHOOK_URL=${URL_OK}\n`);
+    const res2 = await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { defaultBranch: 'dev' });
+    expect(res2.success).toBe(true);
+    expect(approvalMocks.approveWebhookUrlHash).not.toHaveBeenCalled();
+  });
+
+  it('approves a newly typed URL', async () => {
+    const res = await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { webhookEnabled: true, webhookUrl: URL_OK });
+    expect(res.success).toBe(true);
+    expect(approvalMocks.approveWebhookUrlHash).toHaveBeenCalledWith(root, hashWebhookUrl(URL_OK));
+  });
+
+  it('ENV_GET reports unapproved, approved and refused', async () => {
+    writeFileSync(envPath, `WEBHOOK_URL=${URL_OK}\n`);
+    let got = await invoke(IPC_CHANNELS.ENV_GET, 'p1');
+    expect(got.data?.webhookApproval).toMatchObject({ status: 'unapproved', hash: hashWebhookUrl(URL_OK) });
+    approvalMocks.getWebhookApprovals.mockReturnValue({ urls: [hashWebhookUrl(URL_OK)] });
+    got = await invoke(IPC_CHANNELS.ENV_GET, 'p1');
+    expect((got.data?.webhookApproval as { status: string }).status).toBe('approved');
+    writeFileSync(envPath, 'WEBHOOK_URL=https://localhost/x\n');
+    got = await invoke(IPC_CHANNELS.ENV_GET, 'p1');
+    expect((got.data?.webhookApproval as { status: string }).status).toBe('refused');
   });
 });
