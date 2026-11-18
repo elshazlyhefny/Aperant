@@ -12,6 +12,23 @@ import fr from '../../../../shared/i18n/locales/fr/settings.json';
 
 const VALID_URL = 'https://hooks.slack.com/services/T000/B000/XXXX';
 
+// Radix Select does not open reliably in jsdom; a native select keeps the wiring testable.
+vi.mock('../../ui/select', () => ({
+  Select: ({ value, onValueChange, children }: { value: string; onValueChange: (v: string) => void; children: React.ReactNode }) => (
+    <select aria-label="format" value={value} onChange={(e) => onValueChange(e.target.value)}>
+      {children}
+    </select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
+}));
+
+const TEAMS_URL = 'https://prod-1.westus.logic.azure.com/workflows/abc/triggers/manual/paths/invoke?sig=x';
+
 function makeConfig(patch: Partial<ProjectEnvConfig> = {}): ProjectEnvConfig {
   return { webhookEnabled: true, webhookUrl: '', ...patch } as unknown as ProjectEnvConfig;
 }
@@ -117,7 +134,7 @@ describe('WebhookIntegration', () => {
     sendTestWebhook.mockResolvedValue({ success: true, data: { success: true } });
     render(<WebhookIntegration projectId="p1" envConfig={makeConfig({ webhookUrl: `  ${VALID_URL}  ` })} updateEnvConfig={updateEnvConfig} />);
     fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
-    expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL);
+    expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'auto');
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/test message sent/i));
   });
 
@@ -126,6 +143,37 @@ describe('WebhookIntegration', () => {
     render(<WebhookIntegration projectId="p1" envConfig={makeConfig({ webhookUrl: VALID_URL })} updateEnvConfig={updateEnvConfig} />);
     fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/could not send/i));
+  });
+
+  it('choosing Teams and Discord updates webhookFormat', () => {
+    render(<WebhookIntegration projectId="p1" envConfig={makeConfig()} updateEnvConfig={updateEnvConfig} />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'teams' } });
+    expect(updateEnvConfig).toHaveBeenCalledWith({ webhookFormat: 'teams' });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'discord' } });
+    expect(updateEnvConfig).toHaveBeenCalledWith({ webhookFormat: 'discord' });
+  });
+
+  it('sends the chosen format with the test message', async () => {
+    sendTestWebhook.mockResolvedValue({ success: true, data: { success: true } });
+    render(<WebhookIntegration projectId="p1" envConfig={makeConfig({ webhookUrl: VALID_URL, webhookFormat: 'teams' })} updateEnvConfig={updateEnvConfig} />);
+    expect(screen.getByRole('combobox')).toHaveValue('teams');
+    fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
+    expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'teams');
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+  });
+
+  it('shows the detected format hint on auto for a Teams workflow URL', () => {
+    render(<WebhookIntegration projectId="p1" envConfig={makeConfig({ webhookUrl: TEAMS_URL })} updateEnvConfig={updateEnvConfig} />);
+    expect(screen.getByText(/detected format: microsoft teams/i)).toBeInTheDocument();
+  });
+
+  it('changing the format clears the test result', async () => {
+    sendTestWebhook.mockResolvedValue({ success: true, data: { success: true } });
+    render(<WebhookIntegration projectId="p1" envConfig={makeConfig({ webhookUrl: VALID_URL })} updateEnvConfig={updateEnvConfig} />);
+    fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'teams' } });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('toggling an event merges webhookEvents over the defaults', () => {

@@ -354,11 +354,11 @@
     "soundDescription": "Jouer un son avec les notifications",
     "webhook": {
       "title": "Webhook des résultats de tâches",
-      "description": "Envoyer un message à Slack (ou à tout webhook compatible) lorsqu'une tâche nécessite votre attention.",
+      "description": "Envoyer un message à Slack, Microsoft Teams ou Discord lorsqu'une tâche nécessite votre attention.",
       "enable": "Activer le webhook",
       "enableDescription": "Publier les résultats des tâches vers l'URL du webhook ci-dessous",
       "urlLabel": "URL du webhook",
-      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlPlaceholder": "https://hooks.slack.com/services/... ou une URL de webhook Teams / Discord",
       "urlInvalid": "Saisissez une URL https:// valide (http n'est autorisé que pour localhost), sans identifiants.",
       "show": "Afficher l'URL",
       "hide": "Masquer l'URL",
@@ -376,7 +376,16 @@
       "sendTest": "Envoyer un message de test",
       "sending": "Envoi...",
       "testSuccess": "Message de test envoyé",
-      "testFailed": "Impossible d'envoyer le message de test"
+      "testFailed": "Impossible d'envoyer le message de test",
+      "format": {
+        "label": "Format du message",
+        "description": "Choisissez le format attendu par le webhook. La détection automatique le déduit de l'URL.",
+        "auto": "Détection automatique",
+        "slack": "Slack",
+        "teams": "Microsoft Teams",
+        "discord": "Discord",
+        "detected": "Format détecté : {{format}}"
+      }
     },
     "jiraWriteback": {
       "title": "Retour vers Jira",
@@ -507,7 +516,7 @@
       "enable": "Webhook du projet",
       "enableDescription": "Publier les résultats des tâches de ce projet sur son propre webhook",
       "urlLabel": "URL du webhook du projet",
-      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlPlaceholder": "https://hooks.slack.com/services/... ou une URL de webhook Teams / Discord",
       "urlInvalid": "Saisissez une URL https valide, sans identifiants. Le http simple et les adresses locales ne sont pas autorisés pour un webhook de projet.",
       "unapprovedTitle": "Approuver l'URL de ce webhook",
       "unapprovedDescription": "Cette URL provient du fichier .auto-claude/.env du projet. Une fois approuvée, les titres des tâches, le nom du projet et les liens de PR y seront envoyés. Tant que vous ne l'approuvez pas, le webhook global de l'application est utilisé.",
@@ -524,7 +533,16 @@
       "sendTest": "Envoyer un message de test",
       "sending": "Envoi...",
       "testSuccess": "Message de test envoyé",
-      "testFailed": "Impossible d'envoyer le message de test"
+      "testFailed": "Impossible d'envoyer le message de test",
+      "format": {
+        "label": "Format du message",
+        "description": "Choisissez le format attendu par le webhook. La détection automatique le déduit de l'URL.",
+        "auto": "Détection automatique",
+        "slack": "Slack",
+        "teams": "Microsoft Teams",
+        "discord": "Discord",
+        "detected": "Format détecté : {{format}}"
+      }
     },
     "security": {
       "title": "Sécurité",
