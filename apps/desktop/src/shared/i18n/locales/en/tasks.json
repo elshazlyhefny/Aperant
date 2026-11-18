@@ -44,7 +44,8 @@
     "viewPR": "View PR",
     "moveTo": "Move to",
     "taskActions": "Task actions",
-    "selectTask": "Select task: {{title}}"
+    "selectTask": "Select task: {{title}}",
+    "completed": "Task completed successfully"
   },
   "labels": {
     "running": "Running",
@@ -200,7 +201,9 @@
       "reviewing": "Reviewing",
       "fixing": "Fixing",
       "complete": "Complete",
-      "failed": "Failed"
+      "failed": "Failed",
+      "validation": "Validation",
+      "pending": "Pending"
     },
     "labels": {
       "interrupted": "Interrupted",
@@ -371,7 +374,11 @@
   "subtasks": {
     "untitled": "Untitled subtask",
     "expandAll": "Expand all",
-    "collapseAll": "Collapse all"
+    "collapseAll": "Collapse all",
+    "empty": "No subtasks defined",
+    "emptyHint": "Implementation subtasks will appear here after planning",
+    "verification": "Verification:",
+    "progressSummary": "{{completed}} of {{total}} completed"
   },
   "bulkPR": {
     "selectAllInColumn": "Select all tasks in column",
@@ -578,5 +585,34 @@
   "fileExplorer": {
     "title": "Project Files",
     "hint": "Drag a file, or press Enter, to add it as a reference"
+  },
+  "logs": {
+    "empty": {
+      "title": "No logs yet",
+      "hint": "Logs will appear here when the task runs"
+    },
+    "entryCount_one": "({{count}} entry)",
+    "entryCount_other": "({{count}} entries)",
+    "modelTooltip": "Model: {{model}}",
+    "thinkingTooltip": "Thinking: {{level}}",
+    "done": "Done",
+    "showOutput": "Show output",
+    "hideOutput": "Hide output",
+    "showMore": "More",
+    "showLess": "Less",
+    "thinking": {
+      "low": "Low",
+      "medium": "Med",
+      "high": "High",
+      "xhigh": "XHigh"
+    },
+    "tools": {
+      "reading": "Reading",
+      "searchingFiles": "Searching files",
+      "searchingCode": "Searching code",
+      "editing": "Editing",
+      "writing": "Writing",
+      "running": "Running"
+    }
   }
 }
