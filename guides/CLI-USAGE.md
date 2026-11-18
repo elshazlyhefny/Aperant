@@ -145,7 +145,8 @@ The command never reads the desktop app's settings. Credentials come from the en
     "github": true,
     "gitlab": false,
     "linear": false,
-    "jira": { "enabled": false, "comment": true, "transitionOnReview": false, "transitionStatusName": "In Review" }
+    "jira": { "enabled": false, "comment": true, "transitionOnReview": false, "transitionStatusName": "In Review" },
+    "azureBoards": { "enabled": false, "transitionOnReview": false, "transitionStateName": "Resolved" }
   }
 }
 ```

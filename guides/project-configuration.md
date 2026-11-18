@@ -188,6 +188,8 @@ The project also needs an `autoBuildPath` and an existing `.auto-claude/.env`. R
 | `AZURE_DEVOPS_REPOSITORY` | Repository name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
 | `AZURE_DEVOPS_PAT` | Personal access token. A secret, see [Secrets](#secrets). It needs the scopes Code (Read & write) and Build (Read). | Yes |
 
+These same keys are used for Azure Boards work item write-back, which is off by default and controlled in the app settings. The PAT then also needs the Work Items (Read & write) scope. See [issue-writeback.md](issue-writeback.md).
+
 Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visualstudio.com` remotes. Azure DevOps Server (on premises) is not.
 
 What works:
