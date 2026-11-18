@@ -99,6 +99,8 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `JIRA_API_TOKEN` | Atlassian API token. A secret, see [Secrets](#secrets). | Yes |
 | `JIRA_PROJECT_KEY` | Default project key, for example `PROJ` | Yes |
 
+These same keys are used for Jira write-back, which is off by default and controlled in the app settings. See [issue-writeback.md](issue-writeback.md).
+
 ### Bitbucket
 
 | Key | Purpose or example | Settings UI writes it |
