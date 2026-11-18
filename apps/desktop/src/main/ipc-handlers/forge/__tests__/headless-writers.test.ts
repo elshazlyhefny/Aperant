@@ -28,8 +28,8 @@ describe('createHeadlessWriters', () => {
     vi.unstubAllGlobals();
   });
 
-  it('lists github, gitlab, linear and jira writers', () => {
-    expect(createHeadlessWriters({}).map((w) => w.sourceType)).toEqual(['github', 'gitlab', 'linear', 'jira']);
+  it('lists github, gitlab, linear, jira and azure boards writers', () => {
+    expect(createHeadlessWriters({}).map((w) => w.sourceType)).toEqual(['github', 'gitlab', 'linear', 'jira', 'azure_boards']);
   });
 
   it('github postOutcome resolves when fetch throws, using the env token fallback', async () => {
@@ -61,6 +61,27 @@ describe('createHeadlessWriters', () => {
       settings,
     });
     expect(result).toBeInstanceOf(Promise);
+    await expect(result).resolves.toBeUndefined();
+  });
+
+  it('azure boards postOutcome resolves when fetch throws', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+    const project = makeProject(
+      'AZURE_DEVOPS_ORGANIZATION=org\nAZURE_DEVOPS_PROJECT=proj\nAZURE_DEVOPS_REPOSITORY=repo\nAZURE_DEVOPS_PAT=tok\n'
+    );
+    const writer = createHeadlessWriters({})[4];
+    const result = writer.postOutcome({
+      meta: {
+        sourceType: 'azure_boards',
+        azureBoardsWorkItemId: 5,
+        azureBoardsOrganization: 'org',
+        azureBoardsProject: 'proj',
+      },
+      project,
+      event: 'task_completed' as never,
+      text: 'done',
+      settings,
+    });
     await expect(result).resolves.toBeUndefined();
   });
 

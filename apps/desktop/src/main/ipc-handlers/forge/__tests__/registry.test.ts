@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { notConfiguredBlockedReason } from '../../../../shared/types/pr-feedback';
 import { loadPRFeedback } from '../../task/pr-feedback-source';
+import { azureBoardsWriter } from '../azureboards-writer';
 import { jiraWriter } from '../../jira/jira-writeback';
 import { createForgeRegistry, getForgeForPrUrl, getOutcomeWriter } from '../registry';
 import type { Forge } from '../types';
@@ -105,6 +106,12 @@ describe('getOutcomeWriter', () => {
     expect(getOutcomeWriter('jira')).toBe(jiraWriter);
     expect(jiraWriter.settingKey).toBeUndefined();
     expect(typeof jiraWriter.isEnabled).toBe('function');
+  });
+
+  it('finds the azure boards writer; the azuredevops PRHost is not a writer', () => {
+    expect(getOutcomeWriter('azure_boards')).toBe(azureBoardsWriter);
+    expect(azureBoardsWriter.settingKey).toBe('azureboards');
+    expect(getOutcomeWriter('azuredevops')).toBeUndefined();
   });
 
   it('a custom registry supports a writer with isEnabled', () => {
