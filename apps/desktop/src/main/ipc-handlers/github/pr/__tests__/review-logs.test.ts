@@ -434,3 +434,37 @@ describe("bitbucket provider", () => {
     }
   });
 });
+
+describe("azuredevops provider", () => {
+  let dir: string;
+  let project: Project;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "review-logs-ado-"));
+    project = { id: "proj-ado", path: dir } as unknown as Project;
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes logs under .auto-claude/azuredevops/pr/", () => {
+    expect(getPRLogsPath(project, 5, "azuredevops")).toBe(
+      path.join(dir, ".auto-claude", "azuredevops", "pr", "logs_5.json")
+    );
+  });
+
+  it("pushes on the azuredevops channel", () => {
+    const send = vi.fn();
+    const win = { isDestroyed: () => false, webContents: { send } };
+    const collector = new PRLogCollector(project, 10, "o/p/r", false, win as never, {
+      provider: "azuredevops",
+    });
+    collector.processLine("[Context] a");
+    collector.finalize(true);
+    expect(send).toHaveBeenCalled();
+    for (const call of send.mock.calls) {
+      expect(call[0]).toBe(IPC_CHANNELS.AZUREDEVOPS_PR_LOGS_UPDATED);
+    }
+  });
+});

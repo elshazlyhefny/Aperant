@@ -2,7 +2,7 @@
 
 Besides the Settings screen, the app reads two files that belong to a single project:
 
-- `.aperant.json` in the project root. It declares the base branch and which dependency folders task worktrees reuse.
+- `.aperant.json` in the project root. It declares the base branch and which dependency folders task worktrees and terminal worktrees reuse.
 - `.auto-claude/.env` inside the project. It holds integration keys, MCP server switches and memory settings.
 
 ## `.aperant.json`
@@ -19,9 +19,9 @@ The file is optional. A project without it behaves as before. Put it in the root
 | Key | Type | Purpose |
 |-----|------|---------|
 | `baseBranch` | string | Branch that task worktrees are based on and merged back into. |
-| `linkDependencies` | array of strings | Folders, relative to the project root, that each task worktree gets as links to the main checkout's folders. |
+| `linkDependencies` | array of strings | Folders, relative to the project root, that each task worktree and each terminal worktree gets as links to the main checkout's folders. |
 
-A git worktree starts without gitignored folders such as `node_modules`. Linking the folders you list lets a task's agents run the project's tests without a full install per task. Folders you do not list are left alone.
+A git worktree starts without gitignored folders such as `node_modules`. Linking the folders you list lets a task's agents run the project's tests without a full install per task. The same applies to terminal worktrees. Folders you do not list are left alone.
 
 ### Validation rules
 
@@ -34,13 +34,21 @@ A git worktree starts without gitignored folders such as `node_modules`. Linking
 - If `.gitignore` does not already ignore the link, its path is added to the repository's `info/exclude` file, so an agent's `git add` does not commit it. The common `node_modules/` pattern matches directories only, not a link, which is why this is needed.
 - Linking is safe to repeat on an existing worktree. A dangling link from an earlier run is replaced.
 
+### Terminal worktrees
+
+Terminal worktrees use the same linker as task worktrees. Only the folders listed in `linkDependencies` are linked, and the links are added to `info/exclude` when `.gitignore` does not cover them.
+
+- There is no implicit `node_modules` link any more. A project that relied on it must add `node_modules`, and any nested folders such as `apps/desktop/node_modules`, to `linkDependencies` in `.aperant.json`.
+- The old `dependency_locations` key in `project_index.json` is gone, and so are the venv recreate and copy strategies. Nothing ever wrote that key.
+- The `.claude` folder is still linked into terminal worktrees automatically. It is not configured through `linkDependencies`.
+
 ### Precedence
 
 A valid `baseBranch` overrides the main branch value in Settings everywhere. While the file declares one, changing the main branch in Settings has no effect, because the declared value is applied again whenever the project is loaded or its settings are saved. Remove the key from `.aperant.json` to go back to the Settings value.
 
 ### Troubleshooting
 
-If a folder you expected is missing from a task worktree, the entry was most likely dropped or misspelled. Check that it is a relative path without `..`, that it matches the real folder name, and that the folder exists in the main checkout.
+If a folder you expected is missing from a task or terminal worktree, the entry was most likely dropped or misspelled. Check that it is a relative path without `..`, that it matches the real folder name, and that the folder exists in the main checkout.
 
 > **Warning:** Never run `npm install` or `npm ci` through a linked folder. The link points at the main checkout, so the command would change the shared dependencies of every task. If a task must change dependencies, remove the links in that worktree first, then run `npm ci` there.
 
@@ -50,7 +58,7 @@ The file is at `<project>/<autoBuildPath>/.env`, normally `.auto-claude/.env`. T
 
 You can edit the file by hand or from the project's Settings. Saving from the Settings UI regenerates the whole file from a fixed template. Values already in the file are kept, but a key that the template does not list is not carried over, so do not store unrelated variables here. Unset keys are written as commented lines such as `# DEFAULT_BRANCH=main`.
 
-> **Note:** The task-outcome webhook is deliberately not a key in this file (there is no `WEBHOOK_URL`). It is configured only in the app's own Settings, so a repository cannot redirect task data. Headless `cli.js run` uses its `--config` file or the `APERANT_WEBHOOK_URL` process environment variable instead, never a file in the repository. See [notifications-and-webhooks.md](notifications-and-webhooks.md).
+> **Note:** The app-wide task-outcome webhook is configured only in the app's own Settings. A project can suggest its own webhook URL in this file (see [Project webhook](#project-webhook)), but the suggestion is ignored until you approve it. Headless `cli.js run` uses its `--config` file or the `APERANT_WEBHOOK_URL` process environment variable instead, never a file in the repository. See [notifications-and-webhooks.md](notifications-and-webhooks.md).
 
 The last column says whether the Settings UI also writes the key. Every key below is one the generator writes, so for each of them the answer is yes. No key is "file only".
 
@@ -99,6 +107,8 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `JIRA_API_TOKEN` | Atlassian API token. A secret, see [Secrets](#secrets). | Yes |
 | `JIRA_PROJECT_KEY` | Default project key, for example `PROJ` | Yes |
 
+These same keys are used for Jira write-back, which is off by default and controlled in the app settings. See [issue-writeback.md](issue-writeback.md).
+
 ### Bitbucket
 
 | Key | Purpose or example | Settings UI writes it |
@@ -108,9 +118,57 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `BITBUCKET_TOKEN` | Bitbucket access token. A secret, see [Secrets](#secrets). | Yes |
 | `BITBUCKET_REPOSITORY` | `workspace/repo_slug`. Each side starts with a letter or digit and may contain letters, digits, `.`, `_` and `-`. At most 256 characters. | Yes |
 
-Only Bitbucket Cloud (bitbucket.org, API `https://api.bitbucket.org/2.0`) is supported. Bitbucket Server and Data Center are not. The **Detect** button reads the `origin` remote and only matches bitbucket.org ssh and https remotes. The Bitbucket Pull Requests view can list pull requests, show a pull request and its diff, and post a comment.
+Only Bitbucket Cloud (bitbucket.org, API `https://api.bitbucket.org/2.0`) is supported. Bitbucket Server and Data Center are not. The **Detect** button reads the `origin` remote and only matches bitbucket.org ssh and https remotes.
+
+What works:
+
+- The Bitbucket Pull Requests view lists pull requests, shows a pull request and its diff, and posts a comment.
+- **Create PR** opens a pull request on Bitbucket Cloud. Bitbucket has no draft pull requests, so a draft only gets a `Draft:` title prefix. It is used only when `origin` is on bitbucket.org. See [Creating pull requests](creating-pull-requests.md).
+- **PR feedback** sends failed Pipelines and unresolved comments to the task's agent. See [PR Follow-ups](pr-follow-ups.md).
+- **AI review** of an open pull request, with the findings posted back to it. See [AI review](#ai-review).
+
+#### AI review
+
+1. In the Bitbucket Pull Requests view, select an open pull request and click **Start AI review**. Once a result exists the button reads **Re-run review**. The review is only available for open pull requests. Progress and logs show live.
+2. Click **Cancel** to abort the run. The run ends with `Review cancelled`.
+3. Starting a review on a pull request that is already being reviewed does not start a second one. The view reconnects to the one in progress (`Review is already in progress. Reconnecting to ongoing review...`). Runs are tracked per project and pull request.
+
+The review is read-only. It reads the pull request's code through a detached git worktree of the pull request head, created under `.auto-claude/pr-review/` and removed when the review ends. The source branch or head commit is fetched, no branch is created and nothing in the worktree is pushable. It reuses the same review specialists and MCP session as the GitHub review, and like the GitHub and GitLab reviews it never changes the pull request or the repository. If the head cannot be fetched (for example a pull request from a fork, an unsafe branch name, or a failed fetch), the review reads the base branch files instead and the log shows a `WARNING` line. The review still judges changed code from the diff.
+
+Where results and logs are stored:
+
+- Result: `<project>/.auto-claude/bitbucket/pr/review_<id>.json`. It is snake_case JSON with the findings, summary, overall status, reviewed commit sha, `posted_finding_ids` and `posted_at`.
+- Logs: `<project>/.auto-claude/bitbucket/pr/logs_<id>.json`.
+
+`.auto-claude` is inside the repository folder and is local to the machine. It is gitignored in this repository. If your own `.gitignore` does not cover it, do not commit it. Re-running a review writes a fresh result file for that pull request.
+
+What **Post selected findings to Bitbucket** sends:
+
+1. A confirmation dialog opens. Nothing is posted until you confirm.
+2. For each selected finding that has a file and a line number, and only if **Also post selected findings as inline comments** is ticked, one inline comment anchored to `file:line`. It holds the severity marker, the title, the description, an optional **Suggested fix**, and the footer `_Aperant PR Review_`.
+3. Then exactly one summary comment titled `Aperant PR Review`, with the review summary and a `Findings (N)` list. Findings without a line number appear only in the summary.
+
+If an inline comment fails, it is reported as `could not be placed` and its finding stays in the summary in full.
+
+Findings are ordered by severity, unknown severities last:
+
+| Severity | Marker |
+|----------|--------|
+| `critical` | 🔴 |
+| `high` | 🟠 |
+| `medium` | 🟡 |
+| `low` | 🔵 |
+| other | ⚪ |
+
+Each comment is capped at 32768 characters (`MAX_COMMENT_LENGTH`). Inline comments are cut with a trailing `...`. The summary lists findings in severity order with full detail first. When it would exceed the cap, findings that no longer fit in full are listed as one compact line, and when even that does not fit they are dropped, lowest severity first, ending with the line `... N more findings omitted`. Findings posted inline appear as a compact line marked `posted as an inline comment`.
+
+There is no double posting. After a successful post the finding ids are saved to `posted_finding_ids` in `review_<id>.json`. A later **Post** ignores those findings, and if every selected finding was already posted the post fails with `No unposted findings among the selection`. If the summary comment fails after inline comments were posted, those inline findings are still marked posted and the error names them.
+
+Token permissions: posting needs a `BITBUCKET_TOKEN` that can create comments on pull requests, meaning pull request read and write access. A read-only token can run the review, which needs repository read for the fetch and pull request read for the diff, but **Post** fails with the Bitbucket error.
 
 #### Troubleshooting
+
+If **Post** fails with a permission error, the token lacks pull request write access. Create a token with pull request read and write access and update `BITBUCKET_TOKEN`.
 
 If the Bitbucket Pull Requests view says Bitbucket is not configured, `getBitbucketConfig()` returned `null`. This happens when:
 
@@ -135,7 +193,7 @@ Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visua
 What works:
 
 - **Detect** reads the `origin` remote and matches the five remote formats of Azure DevOps Services.
-- **Create PR** opens a pull request on Azure DevOps. Drafts are real drafts. The description is capped at 4000 characters. Issue lines are worded without `#`, because Azure DevOps links `#123` to work items.
+- **Create PR** opens a pull request on Azure DevOps. Drafts are real drafts. The description is capped at 4000 characters. Issue lines are worded without `#`, because Azure DevOps links `#123` to work items. See [Creating pull requests](creating-pull-requests.md).
 - **PR feedback** sends failed build validations and active threads to the task's agent. See [PR Follow-ups](pr-follow-ups.md).
 
 #### Troubleshooting
@@ -230,6 +288,40 @@ Approval is for the exact path. If the path is not approved, the installed Chrom
 **Headless CLI**
 
 Headless runs never approve anything and do not read the store. See [CLI-USAGE.md](CLI-USAGE.md).
+
+### Project webhook
+
+The generator writes these under the heading `# PROJECT TASK-OUTCOME WEBHOOK (OPTIONAL)`.
+
+| Key | Purpose or example | Settings UI writes it |
+|-----|--------------------|-----------------------|
+| `WEBHOOK_ENABLED` | `true` or `false`. Only `false` turns the project webhook off. Written only when a URL is set. | Yes |
+| `WEBHOOK_URL` | Address for this project's task-outcome messages, for example `https://hooks.example.com/...`. Needs approval, see [Approving a project webhook](#approving-a-project-webhook). | Yes |
+| `WEBHOOK_EVENT_REVIEW_READY` | `true` or `false`. Send the review ready event. | Yes |
+| `WEBHOOK_EVENT_FAILED` | `true` or `false`. Send the task failed event. | Yes |
+| `WEBHOOK_EVENT_BLOCKED` | `true` or `false`. Send the task blocked event. | Yes |
+| `WEBHOOK_EVENT_PR_OPENED` | `true` or `false`. Send the PR opened event. | Yes |
+
+### Approving a project webhook
+
+A `WEBHOOK_URL` in a committed `.env` could send your task data to an address the repository chose. So it is ignored until you approve it. An unapproved project URL falls back to the app-wide webhook.
+
+**How to approve**
+
+1. Open the project's **Settings > Webhook** page. It shows the full URL.
+2. Check the URL.
+3. Press **Approve**.
+
+**Rules**
+
+- Approval matches the exact URL. Any change to it needs a new approval.
+- A URL you type on that page is approved when you save. A URL that is already in the file is not approved until you press **Approve**.
+- Project URLs must use `https`. Loopback addresses and `http` are refused for project URLs.
+- Approvals are stored in `<userData>/webhook-approvals.json`, outside the repo, because a hostile repo could pre-approve itself.
+- A missing or corrupt file means nothing is approved (fail closed).
+- A URL saved in the file before this rule existed needs one approval.
+
+Approval is checked again when you confirm. If the URL changed while you were looking at it, it is refused with a "changed since shown" message.
 
 ### Memory and embeddings
 

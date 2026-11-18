@@ -38,7 +38,7 @@ async function seedMemory(
 
 function makeMockEmbeddingService(): EmbeddingService {
   return {
-    embed: vi.fn().mockResolvedValue(new Array(256).fill(0.1)),
+    embed: vi.fn().mockResolvedValue(new Array(1024).fill(0.1)),
     embedBatch: vi.fn().mockResolvedValue([]),
     embedMemory: vi.fn().mockResolvedValue(new Array(1024).fill(0.1)),
     embedChunk: vi.fn().mockResolvedValue(new Array(1024).fill(0.1)),
@@ -166,7 +166,15 @@ describe('RetrievalPipeline', () => {
     ).resolves.not.toThrow();
   });
 
-  it('calls embedding service for dense search', async () => {
+  it('calls embedding service at 1024 dims for dense search when embeddings are stored', async () => {
+    await seedMemory(client, 'mem-emb', 'architecture notes', 'proj-a');
+    const buf = Buffer.alloc(1024 * 4);
+    await client.execute({
+      sql: `INSERT INTO memory_embeddings (memory_id, embedding, model_id, dims, created_at)
+        VALUES (?, ?, 'test', 1024, ?)`,
+      args: ['mem-emb', buf, new Date().toISOString()],
+    });
+
     const embeddingService = makeMockEmbeddingService();
     const reranker = new Reranker('none');
     const pipeline = new RetrievalPipeline(client, embeddingService, reranker);
@@ -176,7 +184,123 @@ describe('RetrievalPipeline', () => {
       projectId: 'proj-a',
     });
 
-    expect(embeddingService.embed).toHaveBeenCalled();
+    expect(embeddingService.embed).toHaveBeenCalledWith('semantic query about architecture', 1024);
+  });
+
+  it('skips query embedding when no embeddings are stored', async () => {
+    await seedMemory(client, 'mem-noemb', 'architecture notes', 'proj-a');
+    const embeddingService = makeMockEmbeddingService();
+    const reranker = new Reranker('none');
+    const pipeline = new RetrievalPipeline(client, embeddingService, reranker);
+
+    await pipeline.search('semantic query about architecture', {
+      phase: 'explore',
+      projectId: 'proj-a',
+    });
+
+    expect(embeddingService.embed).not.toHaveBeenCalled();
+  });
+
+  it('does not embed the query on an empty database', async () => {
+    const embeddingService = makeMockEmbeddingService();
+    const pipeline = new RetrievalPipeline(client, embeddingService, new Reranker('none'));
+
+    await pipeline.search('anything at all', { phase: 'explore', projectId: 'proj-a' });
+
+    expect(embeddingService.embed).not.toHaveBeenCalled();
+  });
+
+  it('returns a memory via the dense path when BM25 has no keyword overlap', async () => {
+    await seedMemory(client, 'mem-dense', 'zebra giraffe habitat notes', 'proj-a');
+    const vec = new Array(1024).fill(0.1);
+    await client.execute({
+      sql: `INSERT INTO memory_embeddings (memory_id, embedding, model_id, dims, created_at)
+        VALUES (?, ?, 'test', 1024, ?)`,
+      args: ['mem-dense', Buffer.from(new Float32Array(vec).buffer), new Date().toISOString()],
+    });
+
+    const embeddingService = makeMockEmbeddingService();
+    const pipeline = new RetrievalPipeline(client, embeddingService, new Reranker('none'));
+
+    const result = await pipeline.search('quantum spreadsheet', {
+      phase: 'explore',
+      projectId: 'proj-a',
+    });
+
+    expect(result.memories.map((m) => m.id)).toContain('mem-dense');
+  });
+
+  describe('ollama cosine reranking', () => {
+    async function seedEmbedding(id: string, hotIndex: number): Promise<void> {
+      const buf = Buffer.alloc(1024 * 4);
+      buf.writeFloatLE(1, hotIndex * 4);
+      await client.execute({
+        sql: `INSERT INTO memory_embeddings (memory_id, embedding, model_id, dims, created_at)
+          VALUES (?, ?, 'test', 1024, ?)`,
+        args: [id, buf, new Date().toISOString()],
+      });
+    }
+
+    function queryVector(): number[] {
+      const v = new Array(256).fill(0);
+      v[0] = 1;
+      return v;
+    }
+
+    it('ranks by stored-embedding cosine similarity with no HTTP calls', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      for (let i = 0; i < 10; i++) {
+        await seedMemory(client, `mem-${i}`, `authentication gotcha number ${i}`, 'proj-a');
+        // mem-9 is aligned with the query; the rest point elsewhere
+        await seedEmbedding(`mem-${i}`, i === 9 ? 0 : i + 1);
+      }
+
+      const embeddingService = makeMockEmbeddingService();
+      (embeddingService.embed as ReturnType<typeof vi.fn>).mockResolvedValue(queryVector());
+      const pipeline = new RetrievalPipeline(client, embeddingService, new Reranker('ollama'));
+
+      const result = await pipeline.search('authentication', {
+        phase: 'implement',
+        projectId: 'proj-a',
+        maxResults: 3,
+      });
+
+      expect(result.memories).toHaveLength(3);
+      expect(result.memories[0].id).toBe('mem-9');
+      expect(fetchMock).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+
+    it('falls back to RRF order when memory_embeddings is empty', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      for (let i = 0; i < 10; i++) {
+        await seedMemory(client, `mem-${i}`, `authentication gotcha number ${i}`, 'proj-a');
+      }
+
+      const embeddingService = makeMockEmbeddingService();
+      (embeddingService.embed as ReturnType<typeof vi.fn>).mockResolvedValue(queryVector());
+
+      const baseline = await new RetrievalPipeline(
+        client,
+        embeddingService,
+        new Reranker('none'),
+      ).search('authentication', { phase: 'implement', projectId: 'proj-a', maxResults: 3 });
+
+      const result = await new RetrievalPipeline(
+        client,
+        embeddingService,
+        new Reranker('ollama'),
+      ).search('authentication', { phase: 'implement', projectId: 'proj-a', maxResults: 3 });
+
+      expect(result.memories).toHaveLength(3);
+      expect(result.memories.map((m) => m.id)).toEqual(baseline.memories.map((m) => m.id));
+      expect(fetchMock).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
   });
 
   it('works with different phases', async () => {

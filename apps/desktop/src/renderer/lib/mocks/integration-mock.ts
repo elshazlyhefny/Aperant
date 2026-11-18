@@ -86,7 +86,7 @@ export const integrationMock = {
 
   getGitHubIssues: async () => ({
     success: true,
-    data: { issues: [], hasMore: false }
+    data: { issues: [], hasMore: false, nextCursor: null }
   }),
 
   getGitHubIssue: async () => ({
@@ -212,6 +212,47 @@ export const integrationMock = {
     success: true,
     data: null
   }),
+
+  getAzureDevOpsPullRequests: async () => ({
+    success: true,
+    data: []
+  }),
+
+  getAzureDevOpsPullRequest: async () => ({
+    success: false,
+    error: 'Not available in browser mock'
+  }),
+
+  getAzureDevOpsPullRequestDiff: async () => ({
+    success: true,
+    data: ''
+  }),
+
+  postAzureDevOpsPullRequestComment: async () => ({
+    success: false,
+    error: 'Not available in browser mock'
+  }),
+
+  runAzureDevOpsPRReview: () => {},
+
+  cancelAzureDevOpsPRReview: async () => false,
+
+  getAzureDevOpsPRReview: async () => null,
+
+  getAzureDevOpsPRLogs: async () => null,
+
+  postAzureDevOpsPRReview: async () => ({
+    success: false,
+    error: 'Not available in browser mock'
+  }),
+
+  onAzureDevOpsPRReviewProgress: () => () => {},
+
+  onAzureDevOpsPRReviewComplete: () => () => {},
+
+  onAzureDevOpsPRReviewError: () => () => {},
+
+  onAzureDevOpsPRLogsUpdated: () => () => {},
 
   // Bitbucket Integration Operations
   checkBitbucketConnection: async () => ({

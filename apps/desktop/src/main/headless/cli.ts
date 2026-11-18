@@ -11,6 +11,8 @@ import { parseArgs } from 'node:util';
 import { createHeadlessSpec } from './new-spec';
 import { runHeadlessTask } from './run-task';
 import { runServe } from './serve';
+import { HeadlessSetupError, resolveHeadlessProject } from './shared';
+import { listHeadlessTasks, queueHeadlessTask } from './task-store';
 
 const FALLBACK_VERSION = 'unknown';
 
@@ -20,6 +22,8 @@ Commands:
   run <spec>      Run the spec's build (plan, code, QA) and open a pull request
   new "<description>"  Create a spec from a description (add --run to build it too)
   serve           Run the project's task queue and recurring schedules until stopped
+  list            List the project's tasks (id, status, title)
+  queue <spec>    Move a backlog task to the queue for a running serve daemon
   help            Show this help
 
 Options for run (they also apply to new --run):
@@ -27,9 +31,10 @@ Options for run (they also apply to new --run):
   --config <file>       JSON config file
   --base-branch <name>  Branch the task worktree is created from
   --no-push             Do not push the task branch
-  --json                Print machine-readable events
+  --json                Print machine-readable events (also for list and queue)
   --verbose             Print detailed progress
   --run                 With new: run the build after the spec is created
+  --queue               With new: queue the spec for a running serve daemon
   --help                Show this help
   --version             Print the version
 
@@ -48,6 +53,10 @@ Exit codes for serve:
   0  stopped cleanly
   1  error
   3  the project queue is held by another process
+
+Exit codes for list and queue:
+  0  ok
+  1  error, such as an unknown spec or a task that is not in the backlog
 `;
 
 export interface CliIo {
@@ -107,6 +116,54 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
     out(USAGE);
     return 0;
   }
+  if (values.queue && command !== 'new') {
+    err(`--queue only applies to the new command\n\n${USAGE}`);
+    return 1;
+  }
+  if (command === 'list' || command === 'queue') {
+    if (command === 'list' ? arg || extra.length > 0 : extra.length > 0) {
+      err(`Too many arguments\n\n${USAGE}`);
+      return 1;
+    }
+    if (command === 'queue' && !arg) {
+      err(`Missing <spec> argument\n\n${USAGE}`);
+      return 1;
+    }
+    if (values.run) {
+      err(`--run only applies to the new command\n\n${USAGE}`);
+      return 1;
+    }
+    let project: ReturnType<typeof resolveHeadlessProject>;
+    try {
+      project = resolveHeadlessProject(values.project);
+    } catch (error) {
+      if (error instanceof HeadlessSetupError) {
+        err(`${error.message}\n`);
+        return 1;
+      }
+      throw error;
+    }
+    if (command === 'list') {
+      const tasks = listHeadlessTasks(project)
+        .map((t) => ({ specId: t.specId, status: t.status, title: t.title }))
+        .sort((a, b) => (a.specId < b.specId ? -1 : a.specId > b.specId ? 1 : 0));
+      if (values.json) {
+        out(`${JSON.stringify(tasks)}\n`);
+      } else {
+        const idWidth = Math.max(0, ...tasks.map((t) => t.specId.length));
+        const statusWidth = Math.max(0, ...tasks.map((t) => t.status.length));
+        for (const t of tasks) out(`${t.specId.padEnd(idWidth)}  ${t.status.padEnd(statusWidth)}  ${t.title}\n`);
+      }
+      return 0;
+    }
+    const queued = await queueHeadlessTask(project, arg as string);
+    if (!queued.ok) {
+      err(`${queued.error}\n`);
+      return 1;
+    }
+    out(values.json ? `${JSON.stringify({ specId: queued.specId, status: 'queue' })}\n` : `Queued ${queued.specId}\n`);
+    return 0;
+  }
   if (command === 'serve') {
     if (arg || extra.length > 0) {
       err(`Too many arguments\n\n${USAGE}`);
@@ -154,6 +211,11 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
     return 1;
   }
 
+  if (command === 'new' && values.queue && values.run) {
+    err(`--queue cannot be combined with --run\n\n${USAGE}`);
+    return 1;
+  }
+
   const projectPath = path.resolve(values.project ?? process.cwd());
   const workerPath = deps.workerPath ?? defaultWorkerPath();
   let spec = arg;
@@ -171,6 +233,21 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
       err,
     });
     if (created.exitCode !== 0) return created.exitCode;
+    if (values.queue && created.specId) {
+      try {
+        const queued = await queueHeadlessTask(resolveHeadlessProject(projectPath), created.specId, {
+          requireBacklog: false,
+        });
+        if (!queued.ok) {
+          err(`${queued.error}\n`);
+          return 1;
+        }
+      } catch (error) {
+        err(`${error instanceof Error ? error.message : String(error)}\n`);
+        return 1;
+      }
+      return 0;
+    }
     if (!values.run || !created.specId) return 0;
     spec = created.specId;
   }
@@ -200,6 +277,7 @@ const OPTIONS = {
   json: { type: 'boolean' },
   verbose: { type: 'boolean' },
   run: { type: 'boolean' },
+  queue: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 } as const;

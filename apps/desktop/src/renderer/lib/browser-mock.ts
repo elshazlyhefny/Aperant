@@ -239,7 +239,7 @@ const browserMockAPI: ElectronAPI = {
   // GitHub API
   github: {
     getGitHubRepositories: async () => ({ success: true, data: [] }),
-    getGitHubIssues: async () => ({ success: true, data: { issues: [], hasMore: false } }),
+    getGitHubIssues: async () => ({ success: true, data: { issues: [], hasMore: false, nextCursor: null } }),
     getGitHubIssue: async () => ({ success: true, data: null as any }),
     getIssueComments: async () => ({ success: true, data: [] }),
     checkGitHubConnection: async () => ({ success: true, data: { connected: false, repoFullName: undefined, error: undefined } }),
@@ -432,6 +432,7 @@ const browserMockAPI: ElectronAPI = {
     }
   }),
   approveMcpServer: async () => ({ success: false, error: 'Not available in browser mode' }),
+  approveProjectWebhook: async () => ({ success: false, error: 'Not available in browser mode' }),
   approveChromeExecutable: async () => ({ success: false, error: 'Not available in browser mode' }),
   testMcpConnection: async (server) => ({
     success: true,

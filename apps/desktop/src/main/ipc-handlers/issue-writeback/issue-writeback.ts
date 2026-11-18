@@ -9,7 +9,8 @@
  */
 
 import type { Project, Task } from '../../../shared/types';
-import type { AppSettings } from '../../../shared/types/settings';
+import type { AppSettings, IssueWritebackSettings } from '../../../shared/types/settings';
+import { normalizeIssueWritebackSettings } from '../../../shared/utils/issue-writeback-settings';
 import { getSpecsDir } from '../../../shared/constants';
 import { readSettingsFile } from '../../settings-utils';
 import { taskSpecDirs } from '../../task-failure-facts';
@@ -18,9 +19,13 @@ import { OUTCOME_WRITERS, getOutcomeWriter } from '../forge/registry';
 import type { OutcomeWriter } from '../forge/types';
 import { buildOutcomeComment, readMetadata } from './common';
 
-function isWriterEnabled(writer: OutcomeWriter, raw: Partial<AppSettings>): boolean {
+function isWriterEnabled(
+  writer: OutcomeWriter,
+  raw: Partial<AppSettings>,
+  settings: IssueWritebackSettings
+): boolean {
   if (writer.isEnabled) return writer.isEnabled(raw) === true;
-  return writer.settingKey !== undefined && raw.issueWriteback?.[writer.settingKey] === true;
+  return writer.settingKey !== undefined && settings[writer.settingKey] === true;
 }
 
 export function dispatchIssueOutcome(input: { task: Task; project: Project; event: WebhookEvent }): void {
@@ -28,14 +33,17 @@ export function dispatchIssueOutcome(input: { task: Task; project: Project; even
     const { task, project, event } = input;
     if (event === 'pr_opened') return;
     const raw = (readSettingsFile() ?? {}) as Partial<AppSettings>;
-    if (!OUTCOME_WRITERS.some((writer) => isWriterEnabled(writer, raw))) return;
+    const settings = normalizeIssueWritebackSettings(raw.issueWriteback);
+    if (!OUTCOME_WRITERS.some((writer) => isWriterEnabled(writer, raw, settings))) return;
 
     const meta = readMetadata(taskSpecDirs(project.path, getSpecsDir(project.autoBuildPath), task.specId));
     if (!meta) return;
     const text = buildOutcomeComment(event, task.title, task.metadata?.prUrl);
 
     const writer = getOutcomeWriter(String(meta.sourceType));
-    if (writer && isWriterEnabled(writer, raw)) writer.postOutcome({ meta, project, event, text });
+    if (writer && isWriterEnabled(writer, raw, settings)) {
+      writer.postOutcome({ meta, project, event, text, settings });
+    }
   } catch {
     // never let write-back problems affect task flow
   }

@@ -59,11 +59,17 @@ Then either:
 | **Self-Validating QA** | Built-in quality assurance loop catches issues before you review |
 | **AI-Powered Merge** | Automatic conflict resolution when integrating back to main |
 | **Memory Layer** | Agents retain insights across sessions for smarter builds |
-| **Recurring Schedules** | Run a task on a daily, weekly or interval cadence while the app is open; see [guides/recurring-tasks.md](guides/recurring-tasks.md) |
-| **GitHub/GitLab Integration** | Import issues, investigate with AI, create merge requests |
-| **Linear Integration** | Sync tasks with Linear for team progress tracking |
-| **Jira Import** | Import Jira issues as tasks. Keys are set in the project's `.auto-claude/.env`, see [Jira configuration](guides/project-configuration.md#jira) |
-| **Bitbucket Pull Requests** | List Bitbucket Cloud pull requests, view their diffs and post comments. Keys are set in the project's `.auto-claude/.env`, see [Bitbucket configuration](guides/project-configuration.md#bitbucket) |
+| **Recurring Schedules** | Run a task on a daily, weekly or interval cadence while the app or the `cli.js serve` daemon is running; see [guides/recurring-tasks.md](guides/recurring-tasks.md) and [running as a daemon](guides/CLI-USAGE.md#running-the-queue-and-schedules-as-a-daemon) |
+| **GitHub Integration** | Import issues, investigate with AI, create pull requests, review them with AI and follow up on review feedback |
+| **GitLab Integration** | Import issues, investigate with AI, create merge requests, review them with AI and follow up on review feedback |
+| **Bitbucket Cloud** | List pull requests, view diffs and post comments, create pull requests, review them with AI and follow up on feedback. No issue import. Keys are set in the project's `.auto-claude/.env`, see [Bitbucket configuration](guides/project-configuration.md#bitbucket); [AI review](guides/project-configuration.md#ai-review) explains what is stored and what gets posted |
+| **Azure DevOps Services** | Create pull requests (including drafts) and follow up on review feedback. No AI review. See [Azure DevOps configuration](guides/project-configuration.md#azure-devops) |
+| **Linear Integration** | Sync tasks with Linear for team progress tracking and report task outcomes back to the Linear issue |
+| **Jira Integration** | Import Jira issues as tasks and report task outcomes back to the Jira issue. Keys are set in the project's `.auto-claude/.env`, see [Jira configuration](guides/project-configuration.md#jira) |
+| **Issue Write-back** | Opt-in, off by default: post an outcome comment on the issue a task was imported from (GitHub, GitLab, Linear, Jira). Turn it on in Settings |
+| **PR Follow-ups** | Load review feedback on a pull or merge request and send selected items to an agent; see [guides/pr-follow-ups.md](guides/pr-follow-ups.md) |
+| **Token Budgets** | Cap how many tokens a task may use, as a project default or per task; see [guides/token-budgets.md](guides/token-budgets.md) |
+| **Outcome Webhook** | Post a Slack-compatible message to a webhook URL when a task fails, is ready for review, is blocked or has a PR opened; see [guides/notifications-and-webhooks.md](guides/notifications-and-webhooks.md) |
 | **Cross-Platform** | Native desktop apps for Windows, macOS, and Linux |
 | **Controlled Updates** | In-app updates are disabled. An update is a deliberate pull of the `zeenha` branch plus a rebuild with `scripts/zeenha-release.sh`; `--rollback` restores the previous install |
 

@@ -2,6 +2,8 @@
 
 When a task has a pull request, the task detail modal shows a **PR feedback** panel. It lists the failed CI checks and the open review feedback on that pull request. You pick the items you want fixed and send them to the task's agent. The agent fixes them in the task's own worktree. After QA approves the fix, Aperant pushes it to the same branch, so the existing pull request updates. No new pull request is created.
 
+For how the pull request is opened and which forge is used, see [Creating pull requests](creating-pull-requests.md).
+
 This works for GitHub, GitLab, Bitbucket Cloud and Azure DevOps. The panel reads feedback through the API of the forge that hosts the pull request (merge request on GitLab). The headless CLI is not covered. See [Not covered](#not-covered). The panel text is available in English and French.
 
 ## When the panel appears
