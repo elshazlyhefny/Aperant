@@ -49,11 +49,13 @@ The headless command runs one existing spec through the planner, coder and QA pi
 
 ```bash
 node apps/desktop/out/main/cli.js new "<description>" [--project <dir>] [--config <file>] \
-  [--run] [--base-branch <b>] [--no-push] [--json] [--verbose]
+  [--run | --queue] [--base-branch <b>] [--no-push] [--json] [--verbose]
 
 # or, from apps/desktop
 npm run cli -- new "<description>" ...
 ```
+
+`--run` and `--queue` are mutually exclusive: passing both exits 1. `--queue` creates the spec and then puts the task in the Queue for a running `serve` daemon (see [Listing and queueing tasks](#listing-and-queueing-tasks)) instead of building it in this process. It exits 0 (spec created and queued) or 1 (error).
 
 `new` runs the same spec pipeline as the app: complexity assessment, then discovery, requirements, spec writing, planning and validation as needed. It writes `spec.md`, `implementation_plan.json` and the other plan files to `.auto-claude/specs/<NNN-slug>/`.
 
@@ -262,6 +264,22 @@ Any exit code:
 
 Exit code 2: QA did not pass. Read `qa_report.md` in the worktree's spec directory, `.auto-claude/worktrees/tasks/<id>/.auto-claude/specs/<id>/qa_report.md`, for the remaining issues.
 
+## Listing and queueing tasks
+
+```bash
+node apps/desktop/out/main/cli.js list [--project <dir>] [--json]
+node apps/desktop/out/main/cli.js queue <spec> [--project <dir>] [--json]
+
+# or, from apps/desktop
+npm run cli -- list ...
+npm run cli -- queue <spec> ...
+```
+
+- `list` prints the project's tasks sorted by spec id, one per line: id, status and title. With `--json` it prints a single JSON array of `{"specId","status","title"}` objects.
+- `queue <spec>` moves the task to the Queue so a running [`serve` daemon](#running-the-queue-and-schedules-as-a-daemon) picks it up. It only accepts tasks in `backlog`; a task in any other status is refused. It prints `Queued <spec>`, or with `--json` `{"specId":"<spec>","status":"queue"}`.
+- `new "<description>" --queue` does the same for a newly created spec, as an alternative to `--run`.
+- Exit codes: 0 (ok) and 1 (error, such as an unknown spec or a task that is not in the backlog).
+
 ## Running the queue and schedules as a daemon
 
 `serve` runs one project's task queue and its recurring schedules without opening the app, until you stop it. Use it on a server or a machine where the app is not open. It needs the same prerequisites as `run` (Node 22 or newer, a build, a git repository) and the same [credentials](#credentials).
@@ -292,6 +310,7 @@ npm run cli -- serve ...
 ### What it runs
 
 - **The queue.** Tasks in the Queue start in dependency order, as in the app, while the number of running tasks is under the project's parallel limit. The limit is `project.maxParallelTasks` in the config file (default 3). The desktop project setting is not read.
+- **Tasks queued from the command line.** `queue <spec>` and `new --queue` only change the task's status to Queue. They do not talk to the daemon (no IPC). A running daemon picks the change up on its next safety pass, about 30 seconds later (`SAFETY_PROCESS_INTERVAL_MS` in `serve.ts`).
 - **Schedules.** Due schedules create a task from their template and put it in the Queue. The rules are the same as in the app, including the missed-run rule: a run more than 5 minutes late, or several runs due at once, records one `missed` entry and creates one catch-up task. See [recurring-tasks.md](recurring-tasks.md#missed-runs).
 - **Outcomes.** When a task finishes, its status is saved in the project (Human Review for a pass or a QA rejection, Error otherwise) and the [outcome webhook](notifications-and-webhooks.md) is sent if the config file enables it. The Kanban board shows the result when you open the app later.
 - **Token budgets.** A task stops when it reaches its `tokenBudget` (from its `task_metadata.json`, as for `run`). A schedule's budget per run applies to the tasks it creates; the task is stopped, set to Error, and the schedule records `budget_exceeded`.

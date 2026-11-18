@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createScheduledTaskSpec,
   listHeadlessTasks,
+  queueHeadlessTask,
   resetStuckSubtasks,
+  resolveSpecId,
   setTaskStatus
 } from '../task-store';
 
@@ -96,6 +98,72 @@ describe('setTaskStatus', () => {
   it('creates a minimal plan when none exists', async () => {
     writeSpec(root, '001-a');
     await setTaskStatus(project(), '001-a', 'queue');
+    expect(listHeadlessTasks(project())[0].status).toBe('queue');
+  });
+});
+
+describe('queueHeadlessTask', () => {
+  it('queues a backlog spec on main and worktree copies', async () => {
+    const main = writeSpec(root, '001-a', { feature: 'A', status: 'backlog' });
+    const wtDir = writeSpec(path.join(root, '.auto-claude', 'worktrees', 'tasks', '001-a'), '001-a', {
+      feature: 'A',
+      status: 'backlog'
+    });
+    expect(await queueHeadlessTask(project(), '001-a')).toEqual({ ok: true, specId: '001-a' });
+    for (const dir of [main, wtDir]) {
+      const plan = JSON.parse(readFileSync(path.join(dir, 'implementation_plan.json'), 'utf-8'));
+      expect(plan.status).toBe('queue');
+    }
+  });
+
+  it('resolves by unique prefix', async () => {
+    writeSpec(root, '007-foo', { feature: 'Foo', status: 'backlog' });
+    writeSpec(root, '008-bar', { feature: 'Bar', status: 'backlog' });
+    expect(await queueHeadlessTask(project(), '007')).toEqual({ ok: true, specId: '007-foo' });
+    const byId = Object.fromEntries(listHeadlessTasks(project()).map((t) => [t.id, t.status]));
+    expect(byId).toEqual({ '007-foo': 'queue', '008-bar': 'backlog' });
+  });
+
+  it('rejects an ambiguous prefix and lists candidates', async () => {
+    writeSpec(root, '007-foo', { status: 'backlog' });
+    writeSpec(root, '007-bar', { status: 'backlog' });
+    const result = await queueHeadlessTask(project(), '007');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('ambiguous');
+      expect(result.error).toContain('007-foo');
+      expect(result.error).toContain('007-bar');
+    }
+    expect(listHeadlessTasks(project()).every((t) => t.status === 'backlog')).toBe(true);
+  });
+
+  it('prefers an exact id over a prefix match', () => {
+    writeSpec(root, '007', { status: 'backlog' });
+    writeSpec(root, '007-foo', { status: 'backlog' });
+    expect(resolveSpecId(listHeadlessTasks(project()), '007')).toEqual({ specId: '007' });
+  });
+
+  it('rejects an unknown spec', async () => {
+    writeSpec(root, '001-a', { status: 'backlog' });
+    const result = await queueHeadlessTask(project(), '999');
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('not found') });
+  });
+
+  it.each(['in_progress', 'queue', 'human_review', 'done'])('refuses a %s task', async (status) => {
+    const dir = writeSpec(root, '001-a', { feature: 'A', status });
+    const result = await queueHeadlessTask(project(), '001-a');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain(status);
+    const plan = JSON.parse(readFileSync(path.join(dir, 'implementation_plan.json'), 'utf-8'));
+    expect(plan.status).toBe(status);
+  });
+
+  it('queues regardless of status with requireBacklog false', async () => {
+    writeSpec(root, '001-a', { feature: 'A', status: 'human_review' });
+    expect(await queueHeadlessTask(project(), '001-a', { requireBacklog: false })).toEqual({
+      ok: true,
+      specId: '001-a'
+    });
     expect(listHeadlessTasks(project())[0].status).toBe('queue');
   });
 });
