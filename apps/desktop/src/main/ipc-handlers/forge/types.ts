@@ -5,7 +5,7 @@
  */
 
 import type { Project } from '../../../shared/types';
-import type { IssueWritebackProviderKey, IssueWritebackSettings } from '../../../shared/types/settings';
+import type { AppSettings, IssueWritebackProviderKey, IssueWritebackSettings } from '../../../shared/types/settings';
 import type { WebhookEvent } from '../../task-webhook';
 import type { PRFeedbackFetchResult } from '../github/pr/task-feedback';
 
@@ -23,8 +23,13 @@ export type ForgeLoadResult =
 export interface OutcomeWriter {
   /** Value of task_metadata.json `sourceType` this writer handles. */
   sourceType: string;
-  /** Key of the opt-in flag in IssueWritebackSettings. */
-  settingKey: IssueWritebackProviderKey;
+  /** Key of the opt-in flag in IssueWritebackSettings. Omit when the writer has its own settings block and defines isEnabled. */
+  settingKey?: IssueWritebackProviderKey;
+  /**
+   * A writer with its own settings block reads it here from the raw settings
+   * file. Without this, the normalized issueWriteback[settingKey] is used.
+   */
+  isEnabled?(raw: Partial<AppSettings>): boolean;
   postOutcome(input: {
     meta: Record<string, unknown>;
     project: Project;

@@ -11,6 +11,9 @@ const gitlabFetch = vi.fn();
 const getLinearApiKey = vi.fn();
 const linearGraphQL = vi.fn();
 const warnMock = vi.fn();
+const getJiraConfig = vi.fn();
+const addIssueComment = vi.fn();
+const transitionIssue = vi.fn();
 let specDirs: string[] = [];
 
 vi.mock('../../../settings-utils', () => ({ readSettingsFile: (...a: unknown[]) => readSettingsFile(...a) }));
@@ -27,6 +30,12 @@ vi.mock('../../gitlab/utils', async (orig) => ({
   ...(await orig<typeof import('../../gitlab/utils')>()),
   getGitLabConfig: (...a: unknown[]) => getGitLabConfig(...a),
   gitlabFetch: (...a: unknown[]) => gitlabFetch(...a)
+}));
+vi.mock('../../jira/jira-config', () => ({ getJiraConfig: (...a: unknown[]) => getJiraConfig(...a) }));
+vi.mock('../../jira/jira-client', async (orig) => ({
+  ...(await orig<typeof import('../../jira/jira-client')>()),
+  addIssueComment: (...a: unknown[]) => addIssueComment(...a),
+  transitionIssue: (...a: unknown[]) => transitionIssue(...a)
 }));
 vi.mock('../../linear-client', () => ({
   getLinearApiKey: (...a: unknown[]) => getLinearApiKey(...a),
@@ -72,6 +81,9 @@ beforeEach(() => {
   gitlabFetch.mockReset().mockResolvedValue({});
   linearGraphQL.mockReset().mockResolvedValue({ commentCreate: { success: true } });
   warnMock.mockReset();
+  getJiraConfig.mockReturnValue({ siteUrl: 'https://acme.atlassian.net', email: 'a@b.c', token: TOKEN });
+  addIssueComment.mockReset().mockResolvedValue(undefined);
+  transitionIssue.mockReset().mockResolvedValue({ transitioned: true });
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -243,6 +255,19 @@ describe('dispatchIssueOutcome', () => {
     await flush();
     expect(githubFetch).toHaveBeenCalledTimes(1);
     expect(String(githubFetch.mock.calls[0][2].body)).not.toContain('example.com');
+  });
+
+  it('posts a Jira comment when jiraWriteback.enabled is set, independent of issueWriteback flags', async () => {
+    readSettingsFile.mockReturnValue({
+      issueWriteback: { github: false, gitlab: false, linear: false },
+      jiraWriteback: { enabled: true, comment: true, transitionOnReview: false, transitionStatusName: '' }
+    });
+    writeMeta({ sourceType: 'jira', jiraIssueKey: 'PROJ-7', jiraSiteUrl: 'https://acme.atlassian.net' });
+    await run();
+    expect(addIssueComment).toHaveBeenCalledWith(
+      'https://acme.atlassian.net', 'a@b.c', TOKEN, 'PROJ-7', expectedText
+    );
+    expectNoCalls();
   });
 });
 

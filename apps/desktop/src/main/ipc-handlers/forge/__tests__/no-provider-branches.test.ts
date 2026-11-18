@@ -16,7 +16,7 @@ describe.each(FILES)('%s', (rel) => {
   const code = stripComments(fs.readFileSync(path.join(__dirname, rel), 'utf8'));
 
   it('has no quoted provider names', () => {
-    expect(code).not.toMatch(/['"`](github|gitlab|linear)['"`]/i);
+    expect(code).not.toMatch(/['"`](github|gitlab|linear|jira)['"`]/i);
   });
 
   it('has no legacy per-provider codes', () => {
@@ -26,7 +26,7 @@ describe.each(FILES)('%s', (rel) => {
   it('imports nothing from provider modules', () => {
     const imports = [...code.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]);
     for (const spec of imports) {
-      expect(spec).not.toMatch(/\/github\/|\/gitlab\/|linear-client/);
+      expect(spec).not.toMatch(/\/github\/|\/gitlab\/|\/jira\/|linear-client/);
     }
   });
 });

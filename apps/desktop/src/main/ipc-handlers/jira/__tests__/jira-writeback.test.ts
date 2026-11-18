@@ -19,7 +19,9 @@ vi.mock('../jira-client', async (orig) => ({
   transitionIssue: (...a: unknown[]) => transitionIssue(...a),
 }));
 
-import { buildJiraComment, dispatchJiraOutcome } from '../jira-writeback';
+import { buildJiraComment } from '../jira-writeback';
+import { dispatchIssueOutcome } from '../../issue-writeback/issue-writeback';
+import { jiraWriter } from '../../forge/jira-writer';
 
 const SITE = 'https://acme.atlassian.net';
 let dir: string;
@@ -50,13 +52,13 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 async function run(event: 'review_ready' | 'failed' | 'blocked' = 'review_ready') {
-  dispatchJiraOutcome({ task, project, event });
+  dispatchIssueOutcome({ task, project, event });
   await flush();
 }
 
-describe('dispatchJiraOutcome', () => {
+describe('dispatchIssueOutcome for jira', () => {
   it('sends nothing for the webhook-only pr_opened event', async () => {
-    dispatchJiraOutcome({ task, project, event: 'pr_opened' });
+    dispatchIssueOutcome({ task, project, event: 'pr_opened' });
     await flush();
     expect(addIssueComment).not.toHaveBeenCalled();
     expect(transitionIssue).not.toHaveBeenCalled();
@@ -79,6 +81,34 @@ describe('dispatchJiraOutcome', () => {
     writeMeta({ ...jiraMeta, jiraSiteUrl: 'https://evil.atlassian.net' });
     await run();
     expect(addIssueComment).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid issue key', async () => {
+    writeMeta({ ...jiraMeta, jiraIssueKey: 'not a key' });
+    await run();
+    expect(addIssueComment).not.toHaveBeenCalled();
+    expect(transitionIssue).not.toHaveBeenCalled();
+  });
+
+  it('skips the transition when transitionOnReview is false', async () => {
+    settings({ transitionOnReview: false });
+    await run();
+    expect(addIssueComment).toHaveBeenCalledTimes(1);
+    expect(transitionIssue).not.toHaveBeenCalled();
+  });
+
+  it('skips the transition when the status name is empty', async () => {
+    settings({ transitionStatusName: '   ' });
+    await run();
+    expect(addIssueComment).toHaveBeenCalledTimes(1);
+    expect(transitionIssue).not.toHaveBeenCalled();
+  });
+
+  it('does not fire when only issueWriteback flags are set', async () => {
+    readSettingsFile.mockReturnValue({ issueWriteback: { github: true, gitlab: true, linear: true } });
+    await run();
+    expect(addIssueComment).not.toHaveBeenCalled();
+    expect(transitionIssue).not.toHaveBeenCalled();
   });
 
   it('does nothing without config', async () => {
@@ -117,7 +147,7 @@ describe('dispatchJiraOutcome', () => {
 
   it('does not throw on malformed metadata', async () => {
     writeMeta('{not json');
-    expect(() => dispatchJiraOutcome({ task, project, event: 'failed' })).not.toThrow();
+    expect(() => dispatchIssueOutcome({ task, project, event: 'failed' })).not.toThrow();
     await flush();
     expect(addIssueComment).not.toHaveBeenCalled();
   });
@@ -126,7 +156,25 @@ describe('dispatchJiraOutcome', () => {
     readSettingsFile.mockImplementation(() => {
       throw new Error('x');
     });
-    expect(() => dispatchJiraOutcome({ task, project, event: 'failed' })).not.toThrow();
+    expect(() => dispatchIssueOutcome({ task, project, event: 'failed' })).not.toThrow();
+  });
+});
+
+describe('jiraWriter', () => {
+  it('isEnabled is true only for jiraWriteback.enabled === true', () => {
+    expect(jiraWriter.isEnabled?.({ jiraWriteback: { enabled: true } } as never)).toBe(true);
+    expect(jiraWriter.isEnabled?.({ jiraWriteback: { enabled: false } } as never)).toBe(false);
+    expect(jiraWriter.isEnabled?.({ jiraWriteback: { enabled: 'true' } } as never)).toBe(false);
+    expect(jiraWriter.isEnabled?.({ issueWriteback: { github: true } } as never)).toBe(false);
+    expect(jiraWriter.isEnabled?.({} as never)).toBe(false);
+  });
+
+  it('postOutcome never throws on bad input', () => {
+    expect(() => jiraWriter.postOutcome({ meta: {}, project, event: 'failed', text: 't' } as never)).not.toThrow();
+    expect(() =>
+      jiraWriter.postOutcome({ meta: { jiraIssueKey: 5 }, project: undefined, event: 'failed', text: 't' } as never)
+    ).not.toThrow();
+    expect(addIssueComment).not.toHaveBeenCalled();
   });
 });
 

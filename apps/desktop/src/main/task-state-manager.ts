@@ -16,7 +16,6 @@ import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDir
 
 import { appLog } from './app-logger';
 import { dispatchTaskOutcomeWebhook, mapOutcomeToWebhookEvent } from './task-webhook';
-import { dispatchJiraOutcome } from './ipc-handlers/jira/jira-writeback';
 import { dispatchIssueOutcome } from './ipc-handlers/issue-writeback/issue-writeback';
 type TaskActor = ActorRefFrom<typeof taskMachine>;
 
@@ -365,12 +364,12 @@ export class TaskStateManager {
       // are reported to the user's webhook from here (PR opened too). The
       // project's own webhook (read from its .auto-claude/.env, which agents
       // cannot read) overrides the app-wide one set in user settings. The same outcome is also
-      // written back to the originating Jira issue and to the originating
-      // GitHub / GitLab / Linear issue (user settings config only; only that
-      // one issue is touched). A failure in any dispatcher must not affect
-      // persistence, the renderer event or the other dispatchers, hence the
-      // separate try/catch blocks. PR opened is webhook-only: both write-back
-      // dispatchers ignore it.
+      // written back to the originating issue (user settings config only; only
+      // that one issue is touched). Every issue-tracker write-back (GitHub,
+      // GitLab, Linear, Jira) goes through dispatchIssueOutcome. A failure in
+      // a dispatcher must not affect persistence, the renderer event or the
+      // other dispatcher, hence the separate try/catch blocks. PR opened is
+      // webhook-only: write-back ignores it.
       // PR opened: the real status change arrives via renderer updateStatus ->
       // handleManualStatusChange('pr_created'). worktree-pr.ts writes prUrl to
       // metadata on disk, so the in-memory task may not have it yet; then the
@@ -390,11 +389,6 @@ export class TaskStateManager {
           } catch (error) {
             console.warn(`[TaskStateManager] Webhook dispatch failed for ${taskId}:`, error);
           }
-        }
-        try {
-          dispatchJiraOutcome({ task, project, event: outcomeEvent });
-        } catch (error) {
-          console.warn(`[TaskStateManager] Jira write-back failed for ${taskId}:`, error);
         }
         try {
           dispatchIssueOutcome({ task, project, event: outcomeEvent });
