@@ -1,6 +1,6 @@
-# Auto Claude Guides
+# Aperant Guides
 
-Detailed documentation for Auto Claude setup and usage.
+Detailed documentation for Aperant setup and usage.
 
 ## Available Guides
 
@@ -18,8 +18,17 @@ Detailed documentation for Auto Claude setup and usage.
 | **[pr-follow-ups.md](pr-follow-ups.md)** | Sending a task's failing CI checks and unresolved review comments back to the agent: when the panel shows, what is listed, how QA checks the fix and Aperant pushes it, and why the panel can be disabled |
 | **[creating-pull-requests.md](creating-pull-requests.md)** | How **Create PR** picks the forge (GitHub, GitLab, Bitbucket Cloud or Azure DevOps), when it falls back to GitHub, how the title and body are built, and what happens when a pull request already exists |
 
+## Internal notes
+
+These are developer write-ups of fixed bugs, not user guides.
+
+| Note | Description |
+|------|-------------|
+| **[cross-project-projectid-tracking.md](cross-project-projectid-tracking.md)** | Cross-project task contamination: missing projectId in the agent event pipeline |
+| **[pr-1575-fixes.md](pr-1575-fixes.md)** | Follow-up fixes after the XState task state machine migration (PR #1575) |
+
 ## Quick Links
 
-- [Main README](../README.md) - Getting started (download and install)
+- [Main README](../README.md) - Getting started (install from source)
 - [Contributing](../CONTRIBUTING.md) - How to contribute and run from source
 - [Changelog](../CHANGELOG.md) - Release history
