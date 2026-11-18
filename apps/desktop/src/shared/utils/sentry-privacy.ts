@@ -88,8 +88,13 @@ export function sanitizeForSentry(text: string): string {
   text = text.replace(/\b(Bearer|token|Token)\s+[A-Za-z0-9\-_.]+/gi, '$1 [REDACTED]');
   // API keys / secrets in key=value or key: value format
   text = text.replace(
-    /\b(api[_-]?key|api[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|secret[_-]?key|password|credential|private[_-]?key)[=:]\s*\S+/gi,
+    /\b(api[_-]?key|api[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|secret[_-]?key|password|credential|private[_-]?key|webhook[_-]?secret)[=:]\s*\S+/gi,
     '$1=[REDACTED]'
+  );
+  // Webhook signature / timestamp headers (X-Aperant-Signature: sha256=<hex>)
+  text = text.replace(
+    /\b(x-aperant-(?:signature|timestamp))\s*[=:]\s*\S+/gi,
+    '$1: [REDACTED]'
   );
   // Anthropic API key format
   text = text.replace(/\bsk-ant-[A-Za-z0-9\-_]{20,}/g, '[REDACTED_KEY]');
@@ -98,6 +103,9 @@ export function sanitizeForSentry(text: string): string {
 
   return text;
 }
+
+/** Object keys whose values must never reach Sentry (webhook secret and signature). */
+const SENSITIVE_KEY_PATTERN = /^(secret|webhook[_-]?secret|x-aperant-signature|x-aperant-timestamp)$/i;
 
 /**
  * Recursively mask paths in an object
@@ -119,7 +127,9 @@ function maskObjectPaths(obj: unknown): unknown {
   if (typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const key of Object.keys(obj as Record<string, unknown>)) {
-      result[key] = maskObjectPaths((obj as Record<string, unknown>)[key]);
+      result[key] = SENSITIVE_KEY_PATTERN.test(key)
+        ? '[REDACTED]'
+        : maskObjectPaths((obj as Record<string, unknown>)[key]);
     }
     return result;
   }
@@ -215,7 +225,9 @@ export function processEvent<T extends SentryErrorEvent>(event: T): T {
     }
     if (event.request.headers) {
       for (const key of Object.keys(event.request.headers)) {
-        if (typeof event.request.headers[key] === 'string') {
+        if (SENSITIVE_KEY_PATTERN.test(key)) {
+          event.request.headers[key] = '[REDACTED]';
+        } else if (typeof event.request.headers[key] === 'string') {
           event.request.headers[key] = maskUserPaths(event.request.headers[key]);
         }
       }
