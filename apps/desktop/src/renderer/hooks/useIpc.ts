@@ -393,6 +393,7 @@ export function useIpcListeners(): void {
     const cleanupTaskQueueState = window.electronAPI.onTaskQueueStateChange(
       (state) => useTaskQueueStore.getState().setState(state)
     );
+    // zeenha fork: surface a failed daemon stop on the task card.
     const cleanupDaemonStopResult = window.electronAPI.onDaemonStopResult((event) => {
       if (event.state === 'failed') useDaemonStopStore.getState().setFailed(event.taskId, event.reason);
     });
