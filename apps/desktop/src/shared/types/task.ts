@@ -186,7 +186,7 @@ export interface TaskMetadata {
   /** zeenha fork: token budget in tokens (input+output). 0 on a task = unlimited override of the project limit. */
   tokenBudget?: number;
   // Origin tracking
-  sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab' | 'jira' | 'schedule';
+  sourceType?: 'ideation' | 'manual' | 'imported' | 'insights' | 'roadmap' | 'linear' | 'github' | 'gitlab' | 'jira' | 'azure_boards' | 'schedule';
   scheduleId?: string;  // Recurring schedule that created this task
   scheduledFor?: number;  // Epoch ms of the schedule occurrence
   ideationType?: string;  // e.g., 'code_improvements', 'security_hardening'
@@ -199,6 +199,10 @@ export interface TaskMetadata {
   jiraIssueId?: string;  // Jira issue id
   jiraUrl?: string;  // Jira issue URL
   jiraSiteUrl?: string;  // Jira site base URL the issue came from
+  azureBoardsWorkItemId?: number;  // Azure Boards work item id
+  azureBoardsUrl?: string;  // Azure Boards work item URL
+  azureBoardsOrganization?: string;  // Azure DevOps organization the work item came from
+  azureBoardsProject?: string;  // Azure DevOps project the work item came from
   githubIssueNumber?: number;  // Reference to GitHub issue number if from GitHub (single issue)
   githubIssueNumbers?: number[];  // Reference to multiple GitHub issues if from a batch
   githubUrl?: string;  // GitHub issue URL

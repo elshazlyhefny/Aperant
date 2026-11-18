@@ -26,7 +26,10 @@ const DEFAULTS = {
   gitlab: false,
   linear: false,
   linearTransitionOnReview: false,
-  linearTransitionStateName: 'In Review'
+  linearTransitionStateName: 'In Review',
+  azureboards: false,
+  azureBoardsTransitionOnReview: false,
+  azureBoardsTransitionStateName: 'Resolved'
 };
 
 describe('IssueWritebackSettings', () => {
