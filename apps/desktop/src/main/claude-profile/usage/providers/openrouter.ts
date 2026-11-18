@@ -3,6 +3,10 @@
  *
  * OpenRouter bills by spend, so the snapshot carries `creditUsage` (USD) and a
  * percentage only when the key has a spend cap.
+ *
+ * A key without a spend cap (limit missing or <= 0) reports percent 0 and USD
+ * spend only. Usage for API-key profiles is display-only, because proactive
+ * swapping applies to OAuth profiles.
  */
 
 import type { ClaudeUsageSnapshot } from '../../../../shared/types/agent';

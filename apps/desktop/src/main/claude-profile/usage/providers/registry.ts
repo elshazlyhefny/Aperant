@@ -1,5 +1,8 @@
 /**
  * Registry of usage provider adapters.
+ *
+ * These adapters are the only providers that report usage. Any other provider
+ * yields 'unsupported'. See guides/usage-and-account-switching.md.
  */
 
 import type { ApiProvider } from '../../../../shared/utils/provider-detection';
@@ -24,6 +27,7 @@ export function getUsageProviderAdapter(provider: ApiProvider): UsageProviderAda
 
 /**
  * Domains permitted for outbound usage monitoring requests, derived from adapters.
+ * This is the outbound allowlist: requests to other hosts are not made.
  */
 export function getAllowedUsageDomains(): Set<string> {
   return new Set(USAGE_PROVIDER_ADAPTERS.flatMap(a => a.allowedDomains));
