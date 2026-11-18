@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GitHubIssue } from '../../../shared/types';
+import type { GitHubIssue, GitHubIssuesCursor } from '../../../shared/types';
 
 export type IssueFilterState = 'open' | 'closed' | 'all';
 
@@ -15,7 +15,7 @@ interface IssuesState {
   filterState: IssueFilterState;
 
   // Pagination
-  currentPage: number;
+  nextCursor: GitHubIssuesCursor | null;
   hasMore: boolean;
 
   // Actions
@@ -29,7 +29,7 @@ interface IssuesState {
   selectIssue: (issueNumber: number | null) => void;
   setFilterState: (state: IssueFilterState) => void;
   setHasMore: (hasMore: boolean) => void;
-  setCurrentPage: (page: number) => void;
+  setNextCursor: (cursor: GitHubIssuesCursor | null) => void;
   clearIssues: () => void;
   resetPagination: () => void;
 
@@ -47,7 +47,7 @@ export const useIssuesStore = create<IssuesState>((set, get) => ({
   error: null,
   selectedIssueNumber: null,
   filterState: 'open',
-  currentPage: 1,
+  nextCursor: null,
   hasMore: true,
 
   // Actions
@@ -82,18 +82,18 @@ export const useIssuesStore = create<IssuesState>((set, get) => ({
 
   setHasMore: (hasMore) => set({ hasMore }),
 
-  setCurrentPage: (currentPage) => set({ currentPage }),
+  setNextCursor: (nextCursor) => set({ nextCursor }),
 
   clearIssues: () => set({
     issues: [],
     selectedIssueNumber: null,
     error: null,
-    currentPage: 1,
+    nextCursor: null,
     hasMore: true
   }),
 
   resetPagination: () => set({
-    currentPage: 1,
+    nextCursor: null,
     hasMore: true,
     // Clear selection when resetting pagination to prevent orphaned selections
     // (e.g., when clearing search, the selected issue may no longer be in the results)
@@ -137,11 +137,12 @@ export async function loadGitHubIssues(
   store.resetPagination();
 
   try {
-    const result = await window.electronAPI.getGitHubIssues(projectId, state, 1, fetchAll);
+    const result = await window.electronAPI.getGitHubIssues(projectId, state, null, fetchAll);
     if (result.success && result.data) {
       store.setIssues(result.data.issues);
-      store.setHasMore(result.data.hasMore);
-      store.setCurrentPage(1);
+      const nextCursor = result.data.nextCursor ?? null;
+      store.setHasMore(result.data.hasMore && nextCursor != null);
+      store.setNextCursor(nextCursor);
     } else {
       store.setError(result.error || 'Failed to load GitHub issues');
     }
@@ -162,18 +163,18 @@ export async function loadMoreGitHubIssues(
   const store = useIssuesStore.getState();
 
   // Don't load more if already loading or no more to load
-  if (store.isLoadingMore || store.isLoading || !store.hasMore) {
+  if (store.isLoadingMore || store.isLoading || !store.hasMore || store.nextCursor == null) {
     return;
   }
 
   // Capture filter state at request start to detect if it changes during the async call
   const originalFilterState = store.filterState;
-  const nextPage = store.currentPage + 1;
+  const cursor = store.nextCursor;
 
   store.setLoadingMore(true);
 
   try {
-    const result = await window.electronAPI.getGitHubIssues(projectId, state, nextPage, false);
+    const result = await window.electronAPI.getGitHubIssues(projectId, state, cursor, false);
 
     // Verify filter state hasn't changed during the async operation
     // This prevents appending stale data from a different filter
@@ -185,8 +186,9 @@ export async function loadMoreGitHubIssues(
 
     if (result.success && result.data) {
       store.appendIssues(result.data.issues);
-      store.setHasMore(result.data.hasMore);
-      store.setCurrentPage(nextPage);
+      const nextCursor = result.data.nextCursor ?? null;
+      store.setHasMore(result.data.hasMore && nextCursor != null);
+      store.setNextCursor(nextCursor);
     } else {
       store.setError(result.error || 'Failed to load more issues');
     }

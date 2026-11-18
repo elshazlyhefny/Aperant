@@ -4,7 +4,7 @@
 
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/constants';
-import type { IPCResult, GitHubIssue, PaginatedIssuesResult } from '../../../shared/types';
+import type { IPCResult, GitHubIssue, GitHubIssuesCursor, PaginatedIssuesResult } from '../../../shared/types';
 import { projectStore } from '../../project-store';
 import { getGitHubConfig, githubFetch, normalizeRepoReference } from './utils';
 import type { GitHubAPIIssue, GitHubAPIComment } from './types';
@@ -13,7 +13,7 @@ import { debugLog } from '../../../shared/utils/debug-logger';
 // Pagination constants
 const ISSUES_PER_PAGE = 50;           // Target number of issues per page (after filtering PRs)
 const GITHUB_API_PER_PAGE = 100;      // GitHub API's max items per request
-const MAX_PAGES_PAGINATED = 5;        // Max API pages to fetch in paginated mode
+const MAX_PAGES_PAGINATED = 5;        // Max API pages fetched per request in paginated mode (not an absolute depth)
 const MAX_PAGES_FETCH_ALL = 30;       // Max API pages to fetch in fetchAll mode
 
 /**
@@ -49,8 +49,10 @@ function transformIssue(issue: GitHubAPIIssue, repoFullName: string): GitHubIssu
 /**
  * Get list of issues from repository with pagination support
  *
- * When page > 0: Returns paginated results (for infinite scroll)
- * When page = 0 or fetchAll = true: Returns ALL issues (for search functionality)
+ * Paginated mode (default): returns up to 50 issues, resuming from `cursor`
+ * (a raw API page + offset). Returns `nextCursor` (null at the end of the repo)
+ * so infinite scroll never re-downloads earlier pages.
+ * fetchAll = true: Returns ALL issues (for search functionality)
  *
  * Note: GitHub's /issues endpoint returns both issues and PRs mixed together,
  * so we need to over-fetch and filter to get enough actual issues per page.
@@ -62,10 +64,10 @@ export function registerGetIssues(): void {
       _,
       projectId: string,
       state: 'open' | 'closed' | 'all' = 'open',
-      page: number = 1,
+      cursor?: GitHubIssuesCursor | null,
       fetchAll: boolean = false
     ): Promise<IPCResult<PaginatedIssuesResult>> => {
-      debugLog('[GitHub Issues] getIssues handler called', { projectId, state, page, fetchAll });
+      debugLog('[GitHub Issues] getIssues handler called', { projectId, state, cursor, fetchAll });
 
       const project = projectStore.getProject(projectId);
       if (!project) {
@@ -89,8 +91,6 @@ export function registerGetIssues(): void {
         }
 
         debugLog('[GitHub Issues] Fetching issues from:', normalizedRepo, 'state:', state);
-
-        const maxPagesPerRequest = fetchAll ? MAX_PAGES_FETCH_ALL : MAX_PAGES_PAGINATED;
 
         if (fetchAll) {
           // Fetch ALL issues (for search functionality)
@@ -124,75 +124,85 @@ export function registerGetIssues(): void {
           );
 
           debugLog('[GitHub Issues] fetchAll complete:', result.length, 'issues');
-          return { success: true, data: { issues: result, hasMore: false } };
+          return { success: true, data: { issues: result, hasMore: false, nextCursor: null } };
         }
 
-        // Paginated fetching - collect enough actual issues for the requested page
-        // Since GitHub mixes PRs with issues, we need to fetch multiple API pages
-        // to accumulate enough actual issues
-        const targetStartIndex = (page - 1) * ISSUES_PER_PAGE;
-        const targetEndIndex = page * ISSUES_PER_PAGE;
+        // Paginated fetching, resumed from a cursor. The cursor points at the raw
+        // GitHub item (API page + offset) after the last one the renderer received,
+        // so earlier pages are never downloaded again.
+        const rawApiPage = cursor?.apiPage;
+        const rawOffset = cursor?.offset;
+        const validCursor =
+          Number.isInteger(rawApiPage) && (rawApiPage as number) >= 1 &&
+          Number.isInteger(rawOffset) && (rawOffset as number) >= 0;
+        let apiPage = validCursor ? (rawApiPage as number) : 1;
+        let offset = validCursor ? (rawOffset as number) : 0;
 
         const collectedIssues: GitHubAPIIssue[] = [];
-        let apiPage = 1;
-        let hasMoreFromAPI = true;
+        let nextCursor: GitHubIssuesCursor | null = null;
+        let pagesFetched = 0;
 
-        // Keep fetching until we have enough issues or run out of API pages
-        while (collectedIssues.length < targetEndIndex && apiPage <= maxPagesPerRequest && hasMoreFromAPI) {
-          debugLog('[GitHub Issues] Fetching API page', apiPage, 'collected so far:', collectedIssues.length);
+        while (collectedIssues.length < ISSUES_PER_PAGE) {
+          if (pagesFetched >= MAX_PAGES_PAGINATED) {
+            // Per-request cap hit (e.g. many PRs in a row): return what we have and
+            // advance the cursor so the next call makes progress.
+            nextCursor = { apiPage, offset: 0 };
+            break;
+          }
+
+          debugLog('[GitHub Issues] Fetching API page', apiPage, 'offset', offset, 'collected so far:', collectedIssues.length);
 
           const pageItems = await githubFetch(
             config.token,
             `/repos/${normalizedRepo}/issues?state=${state}&per_page=${GITHUB_API_PER_PAGE}&sort=updated&page=${apiPage}`
           );
+          pagesFetched++;
 
-          if (!Array.isArray(pageItems)) {
-            debugLog('[GitHub Issues] Unexpected response format:', typeof pageItems);
+          if (!Array.isArray(pageItems) || pageItems.length === 0) {
+            debugLog('[GitHub Issues] End of issues (empty or unexpected response)');
+            nextCursor = null;
             break;
           }
 
-          if (pageItems.length === 0) {
-            hasMoreFromAPI = false;
+          const fullPage = pageItems.length >= GITHUB_API_PER_PAGE;
+          let stoppedAt = -1;
+          for (let i = offset; i < pageItems.length; i++) {
+            const item = pageItems[i] as GitHubAPIIssue;
+            if (item.pull_request) continue;
+            collectedIssues.push(item);
+            if (collectedIssues.length >= ISSUES_PER_PAGE) {
+              stoppedAt = i;
+              break;
+            }
+          }
+
+          debugLog('[GitHub Issues] API page', apiPage, ':', pageItems.length, 'items, collected', collectedIssues.length);
+
+          if (stoppedAt >= 0 && stoppedAt + 1 < pageItems.length) {
+            nextCursor = { apiPage, offset: stoppedAt + 1 };
             break;
           }
 
-          // Filter out PRs and add to collected issues
-          const issuesFromPage = pageItems.filter((issue: GitHubAPIIssue) => !issue.pull_request);
-          collectedIssues.push(...issuesFromPage);
-
-          debugLog('[GitHub Issues] API page', apiPage, ':', pageItems.length, 'items,', issuesFromPage.length, 'actual issues');
-
-          if (pageItems.length < GITHUB_API_PER_PAGE) {
-            hasMoreFromAPI = false;
+          if (!fullPage) {
+            nextCursor = null; // short page: end of the repository's issues
+            break;
           }
 
           apiPage++;
+          offset = 0;
+          if (stoppedAt >= 0) {
+            nextCursor = { apiPage, offset: 0 };
+            break;
+          }
         }
 
-        // Extract the issues for the requested page
-        const pageIssues = collectedIssues.slice(targetStartIndex, targetEndIndex);
-
-        // Improved hasMore calculation:
-        // - If we collected more than the target end index, there's definitely more
-        // - If we haven't exhausted the API (hasMoreFromAPI=true), there might be more
-        // - BUT if we returned 0 issues for this page (pageIssues.length === 0),
-        //   we've likely hit a situation where the repo has mostly PRs and we can't
-        //   find enough issues within the fetch limit - signal no more to avoid
-        //   infinite "load more" attempts
-        let hasMore = hasMoreFromAPI || collectedIssues.length > targetEndIndex;
-
-        // Edge case: If we returned empty results, don't claim there's more
-        // This prevents infinite loading when repo has mostly PRs
-        if (pageIssues.length === 0) {
-          hasMore = false;
-        }
-
-        const result: GitHubIssue[] = pageIssues.map((issue: GitHubAPIIssue) =>
+        const hasMore = nextCursor !== null;
+        const result: GitHubIssue[] = collectedIssues.map((issue: GitHubAPIIssue) =>
           transformIssue(issue, normalizedRepo)
         );
 
-        debugLog('[GitHub Issues] Returning page', page, ':', result.length, 'issues, hasMore:', hasMore);
-        return { success: true, data: { issues: result, hasMore } };
+        debugLog('[GitHub Issues] Returning', result.length, 'issues, hasMore:', hasMore, 'nextCursor:', nextCursor);
+        return { success: true, data: { issues: result, hasMore, nextCursor } };
       } catch (error) {
         debugLog('[GitHub Issues] Error fetching issues:', error);
         return {

@@ -10,7 +10,7 @@
 
 import type { Project, Task } from '../../../shared/types';
 import type { IssueWritebackSettings } from '../../../shared/types/settings';
-import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
+import { normalizeIssueWritebackSettings } from '../../../shared/utils/issue-writeback-settings';
 import { getSpecsDir } from '../../../shared/constants';
 import { readSettingsFile } from '../../settings-utils';
 import { taskSpecDirs } from '../../task-failure-facts';
@@ -20,13 +20,7 @@ import { buildOutcomeComment, readMetadata } from './common';
 
 function loadSettings(): IssueWritebackSettings {
   const raw = readSettingsFile() ?? {};
-  const def = DEFAULT_APP_SETTINGS.issueWriteback;
-  const w = (raw as { issueWriteback?: Partial<IssueWritebackSettings> }).issueWriteback ?? {};
-  const settings = { ...def };
-  for (const writer of OUTCOME_WRITERS) {
-    settings[writer.settingKey] = w[writer.settingKey] === true ? true : def[writer.settingKey];
-  }
-  return settings;
+  return normalizeIssueWritebackSettings((raw as { issueWriteback?: unknown }).issueWriteback);
 }
 
 export function dispatchIssueOutcome(input: { task: Task; project: Project; event: WebhookEvent }): void {
@@ -41,7 +35,7 @@ export function dispatchIssueOutcome(input: { task: Task; project: Project; even
     const text = buildOutcomeComment(event, task.title, task.metadata?.prUrl);
 
     const writer = getOutcomeWriter(String(meta.sourceType));
-    if (writer && settings[writer.settingKey]) writer.postOutcome({ meta, project, event, text });
+    if (writer && settings[writer.settingKey]) writer.postOutcome({ meta, project, event, text, settings });
   } catch {
     // never let write-back problems affect task flow
   }

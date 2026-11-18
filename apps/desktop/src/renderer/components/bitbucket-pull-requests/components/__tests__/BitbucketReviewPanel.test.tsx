@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import '../../../../../shared/i18n';
+import i18n from '../../../../../shared/i18n';
 import { BitbucketReviewPanel } from '../BitbucketReviewPanel';
 
 const startReview = vi.fn();
@@ -85,5 +86,31 @@ describe('BitbucketReviewPanel', () => {
     const cancels = screen.getAllByRole('button', { name: /^cancel$/i });
     fireEvent.click(cancels[cancels.length - 1]);
     expect(postSelected).not.toHaveBeenCalled();
+  });
+
+  it('honours the i18nNamespace and testId props', () => {
+    i18n.addResourceBundle(
+      i18n.language || 'en',
+      'fakeprovider',
+      { pullRequests: { review: { title: 'Fake review', start: 'Begin fake review' } } },
+      true,
+      true
+    );
+    render(
+      <BitbucketReviewPanel
+        review={makeReview({ status: 'idle', result: null })}
+        prId={1}
+        prState="OPEN"
+        i18nNamespace="fakeprovider"
+        testId="fake-panel"
+      />
+    );
+    expect(screen.getByTestId('fake-panel')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Begin fake review' })).toBeInTheDocument();
+  });
+
+  it('keeps the default testId', () => {
+    render(<BitbucketReviewPanel review={makeReview()} prId={1} prState="OPEN" />);
+    expect(screen.getByTestId('bitbucket-review-panel')).toBeInTheDocument();
   });
 });

@@ -12,6 +12,43 @@ import { approveChromeExecutable, approveServer, getApprovals } from '../mcp-app
 import { isAutoBuildEnvTrackedByGit } from '../project-initializer';
 import { WEBHOOK_ENV_KEYS, parseWebhookEvents } from '../project-webhook-config';
 import { validateWebhookUrl } from '../task-webhook';
+import { validateProjectWebhookUrl } from '../task-webhook-core';
+import { hashWebhookUrl } from '../project-webhook-approval';
+import { getProjectWebhookConfig } from '../project-webhook-config';
+import { approveWebhookUrlHash, getWebhookApprovals } from '../webhook-approval-store';
+
+const WEBHOOK_CHANGED_MESSAGE = 'The webhook URL changed since it was shown. Review it again before approving.';
+
+/** Hash of the webhook URL currently declared in the file (empty if none). Never exposes the URL. */
+function currentWebhookHash(project: { path: string; autoBuildPath?: string }): string {
+  try {
+    if (!project.autoBuildPath) return '';
+    const vars = parseEnvFile(readFileSync(path.join(project.path, project.autoBuildPath, '.env'), 'utf-8'));
+    const url = (vars[WEBHOOK_ENV_KEYS.URL] ?? '').trim();
+    return url ? hashWebhookUrl(url) : '';
+  } catch {
+    return '';
+  }
+}
+
+function hashWebhookIfDiffers(incomingUrl: string, project: { path: string; autoBuildPath?: string }): boolean {
+  return hashWebhookUrl(incomingUrl) !== currentWebhookHash(project);
+}
+
+/**
+ * zeenha fork: approve the declared webhook URL only if its CURRENT hash
+ * (recomputed from the .env now) equals the one the user was shown.
+ */
+export function approveProjectWebhookIfUnchanged(projectId: string, expectedHash: string): IPCResult {
+  const project = projectStore.getProject(projectId);
+  if (!project) return { success: false, error: 'Project not found' };
+  const current = getProjectWebhookConfig(project);
+  if (!current || current.status === 'refused' || current.hash !== expectedHash) {
+    return { success: false, error: WEBHOOK_CHANGED_MESSAGE };
+  }
+  approveWebhookUrlHash(project.path, current.hash);
+  return { success: true };
+}
 
 // Bitbucket environment variable keys
 const BITBUCKET_ENV_KEYS = {
@@ -61,6 +98,17 @@ function envLine(vars: Record<string, string>, key: string, defaultVal: string =
 export function registerEnvHandlers(
   _getMainWindow: () => BrowserWindow | null
 ): void {
+  ipcMain.handle(
+    IPC_CHANNELS.WEBHOOK_APPROVE_PROJECT,
+    async (_, projectId: string, expectedHash: string): Promise<IPCResult> => {
+      try {
+        return approveProjectWebhookIfUnchanged(projectId, expectedHash);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Approval failed' };
+      }
+    }
+  );
+
   // ============================================
   // Environment Configuration Operations
   // ============================================
@@ -590,6 +638,17 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         config.webhookEnabled = vars[WEBHOOK_ENV_KEYS.ENABLED]?.trim().toLowerCase() !== 'false';
       }
       config.webhookEvents = parseWebhookEvents(vars);
+      // zeenha fork: approval state of the declared URL (hash only; refused is explained by the UI)
+      const declared = vars[WEBHOOK_ENV_KEYS.URL]?.trim();
+      if (declared) {
+        const descriptor = getProjectWebhookConfig(
+          { path: project.path, autoBuildPath: project.autoBuildPath },
+          getWebhookApprovals(project.path)
+        );
+        config.webhookApproval = descriptor
+          ? { status: descriptor.status, hash: descriptor.hash, url: descriptor.url }
+          : { status: 'refused', hash: '', url: declared };
+      }
 
       // Git/Worktree config
       if (vars['DEFAULT_BRANCH']) {
@@ -726,6 +785,16 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         return { success: false, error: 'invalid_webhook_url' };
       }
 
+      // zeenha fork: a project URL must also pass the stricter project rules
+      // (no loopback). Only applies to a URL that differs from the one in the file,
+      // so an unchanged committed URL never blocks unrelated saves.
+      const beforeWebhookHash = currentWebhookHash(project);
+      if (incomingUrl && config.webhookEnabled !== false && hashWebhookIfDiffers(incomingUrl, project)) {
+        if (!validateProjectWebhookUrl(incomingUrl).ok) {
+          return { success: false, error: 'invalid_webhook_url' };
+        }
+      }
+
       try {
         // Read existing content if file exists (atomic read, no TOCTOU)
         let existingContent: string | undefined;
@@ -758,6 +827,13 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
           chmodSync(envPath, 0o600);
         } catch {
           // best-effort
+        }
+
+        // zeenha fork: same diff rule for the webhook URL. A hash that did not exist
+        // before the write was typed on this page; an unchanged one is never approved.
+        const afterWebhookHash = currentWebhookHash(project);
+        if (afterWebhookHash && afterWebhookHash !== beforeWebhookHash && incomingUrl && validateProjectWebhookUrl(incomingUrl).ok) {
+          approveWebhookUrlHash(project.path, afterWebhookHash);
         }
 
         const after = describeProjectMcpTrust(project.path, project.autoBuildPath, undefined);

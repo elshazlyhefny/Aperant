@@ -1,9 +1,69 @@
+import path from 'path';
+import { existsSync } from 'fs';
+import { AUTO_BUILD_PATHS } from '../../../shared/constants';
 import type {
   Roadmap,
   RoadmapFeature,
   RoadmapPhase,
-  RoadmapMilestone
+  RoadmapMilestone,
+  CompetitorAnalysis,
+  Competitor,
+  CompetitorPainPoint,
+  CompetitorMarketGap
 } from '../../../shared/types';
+import { readFileWithRetry } from '../../utils/atomic-file';
+
+interface RawCompetitorPainPoint {
+  id: string;
+  description: string;
+  source: string;
+  severity?: string;
+  frequency?: string;
+  opportunity?: string;
+}
+
+interface RawCompetitor {
+  id: string;
+  name: string;
+  url: string;
+  description: string;
+  relevance?: string;
+  pain_points?: RawCompetitorPainPoint[];
+  strengths?: string[];
+  market_position?: string;
+  source?: string;
+}
+
+interface RawMarketGap {
+  id: string;
+  description: string;
+  affected_competitors?: string[];
+  opportunity_size?: string;
+  suggested_feature?: string;
+}
+
+interface RawCompetitorAnalysis {
+  project_context?: {
+    project_name?: string;
+    project_type?: string;
+    target_audience?: string;
+  };
+  competitors?: RawCompetitor[];
+  market_gaps?: RawMarketGap[];
+  insights_summary?: {
+    top_pain_points?: string[];
+    differentiator_opportunities?: string[];
+    market_trends?: string[];
+  };
+  research_metadata?: {
+    search_queries_used?: string[];
+    sources_consulted?: string[];
+    limitations?: string[];
+  };
+  metadata?: {
+    created_at?: string;
+  };
+}
 
 interface RawRoadmapMilestone {
   id: string;
@@ -42,6 +102,10 @@ interface RawRoadmapFeature {
   userStories?: string[];
   linked_spec_id?: string;
   linkedSpecId?: string;
+  task_outcome?: RoadmapFeature['taskOutcome'];
+  taskOutcome?: RoadmapFeature['taskOutcome'];
+  previous_status?: string;
+  previousStatus?: string;
   competitor_insight_ids?: string[];
   competitorInsightIds?: string[];
 }
@@ -148,6 +212,7 @@ function normalizeFeatureStatus(status: string | undefined): RoadmapFeature['sta
 }
 
 function transformFeature(raw: RawRoadmapFeature): RoadmapFeature {
+  const rawPreviousStatus = raw.previous_status ?? raw.previousStatus;
   return {
     id: raw.id,
     title: raw.title,
@@ -162,15 +227,67 @@ function transformFeature(raw: RawRoadmapFeature): RoadmapFeature {
     acceptanceCriteria: raw.acceptance_criteria || raw.acceptanceCriteria || [],
     userStories: raw.user_stories || raw.userStories || [],
     linkedSpecId: raw.linked_spec_id || raw.linkedSpecId,
+    taskOutcome: raw.task_outcome ?? raw.taskOutcome,
+    previousStatus: rawPreviousStatus ? normalizeFeatureStatus(rawPreviousStatus) : undefined,
     competitorInsightIds: raw.competitor_insight_ids || raw.competitorInsightIds
   };
 }
 
+/**
+ * Transforms the snake_case competitor_analysis.json content to the camelCase
+ * CompetitorAnalysis shape used by the renderer.
+ */
+export function transformCompetitorAnalysis(raw: RawCompetitorAnalysis): CompetitorAnalysis {
+  return {
+    projectContext: {
+      projectName: raw.project_context?.project_name || '',
+      projectType: raw.project_context?.project_type || '',
+      targetAudience: raw.project_context?.target_audience || ''
+    },
+    competitors: (raw.competitors || []).map((c): Competitor => ({
+      id: c.id,
+      name: c.name,
+      url: c.url,
+      description: c.description,
+      relevance: (c.relevance as Competitor['relevance']) || 'medium',
+      painPoints: (c.pain_points || []).map((p): CompetitorPainPoint => ({
+        id: p.id,
+        description: p.description,
+        source: p.source,
+        severity: (p.severity as CompetitorPainPoint['severity']) || 'medium',
+        frequency: p.frequency || '',
+        opportunity: p.opportunity || ''
+      })),
+      strengths: c.strengths || [],
+      marketPosition: c.market_position || '',
+      source: (c.source as Competitor['source']) || undefined
+    })),
+    marketGaps: (raw.market_gaps || []).map((g): CompetitorMarketGap => ({
+      id: g.id,
+      description: g.description,
+      affectedCompetitors: g.affected_competitors || [],
+      opportunitySize: (g.opportunity_size as CompetitorMarketGap['opportunitySize']) || 'medium',
+      suggestedFeature: g.suggested_feature || ''
+    })),
+    insightsSummary: {
+      topPainPoints: raw.insights_summary?.top_pain_points || [],
+      differentiatorOpportunities: raw.insights_summary?.differentiator_opportunities || [],
+      marketTrends: raw.insights_summary?.market_trends || []
+    },
+    researchMetadata: {
+      searchQueriesUsed: raw.research_metadata?.search_queries_used || [],
+      sourcesConsulted: raw.research_metadata?.sources_consulted || [],
+      limitations: raw.research_metadata?.limitations || []
+    },
+    createdAt: raw.metadata?.created_at ? new Date(raw.metadata.created_at) : new Date()
+  };
+}
 
 export function transformRoadmapFromSnakeCase(
   raw: RawRoadmap,
   projectId: string,
-  projectName?: string
+  projectName?: string,
+  competitorAnalysis?: CompetitorAnalysis
 ): Roadmap {
   const targetAudience = raw.target_audience || raw.targetAudience;
   const createdAt = raw.metadata?.created_at || raw.created_at || raw.createdAt;
@@ -189,7 +306,42 @@ export function transformRoadmapFromSnakeCase(
     phases: (raw.phases || []).map(transformPhase),
     features: (raw.features || []).map(transformFeature),
     status: (raw.status as Roadmap['status']) || 'draft',
+    competitorAnalysis,
     createdAt: createdAt ? new Date(createdAt) : new Date(),
     updatedAt: updatedAt ? new Date(updatedAt) : new Date()
   };
+}
+
+/**
+ * Loads roadmap.json (and the optional competitor_analysis.json) from a project
+ * and returns the transformed Roadmap, or null when roadmap.json does not exist.
+ * Read/parse errors on roadmap.json propagate; competitor analysis errors are ignored.
+ */
+export async function loadRoadmapFromDisk(
+  projectPath: string,
+  projectId: string,
+  projectName?: string
+): Promise<Roadmap | null> {
+  const roadmapDir = path.join(projectPath, AUTO_BUILD_PATHS.ROADMAP_DIR);
+  const roadmapPath = path.join(roadmapDir, AUTO_BUILD_PATHS.ROADMAP_FILE);
+
+  if (!existsSync(roadmapPath)) {
+    return null;
+  }
+
+  const content = await readFileWithRetry(roadmapPath, { encoding: 'utf-8' }) as string;
+  const rawRoadmap = JSON.parse(content) as RawRoadmap;
+
+  let competitorAnalysis: CompetitorAnalysis | undefined;
+  const competitorPath = path.join(roadmapDir, AUTO_BUILD_PATHS.COMPETITOR_ANALYSIS);
+  if (existsSync(competitorPath)) {
+    try {
+      const competitorContent = await readFileWithRetry(competitorPath, { encoding: 'utf-8' }) as string;
+      competitorAnalysis = transformCompetitorAnalysis(JSON.parse(competitorContent) as RawCompetitorAnalysis);
+    } catch {
+      // competitor_analysis.json is optional; ignore read/parse errors
+    }
+  }
+
+  return transformRoadmapFromSnakeCase(rawRoadmap, projectId, projectName, competitorAnalysis);
 }

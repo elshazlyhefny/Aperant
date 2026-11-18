@@ -65,8 +65,71 @@ describe('DeliveryMetrics', () => {
     expect(screen.getByTestId('delivery-card-avg-qa')).toHaveTextContent('—');
     expect(screen.getByTestId('delivery-by-phase')).toHaveTextContent('coding');
     expect(screen.getByTestId('delivery-by-model')).toHaveTextContent('model-x');
-    expect(screen.getByTestId('delivery-trend')).toHaveTextContent('2026-01-01');
+    const formatted = new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date('2026-01-01T00:00:00'));
+    expect(screen.getByTestId('delivery-trend')).toHaveTextContent(formatted);
     expect(screen.getByTestId('delivery-note')).toBeInTheDocument();
+  });
+
+  it('lists failed tasks, falling back to specId, and opens one on click', async () => {
+    const onOpenTask = vi.fn();
+    getProjectRunMetrics.mockResolvedValue({
+      success: true,
+      data: {
+        ...sample,
+        failedBeforeWork: { count: 2, tasks: [{ specId: '001-a', title: 'Alpha' }, { specId: '002-b' }] }
+      }
+    });
+    render(<DeliveryMetrics projectId="p1" onOpenTask={onOpenTask} />);
+    const section = await screen.findByTestId('delivery-failed');
+    expect(section).toHaveTextContent('Alpha');
+    expect(section).toHaveTextContent('002-b');
+    const rows = screen.getAllByTestId('delivery-failed-task');
+    expect(rows).toHaveLength(2);
+    fireEvent.click(rows[0]);
+    expect(onOpenTask).toHaveBeenCalledWith('001-a');
+    expect(screen.queryByTestId('delivery-failed-truncated')).not.toBeInTheDocument();
+  });
+
+  it('renders no failed list when tasks is missing or empty', async () => {
+    getProjectRunMetrics.mockResolvedValue({ success: true, data: sample });
+    const { unmount } = render(<DeliveryMetrics projectId="p1" />);
+    await screen.findByTestId('delivery-cards');
+    expect(screen.queryByTestId('delivery-failed')).not.toBeInTheDocument();
+    unmount();
+
+    getProjectRunMetrics.mockResolvedValue({
+      success: true,
+      data: { ...sample, failedBeforeWork: { count: 3, tasks: [] } }
+    });
+    render(<DeliveryMetrics projectId="p1" />);
+    await screen.findByTestId('delivery-cards');
+    expect(screen.queryByTestId('delivery-failed')).not.toBeInTheDocument();
+  });
+
+  it('shows the truncation note only when count exceeds the listed tasks', async () => {
+    getProjectRunMetrics.mockResolvedValue({
+      success: true,
+      data: { ...sample, failedBeforeWork: { count: 60, tasks: [{ specId: '001-a' }] } }
+    });
+    render(<DeliveryMetrics projectId="p1" />);
+    const note = await screen.findByTestId('delivery-failed-truncated');
+    expect(note).toHaveTextContent('shown=1');
+    expect(note).toHaveTextContent('count=60');
+  });
+
+  it('uses phase translation keys with the raw key as fallback', async () => {
+    getProjectRunMetrics.mockResolvedValue({
+      success: true,
+      data: {
+        ...sample,
+        byPhase: [...sample.byPhase, { ...sample.byPhase[0], key: 'unknown' }]
+      }
+    });
+    render(<DeliveryMetrics projectId="p1" />);
+    await screen.findByTestId('delivery-cards');
+    const phase = screen.getByTestId('delivery-by-phase');
+    expect(phase).toHaveTextContent('tasks:delivery.phases.coding');
+    expect(phase).toHaveTextContent('defaultValue=unknown');
   });
 
   it('shows the excluded counts', async () => {

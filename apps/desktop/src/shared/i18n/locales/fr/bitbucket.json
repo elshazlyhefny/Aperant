@@ -54,6 +54,7 @@
     "reviewers": "Relecteurs : {{names}}",
     "noReviewers": "Aucun relecteur",
     "openInBitbucket": "Ouvrir dans Bitbucket",
+    "openExternal": "Ouvrir dans Bitbucket",
     "diff": "Modifications",
     "noDiff": "Aucun diff disponible",
     "addComment": "Ajouter un commentaire",

@@ -14,6 +14,8 @@ interface PullRequestListProps {
   onRefresh: () => void;
   stateFilter: BitbucketStateFilter;
   onStateFilterChange: (state: BitbucketStateFilter) => void;
+  /** zeenha fork: shared with Azure DevOps; selects the translation namespace. */
+  i18nNamespace?: string;
 }
 
 const STATE_FILTERS: BitbucketStateFilter[] = ['OPEN', 'MERGED', 'DECLINED', 'ALL'];
@@ -25,9 +27,10 @@ export function PullRequestList({
   onSelectPR,
   onRefresh,
   stateFilter,
-  onStateFilterChange
+  onStateFilterChange,
+  i18nNamespace = 'bitbucket'
 }: PullRequestListProps) {
-  const { t } = useTranslation('bitbucket');
+  const { t } = useTranslation(i18nNamespace);
 
   return (
     <div className="flex flex-col h-full">
@@ -87,7 +90,7 @@ export function PullRequestList({
                   <span className="text-sm font-medium truncate">
                     #{pr.id} {pr.title}
                   </span>
-                  <PullRequestStateBadge state={pr.state} />
+                  <PullRequestStateBadge state={pr.state} i18nNamespace={i18nNamespace} />
                 </div>
                 <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                   <span className="truncate">{pr.author.displayName}</span>

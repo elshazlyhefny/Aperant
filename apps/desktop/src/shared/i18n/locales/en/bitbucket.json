@@ -54,6 +54,7 @@
     "reviewers": "Reviewers: {{names}}",
     "noReviewers": "No reviewers",
     "openInBitbucket": "Open in Bitbucket",
+    "openExternal": "Open in Bitbucket",
     "diff": "Changes",
     "noDiff": "No diff available",
     "addComment": "Add a comment",

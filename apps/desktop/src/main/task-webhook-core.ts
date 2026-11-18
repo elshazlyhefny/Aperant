@@ -48,6 +48,28 @@ export function validateWebhookUrl(url: string): { ok: boolean; error?: string }
   return { ok: false, error: 'unsupported_protocol' };
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '[::1]' || host === '::1' || host === '0.0.0.0') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
+/**
+ * zeenha fork: stricter check for a project-declared webhook URL (untrusted,
+ * may come from a committed file). Refuses loopback hosts and plain http, so a
+ * repository cannot make the app POST to local services. The app-wide Settings
+ * webhook keeps using validateWebhookUrl, which still allows loopback.
+ */
+export function validateProjectWebhookUrl(url: string): { ok: boolean; error?: string } {
+  const base = validateWebhookUrl(url);
+  if (!base.ok) return base;
+  const parsed = new URL(url);
+  if (isLoopbackHost(parsed.hostname)) return { ok: false, error: 'loopback_not_allowed' };
+  if (parsed.protocol !== 'https:') return { ok: false, error: 'https_required' };
+  return { ok: true };
+}
+
 export function sanitizeText(value: string, max: number): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally stripping control chars
   const cleaned = String(value ?? '').replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim();
