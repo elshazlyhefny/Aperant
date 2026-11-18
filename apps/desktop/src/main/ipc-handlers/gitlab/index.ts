@@ -14,7 +14,7 @@ import { registerInvestigationHandlers } from './investigation-handlers';
 import { registerImportHandlers } from './import-handlers';
 import { registerReleaseHandlers } from './release-handlers';
 import { registerMergeRequestHandlers } from './merge-request-handlers';
-import { registerMRReviewHandlers } from './mr-review-handlers';
+import { registerMRReviewHandlers } from './mr';
 import { registerAutoFixHandlers } from './autofix-handlers';
 import { registerTriageHandlers } from './triage-handlers';
 import { createDebugLog } from '../../../shared/utils/debug-logger';

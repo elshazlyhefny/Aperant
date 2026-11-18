@@ -94,7 +94,7 @@ vi.mock('../../github/utils/ipc-communicator', () => ({
 }));
 
 import { IPC_CHANNELS } from '../../../../shared/constants';
-import { registerMRReviewHandlers } from '../mr-review-handlers';
+import { registerMRReviewHandlers } from '../mr';
 
 const win = {} as never;
 const okResult = (verdict = 'ready_to_merge') => ({ findings: [], summary: 's', verdict });
@@ -121,7 +121,7 @@ beforeEach(() => {
 
 describe('GitLab MR review flow', () => {
   // flip to it() when the paths are merged (task 151 phase 4)
-  it.fails('ignores a second review for the same MR while one is running, and cancel aborts the first', async () => {
+  it('ignores a second review for the same MR while one is running, and cancel aborts the first', async () => {
     const first = startReview(1);
     await vi.waitFor(() => expect(h.runs).toHaveLength(1));
     const second = startReview(1);
@@ -150,7 +150,7 @@ describe('GitLab MR review flow', () => {
   });
 
   // flip to it() when the paths are merged (task 151 phase 4)
-  it.fails('reports "Review cancelled" when a follow-up is cancelled', async () => {
+  it('reports "Review cancelled" when a follow-up is cancelled', async () => {
     const first = startFollowup(1);
     await vi.waitFor(() => expect(h.runs).toHaveLength(1));
     expect(await cancel(1)).toBe(true);
