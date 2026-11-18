@@ -179,6 +179,79 @@ describe('RetrievalPipeline', () => {
     expect(embeddingService.embed).toHaveBeenCalled();
   });
 
+  describe('ollama cosine reranking', () => {
+    async function seedEmbedding(id: string, hotIndex: number): Promise<void> {
+      const buf = Buffer.alloc(1024 * 4);
+      buf.writeFloatLE(1, hotIndex * 4);
+      await client.execute({
+        sql: `INSERT INTO memory_embeddings (memory_id, embedding, model_id, dims, created_at)
+          VALUES (?, ?, 'test', 1024, ?)`,
+        args: [id, buf, new Date().toISOString()],
+      });
+    }
+
+    function queryVector(): number[] {
+      const v = new Array(256).fill(0);
+      v[0] = 1;
+      return v;
+    }
+
+    it('ranks by stored-embedding cosine similarity with no HTTP calls', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      for (let i = 0; i < 10; i++) {
+        await seedMemory(client, `mem-${i}`, `authentication gotcha number ${i}`, 'proj-a');
+        // mem-9 is aligned with the query; the rest point elsewhere
+        await seedEmbedding(`mem-${i}`, i === 9 ? 0 : i + 1);
+      }
+
+      const embeddingService = makeMockEmbeddingService();
+      (embeddingService.embed as ReturnType<typeof vi.fn>).mockResolvedValue(queryVector());
+      const pipeline = new RetrievalPipeline(client, embeddingService, new Reranker('ollama'));
+
+      const result = await pipeline.search('authentication', {
+        phase: 'implement',
+        projectId: 'proj-a',
+        maxResults: 3,
+      });
+
+      expect(result.memories).toHaveLength(3);
+      expect(result.memories[0].id).toBe('mem-9');
+      expect(fetchMock).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+
+    it('falls back to RRF order when memory_embeddings is empty', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      for (let i = 0; i < 10; i++) {
+        await seedMemory(client, `mem-${i}`, `authentication gotcha number ${i}`, 'proj-a');
+      }
+
+      const embeddingService = makeMockEmbeddingService();
+      (embeddingService.embed as ReturnType<typeof vi.fn>).mockResolvedValue(queryVector());
+
+      const baseline = await new RetrievalPipeline(
+        client,
+        embeddingService,
+        new Reranker('none'),
+      ).search('authentication', { phase: 'implement', projectId: 'proj-a', maxResults: 3 });
+
+      const result = await new RetrievalPipeline(
+        client,
+        embeddingService,
+        new Reranker('ollama'),
+      ).search('authentication', { phase: 'implement', projectId: 'proj-a', maxResults: 3 });
+
+      expect(result.memories).toHaveLength(3);
+      expect(result.memories.map((m) => m.id)).toEqual(baseline.memories.map((m) => m.id));
+      expect(fetchMock).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+  });
+
   it('works with different phases', async () => {
     await seedMemory(client, 'mem-001', 'workflow recipe for feature development', 'proj-a', 'workflow_recipe');
 

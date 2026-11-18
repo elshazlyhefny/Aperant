@@ -65,7 +65,18 @@ changes (settings text `embeddingHow`). Hosted providers send memory text to tha
 provider; local Ollama does not.
 
 An optional reranker ([retrieval/reranker.ts](retrieval/reranker.ts)) is chosen
-the same way: Ollama `qwen3-reranker:0.6b`, else Cohere, else passthrough.
+the same way: Ollama when `qwen3-reranker:0.6b` is installed, else Cohere
+(`rerank-v3.5`) when `COHERE_API_KEY` is set, else passthrough.
+
+The Ollama provider does not call the reranker model. It ranks the top-20 RRF
+candidates by cosine similarity between the query embedding (cached from the
+dense path) and each candidate's stored `memory_embeddings` vector (1024-dim
+stored vectors truncated to the 256-dim query), using one SQL read and no HTTP.
+With no usable embeddings (provider `none`, missing rows, model change) it falls
+back to RRF order.
+
+`embedBatch` uses one Ollama `/api/embed` request (Ollama 0.3+, falling back to
+per-text `/api/embeddings` on 404) and one cache read per batch.
 
 ## Flow
 
