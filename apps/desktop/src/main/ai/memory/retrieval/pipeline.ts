@@ -54,6 +54,9 @@ function deserializeEmbedding(buf: ArrayBuffer | Buffer | Uint8Array): number[] 
 // ============================================================
 
 export class RetrievalPipeline {
+  /** Caches only positive "rows exist" results for dense search, keyed by `${projectId}:${dims}`. */
+  private readonly denseRowsCache = new Map<string, boolean>();
+
   constructor(
     private readonly db: Client,
     private readonly embeddingService: EmbeddingService,
@@ -73,7 +76,8 @@ export class RetrievalPipeline {
     // Stage 1: Parallel candidate generation from all three paths
     const [bm25Results, denseResults, graphResults] = await Promise.all([
       searchBM25(this.db, query, config.projectId, 20),
-      searchDense(this.db, query, this.embeddingService, config.projectId, 256, 30),
+      // zeenha fork: 1024 matches the only stored dims (MemoryService.store writes 1024-dim rows).
+      searchDense(this.db, query, this.embeddingService, config.projectId, 1024, 30, this.denseRowsCache),
       searchGraph(this.db, config.recentFiles ?? [], config.projectId, 15),
     ]);
 
