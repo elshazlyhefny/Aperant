@@ -284,7 +284,7 @@ export function SectionRouter({
             title={t('projectSections.webhook.title')}
             description={t('projectSections.webhook.syncDescription')}
           >
-            <WebhookIntegration envConfig={envConfig} updateEnvConfig={updateEnvConfig} />
+            <WebhookIntegration projectId={project.id} envConfig={envConfig} updateEnvConfig={updateEnvConfig} />
           </InitializationGuard>
         </SettingsSection>
       );

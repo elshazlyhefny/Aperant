@@ -18,6 +18,10 @@ The test shows one of two results:
 
 The failure text gives no reason. The reason is in the app log (see [Delivery](#delivery)). A failing test can take about 30 seconds to report, because the app tries up to three times and each try can wait up to 10 seconds.
 
+### Per-project webhook
+
+A project can have its own webhook URL, set in the project's **Settings > Webhook** page or suggested in its project `.env`. It is used only after you approve the exact URL. Until then the app-wide webhook is used. See [Approving a project webhook](project-configuration.md#approving-a-project-webhook).
+
 ## Events
 
 | Task state | Webhook event | Event label | Outcome text | UI toggle |
@@ -29,6 +33,8 @@ The failure text gives no reason. The reason is in the app log (see [Delivery](#
 | Any other state | none | none | none | none |
 
 `pr_opened` fires once each time a task moves into the `pr_created` state. A PR follow-up (sending a task with an open PR back to coding) does not send it again while that follow-up starts. Every other state sends nothing. A message is sent only when **Enable webhook** is on, the toggle for that event is on, and the saved URL is valid.
+
+The same `review_ready`, `failed` and `blocked` events can also be written back as a comment on the issue a task was imported from. This is off by default, and `pr_opened` is never written back. See [issue-writeback.md](issue-writeback.md).
 
 ## Payload
 
@@ -177,9 +183,11 @@ Behaviour to know:
 
 ## Security: user-level only
 
-The webhook is read only from the app's own user settings. It is never read from `.aperant.json`, `.auto-claude/.env` or any other file in a repository. A repository must not be able to send task data to an address it chooses. The same reasoning is why the `baseBranch` and `linkDependencies` settings are read only from the main checkout.
+The app-wide webhook lives only in the app's own Settings. It is never read from `.aperant.json`, the project `.env` or any other file in a repository. A repository must not be able to send task data to an address it chooses.
 
-No `WEBHOOK_URL` key may be added to repository files (`.aperant.json`, `.auto-claude/.env`) or read by the app from its environment. The headless CLI is the one exception: it reads `APERANT_WEBHOOK_URL` from its own process environment only (see [Headless runs](#headless-runs-clijs-run)), never from a file in the repository.
+A repository file can only suggest a per-project URL (`WEBHOOK_URL` in the project `.env`). That suggestion is ignored until you approve the exact URL in the project's Settings, and an unapproved project URL falls back to the app-wide webhook. Project URLs cannot be loopback addresses. See [Approving a project webhook](project-configuration.md#approving-a-project-webhook).
+
+Headless commands still never read repository files. `cli.js run` reads `APERANT_WEBHOOK_URL` from its own process environment and the `--config` file (see [Headless runs](#headless-runs-clijs-run)), never a file in the repository.
 
 The headless daemon (`cli.js serve`) does not read the app's `settings.json`. Its webhook comes from the `webhook` key of the `--config` file you pass to it (`enabled`, `url`, `events`), which is a file you control on that machine. Unlike `cli.js run`, the daemon sends the webhook only when `enabled` is `true`, does not read `APERANT_WEBHOOK_URL`, and stops at startup with exit code 1 when the URL is invalid. It sends one message per finished task. See [Config file keys](CLI-USAGE.md#config-file-keys). The same URL rules and delivery behaviour apply.
 

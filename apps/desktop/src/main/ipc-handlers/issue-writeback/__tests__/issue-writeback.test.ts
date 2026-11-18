@@ -245,3 +245,104 @@ describe('dispatchIssueOutcome', () => {
     expect(String(githubFetch.mock.calls[0][2].body)).not.toContain('example.com');
   });
 });
+
+describe('Linear transition on review', () => {
+  const states = {
+    issue: {
+      team: {
+        states: {
+          nodes: [
+            { id: 'st-1', name: 'Todo' },
+            { id: 'st-2', name: 'In Review' }
+          ]
+        }
+      }
+    }
+  };
+  const isStates = (q: unknown) => String(q).includes('states');
+  const isUpdate = (q: unknown) => String(q).includes('issueUpdate');
+  const queriesOf = () => linearGraphQL.mock.calls.map((c) => String(c[1]));
+
+  function transitionSettings(over: Record<string, unknown> = {}) {
+    settings({
+      linear: true,
+      linearTransitionOnReview: true,
+      linearTransitionStateName: 'In Review',
+      ...over
+    });
+  }
+  function mockLinear(opts: { comment?: unknown; update?: unknown } = {}) {
+    linearGraphQL.mockImplementation(async (_k: unknown, q: unknown) => {
+      if (isStates(q)) return states;
+      if (isUpdate(q)) {
+        if (opts.update instanceof Error) throw opts.update;
+        return opts.update ?? { issueUpdate: { success: true } };
+      }
+      if (opts.comment instanceof Error) throw opts.comment;
+      return opts.comment ?? { commentCreate: { success: true } };
+    });
+  }
+
+  beforeEach(() => {
+    writeMeta(lnMeta);
+    transitionSettings();
+    mockLinear();
+  });
+
+  it('matches the state name ignoring case and whitespace', async () => {
+    transitionSettings({ linearTransitionStateName: '  in REVIEW ' });
+    await run();
+    expect(linearGraphQL).toHaveBeenCalledTimes(3);
+    expect(isStates(linearGraphQL.mock.calls[1][1])).toBe(true);
+    expect(linearGraphQL.mock.calls[1][2]).toEqual({ id: 'abc-123' });
+    expect(isUpdate(linearGraphQL.mock.calls[2][1])).toBe(true);
+    expect(linearGraphQL.mock.calls[2][2]).toEqual({ id: 'abc-123', input: { stateId: 'st-2' } });
+    expect(warnMock).not.toHaveBeenCalled();
+  });
+
+  it('does nothing further when no state matches', async () => {
+    transitionSettings({ linearTransitionStateName: 'Nope' });
+    await run();
+    expect(queriesOf().some(isUpdate)).toBe(false);
+    expect(queriesOf().some(isStates)).toBe(true);
+    expect(linearGraphQL).toHaveBeenCalledTimes(2);
+    expect(warnMock).not.toHaveBeenCalled();
+  });
+
+  it('warns once without leaking the token when issueUpdate rejects', async () => {
+    mockLinear({ update: new Error(TOKEN) });
+    expect(() => dispatchIssueOutcome({ task, project, event: 'review_ready' })).not.toThrow();
+    await flush();
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(String(warnMock.mock.calls[0][0])).toContain('transition');
+    expect(JSON.stringify(warnMock.mock.calls)).not.toContain(TOKEN);
+  });
+
+  it('warns when issueUpdate returns success=false', async () => {
+    mockLinear({ update: { issueUpdate: { success: false } } });
+    await run();
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(String(warnMock.mock.calls[0][0])).toContain('transition');
+  });
+
+  it('skips the transition when the toggle is off', async () => {
+    transitionSettings({ linearTransitionOnReview: false });
+    await run();
+    expect(queriesOf().some(isStates)).toBe(false);
+    expect(queriesOf().some(isUpdate)).toBe(false);
+  });
+
+  it.each(['failed', 'blocked'] as const)('skips the transition on %s', async (event) => {
+    await run(event);
+    expect(queriesOf().some(isStates)).toBe(false);
+    expect(queriesOf().some(isUpdate)).toBe(false);
+  });
+
+  it('still attempts the transition when the comment fails', async () => {
+    mockLinear({ comment: new Error(TOKEN) });
+    await run();
+    expect(queriesOf().some(isUpdate)).toBe(true);
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(String(warnMock.mock.calls[0][0])).toContain('comment');
+  });
+});

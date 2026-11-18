@@ -14,6 +14,7 @@ interface ScheduleState {
   activeProjectId: string | null;
   isLoading: boolean;
   error: string | null;
+  loadError: string | null;
 
   loadSchedules: (projectId: string) => Promise<void>;
   createSchedule: (projectId: string, input: ScheduleInput) => Promise<RecurringSchedule | null>;
@@ -35,23 +36,25 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
   activeProjectId: null,
   isLoading: false,
   error: null,
-
+  loadError: null,
   loadSchedules: async (projectId) => {
     if (get().activeProjectId !== projectId) {
-      set({ schedules: [], activeProjectId: projectId });
+      set({ schedules: [], activeProjectId: projectId, loadError: null });
     }
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, loadError: null });
     try {
       const result = await window.electronAPI.listSchedules(projectId);
       if (get().activeProjectId !== projectId) return;
       if (result.success && result.data) {
-        set({ schedules: result.data, isLoading: false });
+        set({ schedules: result.data, isLoading: false, loadError: null });
       } else {
-        set({ error: result.error ?? 'Failed to load schedules', isLoading: false });
+        const message = result.error ?? 'Failed to load schedules';
+        set({ error: message, loadError: message, isLoading: false });
       }
     } catch (error) {
       debugLog('[ScheduleStore] Failed to load schedules:', error);
-      set({ error: error instanceof Error ? error.message : String(error), isLoading: false });
+      const message = error instanceof Error ? error.message : String(error);
+      set({ error: message, loadError: message, isLoading: false });
     }
   },
 

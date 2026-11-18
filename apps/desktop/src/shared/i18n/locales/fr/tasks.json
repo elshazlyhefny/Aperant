@@ -45,7 +45,8 @@
     "viewPR": "Voir la PR",
     "moveTo": "Déplacer vers",
     "taskActions": "Actions de la tâche",
-    "selectTask": "Sélectionner la tâche : {{title}}"
+    "selectTask": "Sélectionner la tâche : {{title}}",
+    "completed": "Tâche terminée avec succès"
   },
   "labels": {
     "running": "En cours",
@@ -201,7 +202,9 @@
       "reviewing": "Révision",
       "fixing": "Correction",
       "complete": "Terminé",
-      "failed": "Échoué"
+      "failed": "Échoué",
+      "validation": "Validation",
+      "pending": "En attente"
     },
     "labels": {
       "interrupted": "Interrompu",
@@ -372,7 +375,11 @@
   "subtasks": {
     "untitled": "Sous-tâche sans titre",
     "expandAll": "Tout déplier",
-    "collapseAll": "Tout replier"
+    "collapseAll": "Tout replier",
+    "empty": "Aucune sous-tâche définie",
+    "emptyHint": "Les sous-tâches d'implémentation apparaîtront ici après la planification",
+    "verification": "Vérification :",
+    "progressSummary": "{{completed}} sur {{total}} terminées"
   },
   "bulkPR": {
     "selectAllInColumn": "Sélectionner toutes les tâches de la colonne",
@@ -476,6 +483,16 @@
   },
   "delivery": {
     "title": "Livraison et utilisation des jetons",
+    "failedTasks": "Tâches en échec avant tout travail",
+    "failedTruncated": "Affichage de {{shown}} tâches sur {{count}}.",
+    "failedOpenTask": "Ouvrir la tâche",
+    "phases": {
+      "spec": "Création de la spec",
+      "planning": "Planification",
+      "coding": "Codage",
+      "qa": "Revue QA",
+      "unknown": "Inconnu"
+    },
     "refresh": "Actualiser",
     "loading": "Chargement des métriques de livraison…",
     "error": "Échec du chargement des métriques de livraison",
@@ -568,5 +585,34 @@
   "fileExplorer": {
     "title": "Fichiers du projet",
     "hint": "Faites glisser un fichier, ou appuyez sur Entrée, pour l'ajouter comme référence"
+  },
+  "logs": {
+    "empty": {
+      "title": "Aucun journal pour le moment",
+      "hint": "Les journaux apparaîtront ici lorsque la tâche s'exécutera"
+    },
+    "entryCount_one": "({{count}} entrée)",
+    "entryCount_other": "({{count}} entrées)",
+    "modelTooltip": "Modèle : {{model}}",
+    "thinkingTooltip": "Réflexion : {{level}}",
+    "done": "Terminé",
+    "showOutput": "Afficher la sortie",
+    "hideOutput": "Masquer la sortie",
+    "showMore": "Plus",
+    "showLess": "Moins",
+    "thinking": {
+      "low": "Faible",
+      "medium": "Moy.",
+      "high": "Élevé",
+      "xhigh": "Très élevé"
+    },
+    "tools": {
+      "reading": "Lecture",
+      "searchingFiles": "Recherche de fichiers",
+      "searchingCode": "Recherche de code",
+      "editing": "Modification",
+      "writing": "Écriture",
+      "running": "Exécution"
+    }
   }
 }

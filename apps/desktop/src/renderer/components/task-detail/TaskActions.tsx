@@ -100,7 +100,7 @@ export function TaskActions({
         {task.status === 'done' && (
           <div className="completion-state text-sm">
             <CheckCircle2 className="h-5 w-5" />
-            <span className="font-medium">Task completed successfully</span>
+            <span className="font-medium">{t('tasks:actions.completed')}</span>
           </div>
         )}
 

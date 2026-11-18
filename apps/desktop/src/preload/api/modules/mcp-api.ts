@@ -18,6 +18,8 @@ export interface McpAPI {
   approveMcpServer: (projectId: string, serverId: string, hash: string) => Promise<IPCResult>;
   /** Approve the project's CHROME_DEVTOOLS_EXECUTABLE; `exePath` is the one the page showed */
   approveChromeExecutable: (projectId: string, exePath: string) => Promise<IPCResult>;
+  /** Approve the project-declared webhook URL; `hash` is the one the page showed */
+  approveProjectWebhook: (projectId: string, expectedHash: string) => Promise<IPCResult>;
 }
 
 export function createMcpAPI(): McpAPI {
@@ -33,5 +35,7 @@ export function createMcpAPI(): McpAPI {
 
     approveChromeExecutable: (projectId: string, exePath: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.MCP_APPROVE_CHROME_EXECUTABLE, projectId, exePath),
+    approveProjectWebhook: (projectId: string, expectedHash: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WEBHOOK_APPROVE_PROJECT, projectId, expectedHash),
   };
 }

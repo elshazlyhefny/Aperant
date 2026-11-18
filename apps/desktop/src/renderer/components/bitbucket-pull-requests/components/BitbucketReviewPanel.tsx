@@ -25,10 +25,20 @@ interface BitbucketReviewPanelProps {
   review: ReviewState;
   prId: number;
   prState: string;
+  /** zeenha fork: shared with Azure DevOps; selects the translation namespace. */
+  i18nNamespace?: string;
+  testId?: string;
 }
 
-export function BitbucketReviewPanel({ review, prId, prState }: BitbucketReviewPanelProps) {
-  const { t } = useTranslation('bitbucket');
+export function BitbucketReviewPanel({
+  review,
+  prId,
+  prState,
+  i18nNamespace = 'bitbucket',
+  testId = 'bitbucket-review-panel'
+}: BitbucketReviewPanelProps) {
+  const { t } = useTranslation(i18nNamespace);
+  const inlineId = `${testId}-post-inline`;
   const [postInline, setPostInline] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
@@ -51,7 +61,7 @@ export function BitbucketReviewPanel({ review, prId, prState }: BitbucketReviewP
   };
 
   return (
-    <div className="space-y-4" data-testid="bitbucket-review-panel">
+    <div className="space-y-4" data-testid={testId}>
       <div className="flex items-center justify-between gap-3">
         <h3 className="flex items-center gap-2 font-medium">
           <Bot className="h-4 w-4" />
@@ -138,11 +148,11 @@ export function BitbucketReviewPanel({ review, prId, prState }: BitbucketReviewP
               />
               <div className="flex items-center gap-2">
                 <Checkbox
-                  id="bitbucket-post-inline"
+                  id={inlineId}
                   checked={postInline}
                   onCheckedChange={(v) => setPostInline(v === true)}
                 />
-                <label htmlFor="bitbucket-post-inline" className="text-sm">
+                <label htmlFor={inlineId} className="text-sm">
                   {t('pullRequests.review.inlineOption')}
                 </label>
               </div>

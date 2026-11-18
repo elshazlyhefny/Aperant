@@ -1,12 +1,16 @@
 /**
- * Cross-Encoder Reranker
+ * Reranker
  *
  * Provider auto-detection priority:
- *   1. Ollama — Qwen3-Reranker-0.6B (local, zero cost)
+ *   1. Ollama — cosine similarity between the query embedding and the stored
+ *      memory embeddings (local, zero cost, no HTTP). The Qwen3 reranker model
+ *      (qwen3-reranker:0.6b) is only the opt-in signal that selects this
+ *      provider; it is not called.
  *   2. Cohere — rerank-v3.5 (~$1/1K queries)
  *   3. None — passthrough (position-based scoring)
  *
- * Gracefully degrades to passthrough if neither provider is available.
+ * Gracefully degrades to passthrough if no provider is available or the
+ * embeddings needed for cosine scoring are missing or not comparable.
  */
 
 const OLLAMA_BASE_URL = 'http://localhost:11434';
@@ -18,6 +22,13 @@ export type RerankerProvider = 'ollama' | 'cohere' | 'none';
 export interface RerankerCandidate {
   memoryId: string;
   content: string;
+  /** Stored memory embedding, used by the 'ollama' provider for cosine scoring. */
+  embedding?: number[];
+}
+
+export interface RerankOptions {
+  /** Embedding of the query (may be shorter than stored vectors, e.g. 256 vs 1024). */
+  queryEmbedding?: number[];
 }
 
 export interface RerankerResult {
@@ -70,93 +81,84 @@ export class Reranker {
   }
 
   /**
-   * Rerank candidates using cross-encoder scoring.
-   * Falls back to passthrough (positional scoring) if provider is 'none'.
+   * Rerank candidates.
+   * - 'ollama': cosine similarity between options.queryEmbedding and each
+   *   candidate's stored embedding. No network calls. Falls back to
+   *   passthrough if the query embedding is missing or fewer than 2
+   *   candidates have a comparable embedding.
+   * - 'cohere': Cohere rerank API.
+   * - 'none': passthrough (positional scoring).
    *
    * @param query - The original search query
    * @param candidates - Candidates to rerank with their content
    * @param topK - Number of top results to return
+   * @param options - Optional query embedding for cosine scoring
    */
   async rerank(
     query: string,
     candidates: RerankerCandidate[],
     topK: number = 8,
+    options?: RerankOptions,
   ): Promise<RerankerResult[]> {
     if (this.provider === 'none' || candidates.length <= topK) {
-      return candidates
-        .slice(0, topK)
-        .map((c, i) => ({
-          memoryId: c.memoryId,
-          score: 1 - i / Math.max(candidates.length, 1),
-        }));
+      return this.passthroughRerank(candidates, topK);
     }
 
     if (this.provider === 'ollama') {
-      return this.rerankOllama(query, candidates, topK);
+      return this.rerankOllama(candidates, topK, options?.queryEmbedding);
     }
 
     return this.rerankCohere(query, candidates, topK);
   }
 
   // ============================================================
-  // PRIVATE: OLLAMA RERANKER
+  // PRIVATE: OLLAMA (COSINE SIMILARITY)
   // ============================================================
 
   /**
-   * Rerank using Qwen3-Reranker-0.6B via Ollama.
-   *
-   * Qwen3-Reranker uses a specific prompt format:
-   *   "<|im_start|>system\nJudge the relevance...<|im_end|>\n
-   *    <|im_start|>user\nQuery: ...\nDocument: ...<|im_end|>\n
-   *    <|im_start|>assistant\n<think>\n"
-   *
-   * We approximate reranking by computing embeddings for (query, doc) pairs
-   * and scoring based on the embedding similarity. A true cross-encoder would
-   * use the model's classification head — this is a pragmatic approximation.
+   * zeenha fork: the previous implementation sent one uncached
+   * /api/embeddings request per candidate (up to 20 per search) and ranked
+   * by the L2 norm of the returned vector, which is not a relevance score.
+   * This ranks by cosine similarity against embeddings already stored in
+   * memory_embeddings, with no HTTP requests.
    */
-  private async rerankOllama(
-    query: string,
+  private rerankOllama(
     candidates: RerankerCandidate[],
     topK: number,
-  ): Promise<RerankerResult[]> {
-    const scored: RerankerResult[] = [];
+    queryEmbedding?: number[],
+  ): RerankerResult[] {
+    if (!queryEmbedding || queryEmbedding.length === 0) {
+      return this.passthroughRerank(candidates, topK);
+    }
 
-    await Promise.allSettled(
-      candidates.map(async (candidate, fallbackRank) => {
-        try {
-          const prompt = buildQwen3RerankerPrompt(query, candidate.content);
-          const response = await fetch(`${OLLAMA_BASE_URL}/api/embeddings`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: QWEN3_RERANKER_MODEL, prompt }),
-            signal: AbortSignal.timeout(5000),
-          });
+    const dim = queryEmbedding.length;
+    const query = l2Normalize(queryEmbedding);
+    const scores: Array<number | null> = candidates.map((c) => {
+      const e = c.embedding;
+      if (!e || e.length < dim) return null;
+      return cosineSimilarity(query, l2Normalize(e.length > dim ? e.slice(0, dim) : e));
+    });
 
-          if (!response.ok) {
-            scored.push({
-              memoryId: candidate.memoryId,
-              score: 1 - fallbackRank / candidates.length,
-            });
-            return;
-          }
+    const comparable = scores.filter((s): s is number => s !== null);
+    if (comparable.length < 2) {
+      return this.passthroughRerank(candidates, topK);
+    }
 
-          const data = (await response.json()) as { embedding: number[] };
-          // Use L2 norm of the embedding as a relevance proxy
-          // (higher norm from the relevance prompt = more confident match)
-          const norm = Math.sqrt(
-            data.embedding.reduce((s, v) => s + v * v, 0),
-          );
-          scored.push({ memoryId: candidate.memoryId, score: norm });
-        } catch {
-          scored.push({
-            memoryId: candidate.memoryId,
-            score: 1 - fallbackRank / candidates.length,
-          });
-        }
-      }),
-    );
-
-    return scored.sort((a, b) => b.score - a.score).slice(0, topK);
+    const minScore = Math.min(...comparable);
+    return candidates
+      .map((c, i) => ({
+        memoryId: c.memoryId,
+        score: scores[i] ?? minScore,
+        index: i,
+      }))
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          Number(scores[a.index] === null) - Number(scores[b.index] === null) ||
+          a.index - b.index,
+      )
+      .slice(0, topK)
+      .map(({ memoryId, score }) => ({ memoryId, score }));
   }
 
   // ============================================================
@@ -224,19 +226,30 @@ export class Reranker {
 }
 
 // ============================================================
-// PROMPT HELPERS
+// VECTOR HELPERS
 // ============================================================
 
-function buildQwen3RerankerPrompt(query: string, document: string): string {
-  return [
-    '<|im_start|>system',
-    'Judge the relevance of the following document to the query. Answer "yes" if relevant, "no" if not.',
-    '<|im_end|>',
-    '<|im_start|>user',
-    `Query: ${query}`,
-    `Document: ${document}`,
-    '<|im_end|>',
-    '<|im_start|>assistant',
-    '<think>',
-  ].join('\n');
+function l2Normalize(v: number[]): number[] {
+  let sum = 0;
+  for (const x of v) sum += x * x;
+  const norm = Math.sqrt(sum);
+  return norm === 0 ? v : v.map((x) => x / norm);
+}
+
+/**
+ * Cosine similarity of two equal-length vectors. Returns 0 if lengths differ
+ * or either vector has zero magnitude.
+ */
+export function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
