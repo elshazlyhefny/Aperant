@@ -129,6 +129,8 @@ import type {
   JiraSyncStatus,
   GitHubRepository,
   GitHubIssue,
+  GitHubIssuesCursor,
+  PaginatedIssuesResult,
   GitHubSyncStatus,
   GitHubImportResult,
   GitHubInvestigationResult,
@@ -538,9 +540,9 @@ export interface ElectronAPI extends ScheduleAPI {
   getGitHubIssues: (
     projectId: string,
     state?: 'open' | 'closed' | 'all',
-    page?: number,
+    cursor?: GitHubIssuesCursor | null,
     fetchAll?: boolean
-  ) => Promise<IPCResult<{ issues: GitHubIssue[]; hasMore: boolean }>>;
+  ) => Promise<IPCResult<PaginatedIssuesResult>>;
   getGitHubIssue: (projectId: string, issueNumber: number) => Promise<IPCResult<GitHubIssue>>;
   checkGitHubConnection: (projectId: string) => Promise<IPCResult<GitHubSyncStatus>>;
   investigateGitHubIssue: (projectId: string, issueNumber: number, selectedCommentIds?: number[]) => void;
