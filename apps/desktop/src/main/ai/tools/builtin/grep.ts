@@ -63,7 +63,10 @@ function buildRgArgs(
   input: z.infer<typeof inputSchema>,
   searchPath: string,
 ): string[] {
-  const args: string[] = [];
+  // zeenha fork: --no-config stops RIPGREP_CONFIG_PATH from injecting options
+  // such as --pre; --no-follow keeps rg from following symlinks out of the
+  // project, since assertPathContained only checks the starting path.
+  const args: string[] = ['--no-config', '--no-follow'];
 
   const mode = input.output_mode ?? DEFAULT_OUTPUT_MODE;
 
@@ -97,7 +100,10 @@ function buildRgArgs(
   // Always add these defaults
   args.push('--no-heading', '--color', 'never');
 
-  args.push(input.pattern, searchPath);
+  // zeenha fork: CWE-88 argument injection. The pattern is model-controlled, so
+  // pass it as the value of -e (a leading '-' can't become an option such as
+  // --pre) and put the path after '--' so it can never be read as an option.
+  args.push('-e', input.pattern, '--', searchPath);
 
   return args;
 }
