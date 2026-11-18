@@ -99,6 +99,8 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `JIRA_API_TOKEN` | Atlassian API token. A secret, see [Secrets](#secrets). | Yes |
 | `JIRA_PROJECT_KEY` | Default project key, for example `PROJ` | Yes |
 
+These same keys are used for Jira write-back, which is off by default and controlled in the app settings. See [issue-writeback.md](issue-writeback.md).
+
 ### Bitbucket
 
 | Key | Purpose or example | Settings UI writes it |
@@ -108,7 +110,13 @@ The last column says whether the Settings UI also writes the key. Every key belo
 | `BITBUCKET_TOKEN` | Bitbucket access token. A secret, see [Secrets](#secrets). | Yes |
 | `BITBUCKET_REPOSITORY` | `workspace/repo_slug`. Each side starts with a letter or digit and may contain letters, digits, `.`, `_` and `-`. At most 256 characters. | Yes |
 
-Only Bitbucket Cloud (bitbucket.org, API `https://api.bitbucket.org/2.0`) is supported. Bitbucket Server and Data Center are not. The **Detect** button reads the `origin` remote and only matches bitbucket.org ssh and https remotes. The Bitbucket Pull Requests view can list pull requests, show a pull request and its diff, post a comment, and run an AI review. A task's **Create PR** button opens a Bitbucket pull request, and pull request feedback can be followed up as described in [PR follow-ups](pr-follow-ups.md#bitbucket-cloud).
+Only Bitbucket Cloud (bitbucket.org, API `https://api.bitbucket.org/2.0`) is supported. Bitbucket Server and Data Center are not. The **Detect** button reads the `origin` remote and only matches bitbucket.org ssh and https remotes.
+
+What works:
+
+- The Bitbucket Pull Requests view lists pull requests, shows a pull request and its diff, and posts a comment.
+- **Create PR** opens a pull request on Bitbucket Cloud. Bitbucket has no draft pull requests, so a draft only gets a `Draft:` title prefix. It is used only when `origin` is on bitbucket.org. See [Creating pull requests](creating-pull-requests.md).
+- **PR feedback** sends failed Pipelines and unresolved comments to the task's agent. See [PR Follow-ups](pr-follow-ups.md).
 
 #### Troubleshooting
 
@@ -135,7 +143,7 @@ Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visua
 What works:
 
 - **Detect** reads the `origin` remote and matches the five remote formats of Azure DevOps Services.
-- **Create PR** opens a pull request on Azure DevOps. Drafts are real drafts. The description is capped at 4000 characters. Issue lines are worded without `#`, because Azure DevOps links `#123` to work items.
+- **Create PR** opens a pull request on Azure DevOps. Drafts are real drafts. The description is capped at 4000 characters. Issue lines are worded without `#`, because Azure DevOps links `#123` to work items. See [Creating pull requests](creating-pull-requests.md).
 - **PR feedback** sends failed build validations and active threads to the task's agent. See [PR Follow-ups](pr-follow-ups.md).
 
 #### Troubleshooting

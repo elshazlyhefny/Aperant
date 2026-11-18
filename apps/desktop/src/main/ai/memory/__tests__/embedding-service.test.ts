@@ -282,7 +282,18 @@ describe('EmbeddingService (Ollama provider)', () => {
             }),
         });
       }
-      if (url.includes('/api/embeddings')) {
+      // '/api/embed' is a substring of '/api/embeddings', so match with endsWith
+      if (url.endsWith('/api/embed')) {
+        const body = JSON.parse((opts as RequestInit).body as string) as { input: string[] };
+        const embeddings = body.input.map(() =>
+          Array.from({ length: 1024 }, (_, i) => (i % 10) / 10),
+        );
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ embeddings }),
+        });
+      }
+      if (url.endsWith('/api/embeddings')) {
         const embedding = Array.from({ length: 1024 }, (_, i) => (i % 10) / 10);
         return Promise.resolve({
           ok: true,
@@ -326,6 +337,57 @@ describe('EmbeddingService (Ollama provider)', () => {
     const body = JSON.parse((embedCalls[0][1] as RequestInit).body as string);
     expect(body.model).toBe('qwen3-embedding:4b');
     expect(body.prompt).toBe('hello world');
+  });
+
+  const embedFetches = () =>
+    mockFetch.mock.calls.filter((c) => (c[0] as string).endsWith('/api/embed'));
+
+  it('embedBatch sends one /api/embed request with the texts as input', async () => {
+    const texts = ['alpha', 'beta', 'gamma'];
+    const result = await service.embedBatch(texts);
+    expect(result).toHaveLength(3);
+    expect(result.every((e) => e.length === 1024)).toBe(true);
+    const calls = embedFetches();
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse((calls[0][1] as RequestInit).body as string);
+    expect(body.model).toBe('qwen3-embedding:4b');
+    expect(body.input).toEqual(texts);
+  });
+
+  it('second embedBatch of the same texts is served from cache', async () => {
+    const texts = ['alpha', 'beta', 'gamma'];
+    await service.embedBatch(texts);
+    mockFetch.mockClear();
+    const result = await service.embedBatch(texts);
+    expect(result).toHaveLength(3);
+    expect(embedFetches()).toHaveLength(0);
+  });
+
+  it('partial cache hit only sends the misses', async () => {
+    await service.embedBatch(['alpha', 'beta']);
+    mockFetch.mockClear();
+    const result = await service.embedBatch(['alpha', 'delta', 'beta']);
+    expect(result).toHaveLength(3);
+    const calls = embedFetches();
+    expect(calls).toHaveLength(1);
+    const body = JSON.parse((calls[0][1] as RequestInit).body as string);
+    expect(body.input).toEqual(['delta']);
+  });
+
+  it('falls back to /api/embeddings when /api/embed returns 404', async () => {
+    const original = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url.endsWith('/api/embed')) {
+        return Promise.resolve({ ok: false, status: 404, statusText: 'Not Found' });
+      }
+      return original(url, opts);
+    });
+    const result = await service.embedBatch(['one', 'two', 'three']);
+    expect(result).toHaveLength(3);
+    const legacy = mockFetch.mock.calls.filter((c) =>
+      (c[0] as string).endsWith('/api/embeddings'),
+    );
+    expect(legacy).toHaveLength(3);
   });
 });
 

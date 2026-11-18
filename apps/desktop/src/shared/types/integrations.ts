@@ -161,11 +161,23 @@ export interface GitHubIssue {
 }
 
 /**
+ * Cursor for resuming paginated GitHub issue fetching.
+ * apiPage = 1-based GitHub API page to resume at;
+ * offset = index of the first not-yet-returned item inside that 100-item API page.
+ */
+export interface GitHubIssuesCursor {
+  apiPage: number;
+  offset: number;
+}
+
+/**
  * Result type for paginated issue fetching
  */
 export interface PaginatedIssuesResult {
   issues: GitHubIssue[];
   hasMore: boolean;
+  /** Cursor for the next request; null/undefined = nothing left (fetchAll mode returns null) */
+  nextCursor?: GitHubIssuesCursor | null;
 }
 
 export interface GitHubSyncStatus {

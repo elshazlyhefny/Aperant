@@ -228,6 +228,40 @@ export async function setTaskStatus(
   }
 }
 
+/** Match an exact spec id first, then a unique prefix (`007` finds `007-foo`). */
+export function resolveSpecId(tasks: Task[], query: string): { specId: string } | { error: string } {
+  const q = query.trim();
+  if (!q) return { error: 'No task id given' };
+  const exact = tasks.find((t) => t.specId === q);
+  if (exact) return { specId: exact.specId };
+  const matches = tasks.filter((t) => t.specId.startsWith(q));
+  if (matches.length === 1) return { specId: matches[0].specId };
+  if (matches.length === 0) return { error: `Task not found: ${q}` };
+  return {
+    error: `Task id "${q}" is ambiguous, candidates: ${matches.map((t) => t.specId).sort().join(', ')}`
+  };
+}
+
+/** Move a task to the queue. Only backlog tasks are accepted unless requireBacklog is false. */
+export async function queueHeadlessTask(
+  project: HeadlessProject,
+  query: string,
+  opts?: { requireBacklog?: boolean }
+): Promise<{ ok: true; specId: string } | { ok: false; error: string }> {
+  const tasks = listHeadlessTasks(project);
+  const resolved = resolveSpecId(tasks, query);
+  if ('error' in resolved) return { ok: false, error: resolved.error };
+  const task = tasks.find((t) => t.specId === resolved.specId);
+  if (opts?.requireBacklog !== false && task?.status !== 'backlog') {
+    return {
+      ok: false,
+      error: `Task ${resolved.specId} is ${task?.status ?? 'unknown'}, only backlog tasks can be queued`
+    };
+  }
+  await setTaskStatus(project, resolved.specId, 'queue');
+  return { ok: true, specId: resolved.specId };
+}
+
 /**
  * Equivalent of plan-file-utils.resetStuckSubtasks: in_progress/failed subtasks go
  * back to pending, completed ones are never touched.
