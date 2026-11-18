@@ -2,12 +2,12 @@
  * Creates task specs from Jira issues. Does not start the agent.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import path from 'path';
 import { AUTO_BUILD_PATHS } from '../../../shared/constants';
 import type { TaskMetadata } from '../../../shared/types';
 import { sanitizeText, sanitizeUrl, sanitizeStringArray } from '../shared/sanitize';
-import { buildSpecId } from '../../utils/spec-slug';
+import { allocateSpecDir } from '../../utils/spec-number-lock';
 import { normalizeJiraSiteUrl, isValidIssueKey } from './jira-client';
 import type { JiraIssueData } from './jira-client';
 
@@ -50,22 +50,11 @@ export function findExistingJiraSpecs(specsDir: string, siteUrl: string): Map<st
   return result;
 }
 
-function nextSpecNumber(specsDir: string): number {
-  const numbers = readdirSync(specsDir, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => {
-      const match = d.name.match(/^(\d+)/);
-      return match ? parseInt(match[1], 10) : 0;
-    })
-    .filter(n => n > 0);
-  return numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
-}
-
-export function createSpecFromJiraIssue(
-  specsDir: string,
+export async function createSpecFromJiraIssue(
+  project: { path: string; autoBuildPath?: string },
   siteUrl: string,
   issue: JiraIssueData
-): JiraSpecResult {
+): Promise<JiraSpecResult> {
   const site = normalizeJiraSiteUrl(siteUrl);
   if (!site) throw new Error('Invalid Jira site URL');
   const key = sanitizeText(issue.key, 50);
@@ -88,10 +77,7 @@ export function createSpecFromJiraIssue(
   lines.push('', '## Description', '', body || 'No description provided.', '');
   const description = lines.join('\n');
 
-  mkdirSync(specsDir, { recursive: true });
-  const specId = buildSpecId(nextSpecNumber(specsDir), title);
-  const specDir = path.join(specsDir, specId);
-  mkdirSync(specDir, { recursive: true });
+  const { specId, specDir } = await allocateSpecDir(project, title);
 
   const now = new Date().toISOString();
   const category = issueType.toLowerCase() === 'bug' ? 'bug_fix' : 'feature';

@@ -1,10 +1,9 @@
 import { ipcMain } from "electron";
 import type { BrowserWindow } from "electron";
 import path from "path";
-import { existsSync, readdirSync, mkdirSync, writeFileSync } from "fs";
+import { writeFileSync } from "fs";
 import {
   IPC_CHANNELS,
-  getSpecsDir,
   AUTO_BUILD_PATHS,
 } from "../../shared/constants";
 import type {
@@ -21,7 +20,7 @@ import { insightsService } from "../insights-service";
 import { safeSendToRenderer } from "./utils";
 import { getActiveProviderFeatureSettings } from "./feature-settings-helper";
 import type { ThinkingLevel } from "../../shared/types/settings";
-import { buildSpecId } from "../utils/spec-slug";
+import { allocateSpecDir } from "../utils/spec-number-lock";
 
 import { appLog } from '../app-logger';
 /**
@@ -143,36 +142,8 @@ export function registerInsightsHandlers(getMainWindow: () => BrowserWindow | nu
       }
 
       try {
-        // Generate a unique spec ID based on existing specs
-        // Get specs directory path
-        const specsBaseDir = getSpecsDir(project.autoBuildPath);
-        const specsDir = path.join(project.path, specsBaseDir);
-
-        // Find next available spec number
-        let specNumber = 1;
-        if (existsSync(specsDir)) {
-          const existingDirs = readdirSync(specsDir, { withFileTypes: true })
-            .filter((d) => d.isDirectory())
-            .map((d) => d.name);
-
-          const existingNumbers = existingDirs
-            .map((name) => {
-              const match = name.match(/^(\d+)/);
-              return match ? parseInt(match[1], 10) : 0;
-            })
-            .filter((n) => n > 0);
-
-          if (existingNumbers.length > 0) {
-            specNumber = Math.max(...existingNumbers) + 1;
-          }
-        }
-
-        // Create spec ID with zero-padded number and slugified title
-        const specId = buildSpecId(specNumber, title);
-
-        // Create spec directory
-        const specDir = path.join(specsDir, specId);
-        mkdirSync(specDir, { recursive: true });
+        // Allocate the spec number and directory under the cross-process lock
+        const { specId, specDir } = await allocateSpecDir(project, title);
 
         // Build metadata with source type
         const taskMetadata: TaskMetadata = {
