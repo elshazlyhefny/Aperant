@@ -17,6 +17,15 @@ to the registry here. They never name a provider.
   Bitbucket and Azure DevOps are `PRHost` only: they have PR feedback but no
   issue writeback, so the registry does not list them as writers.
 
+## Electron-free writers
+
+`github-writer.ts`, `gitlab-writer.ts` and `linear-writer.ts` hold the outcome
+writers without importing Electron. `github-forge.ts` / `gitlab-forge.ts` build
+their `postOutcome` from the factories with the desktop config resolvers (gh/glab
+token fallback). `headless-writers.ts` builds the CLI set from `.env` plus the
+process environment. `postOutcome` returns a promise that never rejects, so
+headless callers can await it.
+
 ## Adding a provider
 
 1. Create one file in `forge/` (e.g. `bitbucket-forge.ts`) implementing `Forge`

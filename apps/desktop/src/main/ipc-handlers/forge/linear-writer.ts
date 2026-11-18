@@ -33,6 +33,6 @@ export const linearWriter: OutcomeWriter = {
         warn('linear', event, issueId, err);
       }
     };
-    void run().catch(() => undefined);
+    return run().catch(() => undefined);
   }
 };

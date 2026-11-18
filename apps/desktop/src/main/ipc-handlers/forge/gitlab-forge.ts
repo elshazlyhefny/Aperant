@@ -3,18 +3,15 @@
  * existing MR feedback and issue note code.
  */
 
-import {
-  encodeProjectPath,
-  getGitLabConfig,
-  gitlabFetch,
-  normalizeProjectReference
-} from '../gitlab/utils';
+import { getGitLabConfig, normalizeProjectReference } from '../gitlab/utils';
 import { fetchMRFeedback, parseMRIidFromUrl, parseMergeRequestUrl } from '../gitlab/mr-feedback';
 import type { Forge } from './types';
-import { isPositiveSafeInt, parseUrl, warn } from './writeback-utils';
+import { createGitLabWriter } from './gitlab-writer';
 
 const NOT_CONFIGURED = 'GitLab is not configured for this project (token or project missing).';
 const NOT_ON_CONFIGURED_PROJECT = 'This merge request is not on the GitLab project configured for this project.';
+
+const gitlabWriter = createGitLabWriter((project) => getGitLabConfig(project));
 
 export const gitlabForge: Forge = {
   providerId: 'gitlab',
@@ -40,26 +37,5 @@ export const gitlabForge: Forge = {
     return { ok: true, fetched: await fetchMRFeedback(config, ref.number) };
   },
 
-  postOutcome({ meta, project, event, text }) {
-    const iid = meta.gitlabIssueIid;
-    if (!isPositiveSafeInt(iid)) return;
-    const ref = `#${iid}`;
-    const run = async (): Promise<void> => {
-      try {
-        const config = await getGitLabConfig(project);
-        if (!config) return;
-        const issueUrl = parseUrl(meta.gitlabUrl);
-        const instance = parseUrl(config.instanceUrl);
-        if (!issueUrl || !instance || issueUrl.host.toLowerCase() !== instance.host.toLowerCase()) return;
-        const projectPath = encodeProjectPath(normalizeProjectReference(config.project, config.instanceUrl));
-        await gitlabFetch(config.token, config.instanceUrl, `/projects/${projectPath}/issues/${iid}/notes`, {
-          method: 'POST',
-          body: JSON.stringify({ body: text })
-        });
-      } catch (err) {
-        warn('gitlab', event, ref, err);
-      }
-    };
-    void run().catch(() => undefined);
-  }
+  postOutcome: gitlabWriter.postOutcome
 };
