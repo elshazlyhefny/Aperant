@@ -122,6 +122,7 @@ The command never reads the desktop app's settings. Credentials come from the en
   "providerAgentConfig": {},
   "webhook": {
     "url": "https://hooks.example.com/services/XXX",
+    "format": "auto",
     "events": { "reviewReady": true, "failed": true, "blocked": true, "prOpened": false }
   },
   "project": {
@@ -135,7 +136,7 @@ The command never reads the desktop app's settings. Credentials come from the en
 
 `providerAccounts` uses the same account objects as the app. `globalPriorityOrder` lists account ids in the order to try them. When both are set, the account queue is tried first, then the environment. `project` overrides the main branch, whether to push, extra environment variable names passed to Bash, and the sandbox mode. A config file that is missing or invalid stops the run with exit code 1.
 
-`webhook` sends a Slack-compatible message when the run ends: `review_ready` on exit 0, `blocked` on exit 2, `failed` on exit 1. The `APERANT_WEBHOOK_URL` environment variable overrides `webhook.url`. A webhook problem never changes the exit code. See [notifications-and-webhooks.md](notifications-and-webhooks.md#headless-runs-clijs-run).
+`webhook` sends a message in Slack, Microsoft Teams or Discord format when the run ends (`format` is `auto`, `slack`, `teams` or `discord`; `auto` is the default and detects it from the URL): `review_ready` on exit 0, `blocked` on exit 2, `failed` on exit 1. The `APERANT_WEBHOOK_URL` environment variable overrides `webhook.url`. A webhook problem never changes the exit code. See [notifications-and-webhooks.md](notifications-and-webhooks.md#headless-runs-clijs-run).
 
 `writeback` reports the outcome back to the issue tracker the task was imported from. It is off by default, applies to both `run` and `serve`, and never changes the exit code. Credentials come from the project's `.auto-claude/.env`. Example:
 
@@ -355,13 +356,14 @@ In addition to the keys under [Credentials](#credentials):
   "webhook": {
     "enabled": true,
     "url": "https://hooks.slack.com/services/...",
+    "format": "auto",
     "events": { "reviewReady": true, "failed": true, "blocked": true, "prOpened": false }
   },
   "project": { "maxParallelTasks": 2 }
 }
 ```
 
-- `webhook`: the outcome webhook for the daemon. It is read only from this file, never from the app's `settings.json`. See [notifications-and-webhooks.md](notifications-and-webhooks.md). An invalid URL stops the daemon with exit code 1. The daemon sends it only when `enabled` is `true`, and it does not read `APERANT_WEBHOOK_URL`. `run` reads the same `url` and `events` but ignores `enabled`: for `run`, a URL is enough.
+- `webhook`: the outcome webhook for the daemon. It is read only from this file, never from the app's `settings.json`. `format` is optional (`auto`, `slack`, `teams` or `discord`) and is detected from the URL when omitted. See [notifications-and-webhooks.md](notifications-and-webhooks.md). An invalid URL stops the daemon with exit code 1. The daemon sends it only when `enabled` is `true`, and it does not read `APERANT_WEBHOOK_URL`. `run` reads the same `url` and `events` but ignores `enabled`: for `run`, a URL is enough.
 - `project.maxParallelTasks`: how many tasks run at once. Default: 3.
 
 ### Stopping

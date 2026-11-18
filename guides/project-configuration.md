@@ -297,6 +297,7 @@ The generator writes these under the heading `# PROJECT TASK-OUTCOME WEBHOOK (OP
 |-----|--------------------|-----------------------|
 | `WEBHOOK_ENABLED` | `true` or `false`. Only `false` turns the project webhook off. Written only when a URL is set. | Yes |
 | `WEBHOOK_URL` | Address for this project's task-outcome messages, for example `https://hooks.example.com/...`. Needs approval, see [Approving a project webhook](#approving-a-project-webhook). | Yes |
+| `WEBHOOK_FORMAT` | `auto`, `slack`, `teams` or `discord`. Body format for this project's messages. `auto` detects it from the URL. Safe to commit, and not part of the URL approval. | Yes |
 | `WEBHOOK_EVENT_REVIEW_READY` | `true` or `false`. Send the review ready event. | Yes |
 | `WEBHOOK_EVENT_FAILED` | `true` or `false`. Send the task failed event. | Yes |
 | `WEBHOOK_EVENT_BLOCKED` | `true` or `false`. Send the task blocked event. | Yes |

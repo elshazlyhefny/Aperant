@@ -1,6 +1,6 @@
 # Notifications and Webhooks
 
-Aperant can post a short message to a webhook URL when a task fails, finishes and is ready for review, is blocked, or has a pull or merge request opened. The message body is Slack-compatible. This guide covers how to set it up, what is sent, which URLs are accepted, and how delivery behaves. It ends with a short section on native desktop notifications, which are a separate feature.
+Aperant can post a short message to a webhook URL when a task fails, finishes and is ready for review, is blocked, or has a pull or merge request opened. The message body is sent in the format of the receiver: Slack, Microsoft Teams or Discord. This guide covers how to set it up, what is sent, which URLs are accepted, and how delivery behaves. It ends with a short section on native desktop notifications, which are a separate feature.
 
 ## Turn it on and send a test
 
@@ -8,19 +8,20 @@ Aperant can post a short message to a webhook URL when a task fails, finishes an
 2. Find the **Task outcome webhook** block.
 3. Turn on **Enable webhook**. It is off by default.
 4. Paste the address into **Webhook URL**. The field is masked. Use the show/hide button ("Show URL" / "Hide URL") to see what you typed.
-5. Choose which events to send with the four toggles: **Review ready**, **Task failed**, **Task blocked** and **PR opened**. The first three are on by default. **PR opened** is off by default, because it is the only event that sends a link (see [Payload](#payload)).
-6. Press **Send test message**.
+5. Choose which events to send with the four toggles: **Review ready**, **Task failed**, **Task blocked** and **PR opened**. The first three are on by default. **PR opened** is off by default, because it is the only event that sends a link (see [Payload](#payload-slack)).
+6. Leave **Format** on **Auto-detect**, or pick **Slack**, **Microsoft Teams** or **Discord** (see [Formats](#formats)).
+7. Press **Send test message**.
 
 The test shows one of two results:
 
 - "Test message sent" when the receiver answered with a 2xx status.
 - "Could not send the test message" when it did not.
 
-The failure text gives no reason. The reason is in the app log (see [Delivery](#delivery)). A failing test can take about 30 seconds to report, because the app tries up to three times and each try can wait up to 10 seconds.
+The test message uses the selected format. The failure text gives no reason. The reason is in the app log (see [Delivery](#delivery)). A failing test can take about 30 seconds to report, because the app tries up to three times and each try can wait up to 10 seconds.
 
 ### Per-project webhook
 
-A project can have its own webhook URL, set in the project's **Settings > Webhook** page or suggested in its project `.env`. It is used only after you approve the exact URL. Until then the app-wide webhook is used. See [Approving a project webhook](project-configuration.md#approving-a-project-webhook).
+A project can have its own webhook URL, set in the project's **Settings > Webhook** page or suggested in its project `.env`. The page has its own **Format** setting, and `WEBHOOK_FORMAT` in the project `.env` holds the same choice (`auto`, `slack`, `teams` or `discord`). The format is a safe, non-secret value and is not part of the approval. The URL is used only after you approve the exact URL. Until then the app-wide webhook is used. See [Approving a project webhook](project-configuration.md#approving-a-project-webhook).
 
 ## Events
 
@@ -36,7 +37,7 @@ A project can have its own webhook URL, set in the project's **Settings > Webhoo
 
 The same `review_ready`, `failed` and `blocked` events can also be written back as a comment on the issue a task was imported from. This is off by default, and `pr_opened` is never written back. See [issue-writeback.md](issue-writeback.md).
 
-## Payload
+## Payload (Slack)
 
 The body is JSON with a `text` line and two Slack `blocks`. This is what a Ready for review event looks like for a project named "My App" and a task titled "Add login page":
 
@@ -118,6 +119,118 @@ The test message body is:
 }
 ```
 
+## Formats
+
+The **Format** setting controls the shape of the body. It has four values:
+
+| Value | Body |
+|-------|------|
+| Auto-detect (default) | Chosen from the URL, see below. |
+| Slack | `{ text, blocks }` |
+| Microsoft Teams | An Adaptive Card in a `message` envelope |
+| Discord | An `embeds` array with one embed |
+
+Auto-detect looks only at the host and path of the URL:
+
+| URL | Format |
+|-----|--------|
+| `hooks.slack.com` | Slack |
+| `discord.com/api/webhooks/...` | Discord |
+| `*.webhook.office.com` | Microsoft Teams |
+| Power Automate workflow URLs, such as `*.logic.azure.com` and `*.powerplatform.com` | Microsoft Teams |
+| Anything else | Slack |
+
+Notes:
+
+- Unknown hosts default to Slack, so existing setups send the same body as before.
+- A Discord URL that ends in `/slack` is Discord's Slack-compatible endpoint. Auto-detect keeps the Slack body for it.
+- When you force **Discord**, a trailing `/slack` or `/github` on the URL is removed, so the embed goes to the native endpoint.
+- To override the detection, pick a format other than Auto-detect. Do this for a relay or a custom domain that fronts Teams or Discord.
+
+### Microsoft Teams
+
+The body is an Adaptive Card, as accepted by Teams Workflows (Power Automate) and Office 365 connector URLs. A Ready for review event for "My App" and "Add login page":
+
+```json
+{
+  "type": "message",
+  "attachments": [
+    {
+      "contentType": "application/vnd.microsoft.card.adaptive",
+      "contentUrl": null,
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": [
+          { "type": "TextBlock", "text": "Ready for review", "weight": "Bolder", "size": "Medium" },
+          { "type": "TextBlock", "text": "Add login page", "wrap": true },
+          {
+            "type": "FactSet",
+            "facts": [
+              { "title": "Project", "value": "My App" },
+              { "title": "Outcome", "value": "Completed" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+The PR opened event adds an `actions` array to the card, next to `body`:
+
+```json
+"actions": [
+  { "type": "Action.OpenUrl", "title": "View PR", "url": "https://github.com/acme/my-app/pull/42" }
+]
+```
+
+### Discord
+
+The body is one embed. The color depends on the event. `allowed_mentions` is empty, so a title can never ping anyone. A Ready for review event:
+
+```json
+{
+  "embeds": [
+    {
+      "title": "Ready for review",
+      "description": "Add login page",
+      "color": 3066993,
+      "fields": [
+        { "name": "Project", "value": "My App", "inline": true },
+        { "name": "Outcome", "value": "Completed", "inline": true }
+      ]
+    }
+  ],
+  "allowed_mentions": { "parse": [] }
+}
+```
+
+Discord has no button. For PR opened, the link is the embed `url` and one more field:
+
+```json
+{
+  "embeds": [
+    {
+      "title": "PR opened",
+      "description": "Add login page",
+      "color": 3447003,
+      "url": "https://github.com/acme/my-app/pull/42",
+      "fields": [
+        { "name": "Project", "value": "My App", "inline": true },
+        { "name": "Outcome", "value": "Awaiting review", "inline": true },
+        { "name": "Pull request", "value": "https://github.com/acme/my-app/pull/42" }
+      ]
+    }
+  ],
+  "allowed_mentions": { "parse": [] }
+}
+```
+
+The same rules on what is sent apply to every format: only the project name, the task title, the outcome and, for PR opened, an `https://` link. For Teams and Discord, Markdown control characters in the title and project name are escaped with a backslash instead of the Slack `&`, `<`, `>` escaping.
+
 ## URL rules
 
 | Rule | Detail |
@@ -159,6 +272,7 @@ Add a `webhook` key to the `--config` JSON file:
 ```
 
 - `url` is the webhook address.
+- `format` is optional: `auto`, `slack`, `teams` or `discord`. When it is omitted, the format is detected from the URL (see [Formats](#formats)).
 - `events` is optional, and so is each toggle in it. The defaults are the same as in the app: `reviewReady`, `failed` and `blocked` on, `prOpened` off.
 - The environment variable `APERANT_WEBHOOK_URL` also sets the URL. When it is set and not empty, it overrides `webhook.url` in the config file. The `events` toggles still come from the config file.
 
@@ -173,7 +287,7 @@ Outcome to event:
 
 The CLI does not open the PR itself. `pr_opened` is sent only when the run reports a PR link, and only if the **prOpened** toggle is on.
 
-Everything else is the same as in the app: the [URL rules](#url-rules), the [payload](#payload) and the [retries](#delivery). The project name is the name of the `--project` directory, and the task title is the first `# ` heading of the spec's `spec.md`, or the spec id when there is none.
+Everything else is the same as in the app: the [URL rules](#url-rules), the [payload](#payload-slack) and the [retries](#delivery). The project name is the name of the `--project` directory, and the task title is the first `# ` heading of the spec's `spec.md`, or the spec id when there is none.
 
 Behaviour to know:
 
@@ -221,19 +335,17 @@ A repository file can only suggest a per-project URL (`WEBHOOK_URL` in the proje
 
 Headless commands still never read repository files. `cli.js run` reads `APERANT_WEBHOOK_URL` from its own process environment and the `--config` file (see [Headless runs](#headless-runs-clijs-run)), never a file in the repository.
 
-The headless daemon (`cli.js serve`) does not read the app's `settings.json`. Its webhook comes from the `webhook` key of the `--config` file you pass to it (`enabled`, `url`, `events`), which is a file you control on that machine. Unlike `cli.js run`, the daemon sends the webhook only when `enabled` is `true`, does not read `APERANT_WEBHOOK_URL`, and stops at startup with exit code 1 when the URL is invalid. It sends one message per finished task. See [Config file keys](CLI-USAGE.md#config-file-keys). The same URL rules and delivery behaviour apply.
+The headless daemon (`cli.js serve`) does not read the app's `settings.json`. Its webhook comes from the `webhook` key of the `--config` file you pass to it (`enabled`, `url`, `format`, `events`), which is a file you control on that machine. Unlike `cli.js run`, the daemon sends the webhook only when `enabled` is `true`, does not read `APERANT_WEBHOOK_URL`, and stops at startup with exit code 1 when the URL is invalid. It sends one message per finished task. See [Config file keys](CLI-USAGE.md#config-file-keys). The same URL rules and delivery behaviour apply.
 
 The URL is masked in the field and is never logged. Treat it like a secret: anyone who has it can post messages to the channel.
 
-## Receivers other than Slack
+## Receivers other than Slack, Teams and Discord
 
-The body has the Slack shape, `{ text, blocks }`.
+Microsoft Teams and Discord get their native body (see [Formats](#formats)). Every other receiver gets the Slack shape, `{ text, blocks }`.
 
 - A receiver that accepts the Slack format works directly.
 - For other receivers, use the `text` field as the human-readable line and ignore `blocks`.
 - If a receiver needs a different field name, put a relay or workflow in between, such as n8n or a small endpoint of your own, that maps `text` to the field the receiver expects.
-
-The app cannot change the body shape.
 
 ## Desktop notifications
 
