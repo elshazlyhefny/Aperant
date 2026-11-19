@@ -129,10 +129,11 @@ describe('getOutcomeWriter', () => {
 describe('default registry has no Bitbucket or Azure DevOps writer', () => {
   // Decision recorded in forge/README.md, section "Not planned: Bitbucket issue
   // writeback". If you add Bitbucket issue import, revisit it and update this test.
-  it('only github, gitlab, linear and jira have outcome writers', () => {
+  it('only github, gitlab, linear, jira and azure_boards have outcome writers', () => {
     expect(getOutcomeWriter('bitbucket')).toBeUndefined();
     expect(getOutcomeWriter('azuredevops')).toBeUndefined();
     expect(OUTCOME_WRITERS.map((w) => w.sourceType).sort()).toEqual([
+      'azure_boards',
       'github',
       'gitlab',
       'jira',
