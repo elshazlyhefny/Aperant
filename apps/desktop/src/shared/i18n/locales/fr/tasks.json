@@ -93,6 +93,11 @@
     "error": "Échec"
   },
   "kanban": {
+    "daemonQueue": {
+      "title": "La file est gérée par {{holder}}",
+      "paused": "La file d'attente et les planifications du bureau sont suspendues tant qu'il tourne.",
+      "running": "En cours dans le démon :"
+    },
     "emptyBacklog": "Aucune tâche planifiée",
     "emptyBacklogHint": "Ajoutez une tâche pour commencer",
     "emptyQueue": "La file d'attente est vide",
