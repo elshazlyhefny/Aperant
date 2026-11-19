@@ -55,6 +55,12 @@ describe('resolveHeadlessWebhook', () => {
     expect(warning).not.toContain('token123');
   });
 
+  it('keeps the configured format', () => {
+    const r = resolveHeadlessWebhook({ webhook: { url: URL_OK, format: 'teams' } }, {}) as ResolvedHeadlessWebhook;
+    expect(r.format).toBe('teams');
+    expect((resolveHeadlessWebhook({ webhook: { url: URL_OK } }, {}) as ResolvedHeadlessWebhook).format).toBeUndefined();
+  });
+
   it('prOpened is off by default and toggles merge', () => {
     const def = resolveHeadlessWebhook({ webhook: { url: URL_OK } }, {}) as ResolvedHeadlessWebhook;
     expect(def.events).toEqual({ reviewReady: true, failed: true, blocked: true, prOpened: false });
@@ -83,6 +89,13 @@ describe('resolveServeWebhookSettings', () => {
       events: { reviewReady: true, failed: false, blocked: true, prOpened: true }
     });
     expect(resolveServeWebhookSettings({ webhook }).enabled).toBe(false);
+  });
+
+  it('carries the format, and omits it when auto or unset', () => {
+    const webhook = { enabled: true, url: URL_OK };
+    expect(resolveServeWebhookSettings({ webhook: { ...webhook, format: 'teams' } }).format).toBe('teams');
+    expect(resolveServeWebhookSettings({ webhook: { ...webhook, format: 'auto' } })).not.toHaveProperty('format');
+    expect(resolveServeWebhookSettings({ webhook })).not.toHaveProperty('format');
   });
 
   it('rejects an invalid url without printing it', () => {
@@ -142,6 +155,49 @@ describe('notifyHeadlessOutcome', () => {
     );
     expect(bodies[1]).toEqual(
       buildWebhookPayload({ projectName: 'proj', taskTitle: 'My task', event: 'pr_opened', prUrl })
+    );
+  });
+
+  it('builds the body for the configured format and sends it through the injected send', async () => {
+    const run = async (hook: ResolvedHeadlessWebhook) => {
+      const send = vi.fn().mockResolvedValue(true);
+      await notifyHeadlessOutcome({
+        webhook: hook,
+        outcome: success,
+        projectName: 'proj',
+        taskTitle: 'My task',
+        warn: vi.fn(),
+        send
+      });
+      expect(send).toHaveBeenCalledTimes(1);
+      return send.mock.calls[0] as [string, unknown];
+    };
+    const base = { projectName: 'proj', taskTitle: 'My task', event: 'review_ready' as const };
+
+    const [, teams] = await run({ ...webhook, format: 'teams' });
+    expect(teams).toEqual(buildWebhookPayload({ ...base, format: 'teams' }));
+    const [, discord] = await run({ ...webhook, format: 'discord' });
+    expect(discord).toEqual(buildWebhookPayload({ ...base, format: 'discord' }));
+    const [, slack] = await run({ ...webhook, format: 'slack' });
+    expect(slack).toEqual(buildWebhookPayload({ ...base, format: 'slack' }));
+    const [, unset] = await run(webhook);
+    expect(unset).toEqual(buildWebhookPayload(base));
+    const [, auto] = await run({ ...webhook, format: 'auto' });
+    expect(auto).toEqual(buildWebhookPayload(base));
+  });
+
+  it('auto-detects a Teams url when no format is set', async () => {
+    const send = vi.fn().mockResolvedValue(true);
+    await notifyHeadlessOutcome({
+      webhook: { url: 'https://prod-1.westus.logic.azure.com/workflows/abc', events: allOn },
+      outcome: success,
+      projectName: 'proj',
+      taskTitle: 'My task',
+      warn: vi.fn(),
+      send
+    });
+    expect(send.mock.calls[0][1]).toEqual(
+      buildWebhookPayload({ projectName: 'proj', taskTitle: 'My task', event: 'review_ready', format: 'teams' })
     );
   });
 

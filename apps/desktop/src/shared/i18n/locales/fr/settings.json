@@ -354,11 +354,11 @@
     "soundDescription": "Jouer un son avec les notifications",
     "webhook": {
       "title": "Webhook des résultats de tâches",
-      "description": "Envoyer un message à Slack (ou à tout webhook compatible) lorsqu'une tâche nécessite votre attention.",
+      "description": "Envoyer un message à Slack, Microsoft Teams ou Discord lorsqu'une tâche nécessite votre attention.",
       "enable": "Activer le webhook",
       "enableDescription": "Publier les résultats des tâches vers l'URL du webhook ci-dessous",
       "urlLabel": "URL du webhook",
-      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlPlaceholder": "https://hooks.slack.com/services/... ou une URL de webhook Teams / Discord",
       "urlInvalid": "Saisissez une URL https:// valide (http n'est autorisé que pour localhost), sans identifiants.",
       "show": "Afficher l'URL",
       "hide": "Masquer l'URL",
@@ -376,7 +376,16 @@
       "sendTest": "Envoyer un message de test",
       "sending": "Envoi...",
       "testSuccess": "Message de test envoyé",
-      "testFailed": "Impossible d'envoyer le message de test"
+      "testFailed": "Impossible d'envoyer le message de test",
+      "format": {
+        "label": "Format du message",
+        "description": "Choisissez le format attendu par le webhook. La détection automatique le déduit de l'URL.",
+        "auto": "Détection automatique",
+        "slack": "Slack",
+        "teams": "Microsoft Teams",
+        "discord": "Discord",
+        "detected": "Format détecté : {{format}}"
+      }
     },
     "jiraWriteback": {
       "title": "Retour vers Jira",
@@ -393,7 +402,7 @@
     },
     "issueWriteback": {
       "title": "Retour vers les tickets",
-      "description": "Reporter le résultat d'une tâche sur le ticket d'où elle a été importée. Désactivé par défaut.",
+      "description": "Reporter le résultat d'une tâche sur l'élément GitHub, GitLab, Linear ou Azure Boards d'où elle a été importée. Désactivé par défaut.",
       "github": "Tickets GitHub",
       "githubDescription": "Commenter le ticket GitHub d'origine lorsqu'une tâche se termine",
       "gitlab": "Tickets GitLab",
@@ -404,7 +413,13 @@
       "linearTransitionOnReviewDescription": "Déplacer le ticket Linear vers l'état de workflow ci-dessous lorsque la tâche est prête pour la revue. Si aucun état de workflow n'a ce nom, rien ne se passe.",
       "linearStateNameLabel": "Nom de l'état de workflow cible",
       "linearStateNamePlaceholder": "In Review",
-      "note": "Seul le ticket d'où la tâche a été importée est commenté, avec les identifiants existants du projet. Ces paramètres sont stockés uniquement dans les paramètres de cette application et sont désactivés par défaut."
+      "azureboards": "Work items Azure Boards",
+      "azureboardsDescription": "Commenter le work item Azure Boards d'origine lorsqu'une tâche se termine",
+      "azureBoardsTransitionOnReview": "Déplacer le work item quand la revue est prête",
+      "azureBoardsTransitionOnReviewDescription": "Déplacer le work item Azure Boards vers l'état ci-dessous lorsque la tâche est prête pour la revue. Si l'état n'est pas valide pour le work item, il est journalisé et rien d'autre ne se passe.",
+      "azureBoardsStateNameLabel": "Nom de l'état cible",
+      "azureBoardsStateNamePlaceholder": "Resolved",
+      "note": "Seul le ticket ou work item d'où la tâche a été importée est commenté, avec les identifiants existants du projet. Ces paramètres sont stockés uniquement dans les paramètres de cette application et sont désactivés par défaut."
     }
   },
   "actions": {
@@ -507,7 +522,7 @@
       "enable": "Webhook du projet",
       "enableDescription": "Publier les résultats des tâches de ce projet sur son propre webhook",
       "urlLabel": "URL du webhook du projet",
-      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlPlaceholder": "https://hooks.slack.com/services/... ou une URL de webhook Teams / Discord",
       "urlInvalid": "Saisissez une URL https valide, sans identifiants. Le http simple et les adresses locales ne sont pas autorisés pour un webhook de projet.",
       "unapprovedTitle": "Approuver l'URL de ce webhook",
       "unapprovedDescription": "Cette URL provient du fichier .auto-claude/.env du projet. Une fois approuvée, les titres des tâches, le nom du projet et les liens de PR y seront envoyés. Tant que vous ne l'approuvez pas, le webhook global de l'application est utilisé.",
@@ -524,7 +539,16 @@
       "sendTest": "Envoyer un message de test",
       "sending": "Envoi...",
       "testSuccess": "Message de test envoyé",
-      "testFailed": "Impossible d'envoyer le message de test"
+      "testFailed": "Impossible d'envoyer le message de test",
+      "format": {
+        "label": "Format du message",
+        "description": "Choisissez le format attendu par le webhook. La détection automatique le déduit de l'URL.",
+        "auto": "Détection automatique",
+        "slack": "Slack",
+        "teams": "Microsoft Teams",
+        "discord": "Discord",
+        "detected": "Format détecté : {{format}}"
+      }
     },
     "security": {
       "title": "Sécurité",

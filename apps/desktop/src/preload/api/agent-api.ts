@@ -18,6 +18,7 @@ import { createInsightsAPI, InsightsAPI } from './modules/insights-api';
 import { createChangelogAPI, ChangelogAPI } from './modules/changelog-api';
 import { createLinearAPI, LinearAPI } from './modules/linear-api';
 import { createJiraAPI, JiraAPI } from './modules/jira-api';
+import { createAzureBoardsAPI, AzureBoardsAPI } from './modules/azure-boards-api';
 import { createGitHubAPI, GitHubAPI } from './modules/github-api';
 import { createGitLabAPI, GitLabAPI } from './modules/gitlab-api';
 import { createBitbucketAPI, BitbucketAPI } from './modules/bitbucket-api';
@@ -35,6 +36,7 @@ export interface AgentAPI extends
   ChangelogAPI,
   LinearAPI,
   JiraAPI,
+  AzureBoardsAPI,
   GitHubAPI,
   GitLabAPI,
   BitbucketAPI,
@@ -53,6 +55,7 @@ export const createAgentAPI = (): AgentAPI => {
   const changelogAPI = createChangelogAPI();
   const linearAPI = createLinearAPI();
   const jiraAPI = createJiraAPI();
+  const azureBoardsAPI = createAzureBoardsAPI();
   const githubAPI = createGitHubAPI();
   const gitlabAPI = createGitLabAPI();
   const bitbucketAPI = createBitbucketAPI();
@@ -77,6 +80,9 @@ export const createAgentAPI = (): AgentAPI => {
 
     // Jira Integration API
     ...jiraAPI,
+
+    // Azure Boards Integration API
+    ...azureBoardsAPI,
 
     // GitHub Integration API
     ...githubAPI,
@@ -103,6 +109,7 @@ export type {
   ChangelogAPI,
   LinearAPI,
   JiraAPI,
+  AzureBoardsAPI,
   GitHubAPI,
   GitLabAPI,
   BitbucketAPI,

@@ -114,6 +114,12 @@ describe('readSourceIssueLines', () => {
     expect(readSourceIssueLines(none, makeRoot({ linearIdentifier: 'ABC-123' }), '054-x')).toEqual(['Fixes ABC-123']);
   });
 
+  it('reads the Azure Boards work item as AB#42', () => {
+    const none = makeRoot();
+    expect(readSourceIssueLines(none, makeRoot({ azureBoardsWorkItemId: 42 }), '054-x')).toEqual(['AB#42']);
+    expect(appendIssueLines('text', ['AB#42'])).toBe('text\n\nAB#42');
+  });
+
   it('prefers the main project over the worktree', () => {
     const main = makeRoot({ githubIssueNumber: 1 });
     const wt = makeRoot({ githubIssueNumber: 2 });

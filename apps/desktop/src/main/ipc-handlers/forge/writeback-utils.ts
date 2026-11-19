@@ -5,11 +5,15 @@
 
 import { appLogPort } from '../../log-port';
 import { GitLabAPIError } from '../gitlab/gitlab-api';
+import { AzureDevOpsAPIError } from '../azuredevops/utils';
 
 export function warn(provider: string, event: string, ref: string, err: unknown, what = 'comment'): void {
   try {
     let detail = 'UnknownError';
     if (err instanceof GitLabAPIError) {
+      detail = `${err.name}${err.statusCode ? ` (HTTP ${err.statusCode})` : ''}`;
+    } else if (err instanceof AzureDevOpsAPIError) {
+      // the message embeds a response body, so only name and status are logged
       detail = `${err.name}${err.statusCode ? ` (HTTP ${err.statusCode})` : ''}`;
     } else if (err instanceof Error) {
       // githubFetch embeds the response body in its message, so only the name is logged

@@ -125,6 +125,8 @@ export const taskMock = {
     data: { projectId: '', maxParallelTasks: 0, inProgressCount: 0, queuedTaskIds: [], skippedTaskIds: [] }
   }),
   onTaskQueueStateChange: () => () => {},
+  daemonStopTask: async () => ({ success: false, error: 'Not available in browser mode' }),
+  onDaemonStopResult: () => () => {},
   onTaskExecutionProgress: () => () => {},
   onTaskLogsChanged: () => () => {},
   onTaskLogsAppended: () => () => {},

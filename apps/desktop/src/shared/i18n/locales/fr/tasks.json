@@ -93,6 +93,11 @@
     "error": "Échec"
   },
   "kanban": {
+    "daemonQueue": {
+      "title": "La file est gérée par {{holder}}",
+      "paused": "La file d'attente et les planifications du bureau sont suspendues tant qu'il tourne.",
+      "running": "En cours dans le démon :"
+    },
     "emptyBacklog": "Aucune tâche planifiée",
     "emptyBacklogHint": "Ajoutez une tâche pour commencer",
     "emptyQueue": "La file d'attente est vide",
@@ -159,6 +164,7 @@
       "github": "GitHub",
       "gitlab": "GitLab",
       "jira": "Jira",
+      "azure_boards": "Azure Boards",
       "linear": "Linear",
       "ideation": "Idéation",
       "roadmap": "Feuille de route",
@@ -237,6 +243,7 @@
     "severity": "sévérité",
     "pullRequest": "Pull Request",
     "openInJira": "Ouvrir {{key}} dans Jira",
+    "openInAzureBoards": "Ouvrir l'élément de travail AB#{{id}}",
     "showMore": "Afficher plus",
     "showLess": "Afficher moins"
   },
@@ -613,6 +620,18 @@
       "editing": "Modification",
       "writing": "Écriture",
       "running": "Exécution"
+    }
+  },
+  "daemonStop": {
+    "stopOnDaemon": "Arrêter sur le daemon",
+    "stopping": "Arrêt sur le daemon...",
+    "pendingHint": "En attente de l'arrêt de la tâche par le daemon",
+    "errors": {
+      "noDaemon": "Aucun daemon n'est en cours d'exécution, la tâche ne peut pas être arrêtée d'ici.",
+      "notRunning": "Cette tâche ne s'exécute pas sur le daemon.",
+      "daemonReleased": "Le daemon a libéré la tâche sans l'arrêter. Vérifiez son statut.",
+      "timeout": "Le daemon n'a pas arrêté la tâche à temps. Réessayez.",
+      "generic": "Impossible d'arrêter la tâche sur le daemon. Réessayez."
     }
   }
 }

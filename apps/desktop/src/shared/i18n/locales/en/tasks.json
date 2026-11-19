@@ -92,6 +92,11 @@
     "error": "Failed"
   },
   "kanban": {
+    "daemonQueue": {
+      "title": "Queue is run by {{holder}}",
+      "paused": "The desktop queue and schedules are paused for it until it stops.",
+      "running": "Running in the daemon:"
+    },
     "emptyBacklog": "No tasks planned",
     "emptyBacklogHint": "Add a task to get started",
     "emptyQueue": "Queue is empty",
@@ -158,6 +163,7 @@
       "github": "GitHub",
       "gitlab": "GitLab",
       "jira": "Jira",
+      "azure_boards": "Azure Boards",
       "linear": "Linear",
       "ideation": "Ideation",
       "roadmap": "Roadmap",
@@ -236,6 +242,7 @@
     "severity": "severity",
     "pullRequest": "Pull Request",
     "openInJira": "Open {{key}} in Jira",
+    "openInAzureBoards": "Open work item AB#{{id}}",
     "showMore": "Show more",
     "showLess": "Show less"
   },
@@ -613,6 +620,18 @@
       "editing": "Editing",
       "writing": "Writing",
       "running": "Running"
+    }
+  },
+  "daemonStop": {
+    "stopOnDaemon": "Stop on daemon",
+    "stopping": "Stopping on daemon...",
+    "pendingHint": "Waiting for the daemon to stop this task",
+    "errors": {
+      "noDaemon": "No daemon is running, so the task cannot be stopped from here.",
+      "notRunning": "This task is not running on the daemon.",
+      "daemonReleased": "The daemon released the task without stopping it. Check its status.",
+      "timeout": "The daemon did not stop the task in time. Try again.",
+      "generic": "Could not stop the task on the daemon. Try again."
     }
   }
 }

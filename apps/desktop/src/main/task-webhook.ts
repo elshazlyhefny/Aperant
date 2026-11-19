@@ -16,10 +16,13 @@ import {
   sendWebhook as sendWebhookCore,
   validateWebhookUrl,
   buildWebhookPayload,
+  prepareWebhookDelivery,
+  prepareTestWebhookDelivery,
   type WebhookEvent,
   type WebhookPayload
 } from './task-webhook-core';
 import { mapOutcomeToWebhookEvent } from './webhook-core';
+import { isWebhookFormat } from '../shared/utils/webhook-format';
 
 export { validateWebhookUrl, buildWebhookPayload } from './task-webhook-core';
 export { mapOutcomeToWebhookEvent } from './webhook-core';
@@ -49,11 +52,13 @@ function loadWebhookSettings(): WebhookSettings {
   const raw = readSettingsFile() ?? {};
   const merged = { ...DEFAULT_APP_SETTINGS, ...raw };
   const def = DEFAULT_APP_SETTINGS.webhook;
-  const w = merged.webhook ?? {};
+  const w: Partial<WebhookSettings> = merged.webhook ?? {};
   return {
     enabled: w.enabled === true,
     url: typeof w.url === 'string' ? w.url : def.url,
-    events: { ...def.events, ...(w.events ?? {}) }
+    events: { ...def.events, ...(w.events ?? {}) },
+    // zeenha fork: omitted unless valid, so existing settings behave exactly as before.
+    ...(isWebhookFormat(w.format) || w.format === 'auto' ? { format: w.format } : {})
   };
 }
 
@@ -85,25 +90,29 @@ export function dispatchTaskOutcomeWebhook(input: {
     }
     if (projectConfig?.status === 'approved') {
       if (!projectConfig.events[EVENT_TOGGLE[event]]) return;
-      const projectPayload = buildWebhookPayload({
+      const projectDelivery = prepareWebhookDelivery({
+        url: projectConfig.url,
+        format: projectConfig.format,
         projectName: input.projectName,
         taskTitle: input.taskTitle,
         event,
         prUrl: input.prUrl
       });
-      void sendWebhook(projectConfig.url, projectPayload, { eventName: event }).catch(() => undefined);
+      void sendWebhook(projectDelivery.url, projectDelivery.payload, { eventName: event }).catch(() => undefined);
       return;
     }
     const settings = loadWebhookSettings();
     if (!settings.enabled || !settings.events[EVENT_TOGGLE[event]]) return;
     if (!validateWebhookUrl(settings.url).ok) return;
-    const payload = buildWebhookPayload({
+    const delivery = prepareWebhookDelivery({
+      url: settings.url,
+      format: settings.format,
       projectName: input.projectName,
       taskTitle: input.taskTitle,
       event,
       prUrl: input.prUrl
     });
-    void sendWebhook(settings.url, payload, { eventName: event }).catch(() => undefined);
+    void sendWebhook(delivery.url, delivery.payload, { eventName: event }).catch(() => undefined);
   } catch {
     // never let webhook problems affect task flow
   }
@@ -111,21 +120,13 @@ export function dispatchTaskOutcomeWebhook(input: {
 
 export async function sendTestWebhook(
   url: string,
-  options: { delay?: (ms: number) => Promise<void> } = {}
+  options: { delay?: (ms: number) => Promise<void>; format?: string } = {}
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const check = validateWebhookUrl(url);
     if (!check.ok) return { success: false, error: 'invalid_url' };
-    const payload: WebhookPayload = {
-      text: 'Aperant test notification: your webhook is configured correctly.',
-      blocks: [
-        {
-          type: 'section',
-          text: { type: 'mrkdwn', text: '*Test notification*\nThis is a test message from Aperant.' }
-        }
-      ]
-    };
-    const ok = await sendWebhook(url, payload, { eventName: 'test', delay: options.delay });
+    const delivery = prepareTestWebhookDelivery(url, options.format);
+    const ok = await sendWebhook(delivery.url, delivery.payload, { eventName: 'test', delay: options.delay });
     return ok ? { success: true } : { success: false, error: 'delivery_failed' };
   } catch {
     return { success: false, error: 'delivery_failed' };

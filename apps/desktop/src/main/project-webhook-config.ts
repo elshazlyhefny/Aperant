@@ -6,7 +6,8 @@
 import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import type { Project } from '../shared/types';
-import type { WebhookSettings } from '../shared/types/settings';
+import type { WebhookSettings, WebhookFormat } from '../shared/types/settings';
+import { isWebhookFormat } from '../shared/utils/webhook-format';
 import { DEFAULT_APP_SETTINGS } from '../shared/constants/config';
 import { parseEnvFile } from './ipc-handlers/utils';
 import { validateProjectWebhookUrl } from './task-webhook-core';
@@ -15,6 +16,7 @@ import { hashWebhookUrl, isWebhookUrlApproved, type WebhookApprovals } from './p
 export const WEBHOOK_ENV_KEYS = {
   ENABLED: 'WEBHOOK_ENABLED',
   URL: 'WEBHOOK_URL',
+  FORMAT: 'WEBHOOK_FORMAT',
   EVENT_REVIEW_READY: 'WEBHOOK_EVENT_REVIEW_READY',
   EVENT_FAILED: 'WEBHOOK_EVENT_FAILED',
   EVENT_BLOCKED: 'WEBHOOK_EVENT_BLOCKED',
@@ -39,11 +41,19 @@ export function parseWebhookEvents(vars: Record<string, string>): WebhookSetting
   return events;
 }
 
+/** WEBHOOK_FORMAT -> explicit format; 'auto', missing or invalid -> undefined (auto-detect). */
+export function parseWebhookFormat(vars: Record<string, string>): WebhookFormat | undefined {
+  const value = vars[WEBHOOK_ENV_KEYS.FORMAT]?.trim().toLowerCase();
+  return isWebhookFormat(value) ? value : undefined;
+}
+
 export interface ProjectWebhookDescriptor {
   url: string;
   /** hashWebhookUrl(url), safe to log or send to the renderer */
   hash: string;
   events: WebhookSettings['events'];
+  /** Explicit payload format; undefined means detect from the URL */
+  format?: WebhookFormat;
   /** approved: user approved this exact URL; unapproved: valid but not approved; refused: failed project URL validation */
   status: 'approved' | 'unapproved' | 'refused';
 }
@@ -63,8 +73,9 @@ export function getProjectWebhookConfig(
     if (!url || /[\r\n]/.test(url)) return null;
     const events = parseWebhookEvents(vars);
     const hash = hashWebhookUrl(url);
-    if (!validateProjectWebhookUrl(url).ok) return { url, hash, events, status: 'refused' };
-    return { url, hash, events, status: isWebhookUrlApproved(url, approvals) ? 'approved' : 'unapproved' };
+    const format = parseWebhookFormat(vars);
+    if (!validateProjectWebhookUrl(url).ok) return { url, hash, events, format, status: 'refused' };
+    return { url, hash, events, format, status: isWebhookUrlApproved(url, approvals) ? 'approved' : 'unapproved' };
   } catch {
     return null;
   }

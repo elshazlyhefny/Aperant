@@ -235,6 +235,55 @@ describe('TaskQueueManager queue lock', () => {
     expect(emitState.mock.calls[0][1].lockedBy).toBe('daemon (pid 1)');
   });
 
+  it('passes lockedTaskIds through on the locked emit', async () => {
+    const emitState = vi.fn();
+    const mgr = new TaskQueueManager({
+      getProjects: () => [makeProject('p1', 2)],
+      getTasks: () => [makeTask('a', 'queue')],
+      promote: vi.fn(async () => ({ success: true })),
+      emitState,
+      canProcess: () => ({ ok: false, heldBy: 'daemon (pid 1)', runningTaskIds: ['x', 'y'] }),
+    });
+    await mgr.requestProcess('p1');
+    expect(emitState.mock.calls[0][1].lockedTaskIds).toEqual(['x', 'y']);
+  });
+
+  it('getStateWithLock returns lockedBy and ids when canProcess is not ok', () => {
+    const mgr = new TaskQueueManager({
+      getProjects: () => [makeProject('p1', 2)],
+      getTasks: () => [],
+      promote: vi.fn(async () => ({ success: true })),
+      canProcess: () => ({ ok: false, heldBy: 'daemon (pid 1)', runningTaskIds: ['x'] }),
+    });
+    const state = mgr.getStateWithLock('p1');
+    expect(state.lockedBy).toBe('daemon (pid 1)');
+    expect(state.lockedTaskIds).toEqual(['x']);
+  });
+
+  it('getStateWithLock omits lockedTaskIds when there are none', () => {
+    const mgr = new TaskQueueManager({
+      getProjects: () => [makeProject('p1', 2)],
+      getTasks: () => [],
+      promote: vi.fn(async () => ({ success: true })),
+      canProcess: () => ({ ok: false, heldBy: 'desktop app' }),
+    });
+    const state = mgr.getStateWithLock('p1');
+    expect(state.lockedBy).toBe('desktop app');
+    expect('lockedTaskIds' in state).toBe(false);
+  });
+
+  it('getStateWithLock returns no lockedBy when canProcess is ok', () => {
+    const mgr = new TaskQueueManager({
+      getProjects: () => [makeProject('p1', 2)],
+      getTasks: () => [],
+      promote: vi.fn(async () => ({ success: true })),
+      canProcess: () => ({ ok: true }),
+    });
+    const state = mgr.getStateWithLock('p1');
+    expect(state.lockedBy).toBeUndefined();
+    expect(state.lockedTaskIds).toBeUndefined();
+  });
+
   it('promotes when canProcess is ok', async () => {
     const tasks = { p1: [makeTask('a', 'queue')] };
     const promote = vi.fn(async () => ({ success: true }));

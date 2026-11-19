@@ -9,13 +9,12 @@
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { DEFAULT_APP_SETTINGS } from '../../shared/constants/config';
-import type { WebhookSettings } from '../../shared/types/settings';
+import type { WebhookFormat, WebhookSettings } from '../../shared/types/settings';
 import {
-  buildWebhookPayload,
+  prepareWebhookDelivery,
   sendWebhook,
   validateWebhookUrl,
-  type WebhookEvent,
-  type WebhookPayload
+  type WebhookEvent
 } from '../task-webhook-core';
 import type { HeadlessConfig } from './config';
 import type { RunOutcome } from './outcome';
@@ -29,6 +28,8 @@ export interface WebhookToggles {
 
 export interface ResolvedHeadlessWebhook {
   url: string;
+  /** undefined and 'auto' both detect the format from the URL. */
+  format?: WebhookFormat | 'auto';
   events: WebhookToggles;
 }
 
@@ -51,6 +52,7 @@ export function resolveHeadlessWebhook(
   const overrides = config.webhook?.events ?? {};
   return {
     url,
+    format: config.webhook?.format,
     events: {
       reviewReady: overrides.reviewReady ?? defaults.reviewReady,
       failed: overrides.failed ?? defaults.failed,
@@ -75,7 +77,13 @@ export function resolveServeWebhookSettings(config: HeadlessConfig): WebhookSett
       throw new Error(`Config: webhook.url is not valid (${check.error ?? 'invalid_url'})`);
     }
   }
-  return { enabled, url, events: { ...defaults.events, ...(config.webhook?.events ?? {}) } };
+  const format = config.webhook?.format;
+  return {
+    enabled,
+    url,
+    ...(format && format !== 'auto' ? { format } : {}),
+    events: { ...defaults.events, ...(config.webhook?.events ?? {}) }
+  };
 }
 
 export function eventsForOutcome(outcome: RunOutcome, toggles: WebhookToggles): WebhookEvent[] {
@@ -117,13 +125,15 @@ export async function notifyHeadlessOutcome(input: NotifyHeadlessOutcomeInput): 
   };
   try {
     for (const event of eventsForOutcome(outcome, webhook.events)) {
-      const payload: WebhookPayload = buildWebhookPayload({
+      const prepared = prepareWebhookDelivery({
+        url: webhook.url,
+        format: webhook.format,
         projectName,
         taskTitle,
         event,
         prUrl: event === 'pr_opened' ? outcome.prUrl : undefined
       });
-      const delivered = await send(webhook.url, payload, { delay, eventName: event, warn });
+      const delivered = await send(prepared.url, prepared.payload, { delay, eventName: event, warn });
       if (!delivered) {
         warn(`webhook delivery failed for event ${event}; the run result is unchanged`);
       }

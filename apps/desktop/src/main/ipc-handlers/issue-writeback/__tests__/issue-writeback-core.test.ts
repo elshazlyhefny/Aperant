@@ -56,6 +56,16 @@ describe('dispatchIssueOutcomeWith', () => {
     expect(anyWriterEnabled([w], on)).toBe(false);
   });
 
+  it('dispatches an azure_boards task only when settings.azureboards is true', async () => {
+    const w = makeWriter('azure_boards', { settingKey: 'azureboards' });
+    const azMeta = { sourceType: 'azure_boards' };
+    const args = { project, event: 'failed' as const, meta: azMeta, writers: [w] };
+    await dispatchIssueOutcomeWith({ ...args, raw: { issueWriteback: { azureboards: false } } as never });
+    expect(w.postOutcome).not.toHaveBeenCalled();
+    await dispatchIssueOutcomeWith({ ...args, raw: { issueWriteback: { azureboards: true } } as never });
+    expect(w.postOutcome).toHaveBeenCalledTimes(1);
+  });
+
   it('never throws', async () => {
     const w = makeWriter('alpha', { settingKey: 'github' }, async () => {
       throw new Error('boom');
