@@ -28,6 +28,8 @@ export interface WebhookToggles {
 
 export interface ResolvedHeadlessWebhook {
   url: string;
+  /** HMAC signing secret; absent means unsigned. */
+  secret?: string;
   /** undefined and 'auto' both detect the format from the URL. */
   format?: WebhookFormat | 'auto';
   events: WebhookToggles;
@@ -50,8 +52,11 @@ export function resolveHeadlessWebhook(
 
   const defaults = DEFAULT_APP_SETTINGS.webhook.events;
   const overrides = config.webhook?.events ?? {};
+  const secretFromEnv = env.APERANT_WEBHOOK_SECRET?.trim();
+  const secret = secretFromEnv ? secretFromEnv : config.webhook?.secret?.trim();
   return {
     url,
+    ...(secret ? { secret } : {}),
     format: config.webhook?.format,
     events: {
       reviewReady: overrides.reviewReady ?? defaults.reviewReady,
@@ -77,12 +82,14 @@ export function resolveServeWebhookSettings(config: HeadlessConfig): WebhookSett
       throw new Error(`Config: webhook.url is not valid (${check.error ?? 'invalid_url'})`);
     }
   }
+  const secret = config.webhook?.secret;
   const format = config.webhook?.format;
   return {
     enabled,
     url,
     ...(format && format !== 'auto' ? { format } : {}),
-    events: { ...defaults.events, ...(config.webhook?.events ?? {}) }
+    events: { ...defaults.events, ...(config.webhook?.events ?? {}) },
+    ...(secret ? { secret } : {})
   };
 }
 
@@ -133,7 +140,12 @@ export async function notifyHeadlessOutcome(input: NotifyHeadlessOutcomeInput): 
         event,
         prUrl: event === 'pr_opened' ? outcome.prUrl : undefined
       });
-      const delivered = await send(prepared.url, prepared.payload, { delay, eventName: event, warn });
+      const delivered = await send(prepared.url, prepared.payload, {
+        delay,
+        eventName: event,
+        warn,
+        secret: webhook.secret
+      });
       if (!delivered) {
         warn(`webhook delivery failed for event ${event}; the run result is unchanged`);
       }

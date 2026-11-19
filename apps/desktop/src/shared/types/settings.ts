@@ -287,6 +287,8 @@ export interface WebhookSettings {
   url: string;
   // zeenha fork: undefined and 'auto' both mean "detect the format from the URL"
   format?: WebhookFormat | 'auto';
+  // zeenha fork: HMAC signing secret. User settings only, never read from a project .env.
+  secret?: string;
   events: { reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean };
 }
 

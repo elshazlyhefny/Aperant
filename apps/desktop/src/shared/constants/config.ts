@@ -50,6 +50,7 @@ export const DEFAULT_APP_SETTINGS = {
   webhook: {
     enabled: false,
     url: '',
+    secret: '',
     // zeenha fork: prOpened is off by default because it is the only event that sends a link.
     events: { reviewReady: true, failed: true, blocked: true, prOpened: false }
   },

@@ -31,6 +31,21 @@ describe('loadHeadlessConfig', () => {
     expect(loadHeadlessConfig(file).webhook).toEqual({ url: 'not a url', events: { failed: false, prOpened: true } });
   });
 
+  it('accepts a webhook secret and never echoes a bad one', () => {
+    const file = path.join(dir, 'ws.json');
+    writeFileSync(file, JSON.stringify({ webhook: { secret: 's3cret' } }));
+    expect(loadHeadlessConfig(file).webhook).toEqual({ secret: 's3cret' });
+    writeFileSync(file, JSON.stringify({ webhook: { secret: { leak: 'TOPSECRETVALUE' } } }));
+    let message = '';
+    try {
+      loadHeadlessConfig(file);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/webhook\.secret must be a string/);
+    expect(message).not.toContain('TOPSECRETVALUE');
+  });
+
   it('parses the writeback section and ignores unknown keys', () => {
     const file = path.join(dir, 'wb.json');
     writeFileSync(file, JSON.stringify({
@@ -97,6 +112,7 @@ describe('loadHeadlessConfig', () => {
     const cases: [unknown, RegExp][] = [
       ['x', /webhook must be an object/],
       [{ url: 5 }, /webhook\.url must be a string/],
+      [{ secret: 5 }, /webhook\.secret must be a string/],
       [{ events: 'x' }, /webhook\.events must be an object/],
       [{ events: { blocked: 'yes' } }, /webhook\.events\.blocked must be a boolean/],
     ];

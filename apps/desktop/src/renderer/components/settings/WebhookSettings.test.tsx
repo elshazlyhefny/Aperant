@@ -62,6 +62,7 @@ describe('WebhookSettings', () => {
     expect(next.webhook).toEqual({
       enabled: false,
       url: '',
+      secret: '',
       events: { reviewReady: true, failed: false, blocked: true, prOpened: false }
     });
   });
@@ -95,7 +96,7 @@ describe('WebhookSettings', () => {
       />
     );
     fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
-    expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'auto');
+    expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'auto', '');
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/test message sent/i));
     expect(screen.getByRole('status')).not.toHaveTextContent(VALID_URL);
   });
@@ -130,7 +131,7 @@ describe('WebhookSettings', () => {
     );
     expect(screen.getByRole('combobox')).toHaveValue('discord');
     fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
-    expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'discord');
+    expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'discord', '');
     await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
   });
 
@@ -156,6 +157,64 @@ describe('WebhookSettings', () => {
     await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'teams' } });
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  describe('signing secret', () => {
+    const events = { reviewReady: true, failed: true, blocked: true, prOpened: false };
+
+    it('is a password input by default and the toggle reveals it', () => {
+      render(
+        <WebhookSettings
+          settings={makeSettings({ enabled: true, url: VALID_URL, secret: 'topsecret', events })}
+          onSettingsChange={onSettingsChange}
+        />
+      );
+      const input = screen.getByLabelText(/signing secret/i);
+      expect(input).toHaveAttribute('type', 'password');
+      fireEvent.click(screen.getByRole('button', { name: /show secret/i }));
+      expect(input).toHaveAttribute('type', 'text');
+      fireEvent.click(screen.getByRole('button', { name: /hide secret/i }));
+      expect(input).toHaveAttribute('type', 'password');
+    });
+
+    it('typing calls onSettingsChange with webhook.secret', () => {
+      render(<WebhookSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />);
+      fireEvent.change(screen.getByLabelText(/signing secret/i), { target: { value: 'abc' } });
+      const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+      expect(next.webhook?.secret).toBe('abc');
+    });
+
+    it('send test passes the secret', async () => {
+      sendTestWebhook.mockResolvedValue({ success: true, data: { success: true } });
+      render(
+        <WebhookSettings
+          settings={makeSettings({ enabled: true, url: VALID_URL, secret: 'topsecret', events })}
+          onSettingsChange={onSettingsChange}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
+      expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'auto', 'topsecret');
+      await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    });
+
+    it('shows an alert for an over-long secret or one with line breaks', () => {
+      const { unmount } = render(
+        <WebhookSettings
+          settings={makeSettings({ enabled: true, url: VALID_URL, secret: 'a'.repeat(257), events })}
+          onSettingsChange={onSettingsChange}
+        />
+      );
+      expect(screen.getByRole('alert')).toHaveTextContent(/256 characters/i);
+      expect(screen.getByRole('button', { name: /send test message/i })).toBeDisabled();
+      unmount();
+      render(
+        <WebhookSettings
+          settings={makeSettings({ enabled: true, url: VALID_URL, secret: 'a\nb', events })}
+          onSettingsChange={onSettingsChange}
+        />
+      );
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
   });
 
   it('has identical notifications.webhook.* keys in en and fr', () => {

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildWebhookPayload } from '../../task-webhook-core';
+import { sendWebhook as desktopSendWebhook } from '../../task-webhook';
 import type { RunOutcome } from '../outcome';
 import {
   eventsForOutcome,
@@ -13,6 +15,12 @@ import {
   resolveServeWebhookSettings,
   type ResolvedHeadlessWebhook
 } from '../webhook';
+
+const mocks = vi.hoisted(() => ({ settings: undefined as Record<string, unknown> | undefined }));
+vi.mock('../../webhook-approval-store', () => ({ getWebhookApprovals: () => ({ urls: [] }) }));
+vi.mock('../../project-webhook-config', () => ({ getProjectWebhookConfig: () => null }));
+vi.mock('../../app-logger', () => ({ appLog: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock('../../settings-utils', () => ({ readSettingsFile: () => mocks.settings }));
 
 const URL_OK = 'https://hooks.example.com/services/SECRET/PATH';
 const noDelay = () => Promise.resolve();
@@ -69,6 +77,85 @@ describe('resolveHeadlessWebhook', () => {
       {}
     ) as ResolvedHeadlessWebhook;
     expect(custom.events).toEqual({ reviewReady: true, failed: false, blocked: true, prOpened: true });
+  });
+});
+
+describe('webhook secret', () => {
+  it('env overrides config and absent means unsigned', () => {
+    const fromConfig = resolveHeadlessWebhook({ webhook: { url: URL_OK, secret: 'cfg' } }, {});
+    expect(fromConfig).toMatchObject({ secret: 'cfg' });
+    const fromEnv = resolveHeadlessWebhook(
+      { webhook: { url: URL_OK, secret: 'cfg' } },
+      { APERANT_WEBHOOK_SECRET: ' envsecret ' }
+    );
+    expect(fromEnv).toMatchObject({ secret: 'envsecret' });
+    const none = resolveHeadlessWebhook({ webhook: { url: URL_OK } }, { APERANT_WEBHOOK_SECRET: '  ' });
+    expect(none).not.toHaveProperty('secret');
+  });
+
+  it('notifyHeadlessOutcome passes the secret to send', async () => {
+    const send = vi.fn().mockResolvedValue(true);
+    await notifyHeadlessOutcome({
+      webhook: { url: URL_OK, secret: 'abc', events: allOn },
+      outcome: success,
+      projectName: 'p',
+      taskTitle: 't',
+      warn: vi.fn(),
+      send
+    });
+    expect(send.mock.calls[0][2]).toMatchObject({ secret: 'abc' });
+  });
+
+  it('sends the formatted body with the secret when both are set', async () => {
+    const send = vi.fn().mockResolvedValue(true);
+    await notifyHeadlessOutcome({
+      webhook: { url: URL_OK, format: 'discord', secret: 'abc', events: allOn },
+      outcome: success,
+      projectName: 'p',
+      taskTitle: 't',
+      warn: vi.fn(),
+      send
+    });
+    expect(Array.isArray(send.mock.calls[0][1].embeds)).toBe(true);
+    expect(send.mock.calls[0][2]).toMatchObject({ secret: 'abc' });
+    const both = resolveHeadlessWebhook({ webhook: { url: URL_OK, format: 'teams', secret: 'cfg' } }, {});
+    expect(both).toMatchObject({ format: 'teams', secret: 'cfg' });
+    const serve = resolveServeWebhookSettings({ webhook: { enabled: true, url: URL_OK, format: 'teams', secret: 'abc' } });
+    expect(serve).toMatchObject({ format: 'teams', secret: 'abc' });
+  });
+
+  it('serve settings carry the config secret only', () => {
+    const settings = resolveServeWebhookSettings({ webhook: { enabled: true, url: URL_OK, secret: 'abc' } });
+    expect(settings.secret).toBe('abc');
+    expect(resolveServeWebhookSettings({ webhook: { enabled: true, url: URL_OK } })).not.toHaveProperty('secret');
+  });
+
+  it('desktop and headless signatures are byte-for-byte identical', async () => {
+    const secret = 'parity-secret';
+    const fixedMs = 1_700_000_123_456;
+    vi.spyOn(Date, 'now').mockReturnValue(fixedMs);
+    fetchMock.mockResolvedValue({ status: 200 });
+    const payload = buildWebhookPayload({ projectName: 'p', taskTitle: 't', event: 'review_ready' });
+
+    await desktopSendWebhook(URL_OK, payload, { eventName: 'review_ready', secret });
+    await notifyHeadlessOutcome({
+      webhook: { url: URL_OK, secret, events: allOn },
+      outcome: success,
+      projectName: 'p',
+      taskTitle: 't',
+      warn: vi.fn(),
+      delay: noDelay
+    });
+    vi.restoreAllMocks();
+
+    const [desktop, headless] = fetchMock.mock.calls.map((c) => c[1] as { body: string; headers: Record<string, string> });
+    expect(desktop.body).toBe(headless.body);
+    const timestamp = String(Math.floor(fixedMs / 1000));
+    const expected = `sha256=${createHmac('sha256', secret).update(`${timestamp}.${desktop.body}`).digest('hex')}`;
+    for (const init of [desktop, headless]) {
+      expect(init.headers['X-Aperant-Timestamp']).toBe(timestamp);
+      expect(init.headers['X-Aperant-Signature']).toBe(expected);
+    }
   });
 });
 

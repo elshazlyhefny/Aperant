@@ -61,6 +61,7 @@ export function dispatchTaskOutcomeWebhookWith(
     });
     void sendWebhook(delivery.url, delivery.payload, {
       eventName: event,
+      secret: settings.secret,
       warn: (message) => appLogPort.warn(message)
     }).catch(() => undefined);
   } catch {

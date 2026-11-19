@@ -247,7 +247,7 @@ The Settings screen shows an inline error for an invalid URL: "Enter a valid htt
 
 ## Delivery
 
-- Each message is sent as a `POST` with `Content-Type: application/json`.
+- Each message is sent as a `POST` with `Content-Type: application/json`, plus the two signature headers when a secret is set (see [Signing requests](#signing-requests-optional-secret)).
 - Each attempt times out after 10 seconds.
 - There are up to 3 attempts. The app waits 500 ms after the first failure and 1 second after the second.
 - Any 2xx status counts as success.
@@ -255,6 +255,63 @@ The Settings screen shows an inline error for an invalid URL: "Enter a valid htt
 - Each failed attempt is logged with the event, the attempt number and the reason (the HTTP status or the error name). The URL, the request body and the response are never logged.
 - Delivery runs in the background. It never changes a task's status and never blocks the app.
 - There is no queue. After 3 failed attempts the message is dropped and not sent again.
+
+## Signing requests (optional secret)
+
+A signing secret lets your receiver check that a message came from your Aperant and was not changed on the way. It is optional. Without a secret nothing is added to the request.
+
+Where to set it:
+
+- In the app: **Settings > App Settings > Notifications > Task outcome webhook > Signing secret**. The field is masked. The secret is stored only in the app's `settings.json`, with owner-only permissions. It is never read from a project's `.auto-claude/.env` or `.aperant.json`.
+- Headless: `webhook.secret` in the `--config` file, and the `APERANT_WEBHOOK_SECRET` environment variable for `cli.js run`. `cli.js serve` reads it from the config file only.
+
+When a secret is set, each request carries two extra headers:
+
+| Header | Value |
+|--------|-------|
+| `X-Aperant-Timestamp` | The Unix time in seconds when the attempt was made. |
+| `X-Aperant-Signature` | `sha256=<hex>`, an HMAC-SHA256 of the signed string, keyed with the secret. |
+
+The signed string is `<timestamp>.<raw request body>`: the timestamp, a dot, then the exact body bytes. A fresh timestamp is computed on every retry attempt, so a retry is not stale for the receiver. The same secret signs the test message and the messages for approved project webhooks. Signing works the same for every format: the signature covers the exact body that is sent, whether it has the Slack, Teams or Discord shape. Microsoft Teams and Discord ignore the extra headers; they are useful for a relay or custom receiver that checks them.
+
+To verify, compute the signature over the raw body bytes before you parse the JSON, compare it in constant time, and reject a message whose timestamp is more than 300 seconds from your clock. The age check protects against replay.
+
+Node.js:
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+// rawBody is the Buffer of the request body, before JSON.parse.
+function isValid(secret, headers, rawBody) {
+  const timestamp = headers['x-aperant-timestamp'];
+  const signature = headers['x-aperant-signature'] ?? '';
+  if (!timestamp || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
+  const expected =
+    'sha256=' +
+    createHmac('sha256', secret).update(`${timestamp}.`).update(rawBody).digest('hex');
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+```
+
+Python:
+
+```python
+import hashlib, hmac, time
+
+def is_valid(secret: str, headers: dict, raw_body: bytes) -> bool:
+    timestamp = headers.get("X-Aperant-Timestamp", "")
+    signature = headers.get("X-Aperant-Signature", "")
+    try:
+        if abs(time.time() - int(timestamp)) > 300:
+            return False
+    except ValueError:
+        return False
+    signed = timestamp.encode() + b"." + raw_body
+    expected = "sha256=" + hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
+```
 
 ## Headless runs (cli.js run)
 
@@ -266,6 +323,7 @@ Add a `webhook` key to the `--config` JSON file:
 {
   "webhook": {
     "url": "https://hooks.example.com/services/XXX",
+    "secret": "a-long-random-string",
     "events": { "reviewReady": true, "failed": true, "blocked": true, "prOpened": false }
   }
 }
@@ -273,6 +331,7 @@ Add a `webhook` key to the `--config` JSON file:
 
 - `url` is the webhook address.
 - `format` is optional: `auto`, `slack`, `teams` or `discord`. When it is omitted, the format is detected from the URL (see [Formats](#formats)).
+- `secret` is optional. When set, requests are signed (see [Signing requests](#signing-requests-optional-secret)). The environment variable `APERANT_WEBHOOK_SECRET` overrides it when it is set and not empty.
 - `events` is optional, and so is each toggle in it. The defaults are the same as in the app: `reviewReady`, `failed` and `blocked` on, `prOpened` off.
 - The environment variable `APERANT_WEBHOOK_URL` also sets the URL. When it is set and not empty, it overrides `webhook.url` in the config file. The `events` toggles still come from the config file.
 
@@ -335,15 +394,15 @@ Behaviour to know:
 
 ## Security: user-level only
 
-The app-wide webhook lives only in the app's own Settings. It is never read from `.aperant.json`, the project `.env` or any other file in a repository. A repository must not be able to send task data to an address it chooses.
+The app-wide webhook lives only in the app's own Settings. It is never read from `.aperant.json`, the project `.env` or any other file in a repository. A repository must not be able to send task data to an address it chooses. The signing secret follows the same rule: it is read only from the app's Settings (or, headless, from the `--config` file and the process environment), never from a repository file.
 
 A repository file can only suggest a per-project URL (`WEBHOOK_URL` in the project `.env`). That suggestion is ignored until you approve the exact URL in the project's Settings, and an unapproved project URL falls back to the app-wide webhook. Project URLs cannot be loopback addresses. See [Approving a project webhook](project-configuration.md#approving-a-project-webhook).
 
 Headless commands still never read repository files. `cli.js run` reads `APERANT_WEBHOOK_URL` from its own process environment and the `--config` file (see [Headless runs](#headless-runs-clijs-run)), never a file in the repository.
 
-The headless daemon (`cli.js serve`) does not read the app's `settings.json`. Its webhook comes from the `webhook` key of the `--config` file you pass to it (`enabled`, `url`, `format`, `events`), which is a file you control on that machine. Unlike `cli.js run`, the daemon sends the webhook only when `enabled` is `true`, does not read `APERANT_WEBHOOK_URL`, and stops at startup with exit code 1 when the URL is invalid. It sends one message per finished task. See [Config file keys](CLI-USAGE.md#config-file-keys). The same URL rules and delivery behaviour apply.
+The headless daemon (`cli.js serve`) does not read the app's `settings.json`. Its webhook comes from the `webhook` key of the `--config` file you pass to it (`enabled`, `url`, `format`, `secret`, `events`), which is a file you control on that machine. Unlike `cli.js run`, the daemon sends the webhook only when `enabled` is `true`, does not read `APERANT_WEBHOOK_URL` or `APERANT_WEBHOOK_SECRET`, and stops at startup with exit code 1 when the URL is invalid. It sends one message per finished task. See [Config file keys](CLI-USAGE.md#config-file-keys). The same URL rules and delivery behaviour apply.
 
-The URL is masked in the field and is never logged. Treat it like a secret: anyone who has it can post messages to the channel.
+The URL and the signing secret are masked in the app and never logged. Treat the URL like a secret: anyone who has it can post messages to the channel.
 
 ## Receivers other than Slack, Teams and Discord
 

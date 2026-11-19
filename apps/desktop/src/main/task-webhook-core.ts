@@ -7,6 +7,7 @@
  * module can be loaded outside Electron.
  */
 
+import { createHmac } from 'node:crypto';
 import { sanitizeUrl } from './ipc-handlers/shared/sanitize';
 import {
   detectWebhookFormat,
@@ -317,6 +318,14 @@ function buildSlackPayload(input: WebhookBuildInput): SlackWebhookPayload {
   return { text, blocks };
 }
 
+export const WEBHOOK_TIMESTAMP_HEADER = 'X-Aperant-Timestamp';
+export const WEBHOOK_SIGNATURE_HEADER = 'X-Aperant-Signature';
+
+/** HMAC-SHA256 over `${timestamp}.${body}`, returned as `sha256=<hex>`. */
+export function signWebhookBody(secret: string, timestamp: string, body: string): string {
+  return `sha256=${createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')}`;
+}
+
 function defaultDelay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -328,9 +337,14 @@ export async function sendWebhook(
     delay?: (ms: number) => Promise<void>;
     eventName?: string;
     warn?: (message: string) => void;
+    secret?: string;
+    now?: () => number;
   } = {}
 ): Promise<boolean> {
   const delay = options.delay ?? defaultDelay;
+  const now = options.now ?? Date.now;
+  const secret = typeof options.secret === 'string' && options.secret.length > 0 ? options.secret : '';
+  const body = JSON.stringify(payload);
   const eventName = options.eventName ?? 'unknown';
   const warn = (message: string): void => {
     try {
@@ -343,10 +357,17 @@ export async function sendWebhook(
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       let detail: string;
       try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (secret) {
+          // Fresh timestamp per attempt so a retry is not stale for the receiver.
+          const timestamp = String(Math.floor(now() / 1000));
+          headers[WEBHOOK_TIMESTAMP_HEADER] = timestamp;
+          headers[WEBHOOK_SIGNATURE_HEADER] = signWebhookBody(secret, timestamp, body);
+        }
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          headers,
+          body,
           signal: AbortSignal.timeout(TIMEOUT_MS),
           redirect: 'error'
         });

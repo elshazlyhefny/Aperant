@@ -362,6 +362,12 @@
       "urlInvalid": "Enter a valid https:// URL (http is only allowed for localhost) without credentials.",
       "show": "Show URL",
       "hide": "Hide URL",
+      "secretLabel": "Signing secret",
+      "secretPlaceholder": "Optional shared secret",
+      "secretHint": "Optional. When set, requests include X-Aperant-Timestamp and X-Aperant-Signature headers so your endpoint can verify them. The secret is stored only in this app's settings and is never saved in a project. Leave empty to send unsigned requests.",
+      "secretShow": "Show secret",
+      "secretHide": "Hide secret",
+      "secretInvalid": "The secret must be at most 256 characters and cannot contain line breaks.",
       "storedLocallyNote": "The webhook URL is stored only in this app's settings and is never read from a project.",
       "events": {
         "reviewReady": "Review ready",

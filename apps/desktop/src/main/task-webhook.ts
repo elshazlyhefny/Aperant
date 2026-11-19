@@ -43,6 +43,8 @@ export function sendWebhook(
     delay?: (ms: number) => Promise<void>;
     eventName?: string;
     warn?: (message: string) => void;
+    secret?: string;
+    now?: () => number;
   } = {}
 ): Promise<boolean> {
   return sendWebhookCore(url, payload, { ...options, warn: options.warn ?? safeWarn });
@@ -56,6 +58,7 @@ function loadWebhookSettings(): WebhookSettings {
   return {
     enabled: w.enabled === true,
     url: typeof w.url === 'string' ? w.url : def.url,
+    secret: typeof w.secret === 'string' ? w.secret : '',
     events: { ...def.events, ...(w.events ?? {}) },
     // zeenha fork: omitted unless valid, so existing settings behave exactly as before.
     ...(isWebhookFormat(w.format) || w.format === 'auto' ? { format: w.format } : {})
@@ -98,7 +101,10 @@ export function dispatchTaskOutcomeWebhook(input: {
         event,
         prUrl: input.prUrl
       });
-      void sendWebhook(projectDelivery.url, projectDelivery.payload, { eventName: event }).catch(() => undefined);
+      void sendWebhook(projectDelivery.url, projectDelivery.payload, {
+        eventName: event,
+        secret: loadWebhookSettings().secret
+      }).catch(() => undefined);
       return;
     }
     const settings = loadWebhookSettings();
@@ -112,7 +118,9 @@ export function dispatchTaskOutcomeWebhook(input: {
       event,
       prUrl: input.prUrl
     });
-    void sendWebhook(delivery.url, delivery.payload, { eventName: event }).catch(() => undefined);
+    void sendWebhook(delivery.url, delivery.payload, { eventName: event, secret: settings.secret }).catch(
+      () => undefined
+    );
   } catch {
     // never let webhook problems affect task flow
   }
@@ -120,13 +128,18 @@ export function dispatchTaskOutcomeWebhook(input: {
 
 export async function sendTestWebhook(
   url: string,
-  options: { delay?: (ms: number) => Promise<void>; format?: string } = {}
+  options: { delay?: (ms: number) => Promise<void>; format?: string; secret?: string; now?: () => number } = {}
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const check = validateWebhookUrl(url);
     if (!check.ok) return { success: false, error: 'invalid_url' };
     const delivery = prepareTestWebhookDelivery(url, options.format);
-    const ok = await sendWebhook(delivery.url, delivery.payload, { eventName: 'test', delay: options.delay });
+    const ok = await sendWebhook(delivery.url, delivery.payload, {
+      eventName: 'test',
+      delay: options.delay,
+      secret: options.secret,
+      now: options.now
+    });
     return ok ? { success: true } : { success: false, error: 'delivery_failed' };
   } catch {
     return { success: false, error: 'delivery_failed' };

@@ -275,6 +275,15 @@ const detectAutoBuildSourcePath = (): string | null => {
 /**
  * Register all settings-related IPC handlers
  */
+// zeenha fork: webhook signing secret. Returns the trimmed secret, or null when invalid.
+function normalizeWebhookSecret(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const secret = value.trim();
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control chars on purpose
+  if (secret.length > 256 || /[\u0000-\u001f\u007f]/.test(secret)) return null;
+  return secret;
+}
+
 export function registerSettingsHandlers(
   agentManager: AgentManager,
   getMainWindow: () => BrowserWindow | null
@@ -435,13 +444,23 @@ export function registerSettingsHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.WEBHOOK_SEND_TEST,
-    async (event, url: unknown, format?: unknown): Promise<IPCResult<{ success: boolean }>> => {
+    async (event, url: unknown, format?: unknown, secretArg?: unknown): Promise<IPCResult<{ success: boolean }>> => {
       if (!assertTrustedSender(event, 'WEBHOOK_SEND_TEST')) return { success: false, error: 'untrusted_sender' };
       if (typeof url !== 'string' || !validateWebhookUrl(url.trim()).ok) {
         return { success: false, error: 'invalid_url' };
       }
+      let secret: string;
+      if (secretArg === undefined) {
+        const saved = readSettingsFile()?.webhook?.secret;
+        secret = typeof saved === 'string' ? saved : '';
+      } else {
+        const checked = normalizeWebhookSecret(secretArg);
+        if (checked === null) return { success: false, error: 'invalid_webhook_secret' };
+        secret = checked;
+      }
       const result = await sendTestWebhook(url.trim(), {
         format: isWebhookFormat(format) ? format : undefined,
+        secret,
       });
       if (!result.success) return { success: false, error: result.error ?? 'delivery_failed' };
       return { success: true, data: { success: true } };
@@ -453,6 +472,7 @@ export function registerSettingsHandlers(
     async (_, settings: Partial<AppSettings>): Promise<IPCResult> => {
       try {
         const INVALID_WEBHOOK = Symbol('invalid_webhook_url');
+        const INVALID_WEBHOOK_SECRET = Symbol('invalid_webhook_secret');
         const result = await updateSettingsFile((s) => {
           const currentSettings = { ...DEFAULT_APP_SETTINGS, ...s };
 
@@ -469,9 +489,17 @@ export function registerSettingsHandlers(
             if (enabled && !validateWebhookUrl(url).ok) {
               return INVALID_WEBHOOK;
             }
+            // Omitted secret keeps the stored value; a non-string one is dropped.
+            let secret = typeof currentSettings.webhook?.secret === 'string' ? currentSettings.webhook.secret : '';
+            if (raw.secret !== undefined) {
+              const checked = normalizeWebhookSecret(raw.secret);
+              if (checked === null) return INVALID_WEBHOOK_SECRET;
+              secret = checked;
+            }
             newSettings.webhook = {
               enabled,
               url,
+              secret,
               events: {
                 reviewReady: raw.events?.reviewReady === true,
                 failed: raw.events?.failed === true,
@@ -515,6 +543,9 @@ export function registerSettingsHandlers(
           Object.assign(s, newSettings);
           return newSettings;
         });
+        if (result === INVALID_WEBHOOK_SECRET) {
+          return { success: false, error: 'invalid_webhook_secret' };
+        }
         if (result === INVALID_WEBHOOK) {
           return { success: false, error: 'invalid_webhook_url' };
         }
