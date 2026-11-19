@@ -13,6 +13,23 @@ import fr from '../../../shared/i18n/locales/fr/settings.json';
 
 const VALID_URL = 'https://hooks.slack.com/services/T000/B000/XXXX';
 
+// Radix Select does not open reliably in jsdom; a native select keeps the wiring testable.
+vi.mock('../ui/select', () => ({
+  Select: ({ value, onValueChange, children }: { value: string; onValueChange: (v: string) => void; children: React.ReactNode }) => (
+    <select aria-label="format" value={value} onChange={(e) => onValueChange(e.target.value)}>
+      {children}
+    </select>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
+}));
+
+const TEAMS_URL = 'https://prod-1.westus.logic.azure.com/workflows/abc/triggers/manual/paths/invoke?sig=x';
+
 function makeSettings(webhook?: AppSettings['webhook']): AppSettings {
   return { ...(DEFAULT_APP_SETTINGS as unknown as AppSettings), webhook };
 }
@@ -79,7 +96,7 @@ describe('WebhookSettings', () => {
       />
     );
     fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
-    expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, '');
+    expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'auto', '');
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/test message sent/i));
     expect(screen.getByRole('status')).not.toHaveTextContent(VALID_URL);
   });
@@ -94,6 +111,52 @@ describe('WebhookSettings', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/could not send/i));
+  });
+
+  it('choosing Teams and Discord updates settings.webhook.format', () => {
+    render(<WebhookSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'teams' } });
+    expect((onSettingsChange.mock.calls[0][0] as AppSettings).webhook?.format).toBe('teams');
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'discord' } });
+    expect((onSettingsChange.mock.calls[1][0] as AppSettings).webhook?.format).toBe('discord');
+  });
+
+  it('sends the chosen format with the test message', async () => {
+    sendTestWebhook.mockResolvedValue({ success: true, data: { success: true } });
+    render(
+      <WebhookSettings
+        settings={makeSettings({ enabled: true, url: VALID_URL, format: 'discord', events: { reviewReady: true, failed: true, blocked: true, prOpened: false } })}
+        onSettingsChange={onSettingsChange}
+      />
+    );
+    expect(screen.getByRole('combobox')).toHaveValue('discord');
+    fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
+    expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'discord', '');
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+  });
+
+  it('shows the detected format hint on auto for a Teams workflow URL', () => {
+    render(
+      <WebhookSettings
+        settings={makeSettings({ enabled: true, url: TEAMS_URL, events: { reviewReady: true, failed: true, blocked: true, prOpened: false } })}
+        onSettingsChange={onSettingsChange}
+      />
+    );
+    expect(screen.getByText(/detected format: microsoft teams/i)).toBeInTheDocument();
+  });
+
+  it('changing the format clears the test result', async () => {
+    sendTestWebhook.mockResolvedValue({ success: true, data: { success: true } });
+    render(
+      <WebhookSettings
+        settings={makeSettings({ enabled: true, url: VALID_URL, events: { reviewReady: true, failed: true, blocked: true, prOpened: false } })}
+        onSettingsChange={onSettingsChange}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'teams' } });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   describe('signing secret', () => {
@@ -130,7 +193,7 @@ describe('WebhookSettings', () => {
         />
       );
       fireEvent.click(screen.getByRole('button', { name: /send test message/i }));
-      expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'topsecret');
+      expect(sendTestWebhook).toHaveBeenCalledWith(VALID_URL, 'auto', 'topsecret');
       await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
     });
 

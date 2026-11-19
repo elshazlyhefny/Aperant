@@ -71,28 +71,43 @@ describe('WEBHOOK_SEND_TEST handler', () => {
   });
 
   it('signs with the secret argument', async () => {
-    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, ' arg-secret ');
-    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { secret: 'arg-secret' });
+    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, undefined, ' arg-secret ');
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { format: undefined, secret: 'arg-secret' });
   });
 
   it('falls back to the saved secret when the argument is undefined', async () => {
     webhook.saved = { webhook: { secret: 'saved-secret' } };
     await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL);
-    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { secret: 'saved-secret' });
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { format: undefined, secret: 'saved-secret' });
   });
 
   it('an empty argument overrides the saved secret', async () => {
     webhook.saved = { webhook: { secret: 'saved-secret' } };
-    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, '');
-    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { secret: '' });
+    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, undefined, '');
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { format: undefined, secret: '' });
   });
 
   it.each([['too long', 'a'.repeat(257)], ['newline', 'a\nb'], ['non-string', 5]])(
     'rejects an invalid secret (%s)',
     async (_n, bad) => {
-      const res = await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, bad);
+      const res = await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, undefined, bad);
       expect(res).toEqual({ success: false, error: 'invalid_webhook_secret' });
       expect(webhook.sendTestWebhook).not.toHaveBeenCalled();
     }
   );
+
+  it('forwards a valid format', async () => {
+    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, 'teams');
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { format: 'teams', secret: '' });
+  });
+
+  it('forwards both the format and the secret', async () => {
+    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, 'discord', 'k');
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { format: 'discord', secret: 'k' });
+  });
+
+  it.each(['auto', 'bogus', 42, undefined])('treats %s as auto', async (fmt) => {
+    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, fmt);
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { format: undefined, secret: '' });
+  });
 });

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { hashWebhookUrl } from '../project-webhook-approval';
-import { getProjectWebhookConfig, WEBHOOK_ENV_KEYS } from '../project-webhook-config';
+import { getProjectWebhookConfig, parseWebhookFormat, WEBHOOK_ENV_KEYS } from '../project-webhook-config';
 
 let root: string;
 const project = () => ({ path: root, autoBuildPath: '.auto-claude' });
@@ -21,11 +21,46 @@ describe('getProjectWebhookConfig', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('exposes all six env keys', () => {
+  it('parses WEBHOOK_FORMAT, treating auto and invalid values as undefined', () => {
+    expect(parseWebhookFormat({ WEBHOOK_FORMAT: 'teams' })).toBe('teams');
+    expect(parseWebhookFormat({ WEBHOOK_FORMAT: ' Discord ' })).toBe('discord');
+    expect(parseWebhookFormat({ WEBHOOK_FORMAT: 'slack' })).toBe('slack');
+    expect(parseWebhookFormat({ WEBHOOK_FORMAT: 'auto' })).toBeUndefined();
+    expect(parseWebhookFormat({ WEBHOOK_FORMAT: 'bogus' })).toBeUndefined();
+    expect(parseWebhookFormat({})).toBeUndefined();
+  });
+
+  it('fills format on the descriptor for every status', () => {
+    const url = 'https://hooks.example.com/x';
+    writeEnv(`WEBHOOK_URL=${url}\nWEBHOOK_FORMAT=teams\n`);
+    expect(getProjectWebhookConfig(project())?.format).toBe('teams');
+    expect(getProjectWebhookConfig(project(), { urls: [hashWebhookUrl(url)] })?.format).toBe('teams');
+    writeEnv('WEBHOOK_URL=http://localhost/x\nWEBHOOK_FORMAT=discord\n');
+    const refused = getProjectWebhookConfig(project());
+    expect(refused?.status).toBe('refused');
+    expect(refused?.format).toBe('discord');
+    writeEnv(`WEBHOOK_URL=${url}\nWEBHOOK_FORMAT=nope\n`);
+    expect(getProjectWebhookConfig(project())?.format).toBeUndefined();
+  });
+
+  it('does not change the hash or approval status when only the format changes', () => {
+    const url = 'https://hooks.example.com/x';
+    const approvals = { urls: [hashWebhookUrl(url)] };
+    writeEnv(`WEBHOOK_URL=${url}\nWEBHOOK_FORMAT=slack\n`);
+    const a = getProjectWebhookConfig(project(), approvals);
+    writeEnv(`WEBHOOK_URL=${url}\nWEBHOOK_FORMAT=teams\n`);
+    const b = getProjectWebhookConfig(project(), approvals);
+    expect(a?.hash).toBe(b?.hash);
+    expect(a?.status).toBe('approved');
+    expect(b?.status).toBe('approved');
+  });
+
+  it('exposes all seven env keys', () => {
     expect(Object.values(WEBHOOK_ENV_KEYS).sort()).toEqual(
       [
         'WEBHOOK_ENABLED',
         'WEBHOOK_URL',
+        'WEBHOOK_FORMAT',
         'WEBHOOK_EVENT_REVIEW_READY',
         'WEBHOOK_EVENT_FAILED',
         'WEBHOOK_EVENT_BLOCKED',

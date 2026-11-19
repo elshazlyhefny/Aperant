@@ -9,13 +9,12 @@
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { DEFAULT_APP_SETTINGS } from '../../shared/constants/config';
-import type { WebhookSettings } from '../../shared/types/settings';
+import type { WebhookFormat, WebhookSettings } from '../../shared/types/settings';
 import {
-  buildWebhookPayload,
+  prepareWebhookDelivery,
   sendWebhook,
   validateWebhookUrl,
-  type WebhookEvent,
-  type WebhookPayload
+  type WebhookEvent
 } from '../task-webhook-core';
 import type { HeadlessConfig } from './config';
 import type { RunOutcome } from './outcome';
@@ -31,6 +30,8 @@ export interface ResolvedHeadlessWebhook {
   url: string;
   /** HMAC signing secret; absent means unsigned. */
   secret?: string;
+  /** undefined and 'auto' both detect the format from the URL. */
+  format?: WebhookFormat | 'auto';
   events: WebhookToggles;
 }
 
@@ -56,6 +57,7 @@ export function resolveHeadlessWebhook(
   return {
     url,
     ...(secret ? { secret } : {}),
+    format: config.webhook?.format,
     events: {
       reviewReady: overrides.reviewReady ?? defaults.reviewReady,
       failed: overrides.failed ?? defaults.failed,
@@ -81,9 +83,11 @@ export function resolveServeWebhookSettings(config: HeadlessConfig): WebhookSett
     }
   }
   const secret = config.webhook?.secret;
+  const format = config.webhook?.format;
   return {
     enabled,
     url,
+    ...(format && format !== 'auto' ? { format } : {}),
     events: { ...defaults.events, ...(config.webhook?.events ?? {}) },
     ...(secret ? { secret } : {})
   };
@@ -128,13 +132,20 @@ export async function notifyHeadlessOutcome(input: NotifyHeadlessOutcomeInput): 
   };
   try {
     for (const event of eventsForOutcome(outcome, webhook.events)) {
-      const payload: WebhookPayload = buildWebhookPayload({
+      const prepared = prepareWebhookDelivery({
+        url: webhook.url,
+        format: webhook.format,
         projectName,
         taskTitle,
         event,
         prUrl: event === 'pr_opened' ? outcome.prUrl : undefined
       });
-      const delivered = await send(webhook.url, payload, { delay, eventName: event, warn, secret: webhook.secret });
+      const delivered = await send(prepared.url, prepared.payload, {
+        delay,
+        eventName: event,
+        warn,
+        secret: webhook.secret
+      });
       if (!delivered) {
         warn(`webhook delivery failed for event ${event}; the run result is unchanged`);
       }

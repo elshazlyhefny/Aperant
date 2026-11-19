@@ -110,5 +110,69 @@
         "post": "Posting failed: {{error}}"
       }
     }
+  },
+  "boards": {
+    "title": "Import Azure Boards work items",
+    "description": "Pick work items from Azure Boards and import them as tasks.",
+    "queryMode": {
+      "filter": "Filter",
+      "saved": "Saved query",
+      "label": "Query mode"
+    },
+    "areaPath": {
+      "label": "Area path",
+      "placeholder": "Area path, e.g. MyProject\\Team"
+    },
+    "states": {
+      "label": "States",
+      "all": "All states"
+    },
+    "types": {
+      "label": "Work item types",
+      "all": "All types"
+    },
+    "savedQuery": {
+      "label": "Saved query",
+      "placeholder": "Select a saved query"
+    },
+    "run": "Run query",
+    "results": "Work items",
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
+    "selectedCount_one": "{{count}} selected",
+    "selectedCount_other": "{{count}} selected",
+    "importButton_one": "Import {{count}} work item",
+    "importButton_other": "Import {{count}} work items",
+    "importing": "Importing...",
+    "done": "Done",
+    "cancel": "Cancel",
+    "alreadyImported": "Already imported",
+    "unassigned": "Unassigned",
+    "duplicateWarning": {
+      "title": "Some work items were already imported",
+      "body_one": "{{count}} selected work item was already imported. Importing it again creates a duplicate task.",
+      "body_other": "{{count}} selected work items were already imported. Importing them again creates duplicate tasks.",
+      "confirm": "Import anyway",
+      "skip": "Skip duplicates"
+    },
+    "successImported_one": "{{count}} work item imported",
+    "successImported_other": "{{count}} work items imported",
+    "skippedDuplicates_one": "{{count}} duplicate skipped",
+    "skippedDuplicates_other": "{{count}} duplicates skipped",
+    "partialFailure": "Some work items could not be imported:",
+    "truncated": "Showing {{shown}} of {{total}} work items. Narrow the query to see the rest.",
+    "empty": "No work items match this query.",
+    "notRun": "Run a query to list work items.",
+    "loading": "Loading work items...",
+    "errors": {
+      "loadMetadata": "Failed to load Azure Boards filters",
+      "loadQueries": "Failed to load saved queries",
+      "query": "Failed to run the query",
+      "import": "Failed to import work items"
+    },
+    "keyboardHint": "Arrow keys move, Space selects, Ctrl+A selects all, Enter imports.",
+    "settings": {
+      "importButton": "Import from Azure Boards"
+    }
   }
 }

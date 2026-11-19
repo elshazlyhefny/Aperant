@@ -75,6 +75,8 @@ export interface UseProjectSettingsReturn {
   setShowAzureDevOpsPat: React.Dispatch<React.SetStateAction<boolean>>;
   azureDevOpsConnectionStatus: AzureDevOpsSyncStatus | null;
   isCheckingAzureDevOps: boolean;
+  showAzureBoardsImportModal: boolean;
+  setShowAzureBoardsImportModal: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Linear state
   showLinearImportModal: boolean;
@@ -151,6 +153,7 @@ export function useProjectSettings(
   const [showAzureDevOpsPat, setShowAzureDevOpsPat] = useState(false);
   const [azureDevOpsConnectionStatus, setAzureDevOpsConnectionStatus] = useState<AzureDevOpsSyncStatus | null>(null);
   const [isCheckingAzureDevOps, setIsCheckingAzureDevOps] = useState(false);
+  const [showAzureBoardsImportModal, setShowAzureBoardsImportModal] = useState(false);
 
   // Linear import state
   const [showLinearImportModal, setShowLinearImportModal] = useState(false);
@@ -518,6 +521,8 @@ export function useProjectSettings(
     setShowAzureDevOpsPat,
     azureDevOpsConnectionStatus,
     isCheckingAzureDevOps,
+    showAzureBoardsImportModal,
+    setShowAzureBoardsImportModal,
     showLinearImportModal,
     setShowLinearImportModal,
     linearConnectionStatus,

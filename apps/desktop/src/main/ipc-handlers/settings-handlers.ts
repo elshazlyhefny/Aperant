@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { is } from '@electron-toolkit/utils';
 import { assertTrustedSender } from '../ipc-sender-validation';
 
+import { isWebhookFormat } from '../../shared/utils/webhook-format';
 import { sendTestWebhook, validateWebhookUrl } from '../task-webhook';
 import { appLog } from '../app-logger';
 // ESM-compatible __dirname
@@ -443,7 +444,7 @@ export function registerSettingsHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.WEBHOOK_SEND_TEST,
-    async (event, url: unknown, secretArg?: unknown): Promise<IPCResult<{ success: boolean }>> => {
+    async (event, url: unknown, format?: unknown, secretArg?: unknown): Promise<IPCResult<{ success: boolean }>> => {
       if (!assertTrustedSender(event, 'WEBHOOK_SEND_TEST')) return { success: false, error: 'untrusted_sender' };
       if (typeof url !== 'string' || !validateWebhookUrl(url.trim()).ok) {
         return { success: false, error: 'invalid_url' };
@@ -457,7 +458,10 @@ export function registerSettingsHandlers(
         if (checked === null) return { success: false, error: 'invalid_webhook_secret' };
         secret = checked;
       }
-      const result = await sendTestWebhook(url.trim(), { secret });
+      const result = await sendTestWebhook(url.trim(), {
+        format: isWebhookFormat(format) ? format : undefined,
+        secret,
+      });
       if (!result.success) return { success: false, error: result.error ?? 'delivery_failed' };
       return { success: true, data: { success: true } };
     }
@@ -503,6 +507,8 @@ export function registerSettingsHandlers(
                 // zeenha fork: must be listed here, otherwise the rebuilt events object drops the toggle on every save.
                 prOpened: raw.events?.prOpened === true,
               },
+              // zeenha fork: keep an explicit format; 'auto'/invalid means detect from the URL.
+              ...(isWebhookFormat(raw.format) ? { format: raw.format } : {}),
             };
           }
 

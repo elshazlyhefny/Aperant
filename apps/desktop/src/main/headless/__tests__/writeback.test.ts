@@ -28,7 +28,10 @@ describe('resolveHeadlessWritebackSettings', () => {
       gitlab: false,
       linear: false,
       linearTransitionOnReview: false,
-      linearTransitionStateName: 'In Review'
+      linearTransitionStateName: 'In Review',
+      azureboards: false,
+      azureBoardsTransitionOnReview: false,
+      azureBoardsTransitionStateName: 'Resolved'
     });
     expect(off.jira).toEqual({
       enabled: false,
@@ -45,6 +48,17 @@ describe('resolveHeadlessWritebackSettings', () => {
     });
     expect(s.issue.linear).toBe(true);
     expect(s.jira).toEqual({ enabled: true, comment: true, transitionOnReview: true, transitionStatusName: 'QA' });
+    expect(isWritebackEnabled(s)).toBe(true);
+  });
+
+  it('maps the Azure Boards block and enables write-back on its own', () => {
+    const s = resolveHeadlessWritebackSettings({
+      writeback: { azureBoards: { enabled: true, transitionOnReview: true, transitionStateName: ' Done ' } }
+    });
+    expect(s.issue.azureboards).toBe(true);
+    expect(s.issue.azureBoardsTransitionOnReview).toBe(true);
+    expect(s.issue.azureBoardsTransitionStateName).toBe('Done');
+    expect(s.issue.github).toBe(false);
     expect(isWritebackEnabled(s)).toBe(true);
   });
 });
@@ -83,7 +97,19 @@ describe('reportOutcomeToSource', () => {
     expect(arg.event).toBe('blocked');
     expect(arg.title).toBe('T');
     expect(arg.raw).toEqual({ issueWriteback: on.issue, jiraWriteback: on.jira });
-    expect(arg.writers.map((w: { sourceType: string }) => w.sourceType)).toEqual(['github', 'gitlab', 'linear', 'jira']);
+    expect(arg.writers.map((w: { sourceType: string }) => w.sourceType)).toEqual(['github', 'gitlab', 'linear', 'jira', 'azure_boards']);
+  });
+
+  it('dispatches when only Azure Boards is on, with the settings in raw', async () => {
+    const azure = resolveHeadlessWritebackSettings({ writeback: { azureBoards: { enabled: true } } });
+    const dispatchIssue = vi.fn().mockResolvedValue(undefined);
+    await reportOutcomeToSource({
+      settings: azure, project, specDirs: [dir], event: 'review_ready', title: 't', env: {}, dispatchIssue
+    });
+    expect(dispatchIssue).toHaveBeenCalledTimes(1);
+    const arg = dispatchIssue.mock.calls[0][0];
+    expect(arg.raw.issueWriteback.azureboards).toBe(true);
+    expect(arg.writers.map((w: { sourceType: string }) => w.sourceType)).toContain('azure_boards');
   });
 
   it('never throws when the dispatcher throws', async () => {

@@ -9,6 +9,7 @@ import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
 import type { JiraWritebackSettings } from '../../../shared/types/settings';
 import { readGitHubEnvConfig } from '../github/github-api';
 import { readGitLabEnvConfig } from '../gitlab/gitlab-api';
+import { createAzureBoardsWriter } from './azureboards-writer';
 import { createGitHubWriter } from './github-writer';
 import { createGitLabWriter } from './gitlab-writer';
 import { createJiraWriter } from './jira-writer';
@@ -27,6 +28,7 @@ export function createHeadlessWriters(
       readGitLabEnvConfig(project, () => env.GITLAB_TOKEN || null)
     ),
     linearWriter,
-    createJiraWriter(() => jiraSettings)
+    createJiraWriter(() => jiraSettings),
+    createAzureBoardsWriter()
   ];
 }

@@ -58,6 +58,7 @@ export const IPC_CHANNELS = {
   TASK_ARCHIVE: 'task:archive',
   TASK_UNARCHIVE: 'task:unarchive',
   TASK_QUEUE_GET_STATE: 'task:queueGetState',
+  TASK_DAEMON_STOP: 'task:daemonStop',  // zeenha fork: stop a daemon-run task
   TASK_CLEAR_STAGED_STATE: 'task:clearStagedState',
 
   // Task events (main -> renderer)
@@ -66,6 +67,7 @@ export const IPC_CHANNELS = {
   TASK_LOG: 'task:log',
   TASK_STATUS_CHANGE: 'task:statusChange',
   TASK_QUEUE_STATE_CHANGE: 'task:queueStateChange',
+  TASK_DAEMON_STOP_RESULT: 'task:daemonStopResult',  // zeenha fork
   TASK_EXECUTION_PROGRESS: 'task:executionProgress',
 
   // Task phase logs (persistent, collapsible logs by phase)
@@ -268,6 +270,12 @@ export const IPC_CHANNELS = {
   JIRA_GET_PROJECTS: 'jira:getProjects',
   JIRA_GET_ISSUES: 'jira:getIssues',
   JIRA_IMPORT_ISSUES: 'jira:importIssues',
+
+  // Azure Boards integration
+  AZUREBOARDS_GET_SAVED_QUERIES: 'azureboards:getSavedQueries',
+  AZUREBOARDS_GET_METADATA: 'azureboards:getMetadata',
+  AZUREBOARDS_QUERY_WORK_ITEMS: 'azureboards:queryWorkItems',
+  AZUREBOARDS_IMPORT_WORK_ITEMS: 'azureboards:importWorkItems',
 
   // GitHub integration
   GITHUB_GET_REPOSITORIES: 'github:getRepositories',

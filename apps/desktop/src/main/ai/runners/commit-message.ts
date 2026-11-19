@@ -84,7 +84,7 @@ interface SpecContext {
 }
 
 /** A link from a task back to the issue it came from, in any supported tracker. */
-export type IssueRef = { kind: 'github' | 'gitlab' | 'jira' | 'linear'; ref: string };
+export type IssueRef = { kind: 'github' | 'gitlab' | 'jira' | 'linear' | 'azure_boards'; ref: string };
 
 /** Configuration for commit message generation */
 export interface CommitMessageConfig {
@@ -150,6 +150,7 @@ export function readIssueRefs(specDir: string): IssueRef[] {
   for (const n of issueNumbers(meta.gitlabIssueIid)) add('gitlab', String(n));
   for (const k of issueKey(meta.jiraIssueKey)) add('jira', k);
   for (const k of issueKey(meta.linearIdentifier)) add('linear', k);
+  for (const n of issueNumbers(meta.azureBoardsWorkItemId)) add('azure_boards', String(n));
   return refs;
 }
 
@@ -164,6 +165,8 @@ export function formatIssueClosingLines(
   style: 'default' | 'azuredevops' = 'default',
 ): string[] {
   return refs.map((r) => {
+    // AB#id is what Azure DevOps links to a work item, and it never starts with a bare '#'.
+    if (r.kind === 'azure_boards') return `AB#${r.ref}`;
     if (style === 'azuredevops') {
       switch (r.kind) {
         case 'github':
@@ -287,7 +290,13 @@ function buildPrompt(
   let issueRef = '';
   if (specContext.issues.length > 0) {
     const refs = specContext.issues
-      .map((r) => (r.kind === 'github' || r.kind === 'gitlab' ? `#${r.ref}` : r.ref))
+      .map((r) =>
+        r.kind === 'github' || r.kind === 'gitlab'
+          ? `#${r.ref}`
+          : r.kind === 'azure_boards'
+            ? `AB#${r.ref}`
+            : r.ref,
+      )
       .join(', ');
     const lines = formatIssueClosingLines(specContext.issues)
       .map((l) => `'${l}'`)

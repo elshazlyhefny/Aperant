@@ -33,6 +33,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { TaskCard } from './TaskCard';
 import { SortableTaskCard } from './SortableTaskCard';
 import { QueueSettingsModal } from './QueueSettingsModal';
+import { DaemonQueueBanner } from './DaemonQueueBanner';
 import { TASK_STATUS_COLUMNS, TASK_STATUS_LABELS } from '../../shared/constants';
 import { cn } from '../lib/utils';
 import { persistTaskStatus, forceCompleteTask, archiveTasks, deleteTasks, useTaskStore, isQueueAtCapacity, DEFAULT_MAX_PARALLEL_TASKS } from '../stores/task-store';
@@ -747,6 +748,18 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
   useEffect(() => {
     if (projectId) void useTaskQueueStore.getState().loadState(projectId);
   }, [projectId]);
+
+  // zeenha fork: daemon lock info for the board banner
+  const lockedBy = queueState?.lockedBy;
+  const lockedTaskIds = queueState?.lockedTaskIds ?? [];
+  const inProgressIdsKey = tasks
+    .filter((tk) => tk.status === 'in_progress')
+    .map((tk) => tk.id)
+    .join(',');
+  // zeenha fork: while locked, refresh the lock state when the running tasks change
+  useEffect(() => {
+    if (lockedBy && projectId) void useTaskQueueStore.getState().loadState(projectId);
+  }, [inProgressIdsKey, lockedBy, projectId]);
 
   // Queue settings modal state
   const [showQueueSettings, setShowQueueSettings] = useState(false);
@@ -1555,6 +1568,17 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
           </div>
         </div>
       }
+      {/* zeenha fork: show that the serve daemon holds the queue lock */}
+      {lockedBy && (
+        <div className="px-6 pt-4">
+          <DaemonQueueBanner
+            lockedBy={lockedBy}
+            taskIds={lockedTaskIds}
+            tasks={tasks}
+            onTaskClick={onTaskClick}
+          />
+        </div>
+      )}
       {/* Kanban columns */}
       <DndContext
         sensors={sensors}

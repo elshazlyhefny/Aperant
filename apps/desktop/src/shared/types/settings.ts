@@ -266,18 +266,27 @@ export interface JiraWritebackSettings {
   transitionStatusName: string;
 }
 
-export type IssueWritebackProviderKey = 'github' | 'gitlab' | 'linear';
+export type IssueWritebackProviderKey = 'github' | 'gitlab' | 'linear' | 'azureboards';
 
 export interface IssueWritebackSettings extends Record<IssueWritebackProviderKey, boolean> {
+  /** Move the Azure Boards work item to a named state when the task reaches review. */
+  azureBoardsTransitionOnReview: boolean;
+  /** Name of the Azure Boards work item state to move to. */
+  azureBoardsTransitionStateName: string;
   /** Move the Linear issue to a named workflow state when the task reaches review. */
   linearTransitionOnReview: boolean;
   /** Name of the Linear workflow state to move to. */
   linearTransitionStateName: string;
 }
 
+// zeenha fork: payload format of the outgoing webhook (Slack, Microsoft Teams, Discord)
+export type WebhookFormat = 'slack' | 'teams' | 'discord';
+
 export interface WebhookSettings {
   enabled: boolean;
   url: string;
+  // zeenha fork: undefined and 'auto' both mean "detect the format from the URL"
+  format?: WebhookFormat | 'auto';
   // zeenha fork: HMAC signing secret. User settings only, never read from a project .env.
   secret?: string;
   events: { reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean };

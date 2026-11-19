@@ -1,7 +1,10 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import {
+  buildTestWebhookPayload,
   buildWebhookPayload,
+  prepareTestWebhookDelivery,
+  prepareWebhookDelivery,
   sendWebhook,
   signWebhookBody,
   validateWebhookUrl,
@@ -88,6 +91,91 @@ describe('buildWebhookPayload', () => {
     expect(s).not.toContain(PR);
     expect(s).not.toContain('<!channel>');
     expect(s).toContain('&lt;!channel&gt;');
+  });
+});
+
+describe('multi-format payloads', () => {
+  const PR = 'https://github.com/o/r/pull/1';
+  const evs: WebhookEvent[] = ['review_ready', 'failed', 'blocked', 'pr_opened'];
+
+  it('pins the exact Slack JSON, with and without format', () => {
+    const a = {
+      review_ready: '{"text":"Aperant task ready for review: T (P)","blocks":[{"type":"section","text":{"type":"mrkdwn","text":"*Ready for review*\\nT"}},{"type":"section","fields":[{"type":"mrkdwn","text":"*Project*\\nP"},{"type":"mrkdwn","text":"*Outcome*\\nCompleted"}]}]}',
+      pr_opened: `{"text":"Aperant task pr opened: T (P) ${PR}","blocks":[{"type":"section","text":{"type":"mrkdwn","text":"*PR opened*\\nT"}},{"type":"section","fields":[{"type":"mrkdwn","text":"*Project*\\nP"},{"type":"mrkdwn","text":"*Outcome*\\nAwaiting review"}]},{"type":"actions","elements":[{"type":"button","text":{"type":"plain_text","text":"View PR"},"url":"${PR}"}]}]}`
+    };
+    for (const event of ['review_ready', 'pr_opened'] as const) {
+      for (const format of [undefined, 'slack' as const]) {
+        const p = buildWebhookPayload({ projectName: 'P', taskTitle: 'T', event, prUrl: PR, format });
+        expect(JSON.stringify(p)).toBe(a[event]);
+      }
+    }
+  });
+
+  it.each(evs)('teams %s', (event) => {
+    const p = buildWebhookPayload({ projectName: 'Proj', taskTitle: 'Task', event, format: 'teams' });
+    expect(p.type).toBe('message');
+    const card = p.attachments[0].content;
+    expect(card.version).toBe('1.4');
+    expect(card.body).toHaveLength(3);
+    expect(JSON.stringify(card)).toContain('Proj');
+    expect(card.actions).toBeUndefined();
+  });
+
+  it.each(evs)('discord %s', (event) => {
+    const p = buildWebhookPayload({ projectName: 'Proj', taskTitle: 'Task', event, format: 'discord' });
+    expect(p.allowed_mentions).toEqual({ parse: [] });
+    expect(p.embeds[0].description).toBe('Task');
+    expect(p.embeds[0].url).toBeUndefined();
+    expect(p.embeds[0].fields.map((f) => f.name)).toEqual(['Project', 'Outcome']);
+  });
+
+  it('adds link only for https pr_opened', () => {
+    const t = buildWebhookPayload({ projectName: 'P', taskTitle: 'T', event: 'pr_opened', prUrl: PR, format: 'teams' });
+    expect(t.attachments[0].content.actions).toEqual([{ type: 'Action.OpenUrl', title: 'View PR', url: PR }]);
+    const d = buildWebhookPayload({ projectName: 'P', taskTitle: 'T', event: 'pr_opened', prUrl: PR, format: 'discord' });
+    expect(d.embeds[0].url).toBe(PR);
+    expect(d.embeds[0].fields.map((f) => f.name)).toContain('Pull request');
+    for (const format of ['teams', 'discord'] as const) {
+      const http = buildWebhookPayload({ projectName: 'P', taskTitle: 'T', event: 'pr_opened', prUrl: 'http://github.com/o/r/pull/1', format });
+      expect(JSON.stringify(http)).not.toContain('github.com');
+      const other = buildWebhookPayload({ projectName: 'P', taskTitle: 'T', event: 'failed', prUrl: PR, format });
+      expect(JSON.stringify(other)).not.toContain(PR);
+    }
+  });
+
+  it('escapes markdown, strips control chars and truncates', () => {
+    const d = buildWebhookPayload({ projectName: 'P', taskTitle: '**bold** [x](y)\u0007', event: 'failed', format: 'discord' });
+    expect(d.embeds[0].description).toBe('\\*\\*bold\\*\\* \\[x\\]\\(y\\)');
+    const t = buildWebhookPayload({ projectName: 'P', taskTitle: 'a'.repeat(500), event: 'failed', format: 'teams' });
+    expect(t.attachments[0].content.body[1]).toMatchObject({ text: `${'a'.repeat(199)}…` });
+  });
+
+  it('prepareWebhookDelivery resolves format and strips discord /slack', () => {
+    const d = prepareWebhookDelivery({
+      url: 'https://discord.com/api/webhooks/1/abc/slack',
+      format: 'discord',
+      projectName: 'P',
+      taskTitle: 'T',
+      event: 'failed'
+    });
+    expect(d.format).toBe('discord');
+    expect(d.url).toBe('https://discord.com/api/webhooks/1/abc');
+    expect('embeds' in d.payload).toBe(true);
+    const auto = prepareWebhookDelivery({ url: 'https://x.webhook.office.com/a', projectName: 'P', taskTitle: 'T', event: 'failed' });
+    expect(auto.format).toBe('teams');
+    expect(auto.url).toBe('https://x.webhook.office.com/a');
+    const slackCompat = prepareWebhookDelivery({ url: 'https://discord.com/api/webhooks/1/abc/slack', projectName: 'P', taskTitle: 'T', event: 'failed' });
+    expect(slackCompat.format).toBe('slack');
+    expect(slackCompat.url).toBe('https://discord.com/api/webhooks/1/abc/slack');
+  });
+
+  it('builds test deliveries per format', () => {
+    expect(buildTestWebhookPayload('slack')).toEqual({
+      text: 'Aperant test notification: your webhook is configured correctly.',
+      blocks: [{ type: 'section', text: { type: 'mrkdwn', text: '*Test notification*\nThis is a test message from Aperant.' } }]
+    });
+    expect(prepareTestWebhookDelivery('https://x.webhook.office.com/a').format).toBe('teams');
+    expect(prepareTestWebhookDelivery('https://discord.com/api/webhooks/1/a/github').url).toBe('https://discord.com/api/webhooks/1/a');
   });
 });
 

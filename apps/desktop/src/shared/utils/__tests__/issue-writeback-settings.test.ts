@@ -6,7 +6,10 @@ const DEFAULTS = {
   gitlab: false,
   linear: false,
   linearTransitionOnReview: false,
-  linearTransitionStateName: 'In Review'
+  linearTransitionStateName: 'In Review',
+  azureboards: false,
+  azureBoardsTransitionOnReview: false,
+  azureBoardsTransitionStateName: 'Resolved'
 };
 
 describe('normalizeIssueWritebackSettings', () => {
@@ -22,7 +25,9 @@ describe('normalizeIssueWritebackSettings', () => {
       github: 1,
       gitlab: 'true',
       linear: {},
-      linearTransitionOnReview: 'yes'
+      linearTransitionOnReview: 'yes',
+      azureboards: 1,
+      azureBoardsTransitionOnReview: 'true'
     });
     expect(result).toEqual(DEFAULTS);
   });
@@ -36,6 +41,7 @@ describe('normalizeIssueWritebackSettings', () => {
       linearTransitionStateName: 'Done'
     });
     expect(result).toEqual({
+      ...DEFAULTS,
       github: true,
       gitlab: true,
       linear: true,
@@ -57,6 +63,37 @@ describe('normalizeIssueWritebackSettings', () => {
   it('falls back to the default for whitespace-only or non-string names', () => {
     expect(normalizeIssueWritebackSettings({ linearTransitionStateName: '   \n ' }).linearTransitionStateName).toBe('In Review');
     expect(normalizeIssueWritebackSettings({ linearTransitionStateName: 5 }).linearTransitionStateName).toBe('In Review');
+  });
+
+  it('keeps true Azure Boards booleans and a custom state name', () => {
+    const result = normalizeIssueWritebackSettings({
+      azureboards: true,
+      azureBoardsTransitionOnReview: true,
+      azureBoardsTransitionStateName: 'Done'
+    });
+    expect(result).toEqual({
+      ...DEFAULTS,
+      azureboards: true,
+      azureBoardsTransitionOnReview: true,
+      azureBoardsTransitionStateName: 'Done'
+    });
+  });
+
+  it('cleans the Azure Boards state name like the Linear one', () => {
+    expect(
+      normalizeIssueWritebackSettings({ azureBoardsTransitionStateName: 'Re\nsol\u0000ved\u007f' })
+        .azureBoardsTransitionStateName
+    ).toBe('Resolved');
+    expect(
+      normalizeIssueWritebackSettings({ azureBoardsTransitionStateName: 'a'.repeat(150) })
+        .azureBoardsTransitionStateName
+    ).toBe('a'.repeat(100));
+    expect(
+      normalizeIssueWritebackSettings({ azureBoardsTransitionStateName: '  \n ' }).azureBoardsTransitionStateName
+    ).toBe('Resolved');
+    expect(
+      normalizeIssueWritebackSettings({ azureBoardsTransitionStateName: 5 }).azureBoardsTransitionStateName
+    ).toBe('Resolved');
   });
 
   it('drops unknown fields', () => {

@@ -122,6 +122,7 @@ The command never reads the desktop app's settings. Credentials come from the en
   "providerAgentConfig": {},
   "webhook": {
     "url": "https://hooks.example.com/services/XXX",
+    "format": "auto",
     "secret": "a-long-random-string",
     "events": { "reviewReady": true, "failed": true, "blocked": true, "prOpened": false }
   },
@@ -136,7 +137,7 @@ The command never reads the desktop app's settings. Credentials come from the en
 
 `providerAccounts` uses the same account objects as the app. `globalPriorityOrder` lists account ids in the order to try them. When both are set, the account queue is tried first, then the environment. `project` overrides the main branch, whether to push, extra environment variable names passed to Bash, and the sandbox mode. A config file that is missing or invalid stops the run with exit code 1.
 
-`webhook` sends a Slack-compatible message when the run ends: `review_ready` on exit 0, `blocked` on exit 2, `failed` on exit 1. The `APERANT_WEBHOOK_URL` environment variable overrides `webhook.url`, and `APERANT_WEBHOOK_SECRET` overrides `webhook.secret`. With a secret, requests are signed (see [Signing requests](notifications-and-webhooks.md#signing-requests-optional-secret)). A webhook problem never changes the exit code. See [notifications-and-webhooks.md](notifications-and-webhooks.md#headless-runs-clijs-run).
+`webhook` sends a message in Slack, Microsoft Teams or Discord format when the run ends (`format` is `auto`, `slack`, `teams` or `discord`; `auto` is the default and detects it from the URL): `review_ready` on exit 0, `blocked` on exit 2, `failed` on exit 1. The `APERANT_WEBHOOK_URL` environment variable overrides `webhook.url`, and `APERANT_WEBHOOK_SECRET` overrides `webhook.secret`. With a secret, requests are signed, whatever the format (see [Signing requests](notifications-and-webhooks.md#signing-requests-optional-secret)). A webhook problem never changes the exit code. See [notifications-and-webhooks.md](notifications-and-webhooks.md#headless-runs-clijs-run).
 
 `writeback` reports the outcome back to the issue tracker the task was imported from. It is off by default, applies to both `run` and `serve`, and never changes the exit code. Credentials come from the project's `.auto-claude/.env`. Example:
 
@@ -146,7 +147,8 @@ The command never reads the desktop app's settings. Credentials come from the en
     "github": true,
     "gitlab": false,
     "linear": false,
-    "jira": { "enabled": false, "comment": true, "transitionOnReview": false, "transitionStatusName": "In Review" }
+    "jira": { "enabled": false, "comment": true, "transitionOnReview": false, "transitionStatusName": "In Review" },
+    "azureBoards": { "enabled": false, "transitionOnReview": false, "transitionStateName": "Resolved" }
   }
 }
 ```
@@ -296,6 +298,23 @@ npm run cli -- queue <spec> ...
 - `new "<description>" --queue` does the same for a newly created spec, as an alternative to `--run`.
 - Exit codes: 0 (ok) and 1 (error, such as an unknown spec or a task that is not in the backlog).
 
+## Stopping one task
+
+```bash
+node apps/desktop/out/main/cli.js stop <spec> [--requeue] [--project <dir>] [--json]
+
+# or, from apps/desktop
+npm run cli -- stop <spec> ...
+```
+
+`stop <spec>` asks the [`serve` daemon](#running-the-queue-and-schedules-as-a-daemon) of the same project to stop one running task.
+
+- **Transport.** The request is a file in `.auto-claude/.locks`. There is no network port. The daemon picks it up on its 30 second safety interval, so the task can take up to about 30 seconds to stop.
+- **Default.** The task ends as `human_review` with the reason `stopped`, and its stuck subtasks are reset. Resume it later from the app or the command line.
+- **`--requeue`.** The task goes back to the Queue instead, and the daemon starts it again when a slot is free.
+- **Everything else continues.** Other running tasks and the schedules are not affected.
+- Exit codes: 0 (request sent) and 1 (error, including when no daemon holds the project's lock).
+
 ## Running the queue and schedules as a daemon
 
 `serve` runs one project's task queue and its recurring schedules without opening the app, until you stop it. Use it on a server or a machine where the app is not open. It needs the same prerequisites as `run` (Node 22 or newer, a build, a git repository) and the same [credentials](#credentials).
@@ -356,6 +375,7 @@ In addition to the keys under [Credentials](#credentials):
   "webhook": {
     "enabled": true,
     "url": "https://hooks.slack.com/services/...",
+    "format": "auto",
     "secret": "a-long-random-string",
     "events": { "reviewReady": true, "failed": true, "blocked": true, "prOpened": false }
   },
@@ -363,7 +383,7 @@ In addition to the keys under [Credentials](#credentials):
 }
 ```
 
-- `webhook`: the outcome webhook for the daemon. It is read only from this file, never from the app's `settings.json`. See [notifications-and-webhooks.md](notifications-and-webhooks.md). An invalid URL stops the daemon with exit code 1. The daemon sends it only when `enabled` is `true`, and it does not read `APERANT_WEBHOOK_URL` or `APERANT_WEBHOOK_SECRET`. `secret` is optional and signs the requests; for the daemon it comes from this file only. `run` reads the same `url` and `events` but ignores `enabled`: for `run`, a URL is enough.
+- `webhook`: the outcome webhook for the daemon. It is read only from this file, never from the app's `settings.json`. `format` is optional (`auto`, `slack`, `teams` or `discord`) and is detected from the URL when omitted. See [notifications-and-webhooks.md](notifications-and-webhooks.md). An invalid URL stops the daemon with exit code 1. The daemon sends it only when `enabled` is `true`, and it does not read `APERANT_WEBHOOK_URL` or `APERANT_WEBHOOK_SECRET`. `secret` is optional and signs the requests; for the daemon it comes from this file only. `run` reads the same `url` and `events` but ignores `enabled`: for `run`, a URL is enough.
 - `project.maxParallelTasks`: how many tasks run at once. Default: 3.
 
 ### Stopping

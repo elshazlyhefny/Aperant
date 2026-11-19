@@ -410,3 +410,90 @@ describe('webhook signing secret', () => {
     expect(fetchMock.mock.calls[0][1].headers['X-Aperant-Signature']).toMatch(/^sha256=/);
   });
 });
+
+describe('webhook format at send sites', () => {
+  const events = { reviewReady: true, failed: true, blocked: true, prOpened: false };
+  const input = { status: 'error', projectName: 'P', taskTitle: 'T' };
+  const bodyOf = () => JSON.parse(String(fetchMock.mock.calls[0][1].body));
+
+  async function dispatch(webhook: Record<string, unknown>) {
+    mocks.settings = { webhook: { enabled: true, events, ...webhook } };
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  }
+
+  it('posts a Teams card for format teams', async () => {
+    await dispatch({ url: URL_OK, format: 'teams' });
+    expect(bodyOf().attachments[0].contentType).toBe('application/vnd.microsoft.card.adaptive');
+  });
+
+  it('posts a Discord embed for format discord', async () => {
+    await dispatch({ url: URL_OK, format: 'discord' });
+    expect(Array.isArray(bodyOf().embeds)).toBe(true);
+  });
+
+  it('posts the Slack body for format slack and for an absent format', async () => {
+    await dispatch({ url: URL_OK, format: 'slack' });
+    expect(bodyOf().blocks).toBeDefined();
+  });
+
+  it('keeps the Slack body for an absent format on a Slack-compatible host', async () => {
+    await dispatch({ url: ['https://hooks', 'slack.com/services/A/B/C'].join('.') });
+    expect(bodyOf().blocks).toBeDefined();
+    expect(bodyOf().attachments).toBeUndefined();
+  });
+
+  it('keeps the Slack body for an absent format on an unknown host', async () => {
+    await dispatch({ url: URL_OK });
+    expect(bodyOf().blocks).toBeDefined();
+  });
+
+  it('auto-detects a Teams workflow URL when no format is set', async () => {
+    await dispatch({ url: 'https://prod-12.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?sig=x' });
+    expect(bodyOf().attachments).toBeDefined();
+  });
+
+  it('ignores an invalid stored format', async () => {
+    await dispatch({ url: URL_OK, format: 'bogus' });
+    expect(bodyOf().blocks).toBeDefined();
+  });
+
+  it('uses the approved project webhook format', async () => {
+    mocks.settings = { webhook: { enabled: true, url: URL_OK, events } };
+    mocks.projectConfig.mockReturnValue({ url: URL_OK, hash: 'h', status: 'approved', events, format: 'teams' });
+    fetchMock.mockResolvedValue(res(200));
+    dispatchTaskOutcomeWebhook({ ...input, project: { path: '/p', autoBuildPath: '.auto-claude' } });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(bodyOf().attachments).toBeDefined();
+  });
+
+  it('sendTestWebhook sends the format test body', async () => {
+    fetchMock.mockResolvedValue(res(200));
+    await sendTestWebhook(URL_OK, { delay: noDelay, format: 'teams' });
+    expect(bodyOf().attachments).toBeDefined();
+  });
+
+  it('signs the exact body bytes that are sent, for every format', async () => {
+    const { createHmac } = await import('node:crypto');
+    for (const format of ['slack', 'teams', 'discord']) {
+      fetchMock.mockReset();
+      mocks.settings = { webhook: { enabled: true, url: URL_OK, events, format, secret: 'k' } };
+      fetchMock.mockResolvedValue(res(200));
+      dispatchTaskOutcomeWebhook(input);
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const init = fetchMock.mock.calls[0][1];
+      const ts = init.headers['X-Aperant-Timestamp'];
+      const expected = `sha256=${createHmac('sha256', 'k').update(`${ts}.${init.body}`).digest('hex')}`;
+      expect(init.headers['X-Aperant-Signature']).toBe(expected);
+    }
+  });
+
+  it('signs the format test body', async () => {
+    fetchMock.mockResolvedValue(res(200));
+    await sendTestWebhook(URL_OK, { delay: noDelay, format: 'discord', secret: 'k' });
+    const init = fetchMock.mock.calls[0][1];
+    expect(Array.isArray(JSON.parse(String(init.body)).embeds)).toBe(true);
+    expect(init.headers['X-Aperant-Signature']).toMatch(/^sha256=[0-9a-f]{64}$/);
+  });
+});

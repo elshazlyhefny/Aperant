@@ -5,7 +5,9 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
+import { detectWebhookFormat, isWebhookFormat } from '../../../shared/utils/webhook-format';
 import type { AppSettings, WebhookSettings as WebhookConfig } from '../../../shared/types';
 
 interface WebhookSettingsProps {
@@ -50,7 +52,7 @@ const EVENT_ITEMS: Array<{ key: EventKey; labelKey: string; descriptionKey: stri
 ];
 
 /**
- * Settings block for the outgoing task-outcome webhook (Slack-compatible).
+ * Settings block for the outgoing task-outcome webhook (Slack, Microsoft Teams or Discord).
  */
 export function WebhookSettings({ settings, onSettingsChange }: WebhookSettingsProps) {
   const { t } = useTranslation('settings');
@@ -71,6 +73,8 @@ export function WebhookSettings({ settings, onSettingsChange }: WebhookSettingsP
   const secretInvalid = !isValidWebhookSecret(secret);
   const canTest = trimmedUrl.length > 0 && !urlInvalid && !secretInvalid && !isTesting;
 
+  const selectedFormat = isWebhookFormat(webhook.format) ? webhook.format : 'auto';
+
   const update = (patch: Partial<WebhookConfig>) => {
     onSettingsChange({ ...settings, webhook: { ...webhook, ...patch } });
   };
@@ -80,7 +84,7 @@ export function WebhookSettings({ settings, onSettingsChange }: WebhookSettingsP
     setIsTesting(true);
     setTestResult(null);
     try {
-      const result = await window.electronAPI.sendTestWebhook(trimmedUrl, secret);
+      const result = await window.electronAPI.sendTestWebhook(trimmedUrl, selectedFormat, secret);
       setTestResult(result.success ? 'success' : 'failure');
     } catch {
       setTestResult('failure');
@@ -144,6 +148,32 @@ export function WebhookSettings({ settings, onSettingsChange }: WebhookSettingsP
           </p>
         )}
         <p className="text-xs text-muted-foreground">{t('notifications.webhook.storedLocallyNote')}</p>
+
+        <div className="space-y-1 pt-2">
+          <Label htmlFor="webhook-format" className="font-medium text-foreground">
+            {t('notifications.webhook.format.label')}
+          </Label>
+          <Select value={selectedFormat} onValueChange={(value) => {
+              setTestResult(null);
+              update({ format: value as WebhookConfig['format'] });
+            }}>
+            <SelectTrigger id="webhook-format">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{t('notifications.webhook.format.auto')}</SelectItem>
+              <SelectItem value="slack">{t('notifications.webhook.format.slack')}</SelectItem>
+              <SelectItem value="teams">{t('notifications.webhook.format.teams')}</SelectItem>
+              <SelectItem value="discord">{t('notifications.webhook.format.discord')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">{t('notifications.webhook.format.description')}</p>
+          {selectedFormat === 'auto' && trimmedUrl.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t('notifications.webhook.format.detected', { format: t(`notifications.webhook.format.${detectWebhookFormat(trimmedUrl)}`) })}
+            </p>
+          )}
+        </div>
 
         <div className="space-y-2 pt-2">
           <Label htmlFor="webhook-secret" className="font-medium text-foreground">

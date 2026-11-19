@@ -188,6 +188,8 @@ The project also needs an `autoBuildPath` and an existing `.auto-claude/.env`. R
 | `AZURE_DEVOPS_REPOSITORY` | Repository name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
 | `AZURE_DEVOPS_PAT` | Personal access token. A secret, see [Secrets](#secrets). It needs the scopes Code (Read & write) and Build (Read). | Yes |
 
+These same keys are used for Azure Boards work item write-back, which is off by default and controlled in the app settings. The PAT then also needs the Work Items (Read & write) scope. See [issue-writeback.md](issue-writeback.md).
+
 Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visualstudio.com` remotes. Azure DevOps Server (on premises) is not.
 
 What works:
@@ -297,6 +299,7 @@ The generator writes these under the heading `# PROJECT TASK-OUTCOME WEBHOOK (OP
 |-----|--------------------|-----------------------|
 | `WEBHOOK_ENABLED` | `true` or `false`. Only `false` turns the project webhook off. Written only when a URL is set. | Yes |
 | `WEBHOOK_URL` | Address for this project's task-outcome messages, for example `https://hooks.example.com/...`. Needs approval, see [Approving a project webhook](#approving-a-project-webhook). | Yes |
+| `WEBHOOK_FORMAT` | `auto`, `slack`, `teams` or `discord`. Body format for this project's messages. `auto` detects it from the URL. Safe to commit, and not part of the URL approval. | Yes |
 | `WEBHOOK_EVENT_REVIEW_READY` | `true` or `false`. Send the review ready event. | Yes |
 | `WEBHOOK_EVENT_FAILED` | `true` or `false`. Send the task failed event. | Yes |
 | `WEBHOOK_EVENT_BLOCKED` | `true` or `false`. Send the task blocked event. | Yes |
