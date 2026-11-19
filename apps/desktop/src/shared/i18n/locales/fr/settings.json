@@ -393,7 +393,7 @@
     },
     "issueWriteback": {
       "title": "Retour vers les tickets",
-      "description": "Reporter le résultat d'une tâche sur le ticket d'où elle a été importée. Désactivé par défaut.",
+      "description": "Reporter le résultat d'une tâche sur l'élément GitHub, GitLab, Linear ou Azure Boards d'où elle a été importée. Désactivé par défaut.",
       "github": "Tickets GitHub",
       "githubDescription": "Commenter le ticket GitHub d'origine lorsqu'une tâche se termine",
       "gitlab": "Tickets GitLab",
@@ -404,7 +404,13 @@
       "linearTransitionOnReviewDescription": "Déplacer le ticket Linear vers l'état de workflow ci-dessous lorsque la tâche est prête pour la revue. Si aucun état de workflow n'a ce nom, rien ne se passe.",
       "linearStateNameLabel": "Nom de l'état de workflow cible",
       "linearStateNamePlaceholder": "In Review",
-      "note": "Seul le ticket d'où la tâche a été importée est commenté, avec les identifiants existants du projet. Ces paramètres sont stockés uniquement dans les paramètres de cette application et sont désactivés par défaut."
+      "azureboards": "Work items Azure Boards",
+      "azureboardsDescription": "Commenter le work item Azure Boards d'origine lorsqu'une tâche se termine",
+      "azureBoardsTransitionOnReview": "Déplacer le work item quand la revue est prête",
+      "azureBoardsTransitionOnReviewDescription": "Déplacer le work item Azure Boards vers l'état ci-dessous lorsque la tâche est prête pour la revue. Si l'état n'est pas valide pour le work item, il est journalisé et rien d'autre ne se passe.",
+      "azureBoardsStateNameLabel": "Nom de l'état cible",
+      "azureBoardsStateNamePlaceholder": "Resolved",
+      "note": "Seul le ticket ou work item d'où la tâche a été importée est commenté, avec les identifiants existants du projet. Ces paramètres sont stockés uniquement dans les paramètres de cette application et sont désactivés par défaut."
     }
   },
   "actions": {

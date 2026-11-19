@@ -29,7 +29,7 @@ import type {
 } from './project';
 import type { PRFeedbackResult, StartPRFollowUpResult } from './pr-feedback';
 import type { TaskRunMetrics, ProjectRunMetrics } from './run-metrics';
-import type { TaskQueueState } from './task-queue';
+import type { TaskQueueState, DaemonStopResultEvent } from './task-queue';
 import type { ScreenshotSource } from './screenshot';
 import type {
   Task,
@@ -158,7 +158,12 @@ import type {
   AzureDevOpsPullRequest,
   AzureDevOpsPRReviewProgress,
   AzureDevOpsPostReviewOptions,
-  AzureDevOpsPostReviewResult
+  AzureDevOpsPostReviewResult,
+  AzureBoardsSavedQuery,
+  AzureBoardsMetadata,
+  AzureBoardsQueryRequest,
+  AzureBoardsQueryResult,
+  AzureBoardsImportResult
 } from './integrations';
 import type { PRReviewResult } from './pr-review';
 import type {
@@ -276,6 +281,8 @@ export interface ElectronAPI extends ScheduleAPI {
   onTaskExecutionProgress: (callback: (taskId: string, progress: ExecutionProgress, projectId?: string) => void) => () => void;
   getTaskQueueState: (projectId: string) => Promise<IPCResult<TaskQueueState>>;
   onTaskQueueStateChange: (callback: (state: TaskQueueState) => void) => () => void;
+  daemonStopTask: (taskId: string) => Promise<IPCResult>;
+  onDaemonStopResult: (callback: (event: DaemonStopResultEvent) => void) => () => void;
 
   // Terminal operations
   createTerminal: (options: TerminalCreateOptions) => Promise<IPCResult>;
@@ -636,6 +643,19 @@ export interface ElectronAPI extends ScheduleAPI {
   onBitbucketPRLogsUpdated: (
     callback: (projectId: string, data: PRLogsUpdatedPayload) => void
   ) => () => void;
+
+  // Azure Boards integration operations
+  getAzureBoardsSavedQueries: (projectId: string) => Promise<IPCResult<AzureBoardsSavedQuery[]>>;
+  getAzureBoardsMetadata: (projectId: string) => Promise<IPCResult<AzureBoardsMetadata>>;
+  queryAzureBoardsWorkItems: (
+    projectId: string,
+    request: AzureBoardsQueryRequest
+  ) => Promise<IPCResult<AzureBoardsQueryResult>>;
+  importAzureBoardsWorkItems: (
+    projectId: string,
+    ids: number[],
+    allowDuplicates?: boolean
+  ) => Promise<IPCResult<AzureBoardsImportResult>>;
 
   // Azure DevOps integration operations
   checkAzureDevOpsConnection: (projectId: string) => Promise<IPCResult<AzureDevOpsSyncStatus>>;

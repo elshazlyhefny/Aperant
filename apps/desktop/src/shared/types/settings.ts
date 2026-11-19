@@ -266,9 +266,13 @@ export interface JiraWritebackSettings {
   transitionStatusName: string;
 }
 
-export type IssueWritebackProviderKey = 'github' | 'gitlab' | 'linear';
+export type IssueWritebackProviderKey = 'github' | 'gitlab' | 'linear' | 'azureboards';
 
 export interface IssueWritebackSettings extends Record<IssueWritebackProviderKey, boolean> {
+  /** Move the Azure Boards work item to a named state when the task reaches review. */
+  azureBoardsTransitionOnReview: boolean;
+  /** Name of the Azure Boards work item state to move to. */
+  azureBoardsTransitionStateName: string;
   /** Move the Linear issue to a named workflow state when the task reaches review. */
   linearTransitionOnReview: boolean;
   /** Name of the Linear workflow state to move to. */

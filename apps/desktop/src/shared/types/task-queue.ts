@@ -9,4 +9,14 @@ export interface TaskQueueState {
   skippedTaskIds: string[];
   /** Set when another process (the daemon) runs this project's queue, so the desktop does not promote */
   lockedBy?: string;
+  /** zeenha fork: ids the daemon reports running; only set together with lockedBy */
+  lockedTaskIds?: string[];
+}
+
+/** zeenha fork: main -> renderer outcome of a daemon stop request that did not take effect. */
+export interface DaemonStopResultEvent {
+  taskId: string;
+  projectId: string;
+  state: 'failed';
+  reason: 'daemon-released' | 'timeout' | 'not-running-on-daemon' | 'no-daemon' | 'invalid-task';
 }

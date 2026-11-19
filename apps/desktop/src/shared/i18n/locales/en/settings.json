@@ -393,7 +393,7 @@
     },
     "issueWriteback": {
       "title": "Issue write-back",
-      "description": "Report a task's outcome back to the issue it was imported from. Off by default.",
+      "description": "Report a task's outcome back to the GitHub, GitLab, Linear or Azure Boards item it was imported from. Off by default.",
       "github": "GitHub issues",
       "githubDescription": "Comment on the originating GitHub issue when a task finishes",
       "gitlab": "GitLab issues",
@@ -404,7 +404,13 @@
       "linearTransitionOnReviewDescription": "Move the Linear issue to the workflow state below when the task is ready for review. If no workflow state has that name, nothing happens.",
       "linearStateNameLabel": "Target workflow state name",
       "linearStateNamePlaceholder": "In Review",
-      "note": "Only the one issue the task was imported from is commented on, using the project's existing credentials. These settings are stored only in this app's settings and are off by default."
+      "azureboards": "Azure Boards work items",
+      "azureboardsDescription": "Comment on the originating Azure Boards work item when a task finishes",
+      "azureBoardsTransitionOnReview": "Move work item when ready for review",
+      "azureBoardsTransitionOnReviewDescription": "Move the Azure Boards work item to the state below when the task is ready for review. If the state is not valid for the work item, it is logged and nothing else happens.",
+      "azureBoardsStateNameLabel": "Target state name",
+      "azureBoardsStateNamePlaceholder": "Resolved",
+      "note": "Only the one issue or work item the task was imported from is commented on, using the project's existing credentials. These settings are stored only in this app's settings and are off by default."
     }
   },
   "actions": {

@@ -1,6 +1,6 @@
 # Issue Write-Back
 
-Aperant can post a short comment on the issue a task was imported from when the task is ready for review, fails, or is blocked. It works for GitHub, GitLab, Linear and Jira issues. For Jira it can also move the issue to another status. This guide covers which tasks qualify, how to turn it on, the exact comment text, which credentials are used, and how delivery behaves.
+Aperant can post a short comment on the issue a task was imported from when the task is ready for review, fails, or is blocked. It works for GitHub, GitLab, Linear, Jira and Azure Boards issues. For Jira it can also move the issue to another status, and for Azure Boards it can move the work item to another state. This guide covers which tasks qualify, how to turn it on, the exact comment text, which credentials are used, and how delivery behaves.
 
 > **Warning:** Nothing is posted unless you turn it on. Every switch is off by default, except Jira's **Post a comment**, which does nothing until **Enable Jira write-back** is on. Issue trackers are usually shared, so a comment is visible to everyone who can read the issue. The comment is posted with the project's own import credentials (see [Credentials and logging](#credentials-and-logging)).
 
@@ -14,6 +14,7 @@ Only tasks that were imported from an issue get a comment. Aperant reads the `so
 | `gitlab` | GitLab |
 | `linear` | Linear |
 | `jira` | Jira |
+| `azure_boards` | Azure Boards |
 
 Bitbucket Cloud issues are not supported. Aperant cannot import issues from Bitbucket, so no task has a Bitbucket issue to comment on, and Bitbucket's built-in issue tracker is per repository and often switched off. If your team uses Bitbucket for code and Jira for tracking, the outcome comment goes on the task's Jira ticket (see the Jira rows above and below).
 
@@ -27,6 +28,7 @@ Each provider also has guards. All of them must hold, or nothing is posted:
 | GitLab | `gitlabIssueIid`, a positive integer, and `gitlabUrl` | The URL must be on the same host as the project's configured GitLab instance. |
 | Linear | `linearIssueId`: letters, digits, `_` and `-`, up to 100 characters | The project needs a `LINEAR_API_KEY`. |
 | Jira | `jiraIssueKey`, a valid issue key, and `jiraSiteUrl` | The site must equal the project's configured Jira site. |
+| Azure Boards | `azureBoardsWorkItemId`, a positive integer, `azureBoardsOrganization` and `azureBoardsProject` | The organization and project must equal `AZURE_DEVOPS_ORGANIZATION` and `AZURE_DEVOPS_PROJECT` (compared case-insensitively). |
 
 A task imported while the project pointed at a different repository, instance or site than it does now is skipped.
 
@@ -54,6 +56,7 @@ Open **Settings > App Settings > Notifications**. The write-back blocks are belo
 | **GitHub issues** | Off |
 | **GitLab issues** | Off |
 | **Linear issues** | Off |
+| **Azure Boards work items** | Off |
 
 **Jira write-back** has its own block:
 
@@ -63,6 +66,18 @@ Open **Settings > App Settings > Notifications**. The write-back blocks are belo
 | **Post a comment** | On | Posts the comment. It matters only once Jira write-back is enabled. |
 | **Move issue when ready for review** | Off | Moves the issue to the status named below. |
 | **Target status name** | `In Review` | The status to move to. It can be edited only while the move switch is on. |
+
+**Azure Boards work items** is a switch in the same block, off by default. It has its own move controls:
+
+| Control | Default | Effect |
+|---------|---------|--------|
+| **Move work item when ready for review** | Off | Moves the work item to the state named below. |
+| **Target state name** | `Resolved` | The state to move to. |
+
+Azure Boards move rules:
+
+- The move happens only on `review_ready`, and only when the state name is not empty.
+- If Azure Boards does not know the state, or the work item's process does not allow the change, the failure is logged as `[IssueWriteback] azureboards transition failed event=... issue=#<id> reason=...`. The comment and the task are not affected.
 
 Jira move rules:
 
@@ -109,7 +124,7 @@ Aperant: task failed.
 Task: Add login page
 ```
 
-What is not included: error text, file paths, branch names, code, logs and task ids. The text is the same for every provider, Jira included.
+What is not included: error text, file paths, branch names, code, logs and task ids. The text is the same for every provider, Jira included. Azure Boards HTML-escapes the comment, so the text may show escaped characters in the work item discussion.
 
 ## Why PR opened is webhook-only
 
@@ -125,10 +140,11 @@ Write-back reuses the credentials the project already uses to import issues, fro
 | GitLab | `GITLAB_TOKEN` and the configured project and instance URL |
 | Linear | `LINEAR_API_KEY` |
 | Jira | `JIRA_SITE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN` |
+| Azure Boards | `AZURE_DEVOPS_ORGANIZATION`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_REPOSITORY` and `AZURE_DEVOPS_PAT` |
 
 See [Per-Project Configuration](project-configuration.md), in particular the [Jira](project-configuration.md#jira) section and [Secrets](project-configuration.md#secrets). No extra credentials are requested.
 
-The token must be allowed to comment on issues. For Jira, moving an issue also needs permission to transition it. The comment appears under the account that owns the token, so teammates see it as posted by that user.
+The token must be allowed to comment on issues. For Jira, moving an issue also needs permission to transition it. The Azure DevOps PAT needs the Work Items (Read & write) scope, which is more than the scopes needed for pull requests. The comment appears under the account that owns the token, so teammates see it as posted by that user.
 
 Logging:
 
@@ -139,9 +155,10 @@ Logging:
 [IssueWriteback] <provider> comment failed event=<event> issue=<ref> reason=<...>
 [JiraWriteback] comment failed event=<event> issue=<key> reason=<...>
 [JiraWriteback] transition failed event=<event> issue=<key> reason=<...>
+[IssueWriteback] azureboards transition failed event=<event> issue=#<id> reason=<...>
 ```
 
-For GitHub and GitLab the issue reference is `#<number>`. For Linear it is the issue id. For Jira it is the issue key.
+For GitHub, GitLab and Azure Boards the issue reference is `#<number>`. For Linear it is the issue id. For Jira it is the issue key.
 
 ## Delivery
 
@@ -149,7 +166,7 @@ For GitHub and GitLab the issue reference is `#<number>`. For Linear it is the i
 - There is one attempt. There is no retry and no queue. A comment that fails is dropped.
 - It never changes a task's status and never blocks the app.
 - Errors are swallowed on purpose, so task flow is never affected. The app shows no message in the UI when a comment fails. The only trace is the warning line in the app log.
-- The headless commands (`cli.js run` and `cli.js serve`) do not post issue comments. Write-back is called only from the desktop app.
+- The headless commands (`cli.js run` and `cli.js serve`) also post issue comments, when their `--config` file turns write-back on. See [CLI-USAGE.md](CLI-USAGE.md).
 
 ## Troubleshooting
 
@@ -162,6 +179,8 @@ For GitHub and GitLab the issue reference is `#<number>`. For Linear it is the i
 | No comment on an imported task | The task was imported from a repository, instance or site other than the project's current configuration. | Point the project back at the original repository, instance or site, or accept that the task is skipped. |
 | No comment, and a warning line in the app log | Credentials are missing, or the token cannot comment on the issue. | Check the keys in `.auto-claude/.env` and the token's permissions. Read the `reason=` in the log line. |
 | Jira comment appears but the issue does not move | The target status name matches no transition available to the issue right now. Nothing is logged for this case. | Use a status name the issue can reach from its current status, and check the spelling. |
+| Azure Boards comment fails with an authorization error | The PAT lacks the Work Items (Read & write) scope. | Create a PAT with that scope and update `AZURE_DEVOPS_PAT`. |
+| Azure Boards comment appears but the work item does not move | The target state is unknown or not allowed for the work item type. A `transition failed` line is in the app log. | Use a state the work item can reach, and check the spelling. |
 | No comment when the PR is opened | `pr_opened` is webhook-only. | Expect the comment when the task is ready for review. The link is in that comment. |
 
 What to check first: the toggle, then the task's metadata, then the credentials, then the app log.

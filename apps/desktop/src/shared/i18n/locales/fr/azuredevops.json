@@ -110,5 +110,69 @@
         "post": "Échec de la publication : {{error}}"
       }
     }
+  },
+  "boards": {
+    "title": "Importer des éléments de travail Azure Boards",
+    "description": "Choisissez des éléments de travail Azure Boards et importez-les comme tâches.",
+    "queryMode": {
+      "filter": "Filtre",
+      "saved": "Requête enregistrée",
+      "label": "Mode de requête"
+    },
+    "areaPath": {
+      "label": "Chemin de zone",
+      "placeholder": "Chemin de zone, ex. MonProjet\\Equipe"
+    },
+    "states": {
+      "label": "États",
+      "all": "Tous les états"
+    },
+    "types": {
+      "label": "Types d'éléments de travail",
+      "all": "Tous les types"
+    },
+    "savedQuery": {
+      "label": "Requête enregistrée",
+      "placeholder": "Sélectionner une requête enregistrée"
+    },
+    "run": "Lancer la requête",
+    "results": "Éléments de travail",
+    "selectAll": "Tout sélectionner",
+    "deselectAll": "Tout désélectionner",
+    "selectedCount_one": "{{count}} sélectionné",
+    "selectedCount_other": "{{count}} sélectionnés",
+    "importButton_one": "Importer {{count}} élément de travail",
+    "importButton_other": "Importer {{count}} éléments de travail",
+    "importing": "Importation...",
+    "done": "Terminé",
+    "cancel": "Annuler",
+    "alreadyImported": "Déjà importé",
+    "unassigned": "Non assigné",
+    "duplicateWarning": {
+      "title": "Certains éléments de travail ont déjà été importés",
+      "body_one": "{{count}} élément de travail sélectionné a déjà été importé. Le réimporter crée une tâche en double.",
+      "body_other": "{{count}} éléments de travail sélectionnés ont déjà été importés. Les réimporter crée des tâches en double.",
+      "confirm": "Importer quand même",
+      "skip": "Ignorer les doublons"
+    },
+    "successImported_one": "{{count}} élément de travail importé",
+    "successImported_other": "{{count}} éléments de travail importés",
+    "skippedDuplicates_one": "{{count}} doublon ignoré",
+    "skippedDuplicates_other": "{{count}} doublons ignorés",
+    "partialFailure": "Certains éléments de travail n'ont pas pu être importés :",
+    "truncated": "Affichage de {{shown}} éléments sur {{total}}. Affinez la requête pour voir le reste.",
+    "empty": "Aucun élément de travail ne correspond à cette requête.",
+    "notRun": "Lancez une requête pour lister les éléments de travail.",
+    "loading": "Chargement des éléments de travail...",
+    "errors": {
+      "loadMetadata": "Échec du chargement des filtres Azure Boards",
+      "loadQueries": "Échec du chargement des requêtes enregistrées",
+      "query": "Échec de l'exécution de la requête",
+      "import": "Échec de l'importation des éléments de travail"
+    },
+    "keyboardHint": "Flèches pour naviguer, Espace pour sélectionner, Ctrl+A pour tout sélectionner, Entrée pour importer.",
+    "settings": {
+      "importButton": "Importer depuis Azure Boards"
+    }
   }
 }

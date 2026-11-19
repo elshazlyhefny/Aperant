@@ -17,10 +17,12 @@ to the registry here. They never name a provider.
   (`resolvePR`), loads CI and review feedback (`loadFeedback`) and has a
   `notConfiguredMessage`.
 - `Forge`: a `PRHost` that is also an `OutcomeWriter` (GitHub, GitLab).
-  Bitbucket and Azure DevOps are `PRHost` only: they have PR feedback but no
+  Bitbucket and Azure DevOps PRs are `PRHost` only: they have PR feedback but no
   issue writeback, so the registry does not list them as writers (see
   [Not planned: Bitbucket issue writeback](#not-planned-bitbucket-issue-writeback)).
-- Linear and Jira are writeback-only trackers (`OutcomeWriter` only, no PRs).
+- Linear, Jira and Azure Boards are writeback-only trackers (`OutcomeWriter` only,
+  no PRs). Azure Boards (`azureboards-writer.ts`, `sourceType` `azure_boards`)
+  has its toggle and state-transition settings in `IssueWritebackSettings`.
 
 ## Not planned: Bitbucket issue writeback
 
@@ -38,7 +40,8 @@ in the extra writers list.
 
 ## Electron-free writers
 
-`github-writer.ts`, `gitlab-writer.ts`, `linear-writer.ts` and `jira-writer.ts`
+`github-writer.ts`, `gitlab-writer.ts`, `linear-writer.ts`, `jira-writer.ts` and
+`azureboards-writer.ts`
 hold the outcome writers without importing Electron. `github-forge.ts` /
 `gitlab-forge.ts` build their `postOutcome` from the factories with the desktop
 config resolvers (gh/glab token fallback), and `jira/jira-writeback.ts` builds

@@ -1,7 +1,7 @@
 // zeenha fork: Azure DevOps project settings section, not present upstream.
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Eye, EyeOff, GitBranch, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Download, Eye, EyeOff, GitBranch, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { Switch } from '../../ui/switch';
@@ -17,6 +17,7 @@ interface AzureDevOpsIntegrationProps {
   setShowAzureDevOpsPat: React.Dispatch<React.SetStateAction<boolean>>;
   azureDevOpsConnectionStatus: AzureDevOpsSyncStatus | null;
   isCheckingAzureDevOps: boolean;
+  onOpenAzureBoardsImport?: () => void;
 }
 
 /**
@@ -29,7 +30,8 @@ export function AzureDevOpsIntegration({
   showAzureDevOpsPat,
   setShowAzureDevOpsPat,
   azureDevOpsConnectionStatus,
-  isCheckingAzureDevOps
+  isCheckingAzureDevOps,
+  onOpenAzureBoardsImport
 }: AzureDevOpsIntegrationProps) {
   const { t } = useTranslation('azuredevops');
   const [isDetecting, setIsDetecting] = useState(false);
@@ -168,6 +170,16 @@ export function AzureDevOpsIntegration({
               <AlertCircle className="h-4 w-4 text-destructive" />
             ) : null}
           </div>
+
+          {azureDevOpsConnectionStatus?.connected && onOpenAzureBoardsImport && (
+            <>
+              <Separator />
+              <Button type="button" variant="outline" onClick={onOpenAzureBoardsImport}>
+                <Download className="h-4 w-4 mr-2" />
+                {t('boards.settings.importButton')}
+              </Button>
+            </>
+          )}
         </>
       )}
     </div>
