@@ -2,7 +2,7 @@
  * Tests for profile-service.ts
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   validateBaseUrl,
   validateApiKey,
@@ -15,69 +15,31 @@ import {
 } from './profile-service';
 import type { ProfilesFile, } from '@shared/types/profile';
 
-// Mock Anthropic SDK - use vi.hoisted to properly hoist the mock variable
-const { mockModelsList, mockMessagesCreate } = vi.hoisted(() => ({
-  mockModelsList: vi.fn(),
-  mockMessagesCreate: vi.fn()
-}));
+const mockFetch = vi.fn();
 
-vi.mock('@anthropic-ai/sdk', () => {
-  // Create mock error classes
-  class APIError extends Error {
-    status: number;
-    constructor(message: string, status: number) {
-      super(message);
-      this.name = 'APIError';
-      this.status = status;
-    }
-  }
-  class AuthenticationError extends APIError {
-    constructor(message: string) {
-      super(message, 401);
-      this.name = 'AuthenticationError';
-    }
-  }
-  class NotFoundError extends APIError {
-    constructor(message: string) {
-      super(message, 404);
-      this.name = 'NotFoundError';
-    }
-  }
-  class APIConnectionError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = 'APIConnectionError';
-    }
-  }
-  class APIConnectionTimeoutError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = 'APIConnectionTimeoutError';
-    }
-  }
-  class BadRequestError extends APIError {
-    constructor(message: string) {
-      super(message, 400);
-      this.name = 'BadRequestError';
-    }
-  }
+/** Build a JSON Response for the fetch mock */
+const jsonResponse = (body: unknown, status = 200): Response =>
+  new Response(JSON.stringify(body), { status });
 
-  return {
-    default: class Anthropic {
-      models = {
-        list: mockModelsList
-      };
-      messages = {
-        create: mockMessagesCreate
-      };
-    },
-    APIError,
-    AuthenticationError,
-    NotFoundError,
-    APIConnectionError,
-    APIConnectionTimeoutError,
-    BadRequestError
-  };
+/** fetch mock that never resolves and rejects with an abort error when its signal aborts */
+const abortableFetch = (_url: string, init: RequestInit): Promise<Response> =>
+  new Promise((_resolve, reject) => {
+    const signal = init.signal as AbortSignal;
+    const onAbort = () => reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', mockFetch);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 // Mock api-profile-store
@@ -899,74 +861,105 @@ describe('profile-service', () => {
   });
 
   describe('testConnection', () => {
+    const KEY = 'sk-ant-test-key-12';
+    const TIMEOUT_MESSAGE = 'Connection timeout. The endpoint did not respond.';
+    const NETWORK_MESSAGE = 'Network error. Please check your internet connection.';
+    const AUTH_MESSAGE = 'Authentication failed. Please check your API key.';
+    const UNKNOWN_MESSAGE = 'Connection test failed. Please try again.';
+
     beforeEach(() => {
-      mockModelsList.mockReset();
-      mockMessagesCreate.mockReset();
+      mockFetch.mockReset();
     });
 
-    // Helper to create mock errors with proper name property
-    const createMockError = (name: string, message: string) => {
-      const error = new Error(message);
-      error.name = name;
-      return error;
-    };
-
     it('should return success for valid credentials (200 response)', async () => {
-      mockModelsList.mockResolvedValue({ data: [] });
+      mockFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
 
-      const result = await testConnection('https://api.anthropic.com', 'sk-ant-test-key-12');
+      const result = await testConnection('https://api.anthropic.com', KEY);
 
-      expect(result).toEqual({
-        success: true,
-        message: 'Connection successful'
-      });
+      expect(result).toEqual({ success: true, message: 'Connection successful' });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('should send GET /v1/models?limit=1 with x-api-key and anthropic-version headers and no Authorization', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+      await testConnection('https://api.anthropic.com/', KEY);
+
+      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://api.anthropic.com/v1/models?limit=1');
+      expect(init.method).toBe('GET');
+      const headers = init.headers as Record<string, string>;
+      expect(headers['x-api-key']).toBe(KEY);
+      expect(headers['anthropic-version']).toBe('2023-06-01');
+      expect(Object.keys(headers).map((h) => h.toLowerCase())).not.toContain('authorization');
+      expect(init.signal).toBeInstanceOf(AbortSignal);
     });
 
     it('should return auth error for invalid API key (401 response)', async () => {
-      mockModelsList.mockRejectedValue(createMockError('AuthenticationError', 'Unauthorized'));
+      mockFetch.mockResolvedValueOnce(jsonResponse({}, 401));
 
       const result = await testConnection('https://api.anthropic.com', 'sk-invalid-key-12');
 
-      expect(result).toEqual({
-        success: false,
-        errorType: 'auth',
-        message: 'Authentication failed. Please check your API key.'
-      });
+      expect(result).toEqual({ success: false, errorType: 'auth', message: AUTH_MESSAGE });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
     it('should return network error for connection refused', async () => {
-      mockModelsList.mockRejectedValue(createMockError('APIConnectionError', 'ECONNREFUSED'));
+      mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'));
 
       const result = await testConnection('https://unreachable.example.com', 'sk-test-key-12chars');
 
-      expect(result).toEqual({
-        success: false,
-        errorType: 'network',
-        message: 'Network error. Please check your internet connection.'
-      });
+      expect(result).toEqual({ success: false, errorType: 'network', message: NETWORK_MESSAGE });
     });
 
-    it('should return timeout error for AbortError', async () => {
-      mockModelsList.mockRejectedValue(createMockError('APIConnectionTimeoutError', 'Timeout'));
+    it('should return timeout error when the 10 s timeout fires', async () => {
+      const timeoutController = new AbortController();
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timeoutController.signal);
+      mockFetch.mockImplementationOnce(abortableFetch);
 
-      const result = await testConnection('https://slow.example.com', 'sk-test-key-12chars');
+      const pending = testConnection('https://slow.example.com', 'sk-test-key-12chars');
+      timeoutController.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+      const result = await pending;
 
-      expect(result).toEqual({
-        success: false,
-        errorType: 'timeout',
-        message: 'Connection timeout. The endpoint did not respond.'
+      expect(timeoutSpy).toHaveBeenCalledWith(10000);
+      expect(result).toEqual({ success: false, errorType: 'timeout', message: TIMEOUT_MESSAGE });
+      timeoutSpy.mockRestore();
+    });
+
+    it('should return timeout error and not call fetch when the signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      const result = await testConnection('https://api.anthropic.com', KEY, controller.signal);
+
+      expect(result).toEqual({ success: false, errorType: 'timeout', message: TIMEOUT_MESSAGE });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should return unknown error when the caller aborts mid-flight and pass a linked signal to fetch', async () => {
+      const controller = new AbortController();
+      let fetchSignal: AbortSignal | undefined;
+      mockFetch.mockImplementationOnce((url: string, init: RequestInit) => {
+        fetchSignal = init.signal as AbortSignal;
+        return abortableFetch(url, init);
       });
+
+      const pending = testConnection('https://api.anthropic.com', KEY, controller.signal);
+      expect(fetchSignal?.aborted).toBe(false);
+      controller.abort();
+      const result = await pending;
+
+      expect(fetchSignal?.aborted).toBe(true);
+      expect(result).toEqual({ success: false, errorType: 'unknown', message: UNKNOWN_MESSAGE });
     });
 
     it('should auto-prepend https:// if missing', async () => {
-      mockModelsList.mockResolvedValue({ data: [] });
+      mockFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
 
       const result = await testConnection('api.anthropic.com', 'sk-test-key-12chars');
 
-      expect(result).toEqual({
-        success: true,
-        message: 'Connection successful'
-      });
+      expect(result).toEqual({ success: true, message: 'Connection successful' });
+      expect(mockFetch.mock.calls[0][0]).toBe('https://api.anthropic.com/v1/models?limit=1');
     });
 
     it('should return error for empty baseUrl', async () => {
@@ -977,42 +970,112 @@ describe('profile-service', () => {
         errorType: 'endpoint',
         message: 'Invalid endpoint. Please check the Base URL.'
       });
-      expect(mockModelsList).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should return error for invalid API key format', async () => {
       const result = await testConnection('https://api.anthropic.com', 'short');
 
-      expect(result).toEqual({
-        success: false,
-        errorType: 'auth',
-        message: 'Authentication failed. Please check your API key.'
+      expect(result).toEqual({ success: false, errorType: 'auth', message: AUTH_MESSAGE });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    describe('/v1/messages fallback after 404 on /v1/models', () => {
+      it.each([400, 422, 200])('should succeed when /v1/messages returns %i', async (status) => {
+        mockFetch
+          .mockResolvedValueOnce(jsonResponse({}, 404))
+          .mockResolvedValueOnce(jsonResponse({}, status));
+
+        const result = await testConnection('https://api.minimax.example.com', KEY);
+
+        expect(result).toEqual({ success: true, message: 'Connection successful' });
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        const [url, init] = mockFetch.mock.calls[1] as [string, RequestInit];
+        expect(url).toBe('https://api.minimax.example.com/v1/messages');
+        expect(init.method).toBe('POST');
+        const headers = init.headers as Record<string, string>;
+        expect(headers['x-api-key']).toBe(KEY);
+        expect(headers['anthropic-version']).toBe('2023-06-01');
       });
-      expect(mockModelsList).not.toHaveBeenCalled();
+
+      it('should return auth error when /v1/messages returns 401', async () => {
+        mockFetch
+          .mockResolvedValueOnce(jsonResponse({}, 404))
+          .mockResolvedValueOnce(jsonResponse({}, 401));
+
+        const result = await testConnection('https://api.example.com', KEY);
+
+        expect(result).toEqual({ success: false, errorType: 'auth', message: AUTH_MESSAGE });
+      });
+
+      it('should return endpoint error with URL suggestion when both endpoints return 404', async () => {
+        mockFetch
+          .mockResolvedValueOnce(jsonResponse({}, 404))
+          .mockResolvedValueOnce(jsonResponse({}, 404));
+
+        const result = await testConnection('https://a.io', KEY);
+
+        expect(result).toEqual({
+          success: false,
+          errorType: 'endpoint',
+          message: 'Invalid endpoint. Please check the Base URL. Check for typos in domain name'
+        });
+      });
+
+      it('should return plain endpoint error when both 404 and the URL has no suggestions', async () => {
+        mockFetch
+          .mockResolvedValueOnce(jsonResponse({}, 404))
+          .mockResolvedValueOnce(jsonResponse({}, 404));
+
+        const result = await testConnection('https://api.example-gateway.com', KEY);
+
+        expect(result).toEqual({
+          success: false,
+          errorType: 'endpoint',
+          message: 'Invalid endpoint. Please check the Base URL.'
+        });
+      });
+
+      it('should return network error when /v1/messages request fails', async () => {
+        mockFetch
+          .mockResolvedValueOnce(jsonResponse({}, 404))
+          .mockRejectedValueOnce(new TypeError('fetch failed'));
+
+        const result = await testConnection('https://api.example.com', KEY);
+
+        expect(result).toEqual({ success: false, errorType: 'network', message: NETWORK_MESSAGE });
+      });
+    });
+
+    it.each([403, 429, 500])('should return unknown error for %i response', async (status) => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({}, status));
+
+      const result = await testConnection('https://api.anthropic.com', KEY);
+
+      expect(result).toEqual({ success: false, errorType: 'unknown', message: UNKNOWN_MESSAGE });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('discoverModels', () => {
+    const KEY = 'sk-ant-test-key-12';
+
     beforeEach(() => {
-      mockModelsList.mockReset();
+      mockFetch.mockReset();
     });
 
-    // Helper to create mock errors with proper name property
-    const createMockError = (name: string, message: string) => {
-      const error = new Error(message);
-      error.name = name;
-      return error;
-    };
+    const catchError = async (promise: Promise<unknown>) =>
+      (await promise.catch((e) => e)) as Error & { errorType?: string };
 
     it('should return list of models for successful response', async () => {
-      mockModelsList.mockResolvedValue({
+      mockFetch.mockResolvedValueOnce(jsonResponse({
         data: [
           { id: 'claude-sonnet-4-5-20250929', display_name: 'Claude Sonnet 4.5', created_at: '2024-10-22', type: 'model' },
           { id: 'claude-haiku-4-5-20251001', display_name: 'Claude Haiku 4.5', created_at: '2024-10-22', type: 'model' }
         ]
-      });
+      }));
 
-      const result = await discoverModels('https://api.anthropic.com', 'sk-ant-test-key-12');
+      const result = await discoverModels('https://api.anthropic.com', KEY);
 
       expect(result).toEqual({
         models: [
@@ -1022,32 +1085,139 @@ describe('profile-service', () => {
       });
     });
 
-    it('should throw auth error for 401 response', async () => {
-      mockModelsList.mockRejectedValue(createMockError('AuthenticationError', 'Unauthorized'));
+    it('should request ?limit=1000 with x-api-key and anthropic-version headers', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
 
-      const error = await discoverModels('https://api.anthropic.com', 'sk-invalid-key')
-        .catch(e => e);
+      await discoverModels('https://api.anthropic.com/', KEY);
+
+      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://api.anthropic.com/v1/models?limit=1000');
+      expect(init.method).toBe('GET');
+      const headers = init.headers as Record<string, string>;
+      expect(headers['x-api-key']).toBe(KEY);
+      expect(headers['anthropic-version']).toBe('2023-06-01');
+      expect(Object.keys(headers).map((h) => h.toLowerCase())).not.toContain('authorization');
+    });
+
+    it('should fall back to id when display_name is missing and drop entries with empty id', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({
+        data: [
+          { id: 'model-a' },
+          { id: '', display_name: 'No Id' },
+          { display_name: 'Missing Id' },
+          { id: 'model-b', display_name: 'Model B' }
+        ]
+      }));
+
+      const result = await discoverModels('https://api.anthropic.com', KEY);
+
+      expect(result).toEqual({
+        models: [
+          { id: 'model-a', display_name: 'model-a' },
+          { id: 'model-b', display_name: 'Model B' }
+        ]
+      });
+    });
+
+    it('should throw auth error for 401 response', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({}, 401));
+
+      const error = await catchError(discoverModels('https://api.anthropic.com', 'sk-invalid-key'));
 
       expect(error).toBeInstanceOf(Error);
-      expect((error as Error & { errorType?: string }).errorType).toBe('auth');
+      expect(error.errorType).toBe('auth');
+      expect(error.message).toBe('Authentication failed. Please check your API key.');
     });
 
     it('should throw not_supported error for 404 response', async () => {
-      mockModelsList.mockRejectedValue(createMockError('NotFoundError', 'Not Found'));
+      mockFetch.mockResolvedValueOnce(jsonResponse({}, 404));
 
-      const error = await discoverModels('https://custom-api.com', 'sk-test-key-12345678')
-        .catch(e => e);
+      const error = await catchError(discoverModels('https://custom-api.com', 'sk-test-key-12345678'));
 
       expect(error).toBeInstanceOf(Error);
-      expect((error as Error & { errorType?: string }).errorType).toBe('not_supported');
+      expect(error.errorType).toBe('not_supported');
+      expect(error.message).toBe(
+        'This API endpoint does not support model listing. Please enter the model name manually.'
+      );
+    });
+
+    it('should throw network error when fetch fails', async () => {
+      mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+      const error = await catchError(discoverModels('https://api.anthropic.com', KEY));
+
+      expect(error.errorType).toBe('network');
+      expect(error.message).toBe('Network error. Please check your internet connection.');
+    });
+
+    it('should throw timeout error when the 10 s timeout fires', async () => {
+      const timeoutController = new AbortController();
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timeoutController.signal);
+      mockFetch.mockImplementationOnce(abortableFetch);
+
+      const pending = catchError(discoverModels('https://slow.example.com', KEY));
+      timeoutController.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+      const error = await pending;
+
+      expect(timeoutSpy).toHaveBeenCalledWith(10000);
+      expect(error.errorType).toBe('timeout');
+      expect(error.message).toBe('Connection timeout. The endpoint did not respond.');
+      timeoutSpy.mockRestore();
+    });
+
+    it('should throw unknown error for 500 response', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({}, 500));
+
+      const error = await catchError(discoverModels('https://api.anthropic.com', KEY));
+
+      expect(error.errorType).toBe('unknown');
+      expect(error.message).toBe('Connection test failed. Please try again.');
+    });
+
+    it('should throw unknown error for invalid JSON body', async () => {
+      mockFetch.mockResolvedValueOnce(new Response('not json', { status: 200 }));
+
+      const error = await catchError(discoverModels('https://api.anthropic.com', KEY));
+
+      expect(error.errorType).toBe('unknown');
+      expect(error.message).toBe('Connection test failed. Please try again.');
+    });
+
+    it('should throw timeout error without calling fetch when the signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      const error = await catchError(discoverModels('https://api.anthropic.com', KEY, controller.signal));
+
+      expect(error.errorType).toBe('timeout');
+      expect(error.message).toBe('Connection timeout. The endpoint did not respond.');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('should propagate aborting the caller signal to fetch', async () => {
+      const controller = new AbortController();
+      let fetchSignal: AbortSignal | undefined;
+      mockFetch.mockImplementationOnce((url: string, init: RequestInit) => {
+        fetchSignal = init.signal as AbortSignal;
+        return abortableFetch(url, init);
+      });
+
+      const pending = catchError(discoverModels('https://api.anthropic.com', KEY, controller.signal));
+      expect(fetchSignal?.aborted).toBe(false);
+      controller.abort();
+      const error = await pending;
+
+      expect(fetchSignal?.aborted).toBe(true);
+      expect(error.errorType).toBe('unknown');
     });
 
     it('should auto-prepend https:// if missing', async () => {
-      mockModelsList.mockResolvedValue({ data: [] });
+      mockFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
 
       const result = await discoverModels('api.anthropic.com', 'sk-test-key-12chars');
 
       expect(result).toEqual({ models: [] });
+      expect(mockFetch.mock.calls[0][0]).toBe('https://api.anthropic.com/v1/models?limit=1000');
     });
   });
 });
