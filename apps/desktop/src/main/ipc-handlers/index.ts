@@ -23,6 +23,7 @@ import { registerContextHandlers } from './context-handlers';
 import { registerEnvHandlers } from './env-handlers';
 import { registerLinearHandlers } from './linear-handlers';
 import { registerJiraHandlers } from './jira/jira-handlers';
+import { registerAzureBoardsHandlers } from './azuredevops/boards-handlers';
 import { registerGithubHandlers } from './github-handlers';
 import { registerGitlabHandlers } from './gitlab-handlers';
 import { registerBitbucketHandlers } from './bitbucket-handlers';
@@ -152,6 +153,9 @@ export function setupIpcHandlers(
   // Jira integration handlers
   registerJiraHandlers(agentManager, getMainWindow);
 
+  // Azure Boards work item import handlers
+  registerAzureBoardsHandlers(agentManager);
+
   // GitHub integration handlers
   registerGithubHandlers(agentManager, getMainWindow);
 
@@ -222,6 +226,7 @@ export {
   registerEnvHandlers,
   registerLinearHandlers,
   registerJiraHandlers,
+  registerAzureBoardsHandlers,
   registerGithubHandlers,
   registerGitlabHandlers,
   registerBitbucketHandlers,
