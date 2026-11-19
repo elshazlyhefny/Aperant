@@ -7,7 +7,7 @@ import { notConfiguredBlockedReason } from '../../../../shared/types/pr-feedback
 import { loadPRFeedback } from '../../task/pr-feedback-source';
 import { azureBoardsWriter } from '../azureboards-writer';
 import { jiraWriter } from '../../jira/jira-writeback';
-import { createForgeRegistry, getForgeForPrUrl, getOutcomeWriter } from '../registry';
+import { OUTCOME_WRITERS, createForgeRegistry, getForgeForPrUrl, getOutcomeWriter } from '../registry';
 import type { Forge } from '../types';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp', isPackaged: false, on: vi.fn() } }));
@@ -123,6 +123,21 @@ describe('getOutcomeWriter', () => {
     const registry = createForgeRegistry([], [custom]);
     expect(registry.getOutcomeWriter('custom')).toBe(custom);
     expect(registry.writers).toContain(custom);
+  });
+});
+
+describe('default registry has no Bitbucket or Azure DevOps writer', () => {
+  // Decision recorded in forge/README.md, section "Not planned: Bitbucket issue
+  // writeback". If you add Bitbucket issue import, revisit it and update this test.
+  it('only github, gitlab, linear and jira have outcome writers', () => {
+    expect(getOutcomeWriter('bitbucket')).toBeUndefined();
+    expect(getOutcomeWriter('azuredevops')).toBeUndefined();
+    expect(OUTCOME_WRITERS.map((w) => w.sourceType).sort()).toEqual([
+      'github',
+      'gitlab',
+      'jira',
+      'linear',
+    ]);
   });
 });
 
