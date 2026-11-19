@@ -619,5 +619,17 @@
       "writing": "Écriture",
       "running": "Exécution"
     }
+  },
+  "daemonStop": {
+    "stopOnDaemon": "Arrêter sur le daemon",
+    "stopping": "Arrêt sur le daemon...",
+    "pendingHint": "En attente de l'arrêt de la tâche par le daemon",
+    "errors": {
+      "noDaemon": "Aucun daemon n'est en cours d'exécution, la tâche ne peut pas être arrêtée d'ici.",
+      "notRunning": "Cette tâche ne s'exécute pas sur le daemon.",
+      "daemonReleased": "Le daemon a libéré la tâche sans l'arrêter. Vérifiez son statut.",
+      "timeout": "Le daemon n'a pas arrêté la tâche à temps. Réessayez.",
+      "generic": "Impossible d'arrêter la tâche sur le daemon. Réessayez."
+    }
   }
 }

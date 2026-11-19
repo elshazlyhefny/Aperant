@@ -48,6 +48,7 @@ import { IPC_CHANNELS } from '../../shared/constants';
 import type { IPCResult, TaskQueueState } from '../../shared/types';
 import { projectStore } from '../project-store';
 import { taskStateManager } from '../task-state-manager';
+import { registerDaemonStopHandlers } from './daemon-stop-handlers';
 import { taskQueueManager } from '../task-queue-manager';
 import { ensureQueueLock } from '../desktop-queue-lock';
 import { formatLockHolder } from '../utils/project-queue-lock';
@@ -110,6 +111,9 @@ export function setupIpcHandlers(
       }
     }
   );
+
+  // zeenha fork: stop a daemon-run task from its card
+  registerDaemonStopHandlers(getMainWindow);
 
   // Project handlers
   registerProjectHandlers(getMainWindow);

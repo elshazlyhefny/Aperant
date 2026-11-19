@@ -619,5 +619,17 @@
       "writing": "Writing",
       "running": "Running"
     }
+  },
+  "daemonStop": {
+    "stopOnDaemon": "Stop on daemon",
+    "stopping": "Stopping on daemon...",
+    "pendingHint": "Waiting for the daemon to stop this task",
+    "errors": {
+      "noDaemon": "No daemon is running, so the task cannot be stopped from here.",
+      "notRunning": "This task is not running on the daemon.",
+      "daemonReleased": "The daemon released the task without stopping it. Check its status.",
+      "timeout": "The daemon did not stop the task in time. Try again.",
+      "generic": "Could not stop the task on the daemon. Try again."
+    }
   }
 }

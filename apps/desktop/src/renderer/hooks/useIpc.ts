@@ -1,5 +1,6 @@
 import { debugLog } from '@shared/utils/debug-logger';
 import { useTaskQueueStore } from '../stores/task-queue-store';
+import { useDaemonStopStore } from '../stores/daemon-stop-store';
 import { useEffect } from 'react';
 import { unstable_batchedUpdates } from 'react-dom';
 import { useTaskStore } from '../stores/task-store';
@@ -392,6 +393,10 @@ export function useIpcListeners(): void {
     const cleanupTaskQueueState = window.electronAPI.onTaskQueueStateChange(
       (state) => useTaskQueueStore.getState().setState(state)
     );
+    // zeenha fork: surface a failed daemon stop on the task card.
+    const cleanupDaemonStopResult = window.electronAPI.onDaemonStopResult((event) => {
+      if (event.state === 'failed') useDaemonStopStore.getState().setFailed(event.taskId, event.reason);
+    });
 
     // Cleanup on unmount
     return () => {
@@ -415,6 +420,7 @@ export function useIpcListeners(): void {
       cleanupAuthFailure();
       cleanupOAuthToken();
       cleanupTaskQueueState();
+      cleanupDaemonStopResult();
     };
   }, [appendLog, setError]);
 }
