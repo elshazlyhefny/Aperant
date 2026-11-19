@@ -10,7 +10,8 @@ import { parseEnvFile } from './utils';
 import { describeProjectMcpTrust, parseSecureOrigins } from '../ai/mcp/project-settings';
 import { approveChromeExecutable, approveServer, getApprovals } from '../mcp-approval-store';
 import { isAutoBuildEnvTrackedByGit } from '../project-initializer';
-import { WEBHOOK_ENV_KEYS, parseWebhookEvents } from '../project-webhook-config';
+import { WEBHOOK_ENV_KEYS, parseWebhookEvents, parseWebhookFormat } from '../project-webhook-config';
+import { isWebhookFormat } from '../../shared/utils/webhook-format';
 import { validateWebhookUrl } from '../task-webhook';
 import { validateProjectWebhookUrl } from '../task-webhook-core';
 import { hashWebhookUrl } from '../project-webhook-approval';
@@ -223,6 +224,10 @@ export function registerEnvHandlers(
         for (const key of Object.values(WEBHOOK_ENV_KEYS)) delete existingVars[key];
       }
     }
+    if (config.webhookFormat !== undefined && existingVars[WEBHOOK_ENV_KEYS.URL]) {
+      if (isWebhookFormat(config.webhookFormat)) existingVars[WEBHOOK_ENV_KEYS.FORMAT] = config.webhookFormat;
+      else if (config.webhookFormat === 'auto') delete existingVars[WEBHOOK_ENV_KEYS.FORMAT];
+    }
     if (config.webhookEnabled !== undefined && existingVars[WEBHOOK_ENV_KEYS.URL]) {
       existingVars[WEBHOOK_ENV_KEYS.ENABLED] = config.webhookEnabled ? 'true' : 'false';
     }
@@ -403,6 +408,7 @@ ${envLine(existingVars, JIRA_ENV_KEYS.PROJECT_KEY, 'PROJ')}
 # =============================================================================
 ${existingVars[WEBHOOK_ENV_KEYS.ENABLED] !== undefined ? `${WEBHOOK_ENV_KEYS.ENABLED}=${existingVars[WEBHOOK_ENV_KEYS.ENABLED]}` : `# ${WEBHOOK_ENV_KEYS.ENABLED}=true`}
 ${envLine(existingVars, WEBHOOK_ENV_KEYS.URL, 'https://hooks.example.com/...')}
+${existingVars[WEBHOOK_ENV_KEYS.FORMAT] !== undefined ? `${WEBHOOK_ENV_KEYS.FORMAT}=${existingVars[WEBHOOK_ENV_KEYS.FORMAT]}` : `# ${WEBHOOK_ENV_KEYS.FORMAT}=slack|teams|discord`}
 ${[WEBHOOK_ENV_KEYS.EVENT_REVIEW_READY, WEBHOOK_ENV_KEYS.EVENT_FAILED, WEBHOOK_ENV_KEYS.EVENT_BLOCKED, WEBHOOK_ENV_KEYS.EVENT_PR_OPENED]
   .map((key) => (existingVars[key] !== undefined ? `${key}=${existingVars[key]}` : `# ${key}=true`))
   .join('\n')}
@@ -638,6 +644,7 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         config.webhookEnabled = vars[WEBHOOK_ENV_KEYS.ENABLED]?.trim().toLowerCase() !== 'false';
       }
       config.webhookEvents = parseWebhookEvents(vars);
+      config.webhookFormat = parseWebhookFormat(vars) ?? 'auto';
       // zeenha fork: approval state of the declared URL (hash only; refused is explained by the UI)
       const declared = vars[WEBHOOK_ENV_KEYS.URL]?.trim();
       if (declared) {

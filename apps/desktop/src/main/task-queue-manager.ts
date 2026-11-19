@@ -20,7 +20,7 @@ export interface TaskQueueDeps {
   promote: (taskId: string, projectId: string) => Promise<PromoteResult>;
   emitState?: (projectId: string, state: QueueState) => void;
   /** zeenha fork: false while another process (the daemon) holds this project's queue lock. */
-  canProcess?: (projectId: string) => { ok: true } | { ok: false; heldBy: string };
+  canProcess?: (projectId: string) => { ok: true } | { ok: false; heldBy: string; runningTaskIds?: string[] };
 }
 
 const isActive = (t: Task): boolean => !t.metadata?.archivedAt;
@@ -82,6 +82,27 @@ export class TaskQueueManager {
     };
   }
 
+  /**
+   * zeenha fork: getState plus the lock info, so a board that loads (or reloads)
+   * while the daemon runs the queue can show who holds it and which tasks it runs.
+   */
+  getStateWithLock(projectId: string): QueueState {
+    const state = this.getState(projectId);
+    try {
+      const gate = this.requireDeps().canProcess?.(projectId);
+      if (gate && !gate.ok) return this.withLock(state, gate);
+    } catch (error) {
+      appLogPort.error(`[Queue] Lock check failed for project ${projectId}:`, error);
+    }
+    return state;
+  }
+
+  private withLock(state: QueueState, gate: { heldBy: string; runningTaskIds?: string[] }): QueueState {
+    const locked: QueueState = { ...state, lockedBy: gate.heldBy };
+    if (gate.runningTaskIds && gate.runningTaskIds.length > 0) locked.lockedTaskIds = [...gate.runningTaskIds];
+    return locked;
+  }
+
   private requireDeps(): TaskQueueDeps {
     if (!this.deps) throw new Error('TaskQueueManager is not configured');
     return this.deps;
@@ -129,12 +150,10 @@ export class TaskQueueManager {
 
   private async processProject(projectId: string): Promise<void> {
     const deps = this.requireDeps();
-    let lockedBy: string | undefined;
     try {
       const gate = deps.canProcess?.(projectId);
       if (gate && !gate.ok) {
-        lockedBy = gate.heldBy;
-        deps.emitState?.(projectId, { ...this.getState(projectId), lockedBy });
+        deps.emitState?.(projectId, this.withLock(this.getState(projectId), gate));
         return;
       }
     } catch (error) {

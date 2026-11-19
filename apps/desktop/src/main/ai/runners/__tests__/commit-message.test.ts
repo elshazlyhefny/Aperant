@@ -439,4 +439,33 @@ describe('readIssueRefs', () => {
       { kind: 'jira', ref: 'PROJ-123' },
     ]);
   });
+
+  it('picks the Azure Boards work item id, and rejects strings, 0 and negatives', () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ azureBoardsWorkItemId: 42 }));
+    expect(readIssueRefs('/spec')).toEqual([{ kind: 'azure_boards', ref: '42' }]);
+    for (const bad of ['42', '42; rm -rf /', 0, -5, 1.5]) {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ azureBoardsWorkItemId: bad }));
+      expect(readIssueRefs('/spec')).toEqual([]);
+    }
+  });
+
+  it('formats an Azure Boards ref as AB#42 in both styles', () => {
+    const refs = [{ kind: 'azure_boards' as const, ref: '42' }];
+    expect(formatIssueClosingLines(refs)).toEqual(['AB#42']);
+    expect(formatIssueClosingLines(refs, 'azuredevops')).toEqual(['AB#42']);
+  });
+});
+
+describe('generateCommitMessage — Azure Boards link', () => {
+  it('puts AB#42 in the prompt', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockImplementation((p: string) =>
+      String(p).endsWith('task_metadata.json') ? JSON.stringify({ azureBoardsWorkItemId: 42 }) : '{}',
+    );
+    mockGenerateText.mockResolvedValue({ text: 'fix: x' });
+    await generateCommitMessage(baseConfig());
+    const prompt = mockGenerateText.mock.calls.at(-1)?.[0].prompt as string;
+    expect(prompt).toContain("Source issue(s): AB#42 (include 'AB#42'");
+  });
 });

@@ -43,6 +43,30 @@ describe('loadHeadlessConfig', () => {
     });
   });
 
+  it('parses the writeback.azureBoards block and ignores unknown keys', () => {
+    const file = path.join(dir, 'wbazure.json');
+    writeFileSync(file, JSON.stringify({
+      writeback: { azureBoards: { enabled: true, transitionOnReview: false, transitionStateName: 'Done', extra: 1 } }
+    }));
+    expect(loadHeadlessConfig(file).writeback).toEqual({
+      azureBoards: { enabled: true, transitionOnReview: false, transitionStateName: 'Done' }
+    });
+  });
+
+  it('rejects a mistyped writeback.azureBoards block', () => {
+    const bad = path.join(dir, 'wbazurebad.json');
+    const cases: [unknown, RegExp][] = [
+      [{ azureBoards: 'x' }, /writeback\.azureBoards must be an object/],
+      [{ azureBoards: { enabled: 'x' } }, /writeback\.azureBoards\.enabled must be a boolean/],
+      [{ azureBoards: { transitionOnReview: 1 } }, /writeback\.azureBoards\.transitionOnReview must be a boolean/],
+      [{ azureBoards: { transitionStateName: 5 } }, /writeback\.azureBoards\.transitionStateName must be a string/]
+    ];
+    for (const [writeback, message] of cases) {
+      writeFileSync(bad, JSON.stringify({ writeback }));
+      expect(() => loadHeadlessConfig(bad)).toThrow(message);
+    }
+  });
+
   it('leaves writeback undefined by default', () => {
     const file = path.join(dir, 'nowb.json');
     writeFileSync(file, JSON.stringify({}));
@@ -112,6 +136,21 @@ describe('loadHeadlessConfig webhook and maxParallelTasks', () => {
       url: 'https://example.com/hook',
       events: { failed: false, prOpened: true },
     });
+  });
+
+  it('accepts webhook.format auto, slack, teams and discord', () => {
+    for (const format of ['auto', 'slack', 'teams', 'discord']) {
+      expect(loadHeadlessConfig(write({ webhook: { format } })).webhook?.format).toBe(format);
+    }
+    expect(loadHeadlessConfig(write({ webhook: {} })).webhook).toEqual({});
+  });
+
+  it('rejects an invalid webhook.format', () => {
+    for (const format of ['mattermost', 5, null, '']) {
+      expect(() => loadHeadlessConfig(write({ webhook: { format } }))).toThrow(
+        /webhook\.format must be one of auto, slack, teams, discord/,
+      );
+    }
   });
 
   it('parses maxParallelTasks', () => {

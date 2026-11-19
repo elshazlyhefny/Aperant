@@ -28,7 +28,14 @@ export function resolveHeadlessWritebackSettings(config: HeadlessConfig): Headle
   const wb = config.writeback ?? {};
   const jira = wb.jira ?? {};
   return {
-    issue: normalizeIssueWritebackSettings({ github: wb.github, gitlab: wb.gitlab, linear: wb.linear }),
+    issue: normalizeIssueWritebackSettings({
+      github: wb.github,
+      gitlab: wb.gitlab,
+      linear: wb.linear,
+      azureboards: wb.azureBoards?.enabled,
+      azureBoardsTransitionOnReview: wb.azureBoards?.transitionOnReview,
+      azureBoardsTransitionStateName: wb.azureBoards?.transitionStateName
+    }),
     jira: {
       enabled: jira.enabled ?? jiraDefaults.enabled,
       comment: jira.comment ?? jiraDefaults.comment,
@@ -46,7 +53,7 @@ export function writebackEventForOutcome(outcome: RunOutcome): WebhookEvent {
 }
 
 export function isWritebackEnabled(settings: HeadlessWritebackSettings): boolean {
-  return settings.issue.github || settings.issue.gitlab || settings.issue.linear || settings.jira.enabled;
+  return settings.issue.github || settings.issue.gitlab || settings.issue.linear || settings.issue.azureboards || settings.jira.enabled;
 }
 
 export interface ReportOutcomeToSourceInput {

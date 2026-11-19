@@ -117,6 +117,64 @@ export interface JiraImportResult {
 }
 
 // ============================================
+// Azure Boards Integration Types
+// ============================================
+
+export interface AzureBoardsWorkItem {
+  id: number;
+  title: string;
+  workItemType: string;
+  state: string;
+  areaPath: string;
+  assignedTo?: string;
+  tags: string[];
+  url: string;
+  alreadyImported: boolean;
+  existingSpecId?: string;
+}
+
+export interface AzureBoardsSavedQuery {
+  id: string;
+  name: string;
+  path: string;
+}
+
+export interface AzureBoardsFilter {
+  areaPath?: string;
+  states?: string[];
+  workItemTypes?: string[];
+}
+
+export interface AzureBoardsQueryRequest {
+  savedQueryId?: string;
+  filter?: AzureBoardsFilter;
+}
+
+export interface AzureBoardsQueryResult {
+  items: AzureBoardsWorkItem[];
+  totalCount: number;
+  truncated: boolean;
+}
+
+export interface AzureBoardsMetadata {
+  workItemTypes: string[];
+  states: string[];
+}
+
+export interface AzureBoardsSkippedItem {
+  id: number;
+  specId: string;
+}
+
+export interface AzureBoardsImportResult {
+  success: boolean;
+  imported: number;
+  failed: number;
+  skipped: AzureBoardsSkippedItem[];
+  errors?: string[];
+}
+
+// ============================================
 // GitHub Integration Types
 // ============================================
 

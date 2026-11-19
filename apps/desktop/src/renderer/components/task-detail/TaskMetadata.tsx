@@ -107,7 +107,8 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
     task.metadata.impact ||
     task.metadata.securitySeverity ||
     task.metadata.sourceType ||
-    task.metadata.jiraIssueKey
+    task.metadata.jiraIssueKey ||
+    task.metadata.azureBoardsWorkItemId
   );
 
   return (
@@ -193,6 +194,25 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
                   className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-info hover:underline bg-transparent cursor-pointer"
                 >
                   {task.metadata.jiraIssueKey}
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </button>
+              )}
+            {/* Azure Boards work item link (https only) */}
+            {task.metadata?.azureBoardsWorkItemId &&
+              task.metadata.azureBoardsUrl?.startsWith('https://') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = task.metadata?.azureBoardsUrl;
+                    if (url?.startsWith('https://')) {
+                      window.electronAPI.openExternal(url);
+                    }
+                  }}
+                  title={t('tasks:metadata.openInAzureBoards', { id: task.metadata.azureBoardsWorkItemId })}
+                  aria-label={t('tasks:metadata.openInAzureBoards', { id: task.metadata.azureBoardsWorkItemId })}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-info hover:underline bg-transparent cursor-pointer"
+                >
+                  AB#{task.metadata.azureBoardsWorkItemId}
                   <ExternalLink className="h-3 w-3" aria-hidden="true" />
                 </button>
               )}

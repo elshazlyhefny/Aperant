@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { useToast } from '../../hooks/use-toast';
+import { useDaemonStop } from '../../hooks/useDaemonStop';
 import { Separator } from '../ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ScrollArea } from '../ui/scroll-area';
@@ -81,11 +83,31 @@ const isFilesTabEnabled = () => {
   return flag === null || flag === 'true'; // Enabled by default
 };
 
+// zeenha fork: daemon stop failure codes -> tasks:daemonStop.errors.* keys
+const DAEMON_STOP_ERROR_KEYS: Record<string, string> = {
+  'no-daemon': 'noDaemon',
+  'not-running-on-daemon': 'notRunning',
+  'daemon-released': 'daemonReleased',
+  timeout: 'timeout',
+};
+
 // Separate component to use hooks only when task exists
 function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals, onOpenInbuiltTerminal }: { open: boolean; task: Task; onOpenChange: (open: boolean) => void; onSwitchToTerminals?: () => void; onOpenInbuiltTerminal?: (id: string, cwd: string) => void }) {
   const { t } = useTranslation(['tasks', 'common']);
   const { toast } = useToast();
   const state = useTaskDetail({ task });
+  // zeenha fork: a daemon-run task has no local agent. Stop it over IPC and never
+  // call it stuck because the local agent is missing.
+  const daemonStop = useDaemonStop(task);
+  const { isDaemonRun } = daemonStop;
+  const isStuck = state.isStuck && !isDaemonRun;
+  const daemonStopError = daemonStop.error
+    ? t(`tasks:daemonStop.errors.${DAEMON_STOP_ERROR_KEYS[daemonStop.error] ?? 'generic'}`)
+    : undefined;
+  useEffect(() => {
+    if (daemonStopError) toast({ description: daemonStopError, variant: 'destructive' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daemonStop.error]);
   const activeProject = useProjectStore(s => s.getActiveProject());
   const showFilesTab = isFilesTabEnabled();
   const progressPercent = calculateProgress(task.subtasks);
@@ -94,7 +116,9 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
 
   // Event Handlers
   const handleStartStop = async () => {
-    if (state.isRunning && !state.isStuck) {
+    if (isDaemonRun) {
+      daemonStop.stop();
+    } else if (state.isRunning && !isStuck) {
       stopTask(task.id);
     } else {
       // If task is incomplete, validate and reload plan before starting
@@ -223,7 +247,7 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
 
   const handleClose = () => {
     // Show toast notification if task is running
-    if (state.isRunning && !state.isStuck) {
+    if (state.isRunning && !isStuck) {
       toast({
         title: t('tasks:notifications.backgroundTaskTitle'),
         description: t('tasks:notifications.backgroundTaskDescription'),
@@ -252,7 +276,7 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
 
   // Render primary action button based on state
   const renderPrimaryAction = () => {
-    if (state.isStuck) {
+    if (isStuck) {
       return (
         <Button
           variant="warning"
@@ -289,6 +313,35 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
             </>
           )}
         </Button>
+      );
+    }
+
+    if (isDaemonRun) {
+      return (
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            variant="destructive"
+            onClick={handleStartStop}
+            disabled={daemonStop.isPending}
+            title={daemonStop.isPending ? t('tasks:daemonStop.pendingHint') : undefined}
+            data-testid="task-detail-daemon-stop"
+          >
+            {daemonStop.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {t('tasks:daemonStop.stopping')}
+              </>
+            ) : (
+              <>
+                <Square className="mr-2 h-4 w-4" />
+                {t('tasks:daemonStop.stopOnDaemon')}
+              </>
+            )}
+          </Button>
+          {daemonStopError && (
+            <p role="alert" className="text-xs text-destructive">{daemonStopError}</p>
+          )}
+        </div>
       );
     }
 
@@ -390,7 +443,7 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                       <Badge variant="outline" className="text-xs font-mono">
                         {task.specId}
                       </Badge>
-                      {state.isStuck ? (
+                      {isStuck ? (
                         <Badge variant="warning" className="text-xs flex items-center gap-1 animate-pulse">
                           <AlertTriangle className="h-3 w-3" />
                           Stuck
@@ -403,8 +456,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                       ) : (
                         <>
                            <Badge
-                             variant={getStatusBadgeVariant(task.status, state.isStuck)}
-                             className={cn('text-xs', (task.status === 'in_progress' && !state.isStuck) && 'status-running')}
+                             variant={getStatusBadgeVariant(task.status, isStuck)}
+                             className={cn('text-xs', (task.status === 'in_progress' && !isStuck) && 'status-running')}
                            >
                              {t(TASK_STATUS_LABELS[task.status])}
                            </Badge>
@@ -443,7 +496,7 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                     size="icon"
                     className="hover:bg-primary/10 hover:text-primary transition-colors"
                     onClick={() => state.setIsEditDialogOpen(true)}
-                    disabled={state.isRunning && !state.isStuck}
+                    disabled={state.isRunning && !isStuck}
                     aria-label={t('tasks:edit.title')}
                   >
                     <Pencil className="h-4 w-4" />
@@ -476,10 +529,10 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
               )}
 
               {/* Warnings - compact inline */}
-              {(state.isStuck || state.isIncomplete) && (
+              {(isStuck || state.isIncomplete) && (
                 <div className="mt-3">
                   <TaskWarnings
-                    isStuck={state.isStuck}
+                    isStuck={isStuck}
                     isIncomplete={state.isIncomplete}
                     isRecovering={state.isRecovering}
                     taskProgress={state.taskProgress}
@@ -612,7 +665,7 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                     phaseLogs={state.phaseLogs}
                     isLoadingLogs={state.isLoadingLogs}
                     expandedPhases={state.expandedPhases}
-                    isStuck={state.isStuck}
+                    isStuck={isStuck}
                     logsEndRef={state.logsEndRef}
                     logsContainerRef={state.logsContainerRef}
                     onLogsScroll={state.handleLogsScroll}
@@ -641,7 +694,7 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                 size="sm"
                 className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                 onClick={() => state.setShowDeleteDialog(true)}
-                disabled={state.isRunning && !state.isStuck}
+                disabled={state.isRunning && !isStuck}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete Task

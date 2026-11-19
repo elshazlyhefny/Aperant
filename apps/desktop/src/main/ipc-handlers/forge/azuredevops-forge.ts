@@ -1,7 +1,8 @@
 /**
  * zeenha fork: Azure DevOps pull requests for the forge registry, wrapping the
  * Azure DevOps PR feedback code (failed build validations and active threads).
- * Azure DevOps has no issue writeback here, so this is a PRHost, not a full Forge.
+ * Azure DevOps PRs stay a PRHost, not a full Forge. Azure Boards writeback is the
+ * separate azureboards-writer.
  */
 
 import { getAzureDevOpsConfig } from '../azuredevops/utils';

@@ -19,7 +19,7 @@ import type {
   ImageAttachment
 } from '../../shared/types';
 import type { TaskRunMetrics, ProjectRunMetrics } from '../../shared/types/run-metrics';
-import type { TaskQueueState } from '../../shared/types/task-queue';
+import type { TaskQueueState, DaemonStopResultEvent } from '../../shared/types/task-queue';
 
 export interface TaskAPI {
   // Task Operations
@@ -96,6 +96,8 @@ export interface TaskAPI {
   // Task Queue
   getTaskQueueState: (projectId: string) => Promise<IPCResult<TaskQueueState>>;
   onTaskQueueStateChange: (callback: (state: TaskQueueState) => void) => () => void;
+  daemonStopTask: (taskId: string) => Promise<IPCResult>;
+  onDaemonStopResult: (callback: (event: DaemonStopResultEvent) => void) => () => void;
 
   // Task Phase Logs
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
@@ -318,6 +320,19 @@ export const createTaskAPI = (): TaskAPI => ({
     ipcRenderer.on(IPC_CHANNELS.TASK_QUEUE_STATE_CHANGE, handler);
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.TASK_QUEUE_STATE_CHANGE, handler);
+    };
+  },
+
+  daemonStopTask: (taskId: string): Promise<IPCResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_DAEMON_STOP, taskId),
+
+  onDaemonStopResult: (callback: (event: DaemonStopResultEvent) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, result: DaemonStopResultEvent): void => {
+      callback(result);
+    };
+    ipcRenderer.on(IPC_CHANNELS.TASK_DAEMON_STOP_RESULT, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.TASK_DAEMON_STOP_RESULT, handler);
     };
   },
 

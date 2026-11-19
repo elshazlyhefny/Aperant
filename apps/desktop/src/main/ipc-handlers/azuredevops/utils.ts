@@ -15,7 +15,7 @@ import type {
   AzureDevOpsAPIInlineAnchor,
   AzureDevOpsRepoRef
 } from './types';
-import { getIsolatedGitEnv } from '../../utils/git-isolation';
+import { getIsolatedGitEnv } from '../../utils/git-env';
 
 export const AZURE_DEVOPS_API_BASE = 'https://dev.azure.com';
 export const AZURE_DEVOPS_API_VERSION = '7.1';
