@@ -92,6 +92,11 @@
     "error": "Failed"
   },
   "kanban": {
+    "daemonQueue": {
+      "title": "Queue is run by {{holder}}",
+      "paused": "The desktop queue and schedules are paused for it until it stops.",
+      "running": "Running in the daemon:"
+    },
     "emptyBacklog": "No tasks planned",
     "emptyBacklogHint": "Add a task to get started",
     "emptyQueue": "Queue is empty",

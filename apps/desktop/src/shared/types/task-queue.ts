@@ -9,4 +9,6 @@ export interface TaskQueueState {
   skippedTaskIds: string[];
   /** Set when another process (the daemon) runs this project's queue, so the desktop does not promote */
   lockedBy?: string;
+  /** zeenha fork: ids the daemon reports running; only set together with lockedBy */
+  lockedTaskIds?: string[];
 }

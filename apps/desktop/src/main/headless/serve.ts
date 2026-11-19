@@ -12,7 +12,7 @@
  * Do not import electron, project-store, app-logger or settings-utils here.
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 import { getSpecsDir } from '../../shared/constants';
@@ -26,6 +26,7 @@ import { TaskQueueManager } from '../task-queue-manager';
 import { writeFileAtomicSync } from '../utils/atomic-file';
 import { acquireProjectQueueLock, formatLockHolder } from '../utils/project-queue-lock';
 import type { QueueLockOptions } from '../utils/project-queue-lock';
+import { getServeRunningPath, readServeRunningTaskIds } from '../utils/serve-running-file';
 import { findAllSpecPaths } from '../utils/spec-path-helpers';
 import { dispatchTaskOutcomeWebhookWith, mapOutcomeToWebhookEvent } from '../webhook-core';
 import { loadHeadlessConfig } from './config';
@@ -49,7 +50,6 @@ export const EXIT_LOCKED = 3;
 
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 const SAFETY_PROCESS_INTERVAL_MS = 30_000;
-const RUNNING_FILE = 'serve-running.json';
 
 export interface ServeOptions {
   projectPath: string;
@@ -150,7 +150,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const lock = acquired.lock;
   lock.startHeartbeat();
 
-  const runningFile = path.join(projectPath, AUTO_BUILD_PATH, '.locks', RUNNING_FILE);
+  const runningFile = getServeRunningPath(projectPath);
   const runs = new Map<string, ActiveRun>();
   let stopping = false;
 
@@ -160,14 +160,6 @@ export async function runServe(options: ServeOptions): Promise<number> {
       writeFileAtomicSync(runningFile, JSON.stringify({ taskIds: [...runs.keys()] }));
     } catch {
       // Best effort: only used for crash recovery
-    }
-  };
-  const readRunningFile = (): string[] => {
-    try {
-      const data = JSON.parse(readFileSync(runningFile, 'utf-8')) as { taskIds?: unknown };
-      return Array.isArray(data.taskIds) ? data.taskIds.filter((x): x is string => typeof x === 'string') : [];
-    } catch {
-      return [];
     }
   };
 
@@ -188,7 +180,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
   };
 
   // (3) startup recovery
-  for (const taskId of readRunningFile()) {
+  for (const taskId of readServeRunningTaskIds(projectPath)) {
     const task = listHeadlessTasks(headlessProject).find((t) => t.id === taskId);
     if (task?.status === 'in_progress') {
       log(`Recovering ${taskId} left running by a previous daemon`);
