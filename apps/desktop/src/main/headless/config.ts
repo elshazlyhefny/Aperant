@@ -9,6 +9,7 @@
 
 import { readFileSync } from 'node:fs';
 import type { ProviderAccount } from '../../shared/types/provider-account';
+import type { WebhookFormat } from '../../shared/types/settings';
 import { readProjectRepoConfig } from '../ai/worktree/project-repo-config';
 import { readApprovedProjectMcpOptions } from '../ai/mcp/project-settings';
 import type { McpApprovals } from '../ai/mcp/mcp-approval';
@@ -16,6 +17,8 @@ import { parseEnvPassthrough } from '../ai/security/child-env';
 import { parseSandboxMode } from '../ai/security/sandbox';
 import { parseWebFetchProvider } from '../ai/tools/providers/types';
 import type { SerializableSessionConfig } from '../ai/agent/types';
+
+const WEBHOOK_FORMATS: readonly string[] = ['auto', 'slack', 'teams', 'discord'];
 
 export interface HeadlessProjectConfig {
   mainBranch?: string;
@@ -31,6 +34,8 @@ export interface HeadlessWebhookConfig {
   /** Daemon only: `serve` sends the webhook only when this is true. `run` ignores it. */
   enabled?: boolean;
   url?: string;
+  /** zeenha fork: payload format; 'auto' (or unset) detects it from the URL. */
+  format?: 'auto' | WebhookFormat;
   events?: Partial<{ reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean }>;
 }
 
@@ -141,7 +146,10 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
     if (!isRecord(raw.webhook)) {
       throw new Error(`Config file ${configPath}: webhook must be an object`);
     }
-    const { enabled, url, events } = raw.webhook;
+    const { enabled, url, events, format } = raw.webhook;
+    if (format !== undefined && !(typeof format === 'string' && WEBHOOK_FORMATS.includes(format))) {
+      throw new Error(`Config file ${configPath}: webhook.format must be one of auto, slack, teams, discord`);
+    }
     if (enabled !== undefined && typeof enabled !== 'boolean') {
       throw new Error(`Config file ${configPath}: webhook.enabled must be a boolean`);
     }
@@ -151,6 +159,7 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
     const webhook: HeadlessWebhookConfig = {};
     if (enabled !== undefined) webhook.enabled = enabled;
     if (url !== undefined) webhook.url = url;
+    if (format !== undefined) webhook.format = format as HeadlessWebhookConfig['format'];
     if (events !== undefined) {
       if (!isRecord(events)) {
         throw new Error(`Config file ${configPath}: webhook.events must be an object`);

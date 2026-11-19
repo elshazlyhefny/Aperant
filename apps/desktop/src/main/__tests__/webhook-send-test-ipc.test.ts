@@ -32,7 +32,8 @@ function getHandler() {
     registered = true;
   }
   const mock = ipcMain as never as { invokeHandler: (c: string, ...a: unknown[]) => Promise<Res> };
-  return (event: unknown, url: unknown) => mock.invokeHandler(IPC_CHANNELS.WEBHOOK_SEND_TEST, event, url);
+  return (event: unknown, url: unknown, format?: unknown) =>
+    mock.invokeHandler(IPC_CHANNELS.WEBHOOK_SEND_TEST, event, url, format);
 }
 
 describe('WEBHOOK_SEND_TEST handler', () => {
@@ -61,5 +62,15 @@ describe('WEBHOOK_SEND_TEST handler', () => {
     webhook.sendTestWebhook.mockResolvedValueOnce({ success: false, error: 'delivery_failed' } as never);
     const bad = await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL);
     expect(bad).toEqual({ success: false, error: 'delivery_failed' });
+  });
+
+  it('forwards a valid format', async () => {
+    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, 'teams');
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { format: 'teams' });
+  });
+
+  it.each(['auto', 'bogus', 42, undefined])('treats %s as auto', async (fmt) => {
+    await getHandler()({ senderFrame: { url: DEV_URL } }, SECRET_URL, fmt);
+    expect(webhook.sendTestWebhook).toHaveBeenCalledWith(SECRET_URL, { format: undefined });
   });
 });

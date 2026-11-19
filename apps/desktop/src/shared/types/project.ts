@@ -2,7 +2,7 @@
  * Project-related types
  */
 
-import type { WebhookSettings } from './settings';
+import type { WebhookSettings, WebhookFormat } from './settings';
 
 export interface Project {
   id: string;
@@ -387,6 +387,8 @@ export interface ProjectEnvConfig {
   // zeenha fork: per-project task-outcome webhook (overrides the global one)
   webhookEnabled?: boolean;
   webhookUrl?: string;
+  /** zeenha fork: payload format; 'auto' detects it from the URL */
+  webhookFormat?: WebhookFormat | 'auto';
   webhookEvents?: WebhookSettings['events'];
   /** Approval state of the URL the file declares (hash only, safe for the renderer) */
   webhookApproval?: { status: 'approved' | 'unapproved' | 'refused'; hash: string; url: string };

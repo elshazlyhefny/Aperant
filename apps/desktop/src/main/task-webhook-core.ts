@@ -8,13 +8,59 @@
  */
 
 import { sanitizeUrl } from './ipc-handlers/shared/sanitize';
+import {
+  detectWebhookFormat,
+  resolveWebhookFormat,
+  type WebhookFormat
+} from '../shared/utils/webhook-format';
 
 export type WebhookEvent = 'review_ready' | 'failed' | 'blocked' | 'pr_opened';
 
-export interface WebhookPayload {
+export interface SlackWebhookPayload {
   text: string;
   blocks: unknown[];
 }
+
+// zeenha fork: Microsoft Teams (Adaptive Card) and Discord (embed) payloads
+export interface TeamsAdaptiveCard {
+  $schema: string;
+  type: 'AdaptiveCard';
+  version: string;
+  body: unknown[];
+  actions?: Array<{ type: 'Action.OpenUrl'; title: string; url: string }>;
+}
+
+export interface TeamsWebhookPayload {
+  type: 'message';
+  attachments: Array<{
+    contentType: 'application/vnd.microsoft.card.adaptive';
+    contentUrl: null;
+    content: TeamsAdaptiveCard;
+  }>;
+}
+
+export interface DiscordEmbedField {
+  name: string;
+  value: string;
+  inline?: boolean;
+}
+
+export interface DiscordEmbed {
+  title: string;
+  description: string;
+  color: number;
+  url?: string;
+  fields: DiscordEmbedField[];
+}
+
+export interface DiscordWebhookPayload {
+  embeds: DiscordEmbed[];
+  allowed_mentions: { parse: string[] };
+}
+
+export type WebhookPayload = SlackWebhookPayload | TeamsWebhookPayload | DiscordWebhookPayload;
+
+export { detectWebhookFormat, resolveWebhookFormat };
 
 export const MAX_URL_LENGTH = 2048;
 export const MAX_TITLE_LENGTH = 200;
@@ -80,12 +126,170 @@ export function escapeMrkdwn(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-export function buildWebhookPayload(input: {
+/** zeenha fork: escape Markdown control characters for Discord and Teams text. */
+export function escapeMarkdown(value: string): string {
+  return value.replace(/[\\`*_~|>#[\]()<]/g, '\\$&');
+}
+
+interface WebhookBuildInput {
   projectName: string;
   taskTitle: string;
   event: WebhookEvent;
   prUrl?: string;
-}): WebhookPayload {
+}
+
+export function buildWebhookPayload(input: WebhookBuildInput & { format?: 'slack' }): SlackWebhookPayload;
+export function buildWebhookPayload(input: WebhookBuildInput & { format: 'teams' }): TeamsWebhookPayload;
+export function buildWebhookPayload(input: WebhookBuildInput & { format: 'discord' }): DiscordWebhookPayload;
+export function buildWebhookPayload(input: WebhookBuildInput & { format?: WebhookFormat }): WebhookPayload;
+export function buildWebhookPayload(input: WebhookBuildInput & { format?: WebhookFormat }): WebhookPayload {
+  if (input.format === 'teams') return buildTeamsPayload(input);
+  if (input.format === 'discord') return buildDiscordPayload(input);
+  return buildSlackPayload(input);
+}
+
+function httpsLink(input: WebhookBuildInput): string {
+  // Only the pr_opened event carries a link, and only an https one.
+  const link = input.event === 'pr_opened' ? sanitizeUrl(input.prUrl) : '';
+  return link.startsWith('https://') ? link : '';
+}
+
+function buildTeamsPayload(input: WebhookBuildInput): TeamsWebhookPayload {
+  const labels = EVENT_LABELS[input.event];
+  const project = escapeMarkdown(sanitizeText(input.projectName, MAX_TITLE_LENGTH));
+  const title = escapeMarkdown(sanitizeText(input.taskTitle, MAX_TITLE_LENGTH));
+  const link = httpsLink(input);
+  const content: TeamsAdaptiveCard = {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: '1.4',
+    body: [
+      { type: 'TextBlock', text: labels.event, weight: 'Bolder', size: 'Medium' },
+      { type: 'TextBlock', text: title, wrap: true },
+      {
+        type: 'FactSet',
+        facts: [
+          { title: 'Project', value: project },
+          { title: 'Outcome', value: labels.outcome }
+        ]
+      }
+    ]
+  };
+  if (link) content.actions = [{ type: 'Action.OpenUrl', title: 'View PR', url: link }];
+  return {
+    type: 'message',
+    attachments: [{ contentType: 'application/vnd.microsoft.card.adaptive', contentUrl: null, content }]
+  };
+}
+
+const DISCORD_COLORS: Record<WebhookEvent, number> = {
+  review_ready: 0x2ecc71,
+  failed: 0xe74c3c,
+  blocked: 0xf39c12,
+  pr_opened: 0x3498db
+};
+
+function buildDiscordPayload(input: WebhookBuildInput): DiscordWebhookPayload {
+  const labels = EVENT_LABELS[input.event];
+  const project = escapeMarkdown(sanitizeText(input.projectName, MAX_TITLE_LENGTH));
+  const title = escapeMarkdown(sanitizeText(input.taskTitle, MAX_TITLE_LENGTH));
+  const link = httpsLink(input);
+  const fields: DiscordEmbedField[] = [
+    { name: 'Project', value: project || '-', inline: true },
+    { name: 'Outcome', value: labels.outcome, inline: true }
+  ];
+  const embed: DiscordEmbed = {
+    title: labels.event,
+    description: title,
+    color: DISCORD_COLORS[input.event],
+    fields
+  };
+  if (link) {
+    fields.push({ name: 'Pull request', value: link });
+    embed.url = link;
+  }
+  return { embeds: [embed], allowed_mentions: { parse: [] } };
+}
+
+export function buildTestWebhookPayload(format: WebhookFormat = 'slack'): WebhookPayload {
+  if (format === 'teams') {
+    return {
+      type: 'message',
+      attachments: [
+        {
+          contentType: 'application/vnd.microsoft.card.adaptive',
+          contentUrl: null,
+          content: {
+            $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+            type: 'AdaptiveCard',
+            version: '1.4',
+            body: [
+              { type: 'TextBlock', text: 'Test notification', weight: 'Bolder', size: 'Medium' },
+              { type: 'TextBlock', text: 'This is a test message from Aperant.', wrap: true }
+            ]
+          }
+        }
+      ]
+    };
+  }
+  if (format === 'discord') {
+    return {
+      embeds: [
+        {
+          title: 'Test notification',
+          description: 'This is a test message from Aperant.',
+          color: 0x3498db,
+          fields: []
+        }
+      ],
+      allowed_mentions: { parse: [] }
+    };
+  }
+  return {
+    text: 'Aperant test notification: your webhook is configured correctly.',
+    blocks: [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: '*Test notification*\nThis is a test message from Aperant.' }
+      }
+    ]
+  };
+}
+
+function nativeUrl(url: string, format: WebhookFormat): string {
+  if (format !== 'discord') return url;
+  try {
+    const parsed = new URL(url);
+    parsed.pathname = parsed.pathname.replace(/\/(slack|github)\/?$/, '');
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+export function prepareWebhookDelivery(
+  input: WebhookBuildInput & { url: string; format?: string }
+): { url: string; payload: WebhookPayload; format: WebhookFormat } {
+  const format = resolveWebhookFormat(input.url, input.format);
+  const payload = buildWebhookPayload({
+    projectName: input.projectName,
+    taskTitle: input.taskTitle,
+    event: input.event,
+    prUrl: input.prUrl,
+    format
+  });
+  return { url: nativeUrl(input.url, format), payload, format };
+}
+
+export function prepareTestWebhookDelivery(
+  url: string,
+  format?: string
+): { url: string; payload: WebhookPayload; format: WebhookFormat } {
+  const resolved = resolveWebhookFormat(url, format);
+  return { url: nativeUrl(url, resolved), payload: buildTestWebhookPayload(resolved), format: resolved };
+}
+
+function buildSlackPayload(input: WebhookBuildInput): SlackWebhookPayload {
   const labels = EVENT_LABELS[input.event];
   const project = escapeMrkdwn(sanitizeText(input.projectName, MAX_TITLE_LENGTH));
   const title = escapeMrkdwn(sanitizeText(input.taskTitle, MAX_TITLE_LENGTH));

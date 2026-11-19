@@ -74,6 +74,38 @@ describe('ENV_UPDATE / ENV_GET webhook keys', () => {
     expect(got.data?.webhookEvents).toEqual({ reviewReady: false, failed: true, blocked: true, prOpened: true });
   });
 
+  it('round-trips the webhook format, removes it on auto, ignores invalid values', async () => {
+    await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { webhookEnabled: true, webhookUrl: URL_OK, webhookFormat: 'teams' });
+    expect(readFileSync(envPath, 'utf-8')).toMatch(/^WEBHOOK_FORMAT=teams$/m);
+    let got = await invoke(IPC_CHANNELS.ENV_GET, 'p1');
+    expect(got.data?.webhookFormat).toBe('teams');
+
+    await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { webhookFormat: 'bogus' as never });
+    expect(readFileSync(envPath, 'utf-8')).toMatch(/^WEBHOOK_FORMAT=teams$/m);
+
+    await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { webhookFormat: 'auto' });
+    expect(readFileSync(envPath, 'utf-8')).not.toMatch(/^WEBHOOK_FORMAT=/m);
+    expect(readFileSync(envPath, 'utf-8')).toContain('# WEBHOOK_FORMAT=slack|teams|discord');
+    got = await invoke(IPC_CHANNELS.ENV_GET, 'p1');
+    expect(got.data?.webhookFormat).toBe('auto');
+  });
+
+  it('clearing the URL removes WEBHOOK_FORMAT', async () => {
+    await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { webhookEnabled: true, webhookUrl: URL_OK, webhookFormat: 'discord' });
+    await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { webhookUrl: '' });
+    expect(readFileSync(envPath, 'utf-8')).not.toMatch(/^WEBHOOK_FORMAT=/m);
+  });
+
+  it('changing only the format does not change the approval hash or status', async () => {
+    approvalMocks.getWebhookApprovals.mockReturnValue({ urls: [hashWebhookUrl(URL_OK)] });
+    await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { webhookEnabled: true, webhookUrl: URL_OK, webhookFormat: 'slack' });
+    const a = await invoke(IPC_CHANNELS.ENV_GET, 'p1');
+    await invoke(IPC_CHANNELS.ENV_UPDATE, 'p1', { webhookFormat: 'teams' });
+    const b = await invoke(IPC_CHANNELS.ENV_GET, 'p1');
+    expect(b.data?.webhookApproval).toEqual(a.data?.webhookApproval);
+    expect((b.data?.webhookApproval as { status: string }).status).toBe('approved');
+  });
+
   it('rejects an invalid URL without writing', async () => {
     writeFileSync(envPath, 'FOO=bar\n');
     for (const bad of ['http://evil.example.com/x', 'https://u:p@h.example.com/x', 'not a url', 'https://a.example.com/x\nEVIL=1']) {

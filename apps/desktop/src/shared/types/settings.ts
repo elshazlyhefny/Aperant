@@ -279,9 +279,14 @@ export interface IssueWritebackSettings extends Record<IssueWritebackProviderKey
   linearTransitionStateName: string;
 }
 
+// zeenha fork: payload format of the outgoing webhook (Slack, Microsoft Teams, Discord)
+export type WebhookFormat = 'slack' | 'teams' | 'discord';
+
 export interface WebhookSettings {
   enabled: boolean;
   url: string;
+  // zeenha fork: undefined and 'auto' both mean "detect the format from the URL"
+  format?: WebhookFormat | 'auto';
   events: { reviewReady: boolean; failed: boolean; blocked: boolean; prOpened: boolean };
 }
 

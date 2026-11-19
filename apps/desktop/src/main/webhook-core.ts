@@ -11,7 +11,7 @@
 import type { TaskStatus, ReviewReason } from '../shared/types';
 import type { WebhookSettings } from '../shared/types/settings';
 import { appLogPort } from './log-port';
-import { buildWebhookPayload, sendWebhook, validateWebhookUrl, type WebhookEvent } from './task-webhook-core';
+import { prepareWebhookDelivery, sendWebhook, validateWebhookUrl, type WebhookEvent } from './task-webhook-core';
 
 export function mapOutcomeToWebhookEvent(
   status: TaskStatus | string,
@@ -51,13 +51,15 @@ export function dispatchTaskOutcomeWebhookWith(
     if (!event) return;
     if (!settings.enabled || !settings.events[EVENT_TOGGLE[event]]) return;
     if (!validateWebhookUrl(settings.url).ok) return;
-    const payload = buildWebhookPayload({
+    const delivery = prepareWebhookDelivery({
+      url: settings.url,
+      format: settings.format,
       projectName: input.projectName,
       taskTitle: input.taskTitle,
       event,
       prUrl: input.prUrl
     });
-    void sendWebhook(settings.url, payload, {
+    void sendWebhook(delivery.url, delivery.payload, {
       eventName: event,
       warn: (message) => appLogPort.warn(message)
     }).catch(() => undefined);

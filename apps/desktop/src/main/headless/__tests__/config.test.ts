@@ -138,6 +138,21 @@ describe('loadHeadlessConfig webhook and maxParallelTasks', () => {
     });
   });
 
+  it('accepts webhook.format auto, slack, teams and discord', () => {
+    for (const format of ['auto', 'slack', 'teams', 'discord']) {
+      expect(loadHeadlessConfig(write({ webhook: { format } })).webhook?.format).toBe(format);
+    }
+    expect(loadHeadlessConfig(write({ webhook: {} })).webhook).toEqual({});
+  });
+
+  it('rejects an invalid webhook.format', () => {
+    for (const format of ['mattermost', 5, null, '']) {
+      expect(() => loadHeadlessConfig(write({ webhook: { format } }))).toThrow(
+        /webhook\.format must be one of auto, slack, teams, discord/,
+      );
+    }
+  });
+
   it('parses maxParallelTasks', () => {
     expect(loadHeadlessConfig(write({ project: { maxParallelTasks: 3 } })).project?.maxParallelTasks).toBe(3);
   });

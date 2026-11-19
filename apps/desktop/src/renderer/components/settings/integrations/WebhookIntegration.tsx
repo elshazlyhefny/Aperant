@@ -5,7 +5,9 @@ import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { Switch } from '../../ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { DEFAULT_APP_SETTINGS } from '../../../../shared/constants/config';
+import { detectWebhookFormat, isWebhookFormat } from '../../../../shared/utils/webhook-format';
 import type { ProjectEnvConfig, WebhookSettings as WebhookConfig } from '../../../../shared/types';
 
 interface WebhookIntegrationProps {
@@ -64,6 +66,7 @@ export function WebhookIntegration({ projectId, envConfig, updateEnvConfig }: We
   const events = { ...DEFAULT_EVENTS, ...(envConfig.webhookEvents ?? {}) };
   const trimmedUrl = url.trim();
   const urlInvalid = trimmedUrl.length > 0 && !isValidWebhookUrl(trimmedUrl);
+  const selectedFormat = isWebhookFormat(envConfig.webhookFormat) ? envConfig.webhookFormat : 'auto';
   const approval = envConfig.webhookApproval;
   const unchanged = !!approval && trimmedUrl === approval.url;
   const isUnapproved = unchanged && approval?.status === 'unapproved';
@@ -95,7 +98,7 @@ export function WebhookIntegration({ projectId, envConfig, updateEnvConfig }: We
     setIsTesting(true);
     setTestResult(null);
     try {
-      const result = await window.electronAPI.sendTestWebhook(trimmedUrl);
+      const result = await window.electronAPI.sendTestWebhook(trimmedUrl, selectedFormat);
       setTestResult(result.success ? 'success' : 'failure');
     } catch {
       setTestResult('failure');
@@ -179,6 +182,32 @@ export function WebhookIntegration({ projectId, envConfig, updateEnvConfig }: We
         {isEdited && (
           <p className="text-xs text-muted-foreground">{t('projectSections.webhook.fallbackNote')}</p>
         )}
+
+        <div className="space-y-1 pt-2">
+          <Label htmlFor="project-webhook-format" className="text-sm font-medium text-foreground">
+            {t('projectSections.webhook.format.label')}
+          </Label>
+          <Select value={selectedFormat} onValueChange={(value) => {
+              setTestResult(null);
+              updateEnvConfig({ webhookFormat: value as ProjectEnvConfig['webhookFormat'] });
+            }}>
+            <SelectTrigger id="project-webhook-format">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{t('projectSections.webhook.format.auto')}</SelectItem>
+              <SelectItem value="slack">{t('projectSections.webhook.format.slack')}</SelectItem>
+              <SelectItem value="teams">{t('projectSections.webhook.format.teams')}</SelectItem>
+              <SelectItem value="discord">{t('projectSections.webhook.format.discord')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">{t('projectSections.webhook.format.description')}</p>
+          {selectedFormat === 'auto' && trimmedUrl.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t('projectSections.webhook.format.detected', { format: t(`projectSections.webhook.format.${detectWebhookFormat(trimmedUrl)}`) })}
+            </p>
+          )}
+        </div>
         <p className="text-xs text-muted-foreground">{t('projectSections.webhook.overrideNote')}</p>
         <p className="text-xs text-muted-foreground">{t('projectSections.webhook.storedProtectedNote')}</p>
 

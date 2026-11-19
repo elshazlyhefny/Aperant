@@ -354,11 +354,11 @@
     "soundDescription": "Play sound with notifications",
     "webhook": {
       "title": "Task outcome webhook",
-      "description": "Send a message to Slack (or any compatible webhook) when a task needs attention.",
+      "description": "Send a message to Slack, Microsoft Teams or Discord when a task needs attention.",
       "enable": "Enable webhook",
       "enableDescription": "Post task outcomes to the webhook URL below",
       "urlLabel": "Webhook URL",
-      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlPlaceholder": "https://hooks.slack.com/services/... or a Teams / Discord webhook URL",
       "urlInvalid": "Enter a valid https:// URL (http is only allowed for localhost) without credentials.",
       "show": "Show URL",
       "hide": "Hide URL",
@@ -376,7 +376,16 @@
       "sendTest": "Send test message",
       "sending": "Sending...",
       "testSuccess": "Test message sent",
-      "testFailed": "Could not send the test message"
+      "testFailed": "Could not send the test message",
+      "format": {
+        "label": "Message format",
+        "description": "Choose the payload the webhook expects. Auto-detect picks it from the URL.",
+        "auto": "Auto-detect",
+        "slack": "Slack",
+        "teams": "Microsoft Teams",
+        "discord": "Discord",
+        "detected": "Detected format: {{format}}"
+      }
     },
     "jiraWriteback": {
       "title": "Jira write-back",
@@ -513,7 +522,7 @@
       "enable": "Project webhook",
       "enableDescription": "Post task outcomes for this project to its own webhook",
       "urlLabel": "Project webhook URL",
-      "urlPlaceholder": "https://hooks.slack.com/services/...",
+      "urlPlaceholder": "https://hooks.slack.com/services/... or a Teams / Discord webhook URL",
       "urlInvalid": "Enter a valid https URL without credentials. Plain http and local addresses are not allowed for a project webhook.",
       "unapprovedTitle": "Approve this webhook URL",
       "unapprovedDescription": "This URL came from the project's .auto-claude/.env file. Once approved, task titles, the project name and PR links will be sent to it. Until you approve it, the app-wide webhook is used instead.",
@@ -530,7 +539,16 @@
       "sendTest": "Send test message",
       "sending": "Sending...",
       "testSuccess": "Test message sent",
-      "testFailed": "Could not send the test message"
+      "testFailed": "Could not send the test message",
+      "format": {
+        "label": "Message format",
+        "description": "Choose the payload the webhook expects. Auto-detect picks it from the URL.",
+        "auto": "Auto-detect",
+        "slack": "Slack",
+        "teams": "Microsoft Teams",
+        "discord": "Discord",
+        "detected": "Detected format: {{format}}"
+      }
     },
     "security": {
       "title": "Security",
