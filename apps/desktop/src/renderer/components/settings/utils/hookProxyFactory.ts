@@ -50,6 +50,8 @@ export function createHookProxy(
     get setShowAzureDevOpsPat() { return hookRef.current.setShowAzureDevOpsPat; },
     get azureDevOpsConnectionStatus() { return hookRef.current.azureDevOpsConnectionStatus; },
     get isCheckingAzureDevOps() { return hookRef.current.isCheckingAzureDevOps; },
+    get showAzureBoardsImportModal() { return hookRef.current.showAzureBoardsImportModal; },
+    get setShowAzureBoardsImportModal() { return hookRef.current.setShowAzureBoardsImportModal; },
     get showLinearImportModal() { return hookRef.current.showLinearImportModal; },
     get setShowLinearImportModal() { return hookRef.current.setShowLinearImportModal; },
     get linearConnectionStatus() { return hookRef.current.linearConnectionStatus; },

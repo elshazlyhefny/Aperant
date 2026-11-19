@@ -34,6 +34,7 @@ import {
 } from '../../shared/constants';
 import { useTaskStore, stopTask, checkTaskRunning, recoverStuckTask, isIncompleteHumanReview, archiveTasks, hasRecentActivity, startTaskOrQueue, retryFailedTask, replanFailedTask } from '../stores/task-store';
 import { useToast } from '../hooks/use-toast';
+import { useDaemonStop } from '../hooks/useDaemonStop';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { evaluateTaskDependencies, type DependencyEvaluation } from '../../shared/utils/task-dependencies';
 import type { Task, TaskCategory, ReviewReason, TaskStatus } from '../../shared/types';
@@ -143,6 +144,14 @@ function taskCardPropsAreEqual(prevProps: TaskCardProps, nextProps: TaskCardProp
   return isEqual;
 }
 
+// zeenha fork: daemon stop failure codes -> tasks:daemonStop.errors.* keys
+const DAEMON_STOP_ERROR_KEYS: Record<string, string> = {
+  'no-daemon': 'noDaemon',
+  'not-running-on-daemon': 'notRunning',
+  'daemon-released': 'daemonReleased',
+  timeout: 'timeout',
+};
+
 export const TaskCard = memo(function TaskCard({
   task,
   onClick,
@@ -173,6 +182,16 @@ export const TaskCard = memo(function TaskCard({
   }, [heldKey]);
 
   const isRunning = task.status === 'in_progress';
+  // zeenha fork: a daemon-run task has no local agent, so it is stopped over IPC
+  const daemonStop = useDaemonStop(task);
+  const { isDaemonRun } = daemonStop;
+  const daemonStopError = daemonStop.error
+    ? t(`tasks:daemonStop.errors.${DAEMON_STOP_ERROR_KEYS[daemonStop.error] ?? 'generic'}`)
+    : undefined;
+  useEffect(() => {
+    if (daemonStopError) toast({ description: daemonStopError, variant: 'destructive' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daemonStop.error]);
   // zeenha fork: advisory warnings, only for tasks still in play
   const overlapList = task.metadata?.archivedAt || task.status === 'done' ? [] : (fileOverlaps ?? []);
   const hasOverlap = overlapList.length > 0;
@@ -231,7 +250,8 @@ export const TaskCard = memo(function TaskCard({
   // XState handles all normal transitions via PROCESS_EXITED events.
   // This only fires if XState somehow fails to transition after 60s with no activity.
   useEffect(() => {
-    if (!isRunning) {
+    // zeenha fork: no local agent exists for a daemon run, so never call it stuck
+    if (!isRunning || isDaemonRun) {
       setIsStuck(false);
       if (stuckIntervalRef.current) {
         clearInterval(stuckIntervalRef.current);
@@ -263,11 +283,13 @@ export const TaskCard = memo(function TaskCard({
         clearInterval(stuckIntervalRef.current);
       }
     };
-  }, [task.id, isRunning]);
+  }, [task.id, isRunning, isDaemonRun]);
 
   const handleStartStop = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isRunning) {
+    if (isDaemonRun) {
+      daemonStop.stop();
+    } else if (isRunning) {
       // Allow stopping both running and stuck tasks
       // User should be able to force-stop a stuck task
       stopTask(task.id);
@@ -746,6 +768,33 @@ export const TaskCard = memo(function TaskCard({
                 <Archive className="mr-1.5 h-3 w-3" />
                 {t('actions.archive')}
               </Button>
+            ) : isDaemonRun ? (
+              <div className="flex flex-col items-end gap-1">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 px-2.5"
+                  onClick={handleStartStop}
+                  disabled={daemonStop.isPending}
+                  title={daemonStop.isPending ? t('daemonStop.pendingHint') : undefined}
+                  data-testid="task-card-daemon-stop"
+                >
+                  {daemonStop.isPending ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                      {t('daemonStop.stopping')}
+                    </>
+                  ) : (
+                    <>
+                      <Square className="mr-1.5 h-3 w-3" />
+                      {t('daemonStop.stopOnDaemon')}
+                    </>
+                  )}
+                </Button>
+                {daemonStopError && (
+                  <p role="alert" className="text-xs text-destructive">{daemonStopError}</p>
+                )}
+              </div>
             ) : (task.status === 'backlog' || task.status === 'in_progress') && (
               <Button
                 variant={isRunning ? 'destructive' : 'default'}

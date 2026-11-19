@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LinearTaskImportModal } from '../LinearTaskImportModal';
 import { JiraTaskImportModal } from '../jira-import';
+import { AzureBoardsImportModal } from '../azure-boards-import';
 import { SettingsSection } from './SettingsSection';
 import { useProjectSettings, UseProjectSettingsReturn } from '../project-settings/hooks/useProjectSettings';
 import { loadTasks } from '../../stores/task-store';
@@ -116,6 +117,8 @@ function ProjectSettingsContentInner({
     setShowAzureDevOpsPat,
     azureDevOpsConnectionStatus,
     isCheckingAzureDevOps,
+    showAzureBoardsImportModal,
+    setShowAzureBoardsImportModal,
     showLinearImportModal,
     setShowLinearImportModal,
     linearConnectionStatus,
@@ -183,6 +186,7 @@ function ProjectSettingsContentInner({
         handleInitialize={handleInitialize}
         onOpenLinearImport={() => setShowLinearImportModal(true)}
         onOpenJiraImport={() => setShowJiraImportModal(true)}
+        onOpenAzureBoardsImport={() => setShowAzureBoardsImportModal(true)}
         appMemoryEnabled={appMemoryEnabled}
         onAppMemoryEnabledChange={onAppMemoryEnabledChange}
       />
@@ -208,6 +212,18 @@ function ProjectSettingsContentInner({
         open={showJiraImportModal}
         onOpenChange={setShowJiraImportModal}
         defaultProjectKey={envConfig?.jiraProjectKey}
+        onImportComplete={async (result) => {
+          if (result.imported > 0) {
+            await loadTasks(project.id);
+          }
+        }}
+      />
+
+      {/* Azure Boards Import Modal */}
+      <AzureBoardsImportModal
+        projectId={project.id}
+        open={showAzureBoardsImportModal}
+        onOpenChange={setShowAzureBoardsImportModal}
         onImportComplete={async (result) => {
           if (result.imported > 0) {
             await loadTasks(project.id);

@@ -54,6 +54,7 @@ interface SectionRouterProps {
   handleInitialize: () => Promise<void>;
   onOpenLinearImport: () => void;
   onOpenJiraImport: () => void;
+  onOpenAzureBoardsImport: () => void;
   appMemoryEnabled: boolean | undefined;
   onAppMemoryEnabledChange: (enabled: boolean) => void;
 }
@@ -101,6 +102,7 @@ export function SectionRouter({
   handleInitialize,
   onOpenLinearImport,
   onOpenJiraImport,
+  onOpenAzureBoardsImport,
   appMemoryEnabled,
   onAppMemoryEnabledChange
 }: SectionRouterProps) {
@@ -244,6 +246,7 @@ export function SectionRouter({
               setShowAzureDevOpsPat={setShowAzureDevOpsPat}
               azureDevOpsConnectionStatus={azureDevOpsConnectionStatus}
               isCheckingAzureDevOps={isCheckingAzureDevOps}
+              onOpenAzureBoardsImport={onOpenAzureBoardsImport}
             />
           </InitializationGuard>
         </SettingsSection>

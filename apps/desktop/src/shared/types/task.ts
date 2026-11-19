@@ -201,8 +201,8 @@ export interface TaskMetadata {
   jiraSiteUrl?: string;  // Jira site base URL the issue came from
   azureBoardsWorkItemId?: number;  // Azure Boards work item id
   azureBoardsUrl?: string;  // Azure Boards work item URL
-  azureBoardsOrganization?: string;  // Azure DevOps organization the work item came from
-  azureBoardsProject?: string;  // Azure DevOps project the work item came from
+  azureBoardsOrganization?: string;  // Azure DevOps organization the item came from
+  azureBoardsProject?: string;  // Azure DevOps project the item came from
   githubIssueNumber?: number;  // Reference to GitHub issue number if from GitHub (single issue)
   githubIssueNumbers?: number[];  // Reference to multiple GitHub issues if from a batch
   githubUrl?: string;  // GitHub issue URL

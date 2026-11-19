@@ -78,6 +78,27 @@ export const integrationMock = {
     error: 'Not available in browser mock'
   }),
 
+  // Azure Boards Integration Operations
+  getAzureBoardsSavedQueries: async () => ({
+    success: true,
+    data: []
+  }),
+
+  getAzureBoardsMetadata: async () => ({
+    success: true,
+    data: { workItemTypes: [], states: [] }
+  }),
+
+  queryAzureBoardsWorkItems: async () => ({
+    success: true,
+    data: { items: [], totalCount: 0, truncated: false }
+  }),
+
+  importAzureBoardsWorkItems: async () => ({
+    success: true,
+    data: { success: true, imported: 0, failed: 0, skipped: [] }
+  }),
+
   // GitHub Integration Operations
   getGitHubRepositories: async () => ({
     success: true,

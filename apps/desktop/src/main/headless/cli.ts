@@ -2,6 +2,7 @@
  * zeenha fork: headless command line entry (`node out/main/cli.js run <spec>`).
  * Runs one task through the planner -> coder -> QA pipeline without Electron.
  * `serve` is long-running: it runs the project's task queue and recurring schedules until stopped.
+ * `stop <spec>` asks a running serve daemon to stop one task (it writes a stop request file).
  * No Sentry, no app-logger and no electron import may appear below this file.
  */
 import { readFileSync, realpathSync } from 'node:fs';
@@ -12,7 +13,8 @@ import { createHeadlessSpec } from './new-spec';
 import { runHeadlessTask } from './run-task';
 import { runServe } from './serve';
 import { HeadlessSetupError, resolveHeadlessProject } from './shared';
-import { listHeadlessTasks, queueHeadlessTask } from './task-store';
+import { findLiveDaemon, writeStopRequest } from './stop-request';
+import { listHeadlessTasks, queueHeadlessTask, resolveSpecId } from './task-store';
 
 const FALLBACK_VERSION = 'unknown';
 
@@ -24,6 +26,7 @@ Commands:
   serve           Run the project's task queue and recurring schedules until stopped
   list            List the project's tasks (id, status, title)
   queue <spec>    Move a backlog task to the queue for a running serve daemon
+  stop <spec>     Ask a running serve daemon to stop one task
   help            Show this help
 
 Options for run (they also apply to new --run):
@@ -31,10 +34,11 @@ Options for run (they also apply to new --run):
   --config <file>       JSON config file
   --base-branch <name>  Branch the task worktree is created from
   --no-push             Do not push the task branch
-  --json                Print machine-readable events (also for list and queue)
+  --json                Print machine-readable events (also for list, queue and stop)
   --verbose             Print detailed progress
   --run                 With new: run the build after the spec is created
   --queue               With new: queue the spec for a running serve daemon
+  --requeue             With stop: put the task back in the queue instead of leaving it stopped
   --help                Show this help
   --version             Print the version
 
@@ -54,9 +58,10 @@ Exit codes for serve:
   1  error
   3  the project queue is held by another process
 
-Exit codes for list and queue:
+Exit codes for list, queue and stop:
   0  ok
-  1  error, such as an unknown spec or a task that is not in the backlog
+  1  error, such as an unknown spec, a task that is not in the backlog (queue),
+     a task that is not running or no running serve daemon (stop)
 `;
 
 export interface CliIo {
@@ -120,6 +125,10 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
     err(`--queue only applies to the new command\n\n${USAGE}`);
     return 1;
   }
+  if (values.requeue && command !== 'stop') {
+    err(`--requeue only applies to the stop command\n\n${USAGE}`);
+    return 1;
+  }
   if (command === 'list' || command === 'queue') {
     if (command === 'list' ? arg || extra.length > 0 : extra.length > 0) {
       err(`Too many arguments\n\n${USAGE}`);
@@ -162,6 +171,55 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
       return 1;
     }
     out(values.json ? `${JSON.stringify({ specId: queued.specId, status: 'queue' })}\n` : `Queued ${queued.specId}\n`);
+    return 0;
+  }
+  if (command === 'stop') {
+    if (!arg || extra.length > 0) {
+      err(`${arg ? 'Too many arguments' : 'Missing <spec> argument'}\n\n${USAGE}`);
+      return 1;
+    }
+    if (values.run) {
+      err(`--run only applies to the new command\n\n${USAGE}`);
+      return 1;
+    }
+    let project: ReturnType<typeof resolveHeadlessProject>;
+    try {
+      project = resolveHeadlessProject(values.project);
+    } catch (error) {
+      if (error instanceof HeadlessSetupError) {
+        err(`${error.message}\n`);
+        return 1;
+      }
+      throw error;
+    }
+    const daemon = findLiveDaemon(project.path);
+    if (!daemon.ok) {
+      err(`${daemon.message}\n`);
+      return 1;
+    }
+    const tasks = listHeadlessTasks(project);
+    const resolved = resolveSpecId(tasks, arg);
+    if ('error' in resolved) {
+      err(`${resolved.error}\n`);
+      return 1;
+    }
+    const task = tasks.find((t) => t.specId === resolved.specId);
+    if (!task || task.status !== 'in_progress') {
+      err(`Task ${resolved.specId} is ${task?.status ?? 'unknown'}, only running tasks can be stopped\n`);
+      return 1;
+    }
+    const requeue = !!values.requeue;
+    try {
+      writeStopRequest(project.path, { specId: resolved.specId, requeue });
+    } catch (error) {
+      err(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 1;
+    }
+    out(
+      values.json
+        ? `${JSON.stringify({ specId: resolved.specId, requeue, requested: true })}\n`
+        : `Requested stop of ${resolved.specId}${requeue ? ', it will be requeued' : ''}\n`,
+    );
     return 0;
   }
   if (command === 'serve') {
@@ -278,6 +336,7 @@ const OPTIONS = {
   verbose: { type: 'boolean' },
   run: { type: 'boolean' },
   queue: { type: 'boolean' },
+  requeue: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 } as const;

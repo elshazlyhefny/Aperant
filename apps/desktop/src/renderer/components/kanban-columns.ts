@@ -46,8 +46,9 @@ export function canDropTask(from: TaskStatus, to: TaskStatus): boolean {
 /**
  * Whether a task matches the board search query (case-insensitive). Matches a
  * substring of title, description or spec ID, or EXACTLY an external issue key
- * (Jira 'PROJ-123', Linear 'ABC-12', GitHub/GitLab '#87'), so 'PROJ-123' does
- * not match 'PROJ-1234' and '#87' does not match '#871'.
+ * (Jira 'PROJ-123', Linear 'ABC-12', GitHub/GitLab '#87', Azure Boards 'AB#42'),
+ * so 'PROJ-123' does not match 'PROJ-1234' and '#87' does not match '#871'.
+ * Azure Boards only matches the 'AB#' form: '#42' collides with GitHub.
  */
 export function taskMatchesSearch(
   task: Pick<Task, 'title' | 'description' | 'specId' | 'metadata'>,
@@ -66,6 +67,7 @@ export function taskMatchesSearch(
   if (!meta) return false;
   if (meta.jiraIssueKey && meta.jiraIssueKey.toLowerCase() === q) return true;
   if (meta.linearIdentifier && meta.linearIdentifier.toLowerCase() === q) return true;
+  if (meta.azureBoardsWorkItemId && `ab#${meta.azureBoardsWorkItemId}` === q) return true;
   if (meta.githubIssueNumber && `#${meta.githubIssueNumber}` === q) return true;
   if (meta.githubIssueNumbers?.some((n) => `#${n}` === q)) return true;
   if (meta.gitlabIssueIid && `#${meta.gitlabIssueIid}` === q) return true;
@@ -77,6 +79,7 @@ export const TASK_SOURCE_FILTERS = [
   'github',
   'gitlab',
   'jira',
+  'azure_boards',
   'linear',
   'ideation',
   'roadmap',
