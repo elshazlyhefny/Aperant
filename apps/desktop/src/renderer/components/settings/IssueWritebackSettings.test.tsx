@@ -26,7 +26,10 @@ const DEFAULTS = {
   gitlab: false,
   linear: false,
   linearTransitionOnReview: false,
-  linearTransitionStateName: 'In Review'
+  linearTransitionStateName: 'In Review',
+  azureboards: false,
+  azureBoardsTransitionOnReview: false,
+  azureBoardsTransitionStateName: 'Resolved'
 };
 
 describe('IssueWritebackSettings', () => {
@@ -36,16 +39,16 @@ describe('IssueWritebackSettings', () => {
     vi.clearAllMocks();
   });
 
-  it('renders four switches, all off by default', () => {
+  it('renders six switches, all off by default', () => {
     render(<IssueWritebackSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />);
     const switches = screen.getAllByRole('switch');
-    expect(switches).toHaveLength(4);
+    expect(switches).toHaveLength(6);
     for (const s of switches) {
       expect(s).not.toBeChecked();
     }
   });
 
-  it.each(['github', 'gitlab', 'linear'] as const)(
+  it.each(['github', 'gitlab', 'linear', 'azureboards'] as const)(
     'toggling %s emits the right shape without altering the others',
     (key) => {
       const { container } = render(
@@ -108,6 +111,52 @@ describe('IssueWritebackSettings', () => {
       />
     );
     expect(container.querySelector('#issue-writeback-linear-state-name')).not.toBeDisabled();
+  });
+
+  it('toggling the Azure Boards transition switch emits azureBoardsTransitionOnReview: true', () => {
+    const { container } = render(
+      <IssueWritebackSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />
+    );
+    fireEvent.click(container.querySelector('#issue-writeback-azureBoardsTransitionOnReview') as HTMLElement);
+    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    expect(next.issueWriteback).toEqual({ ...DEFAULTS, azureBoardsTransitionOnReview: true });
+  });
+
+  it('typing in the Azure Boards state input emits the new name', () => {
+    const { container } = render(
+      <IssueWritebackSettings
+        settings={makeSettings({ ...DEFAULTS, azureBoardsTransitionOnReview: true })}
+        onSettingsChange={onSettingsChange}
+      />
+    );
+    fireEvent.change(container.querySelector('#issue-writeback-azureboards-state-name') as HTMLElement, {
+      target: { value: 'Closed' }
+    });
+    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    expect(next.issueWriteback).toEqual({
+      ...DEFAULTS,
+      azureBoardsTransitionOnReview: true,
+      azureBoardsTransitionStateName: 'Closed'
+    });
+  });
+
+  it('disables the Azure Boards state input until its move switch is on, independent of Linear', () => {
+    const { container, rerender } = render(
+      <IssueWritebackSettings
+        settings={makeSettings({ ...DEFAULTS, linearTransitionOnReview: true })}
+        onSettingsChange={onSettingsChange}
+      />
+    );
+    expect(container.querySelector('#issue-writeback-azureboards-state-name')).toBeDisabled();
+    expect(container.querySelector('#issue-writeback-linear-state-name')).not.toBeDisabled();
+    rerender(
+      <IssueWritebackSettings
+        settings={makeSettings({ ...DEFAULTS, azureBoardsTransitionOnReview: true })}
+        onSettingsChange={onSettingsChange}
+      />
+    );
+    expect(container.querySelector('#issue-writeback-azureboards-state-name')).not.toBeDisabled();
+    expect(container.querySelector('#issue-writeback-linear-state-name')).toBeDisabled();
   });
 
   it('has identical notifications.issueWriteback.* keys in en and fr', () => {

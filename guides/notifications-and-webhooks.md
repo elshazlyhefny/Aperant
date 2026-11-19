@@ -183,7 +183,7 @@ Behaviour to know:
 
 ## Reporting back to the issue tracker (write-back)
 
-`cli.js run` and `cli.js serve` can also report a task's outcome back to the issue it was imported from: a comment, and for Jira an optional move to the review status. This is separate from the webhook and has its own `writeback` key in the `--config` file. Everything is off by default.
+`cli.js run` and `cli.js serve` can also report a task's outcome back to the issue it was imported from: a comment, and for Jira and Azure Boards an optional move to the review status or state. This is separate from the webhook and has its own `writeback` key in the `--config` file. Everything is off by default.
 
 ```json
 {
@@ -196,17 +196,23 @@ Behaviour to know:
       "comment": true,
       "transitionOnReview": true,
       "transitionStatusName": "In Review"
+    },
+    "azureBoards": {
+      "enabled": true,
+      "transitionOnReview": true,
+      "transitionStateName": "Resolved"
     }
   }
 }
 ```
 
-- `github`, `gitlab` and `linear` are booleans. `jira` is an object with `enabled`, `comment`, `transitionOnReview` and `transitionStatusName` (the name of the Jira status to move the issue to).
+- `github`, `gitlab` and `linear` are booleans. `jira` is an object with `enabled`, `comment`, `transitionOnReview` and `transitionStatusName` (the name of the Jira status to move the issue to). `azureBoards` is an object with `enabled`, `transitionOnReview` and `transitionStateName` (the name of the Azure Boards state to move the work item to).
 - Credentials come from the project's `.auto-claude/.env`:
   - GitHub: `GITHUB_TOKEN` and `GITHUB_REPO`.
   - GitLab: `GITLAB_TOKEN`, `GITLAB_PROJECT` and `GITLAB_INSTANCE_URL`.
   - Linear: `LINEAR_API_KEY`.
   - Jira: `JIRA_SITE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN`.
+  - Azure Boards: `AZURE_DEVOPS_ORGANIZATION`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_REPOSITORY` and `AZURE_DEVOPS_PAT`.
 - In CI, where there is no `.auto-claude/.env`, `GITHUB_TOKEN` or `GH_TOKEN` (GitHub) and `GITLAB_TOKEN` (GitLab) are also read from the process environment.
 - Only tasks imported from that issue tracker are reported. The tracker is taken from `sourceType` in the task's `task_metadata.json`. Tasks created any other way are skipped.
 - `run` reports after the webhook is sent. `serve` reports once the task's final status is known.
