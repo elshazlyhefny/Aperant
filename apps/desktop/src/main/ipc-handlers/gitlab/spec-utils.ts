@@ -1,15 +1,19 @@
 /**
  * GitLab spec utilities
- * Handles creating task specs from GitLab issues
+ * Handles creating task specs from GitLab issues.
+ * Spec numbers come from the shared spec-number lock; duplicates are detected
+ * by reading each spec's metadata.json, not by folder name.
  */
 
-import { mkdir, writeFile, readFile, stat } from 'fs/promises';
+import { mkdir, writeFile, stat } from 'fs/promises';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import path from 'path';
 import type { Project } from '../../../shared/types';
 import type { GitLabAPIIssue, GitLabAPINoteBasic, GitLabConfig } from './types';
 import { labelMatchesWholeWord } from '../shared/label-utils';
 import { sanitizeText, sanitizeStringArray } from '../shared/sanitize';
-import { slugifySpecTitle } from '../../utils/spec-slug';
+import { buildSpecId } from '../../utils/spec-slug';
+import { withSpecNumberLock } from '../../utils/spec-number-lock';
 import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 /**
@@ -181,15 +185,47 @@ function sanitizeIssueForSpec(issue: IssueLike, instanceUrl: string): SanitizedG
 }
 
 /**
- * Generate a spec directory name from issue title
+ * Map of GitLab issue IID -> spec folder name for specs already imported from
+ * this project. Reads metadata.json (not the folder name), so specs created
+ * with older IID-based folder names are still found.
  */
-function generateSpecDirName(issueIid: number, title: string): string {
-  // Clean title for directory name
-  const cleanTitle = slugifySpecTitle(title);
+export function findExistingGitLabSpecs(
+  specsDir: string,
+  project: string,
+  instanceUrl?: string
+): Map<number, string> {
+  const result = new Map<number, string>();
+  const wantedProject = project.trim();
+  const wantedInstance = instanceUrl?.trim();
+  if (!existsSync(specsDir)) return result;
 
-  // Format: 001-issue-title (padded issue IID)
-  const paddedIid = String(issueIid).padStart(3, '0');
-  return `${paddedIid}-${cleanTitle}`;
+  let entries: string[];
+  try {
+    entries = readdirSync(specsDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name);
+  } catch {
+    return result;
+  }
+
+  for (const name of entries) {
+    try {
+      const raw = readFileSync(path.join(specsDir, name, 'metadata.json'), 'utf-8');
+      const meta = JSON.parse(raw) as {
+        source?: unknown;
+        gitlab?: { issueIid?: unknown; project?: unknown; instanceUrl?: unknown };
+      } | null;
+      if (!meta || typeof meta !== 'object' || meta.source !== 'gitlab') continue;
+      const gl = meta.gitlab;
+      if (!gl || typeof gl !== 'object') continue;
+      const iid = gl.issueIid;
+      if (typeof iid !== 'number' || !Number.isInteger(iid) || iid <= 0) continue;
+      if (typeof gl.project !== 'string' || gl.project.trim() !== wantedProject) continue;
+      if (wantedInstance && typeof gl.instanceUrl === 'string' && gl.instanceUrl.trim() !== wantedInstance) continue;
+      if (!result.has(iid)) result.set(iid, name);
+    } catch {
+      // Unreadable or malformed metadata: ignore this spec
+    }
+  }
+  return result;
 }
 
 /**
@@ -244,18 +280,6 @@ export function buildIssueContext(
   }
 
   return lines.join('\n');
-}
-
-/**
- * Check if a path exists (async)
- */
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await stat(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -356,7 +380,9 @@ export async function fetchAllIssueNotes(
 }
 
 /**
- * Create a task spec from a GitLab issue
+ * Create a task spec from a GitLab issue.
+ * The number comes from the shared spec-number lock; an existing spec for the
+ * same project and IID is found through metadata.json and returned instead.
  */
 export async function createSpecForIssue(
   project: Project,
@@ -380,38 +406,57 @@ export async function createSpecForIssue(
     // Ensure specs directory exists
     await mkdir(specsDir, { recursive: true });
 
-    // Generate spec directory name
-    const specDirName = generateSpecDirName(safeIssue.iid, safeIssue.title);
-    const specDir = path.join(specsDir, specDirName);
-    const metadataPath = path.join(specDir, 'metadata.json');
+    // Look up an existing spec and allocate a new number under ONE lock so
+    // concurrent imports of the same issue cannot both create a spec.
+    const allocation = await withSpecNumberLock<{ existing: string } | { created: string }>(project.path, (lock) => {
+      const found = findExistingGitLabSpecs(specsDir, safeProject, safeInstanceUrl).get(safeIssue.iid);
+      if (found) return { existing: found };
+      const specNumber = lock.getNextSpecNumber(project.autoBuildPath);
+      const newSpecId = buildSpecId(specNumber, safeIssue.title);
+      mkdirSync(path.join(specsDir, newSpecId), { recursive: true });
+      // Write metadata.json inside the lock so a concurrent import of the same
+      // issue finds this spec instead of allocating a second one.
+      // CodeQL: network data validated before write - all values derived from sanitized safeIssue fields
+      const metadata = {
+        source: 'gitlab',
+        gitlab: {
+          issueId: safeIssue.id,
+          issueIid: safeIssue.iid,
+          instanceUrl: safeInstanceUrl,
+          project: safeProject,
+          webUrl: safeIssue.web_url,
+          state: safeIssue.state,
+          labels: safeIssue.labels,
+          createdAt: safeIssue.created_at
+        },
+        createdAt: new Date().toISOString(),
+        status: 'pending'
+      };
+      writeFileSync(path.join(specsDir, newSpecId, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
+      return { created: newSpecId };
+    });
 
-    // Check if spec already exists
-    if (await pathExists(specDir)) {
-      debugLog('Spec already exists for issue:', { iid: safeIssue.iid, specDir });
+    if ('existing' in allocation) {
+      const existingName = allocation.existing;
+      debugLog('Spec already exists for issue:', { iid: safeIssue.iid, specDir: existingName });
 
-      // Read existing metadata for accurate timestamps
       let createdAt = new Date(safeIssue.created_at);
       let updatedAt = createdAt;
-
-      if (await pathExists(metadataPath)) {
-        try {
-          const metadataContent = await readFile(metadataPath, 'utf-8');
-          const metadata = JSON.parse(metadataContent);
-          if (metadata.createdAt) {
-            createdAt = new Date(metadata.createdAt);
-          }
-          // Use file modification time for updatedAt
-          const stats = await stat(metadataPath);
-          updatedAt = new Date(stats.mtimeMs);
-        } catch {
-          // Fallback to issue dates if metadata read fails
+      const existingMetadataPath = path.join(specsDir, existingName, 'metadata.json');
+      try {
+        const metadata = JSON.parse(readFileSync(existingMetadataPath, 'utf-8'));
+        if (metadata.createdAt) {
+          const parsed = new Date(metadata.createdAt);
+          if (!Number.isNaN(parsed.getTime())) createdAt = parsed;
         }
+        updatedAt = new Date((await stat(existingMetadataPath)).mtimeMs);
+      } catch {
+        // Fallback to issue dates if metadata read fails
       }
 
-      // Return existing task info
       return {
-        id: specDirName,
-        specId: specDirName,
+        id: existingName,
+        specId: existingName,
         title: safeIssue.title,
         description: safeIssue.description || '',
         createdAt,
@@ -419,59 +464,44 @@ export async function createSpecForIssue(
       };
     }
 
-    // Create spec directory
-    await mkdir(specDir, { recursive: true });
+    const specDirName = allocation.created;
+    const specDir = path.join(specsDir, specDirName);
+    try {
+      // Create TASK.md with issue context (including selected notes)
+      // CodeQL: network data validated before write - safeIssue sanitized via sanitizeIssueForSpec()
+      const taskContent = buildIssueContext(safeIssue, safeProject, safeInstanceUrl, notes);
+      await writeFile(path.join(specDir, 'TASK.md'), taskContent, 'utf-8');
 
-    // Create TASK.md with issue context (including selected notes)
-    // CodeQL: network data validated before write - safeIssue sanitized via sanitizeIssueForSpec()
-    const taskContent = buildIssueContext(safeIssue, safeProject, safeInstanceUrl, notes);
-    await writeFile(path.join(specDir, 'TASK.md'), taskContent, 'utf-8');
+      // Create task_metadata.json (consistent with GitHub format for backend compatibility)
+      const taskMetadata = {
+        sourceType: 'gitlab' as const,
+        gitlabIssueIid: safeIssue.iid,
+        gitlabUrl: safeIssue.web_url,
+        category: determineCategoryFromLabels(safeIssue.labels || []),
+        // Store baseBranch for worktree creation and QA comparison
+        ...(baseBranch && { baseBranch })
+      };
+      await writeFile(
+        path.join(specDir, 'task_metadata.json'),
+        JSON.stringify(taskMetadata, null, 2),
+        'utf-8'
+      );
 
-    // Create metadata.json (legacy format for GitLab-specific data)
-    // CodeQL: network data validated before write - all values derived from sanitized safeIssue fields
-    const metadata = {
-      source: 'gitlab',
-      gitlab: {
-        issueId: safeIssue.id,
-        issueIid: safeIssue.iid,
-        instanceUrl: safeInstanceUrl,
-        project: safeProject,
-        webUrl: safeIssue.web_url,
-        state: safeIssue.state,
-        labels: safeIssue.labels,
-        createdAt: safeIssue.created_at
-      },
-      createdAt: new Date().toISOString(),
-      status: 'pending'
-    };
-    await writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
+      debugLog('Created spec for issue:', { iid: safeIssue.iid, specDir });
 
-    // Create task_metadata.json (consistent with GitHub format for backend compatibility)
-    const taskMetadata = {
-      sourceType: 'gitlab' as const,
-      gitlabIssueIid: safeIssue.iid,
-      gitlabUrl: safeIssue.web_url,
-      category: determineCategoryFromLabels(safeIssue.labels || []),
-      // Store baseBranch for worktree creation and QA comparison
-      ...(baseBranch && { baseBranch })
-    };
-    await writeFile(
-      path.join(specDir, 'task_metadata.json'),
-      JSON.stringify(taskMetadata, null, 2),
-      'utf-8'
-    );
-
-    debugLog('Created spec for issue:', { iid: safeIssue.iid, specDir });
-
-    // Return task info
-    return {
-      id: specDirName,
-      specId: specDirName,
-      title: safeIssue.title,
-      description: safeIssue.description || '',
-      createdAt: new Date(safeIssue.created_at),
-      updatedAt: new Date()
-    };
+      // Return task info
+      return {
+        id: specDirName,
+        specId: specDirName,
+        title: safeIssue.title,
+        description: safeIssue.description || '',
+        createdAt: new Date(safeIssue.created_at),
+        updatedAt: new Date()
+      };
+    } catch (writeError) {
+      rmSync(specDir, { recursive: true, force: true });
+      throw writeError;
+    }
   } catch (error) {
     debugLog('Failed to create spec for issue:', { iid: issue.iid, error });
     return null;
