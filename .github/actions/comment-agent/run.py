@@ -8,7 +8,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -35,6 +35,8 @@ def api(path, method="GET", data=None, *, public=False):
             return json.load(response)
     except HTTPError as error:
         raise ValueError(f"GitHub rejected {method} {path} (HTTP {error.code})") from None
+    except (URLError, TimeoutError, json.JSONDecodeError) as error:
+        raise ValueError(f"Could not verify the GitHub response for {method} {path} ({type(error).__name__}).") from None
 
 
 def get_event(agent):
