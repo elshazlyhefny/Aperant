@@ -1,0 +1,143 @@
+name: Run an owner comment agent
+
+on:
+  workflow_call:
+    inputs:
+      agent:
+        type: string
+        required: true
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
+      OPENAI_API_KEY:
+        required: false
+
+permissions: {}
+
+jobs:
+  work:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    outputs:
+      mode: ${{ steps.request.outputs.mode }}
+      head: ${{ steps.request.outputs.head }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate owner request and identify the work branch
+        id: request
+        env:
+          AGENT: ${{ inputs.agent }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/actions/comment-agent/run.py prepare
+      - name: Check out the requested PR head
+        if: steps.request.outputs.mode == 'work'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.request.outputs.head }}
+          persist-credentials: false
+      - name: Set up Node for repository checks
+        if: steps.request.outputs.mode == 'work'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install dependencies without running checkout scripts
+        if: steps.request.outputs.mode == 'work'
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run Claude Code
+        id: claude
+        if: steps.request.outputs.mode == 'work' && inputs.agent == 'claude'
+        uses: anthropics/claude-code-action@4411a9e9b0283becf4b924f7bce360fd7756c78c # v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: ${{ steps.request.outputs.prompt }}
+          claude_args: >-
+            --permission-mode auto --max-turns 30
+            --json-schema '{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"],"additionalProperties":false}'
+      - name: Run Codex
+        id: codex
+        if: steps.request.outputs.mode == 'work' && inputs.agent == 'codex'
+        uses: openai/codex-action@306c6a196a99dcc6582530c396a19d2672d5e9ec # v1.14
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          safety-strategy: drop-sudo
+          permission-profile: ':workspace'
+          prompt: ${{ steps.request.outputs.prompt }}
+      - name: Collect the proposed changes
+        if: steps.request.outputs.mode == 'work'
+        env:
+          BASE_SHA: ${{ steps.request.outputs.head }}
+          CODEX_SUMMARY: ${{ steps.codex.outputs.final-message }}
+          CLAUDE_SUMMARY: ${{ steps.claude.outputs.structured_output }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/agent-result"
+          git add --all
+          git diff --cached --binary --no-ext-diff "$BASE_SHA" > "$RUNNER_TEMP/agent-result/changes.patch"
+          printf '%s' "$CODEX_SUMMARY" > "$RUNNER_TEMP/agent-result/codex.txt"
+          printf '%s' "$CLAUDE_SUMMARY" > "$RUNNER_TEMP/agent-result/claude.json"
+      - name: Pass changes to the publishing job
+        if: steps.request.outputs.mode == 'work'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: owner-agent-result
+          path: ${{ runner.temp }}/agent-result/
+          retention-days: 1
+
+  publish:
+    needs: work
+    if: needs.work.outputs.mode == 'work'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Check out the work commit in a separate directory
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.work.outputs.head }}
+          path: agent-worktree
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: owner-agent-result
+          path: ${{ runner.temp }}/agent-result/
+      - name: Publish the patch to the PR branch or a new issue branch
+        env:
+          AGENT: ${{ inputs.agent }}
+          BASE_SHA: ${{ needs.work.outputs.head }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/actions/comment-agent/run.py publish
+
+  merge:
+    needs: work
+    if: needs.work.outputs.mode == 'merge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: owner-comment-merge
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Verify CI and merge the requested PRs in order
+        env:
+          AGENT: ${{ inputs.agent }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/actions/comment-agent/run.py merge

@@ -1,0 +1,23 @@
+name: Claude on owner comments
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  claude:
+    if: >-
+      github.repository == 'elshazlyhefny/Aperant' &&
+      github.event.comment.user.login == 'elshazlyhefny' &&
+      github.event.sender.login == 'elshazlyhefny' &&
+      contains(github.event.comment.body, '@claude')
+    uses: ./.github/workflows/owner-comment-agent.yml
+    with:
+      agent: claude
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

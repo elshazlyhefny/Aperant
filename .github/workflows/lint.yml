@@ -29,6 +29,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Test owner comment workflow safeguards
+        run: python3 -B -m unittest discover -s .github/actions/comment-agent
+
       # Pin version to match package.json for consistent behavior
       - name: Setup Biome
         uses: biomejs/setup-biome@v2
