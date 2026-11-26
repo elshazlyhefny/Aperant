@@ -128,6 +128,8 @@ export interface SerializableSessionConfig {
 /** Discriminated union of all messages posted from worker to main thread */
 export type WorkerMessage =
   | { type: 'phase-key-outcome'; outcome: 'valid' | 'rejected' }
+  // zeenha fork: a routed phase asks the main process for its account. excludeAccountIds
+  // lists the accounts this run must skip (e.g. one that just hit a rate limit).
   | { type: 'phase-connection'; phase: Phase; requestId: number; excludeAccountIds?: string[] }
   | WorkerLogMessage
   | WorkerErrorMessage
@@ -225,6 +227,10 @@ export interface SerializedSecurityProfile {
  * Configuration for AgentExecutor.
  */
 export interface AgentExecutorConfig {
+  /**
+   * zeenha fork: resolves a routed phase's account in the main process, skipping
+   * `excludeAccountIds` (see phase-connection.ts). Absent for tasks without routing.
+   */
   resolvePhaseConnection?: (phase: Phase, excludeAccountIds?: string[]) => Promise<PhaseConnection>;
   /** Task ID for tracking */
   taskId: string;

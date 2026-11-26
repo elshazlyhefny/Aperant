@@ -12,10 +12,13 @@ vi.mock('electron', () => ({
 }));
 
 import { AgentManager } from '../agent-manager';
+import { getOperationRegistry } from '../../claude-profile/operation-registry';
 
 interface Internals {
   swappedAccounts: Map<string, { accountIds: Set<string>; profileId: string }>;
   restartAfterSwap(taskId: string, accountIds: string[], newProfileId: string): boolean;
+  restartRunningTask(taskId: string, newProfileId: string): boolean;
+  state: { addProcess(taskId: string, process: object): void };
   storeTaskContext(taskId: string, projectPath: string, specId: string, options: object): void;
   taskPhaseResolver(): undefined;
   readyForLegacyTask(): Promise<boolean>;
@@ -34,8 +37,13 @@ describe('AgentManager swapped accounts', () => {
     internals.readyForLegacyTask = async () => false;
   });
   afterEach(() => {
+    getOperationRegistry().unregisterOperation('t');
     vi.useRealTimers();
   });
+
+  /** A task whose worker is still being set up counts as running. */
+  const markRunning = (taskId: string) =>
+    internals.state.addProcess(taskId, { taskId, process: null, startedAt: new Date(), spawnId: 1 });
 
   it('records nothing when the restart is refused', () => {
     expect(internals.restartAfterSwap('t', ['a'], 'profile-b')).toBe(false);
@@ -44,6 +52,7 @@ describe('AgentManager swapped accounts', () => {
 
   it('keeps the swap across its restart and drops it on the next user start', async () => {
     internals.storeTaskContext('t', '/project', '001-x', {});
+    markRunning('t');
     const start = vi.spyOn(manager, 'startTaskExecution');
     expect(internals.restartAfterSwap('t', ['a'], 'profile-b')).toBe(true);
     await vi.advanceTimersByTimeAsync(600);
@@ -58,5 +67,43 @@ describe('AgentManager swapped accounts', () => {
     internals.swappedAccounts.set('t', { accountIds: new Set(['a']), profileId: 'profile-b' });
     manager.killTask('t');
     expect(internals.swappedAccounts.has('t')).toBe(false);
+  });
+
+  it.each([
+    ['routed', (id: string) => internals.restartAfterSwap(id, ['a'], 'profile-b')],
+    ['legacy', (id: string) => internals.restartRunningTask(id, 'profile-b')],
+  ])('does not restart a stopped %s task on a proactive swap', async (_kind, restartFn) => {
+    internals.storeTaskContext('t', '/project', '001-x', {});
+    markRunning('t');
+    const registry = getOperationRegistry();
+    registry.registerOperation('t', 'task-execution', 'profile-a', 'A', restartFn);
+    const start = vi.spyOn(manager, 'startTaskExecution');
+
+    manager.killTask('t');
+    expect(registry.getOperation('t')).toBeUndefined();
+    expect(await registry.restartOperationsOnProfile('profile-a', 'profile-b', 'B')).toBe(0);
+    // Even a registration that outlived the process restarts nothing.
+    expect(restartFn('t')).toBe(false);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('does not restart a task that exited on a proactive swap', async () => {
+    internals.storeTaskContext('t', '/project', '001-x', {});
+    const start = vi.spyOn(manager, 'startTaskExecution');
+    expect(internals.restartRunningTask('t', 'profile-b')).toBe(false);
+    expect(internals.restartAfterSwap('t', ['a'], 'profile-b')).toBe(false);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('drops a pending swap restart when the user stops the task', async () => {
+    internals.storeTaskContext('t', '/project', '001-x', {});
+    markRunning('t');
+    const start = vi.spyOn(manager, 'startTaskExecution');
+    expect(internals.restartRunningTask('t', 'profile-b')).toBe(true);
+    manager.killTask('t');
+    await vi.advanceTimersByTimeAsync(600);
+    expect(start).not.toHaveBeenCalled();
   });
 });

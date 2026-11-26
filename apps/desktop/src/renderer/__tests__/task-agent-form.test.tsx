@@ -8,20 +8,27 @@ import { taskAgentPreset } from '../../shared/utils/task-agent';
 import { useSettingsStore } from '../stores/settings-store';
 import { DEFAULT_PHASE_MODELS, DEFAULT_PHASE_THINKING } from '../../shared/constants';
 import type { Task, TaskMetadata } from '../../shared/types';
-import type { PhaseModelConfig } from '../../shared/types/settings';
+import type { PhaseModelConfig, PhaseThinkingConfig } from '../../shared/types/settings';
 
 vi.mock('react-i18next', async importOriginal => ({
   ...await importOriginal<typeof import('react-i18next')>(),
   useTranslation: () => ({ t: (key: string, args?: { phase?: string }) => args?.phase ?? key, i18n: {language: 'en'} }),
 }));
-// The real selector is a Radix Select; this stand-in picks a new coding model in one click.
+// The real selector is a Radix Select; this stand-in picks a new coding model or coding
+// thinking level in one click.
 vi.mock('../components/AgentProfileSelector', () => ({
-  AgentProfileSelector: ({ phaseModels, onPhaseModelsChange }: {
+  AgentProfileSelector: ({ phaseModels, phaseThinking, onPhaseModelsChange, onPhaseThinkingChange }: {
     phaseModels?: PhaseModelConfig; onPhaseModelsChange?: (models: PhaseModelConfig) => void;
+    phaseThinking?: PhaseThinkingConfig; onPhaseThinkingChange?: (thinking: PhaseThinkingConfig) => void;
   }) => (
-    <button type="button" onClick={() => phaseModels && onPhaseModelsChange?.({ ...phaseModels, coding: 'gpt-5.2' })}>
-      pick-model
-    </button>
+    <>
+      <button type="button" onClick={() => phaseModels && onPhaseModelsChange?.({ ...phaseModels, coding: 'gpt-5.2' })}>
+        pick-model
+      </button>
+      <button type="button" onClick={() => phaseThinking && onPhaseThinkingChange?.({ ...phaseThinking, coding: 'high' })}>
+        pick-thinking
+      </button>
+    </>
   ),
 }));
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
@@ -63,7 +70,7 @@ it('restores a customized draft and replaces all four routes when an existing ta
 }, 20000);
 
 // zeenha fork: a profile-based task saves the provider its models came from.
-const editProfileTask = async (pickModel: boolean) => {
+const editProfileTask = async (pick?: 'pick-model' | 'pick-thinking') => {
   useSettingsStore.setState({ providerAccounts: [{ id: 'oa', provider: 'openai', name: 'OpenAI', createdAt: 0, updatedAt: 0,
     authType: 'api-key', billingModel: 'pay-per-use', apiKey: 'fixture' }] });
   const task: Task = { id: 't', projectId: 'p', specId: '001-test', status: 'backlog', title: 'Task',
@@ -75,7 +82,7 @@ const editProfileTask = async (pickModel: boolean) => {
   render(<TooltipProvider><TaskEditDialog open task={task} onOpenChange={() => {}} /></TooltipProvider>);
   expect(screen.getByLabelText<HTMLSelectElement>('taskAgent.label').value).toBe('profile');
   fireEvent.change(screen.getByDisplayValue('Change the title'), { target: { value: 'Change the heading' } });
-  if (pickModel) fireEvent.click(screen.getByText('pick-model'));
+  if (pick) fireEvent.click(screen.getByText(pick));
   fireEvent.click(screen.getByText('tasks:edit.saveChanges'));
   await waitFor(() => expect(update).toHaveBeenCalledOnce());
   useSettingsStore.setState({ providerAccounts: [] });
@@ -83,13 +90,20 @@ const editProfileTask = async (pickModel: boolean) => {
 };
 
 it('keeps the saved provider when only the title of a profile-based task changes', async () => {
-  const metadata = await editProfileTask(false);
+  const metadata = await editProfileTask();
   expect(metadata?.provider).toBe('anthropic');
   expect(metadata?.phaseModels).toEqual(DEFAULT_PHASE_MODELS);
 }, 20000);
 
 it('saves the active provider when the models of a profile-based task are changed', async () => {
-  const metadata = await editProfileTask(true);
+  const metadata = await editProfileTask('pick-model');
   expect(metadata?.provider).toBe('openai');
   expect(metadata?.phaseModels?.coding).toBe('gpt-5.2');
+}, 20000);
+
+it('keeps the saved provider when only the thinking of a profile-based task changes', async () => {
+  const metadata = await editProfileTask('pick-thinking');
+  expect(metadata?.provider).toBe('anthropic');
+  expect(metadata?.phaseModels).toEqual(DEFAULT_PHASE_MODELS);
+  expect(metadata?.phaseThinking?.coding).toBe('high');
 }, 20000);

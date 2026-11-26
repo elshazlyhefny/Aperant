@@ -41,7 +41,10 @@ export function phaseConnectionResolver(metadata: TaskMetadata | null | undefine
     if (queue.length) {
       const keyOnly = ALL_AVAILABLE_MODELS.some(model => model.provider === provider && model.value === modelId && model.apiKeyOnly);
       const eligible = keyOnly ? queue.filter(a => a.authType === 'api-key') : queue;
-      const resolved = await resolveAuthFromQueue(modelId, eligible, { codexTokenFilePath, excludeAccountIds });
+      // Only this queue's own accounts count: any exclusion makes resolveAuthFromQueue
+      // move unverified API keys last, so another provider's ids would reorder it.
+      const excluded = excludeAccountIds.filter(id => eligible.some(a => a.id === id));
+      const resolved = await resolveAuthFromQueue(modelId, eligible, { codexTokenFilePath, excludeAccountIds: excluded });
       if (!resolved) throw unavailable;
       return {
         provider: resolved.resolvedProvider,

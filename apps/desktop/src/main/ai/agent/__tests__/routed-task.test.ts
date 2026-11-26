@@ -179,6 +179,20 @@ it('resolves a ChatGPT subscription token for a Codex phase without a Claude acc
   expect(await resolve!('coding')).toMatchObject({ provider: 'openai', oauthTokenFilePath: tokenFile, modelId: metadata.phaseModels.coding });
 });
 
+// zeenha fork: excluding another provider's account leaves this phase's queue order alone.
+it('ignores excluded accounts of another provider when ordering a phase queue', async () => {
+  addAccount('openai');
+  addAccount('openai', 'openai-2');
+  accounts[1] = { ...accounts[1], keyStatus: 'valid' };
+  addAccount('anthropic');
+  const resolve = phaseConnectionResolver(taskPhaseMetadata(taskAgentPreset('codex', {}).phases), () => ({
+    accounts, priorityOrder: ['openai', 'openai-2'], fallback: async () => null,
+  }));
+  expect(await resolve!('coding', ['anthropic'])).toMatchObject({ accountId: 'openai', apiKey: 'fixture-openai' });
+  // An exclusion inside the queue still applies.
+  expect(await resolve!('coding', ['openai'])).toMatchObject({ accountId: 'openai-2' });
+});
+
 // zeenha fork: a rate limit moves a routed phase to the next account of the same provider.
 it('continues a rate-limited coding phase on the next account of the same provider', async () => {
   addAccount('anthropic');

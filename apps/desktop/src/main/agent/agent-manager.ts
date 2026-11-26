@@ -310,7 +310,7 @@ export class AgentManager extends EventEmitter {
       operationType,
       activeProfile.id,
       activeProfile.name,
-      (newProfileId: string) => this.restartTask(taskId, newProfileId),
+      (newProfileId: string) => this.restartRunningTask(taskId, newProfileId),
       { metadata }
     );
     appLog.info('[AgentManager] Task registered with OperationRegistry:', {
@@ -364,11 +364,21 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
+   * zeenha fork: proactive swap of a legacy task. The registration can outlive the
+   * process (a failed exit keeps it for a reactive restart), so a swap restarts only
+   * a task that is still running, never one that exited or the user stopped.
+   */
+  private restartRunningTask(taskId: string, newProfileId: string): boolean {
+    return this.isRunning(taskId) && this.restartTask(taskId, newProfileId);
+  }
+
+  /**
    * zeenha fork: proactive swap of a routed task. The swap is recorded only when the
    * restart goes ahead. The global active profile is left alone: the restarted task
    * prefers the provider account linked to `newProfileId` instead.
    */
   private restartAfterSwap(taskId: string, accountIds: string[], newProfileId: string): boolean {
+    if (!this.isRunning(taskId)) return false;
     const restarted = this.restartTask(taskId);
     if (restarted) this.swappedAccounts.set(taskId, { accountIds: new Set(accountIds), profileId: newProfileId });
     return restarted;
@@ -809,9 +819,12 @@ export class AgentManager extends EventEmitter {
    * Kill a specific task's process
    */
   killTask(taskId: string): boolean {
-    // zeenha fork: a stopped task forgets its swaps. restartTask also kills, but
-    // restartAfterSwap records the swap only after restartTask returns.
+    // zeenha fork: a task the user stopped forgets its swaps, its restart context and
+    // its OperationRegistry entry, so neither a later proactive swap nor a pending
+    // swap restart starts it again. restartTask kills through killProcess instead.
     this.swappedAccounts.delete(taskId);
+    this.taskExecutionContext.delete(taskId);
+    getOperationRegistry().unregisterOperation(taskId);
     return this.processManager.killProcess(taskId);
   }
 
@@ -944,11 +957,14 @@ export class AgentManager extends EventEmitter {
 
     // Kill current process
     appLog.info('[AgentManager] Killing current process for task:', taskId);
-    this.killTask(taskId);
+    // zeenha fork: not killTask, which is the user's Stop and forgets the context.
+    this.processManager.killProcess(taskId);
 
     // Wait for cleanup, then reset stuck subtasks and restart
     appLog.info('[AgentManager] Scheduling task restart in 500ms');
     setTimeout(async () => {
+      // zeenha fork: the user stopped the task while this restart was pending.
+      if (this.taskExecutionContext.get(taskId) !== context) return;
       // Reset stuck subtasks before restart to avoid picking up stale in-progress states
       if (context.specId || context.specDir) {
         const planPath = context.specDir

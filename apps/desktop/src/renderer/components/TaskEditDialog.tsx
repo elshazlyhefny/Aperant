@@ -238,10 +238,14 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     const trimmedDescription = description.trim();
     // Model/profile selection differs from what the task has saved (also true when the
     // task had none saved, since the dialog then fills in the active provider's defaults).
-    const modelSelectionChanged =
+    // zeenha fork: models and thinking are tracked apart, because only a model change
+    // moves the task to the active provider (see `provider` below).
+    const modelsChanged =
       model !== (task.metadata?.model || '') ||
+      JSON.stringify(phaseModels) !== JSON.stringify(task.metadata?.phaseModels || DEFAULT_PHASE_MODELS);
+    const modelSelectionChanged =
+      modelsChanged ||
       thinkingLevel !== (task.metadata?.thinkingLevel || '') ||
-      JSON.stringify(phaseModels) !== JSON.stringify(task.metadata?.phaseModels || DEFAULT_PHASE_MODELS) ||
       JSON.stringify(phaseThinking) !== JSON.stringify(task.metadata?.phaseThinking || DEFAULT_PHASE_THINKING);
     const hasChanges =
       JSON.stringify(taskAgent) !== JSON.stringify(savedTaskAgent(task.metadata)) ||
@@ -275,10 +279,10 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     if (model) metadataUpdates.model = model as ModelType;
     if (thinkingLevel) metadataUpdates.thinkingLevel = thinkingLevel as ThinkingLevel;
     // zeenha fork: a profile-based task whose models were picked in this dialog takes them
-    // from the active provider, so save that provider. Otherwise the saved models still
-    // belong to the task's own provider, so keep it. A task-agent task keeps its own, and
-    // taskPhaseMetadata sets it below.
-    const provider = !taskAgent && modelSelectionChanged
+    // from the active provider, so save that provider. Otherwise (including a thinking-only
+    // edit) the saved models still belong to the task's own provider, so keep it. A
+    // task-agent task keeps its own, and taskPhaseMetadata sets it below.
+    const provider = !taskAgent && modelsChanged
       ? activeProvider
       : (task.metadata?.provider ?? activeProvider);
     if (provider) metadataUpdates.provider = provider;
