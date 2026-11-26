@@ -11,6 +11,7 @@
  * - Production: Bundled into app resources (app.isPackaged)
  */
 
+import '../../network-defaults';
 import { parentPort, workerData } from 'worker_threads';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
