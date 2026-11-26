@@ -6,7 +6,7 @@
  */
 
 import { registerSettingsAccessor, resolveAuth, resolveAuthFromQueue } from '../ai/auth/resolver';
-import { PROVIDER_ENV_VARS } from '../ai/auth/types';
+import { PROVIDER_ENV_VARS, type ResolvedAuth } from '../ai/auth/types';
 import { detectProviderFromModel } from '../ai/providers/factory';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import type { HeadlessConfig } from './config';
@@ -64,8 +64,8 @@ export async function resolveHeadlessAuth(
 
   const accounts = config.providerAccounts ?? [];
   const priorityOrder = config.globalPriorityOrder ?? [];
-  if (accounts.length > 0 && priorityOrder.length > 0) {
-    const resolved = await resolveAuthFromQueue(modelId, orderQueue(accounts, priorityOrder, preferredProvider));
+  if (accounts.length > 0) {
+    const resolved = await resolveAuthFromQueue(modelId, orderQueue(accounts, priorityOrder, preferredProvider), { codexTokenFilePath: config.codexTokenFilePath });
     if (resolved) {
       return {
         auth: resolved,
@@ -91,4 +91,16 @@ export async function resolveHeadlessAuth(
   const auth = await resolveAuth({ provider });
   if (!auth) throw new Error(NO_CREDENTIALS_MESSAGE);
   return { auth, provider, modelId, configDir: auth.configDir };
+}
+
+
+// A pinned phase can only use environment credentials for its own provider.
+// This fallback is independent of the process-wide settings accessor.
+export async function resolveHeadlessPhaseFallback(provider: string): Promise<ResolvedAuth | null> {
+  if (provider !== 'openai' && provider !== 'anthropic') return null;
+  const apiKey = provider === 'openai' ? process.env.OPENAI_API_KEY
+    : process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  if (!apiKey) return null;
+  return { apiKey, source: 'environment',
+    baseURL: provider === 'openai' ? process.env.OPENAI_BASE_URL : process.env.ANTHROPIC_BASE_URL };
 }

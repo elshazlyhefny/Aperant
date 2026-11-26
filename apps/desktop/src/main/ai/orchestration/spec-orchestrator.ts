@@ -118,6 +118,7 @@ const PHASE_OUTPUTS: Partial<Record<SpecPhase, string[]>> = {
 
 /** Configuration for the spec orchestrator */
 export interface SpecOrchestratorConfig {
+  separatePlanning?: boolean;
   /** Spec directory path */
   specDir: string;
   /** Project root directory */
@@ -324,6 +325,10 @@ export class SpecOrchestrator extends EventEmitter {
       // ===================================================================
       const phasesToRun = [...COMPLEXITY_PHASES[complexity]];
 
+      if (this.config.separatePlanning && phasesToRun.includes('quick_spec')) {
+        phasesToRun.splice(phasesToRun.indexOf('quick_spec'), 1, 'spec_writing', 'planning');
+      }
+
       // Inject research/self-critique if flagged but not already in the tier
       if (this.assessment?.needs_research && !phasesToRun.includes('research')) {
         // Insert research before context (or before spec_writing if no context phase)
@@ -450,7 +455,7 @@ export class SpecOrchestrator extends EventEmitter {
 
       const result = await this.config.runSession({
         agentType,
-        phase: 'spec',
+        phase: this.config.separatePlanning && phase === 'planning' ? 'planning' : 'spec',
         specPhase: phase,
         systemPrompt: prompt,
         specDir: this.config.specDir,

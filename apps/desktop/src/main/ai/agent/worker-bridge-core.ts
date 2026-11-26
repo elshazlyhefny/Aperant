@@ -18,9 +18,11 @@ import type { AgentManagerEvents, ExecutionProgressData, ProcessType } from '../
 import type { TaskEventPayload } from '../../agent/task-event-schema';
 import type {
   WorkerConfig,
+  MainToWorkerMessage,
   WorkerMessage,
   AgentExecutorConfig,
 } from './types';
+import { PHASE_ACCOUNT_PAUSE_EXIT } from './types';
 import { TOKEN_BUDGET_ERROR_CODE, type SessionResult } from '../session/types';
 import { ProgressTracker } from '../session/progress-tracker';
 import type { SessionOutcome as MemorySessionOutcome } from '../memory/types';
@@ -80,6 +82,7 @@ export class WorkerBridgeCore extends EventEmitter {
       projectId: config.projectId,
       processType: config.processType,
       session: config.session,
+      resolvePhaseConnection: !!config.resolvePhaseConnection,
     };
 
     const workerPath = this.options.resolveWorkerPath();
@@ -95,7 +98,27 @@ export class WorkerBridgeCore extends EventEmitter {
       transferList: memoryPort ? [memoryPort] : undefined,
     });
 
-    this.worker.on('message', (message: WorkerMessage) => {
+    const worker = this.worker;
+    worker.on('message', async (message: WorkerMessage) => {
+      if (message.type === 'phase-key-outcome') {
+        if (worker === this.worker && this.accountId) void this.options.recordKeyOutcome?.(this.accountId, message.outcome);
+        return;
+      }
+      if (message.type === 'phase-connection') {
+        let response: MainToWorkerMessage;
+        try {
+          if (!config.resolvePhaseConnection) throw new Error('Phase routing is unavailable.');
+          const connection = await config.resolvePhaseConnection(message.phase);
+          response = { type: 'phase-connection', requestId: message.requestId, connection };
+          if (worker === this.worker) this.accountId = connection.accountId;
+        } catch (error) {
+          response = { type: 'phase-unavailable', requestId: message.requestId,
+            message: error instanceof Error ? error.message : 'Unable to resolve the assigned account.' };
+        }
+        if (worker === this.worker) worker.postMessage(response);
+        return;
+      }
+      if (config.resolvePhaseConnection && message.type === 'result') this.accountId = undefined;
       this.handleWorkerMessage(message);
     });
 
@@ -161,7 +184,7 @@ export class WorkerBridgeCore extends EventEmitter {
   // Message Handling
   // ===========================================================================
 
-  private handleWorkerMessage(message: WorkerMessage): void {
+  private handleWorkerMessage(message: Exclude<WorkerMessage, { type: 'phase-connection' | 'phase-key-outcome' }>): void {
     switch (message.type) {
       case 'log':
         this.emitTyped('log', message.taskId, message.data, message.projectId);
@@ -239,13 +262,14 @@ export class WorkerBridgeCore extends EventEmitter {
     // zeenha fork: a token budget pause is a clean stop, not a failure. The
     // worker already posted TOKEN_BUDGET_REACHED, so no exit error or toast.
     const budgetPause = result.error?.code === TOKEN_BUDGET_ERROR_CODE;
-    const exitCode = budgetPause || result.outcome === 'completed' || result.outcome === 'max_steps' || result.outcome === 'context_window' ? 0 : 1;
+    const accountPause = result.error?.code === 'phase_account_unavailable';
+    const exitCode = accountPause ? PHASE_ACCOUNT_PAUSE_EXIT : budgetPause || result.outcome === 'completed' || result.outcome === 'max_steps' || result.outcome === 'context_window' ? 0 : 1;
 
     // Log the result summary
     const summary = `Session complete: outcome=${result.outcome}, steps=${result.stepsExecuted}, tools=${result.toolCallCount}, duration=${result.durationMs}ms`;
     this.emitTyped('log', taskId, summary, projectId);
 
-    if (budgetPause && result.error) {
+    if ((budgetPause || accountPause) && result.error) {
       this.emitTyped('log', taskId, result.error.message, projectId);
     } else if (result.error) {
       this.emitTyped('error', taskId, result.error.message, projectId);

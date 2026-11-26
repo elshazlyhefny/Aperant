@@ -2,6 +2,8 @@ import { AUTO_BUILD_PATHS, VALID_THINKING_LEVELS, sanitizeThinkingLevel } from '
 import type { IPCResult, Task, TaskMetadata } from '../../../shared/types';
 import path from 'path';
 import { writeFileSync, mkdirSync } from 'fs';
+import { taskPhaseMetadata } from '../../../shared/utils/task-agent';
+import { readSettingsFile } from '../../settings-utils';
 import { projectStore } from '../../project-store';
 import { titleGenerator } from '../../title-generator';
 import { safeBreadcrumb } from '../../sentry';
@@ -155,6 +157,10 @@ export async function createTaskSpec(
     sourceType: 'manual',
     ...metadata
   };
+  if (!metadata?.provider && !metadata?.model && !metadata?.phaseProviders && !metadata?.phaseModels) {
+    const selection = readSettingsFile()?.defaultTaskAgent;
+    if (selection) Object.assign(taskMetadata, taskPhaseMetadata(selection.phases), { taskAgentMode: selection.mode });
+  }
   if (validatedDeps !== undefined) {
     taskMetadata.taskDependencies = validatedDeps;
   }

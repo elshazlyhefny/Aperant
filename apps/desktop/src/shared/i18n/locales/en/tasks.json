@@ -60,6 +60,7 @@
     "failed": "Failed"
   },
   "reviewReason": {
+    "accountRequired": "Account needed",
     "completed": "Completed",
     "hasErrors": "Has Errors",
     "qaIssues": "QA Issues",

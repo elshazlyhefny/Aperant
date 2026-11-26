@@ -18,6 +18,8 @@ import { Textarea } from '../ui/textarea';
 import { Checkbox } from '../ui/checkbox';
 import { Switch } from '../ui/switch';
 import { Button } from '../ui/button';
+import { TaskAgentSelector } from './TaskAgentSelector';
+import type { TaskAgentSelection } from '@shared/types/settings';
 import { AgentProfileSelector } from '../AgentProfileSelector';
 import { ClassificationFields } from './ClassificationFields';
 import { useImageUpload, type FileReferenceData } from './useImageUpload';
@@ -38,6 +40,9 @@ import type {
 import type { PhaseModelConfig, PhaseThinkingConfig } from '../../../shared/types/settings';
 
 interface TaskFormFieldsProps {
+  taskAgent?: TaskAgentSelection | null;
+  onTaskAgentChange?: (value: TaskAgentSelection | null) => void;
+  allowConfiguredProfile?: boolean;
   // Project context (for loading image thumbnails from disk)
   projectPath?: string;
   specId?: string;
@@ -122,6 +127,7 @@ export function TaskFormFields({
   descriptionRef: externalDescriptionRef,
   title,
   onTitleChange,
+  taskAgent, onTaskAgentChange, allowConfiguredProfile,
   profileId,
   model,
   thinkingLevel,
@@ -523,7 +529,9 @@ export function TaskFormFields({
         </div>
 
         {/* Agent Profile Selection */}
-        <AgentProfileSelector
+        {onTaskAgentChange && <TaskAgentSelector value={taskAgent} onChange={onTaskAgentChange}
+          allowProfile={allowConfiguredProfile} disabled={disabled} />}
+        {!taskAgent && <AgentProfileSelector
           profileId={profileId}
           model={model}
           thinkingLevel={thinkingLevel}
@@ -535,7 +543,7 @@ export function TaskFormFields({
           onPhaseModelsChange={onPhaseModelsChange}
           onPhaseThinkingChange={onPhaseThinkingChange}
           disabled={disabled}
-        />
+        />}
 
         {/* Classification Toggle */}
         <button

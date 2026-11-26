@@ -30,6 +30,7 @@ import { parseSandboxMode } from '../security/sandbox';
 import { parseWebFetchProvider } from '../tools/providers/types';
 import type {
   WorkerConfig,
+  PhaseConnection,
   WorkerMessage,
   MainToWorkerMessage,
   SerializableSessionConfig,
@@ -152,6 +153,44 @@ function postTaskEvent(eventType: string, extra?: Record<string, unknown>): void
 // =============================================================================
 
 const abortController = new AbortController();
+
+let requestId = 0;
+function requestPhaseConnection(phase: Phase): Promise<PhaseConnection> {
+  const id = ++requestId;
+  return new Promise((resolve, reject) => {
+    const receive = (reply: MainToWorkerMessage) => {
+      if (reply.type === 'abort' || reply.requestId !== id) return;
+      parentPort!.off('message', receive);
+      if (reply.type === 'phase-connection') resolve(reply.connection);
+      else reject(new Error(reply.message));
+    };
+    parentPort!.on('message', receive);
+    postMessage({ type: 'phase-connection', phase, requestId: id });
+  });
+}
+
+let accountPause: { phase: Phase; message: string } | undefined;
+
+function pauseForAccount(phase: Phase, message: string): never {
+  accountPause = { phase, message };
+  abortController.abort();
+  throw new Error(message);
+}
+
+function finishAccountPause(): boolean {
+  if (!accountPause) return false;
+  const { phase, message } = accountPause;
+  postLog(message);
+  logWriter?.endPhase(phase, false, message);
+  logWriter?.flush();
+  postTaskEvent('PHASE_ACCOUNT_UNAVAILABLE', { error: message });
+  postMessage({ type: 'result', taskId: config.taskId, projectId: config.projectId, data: {
+    outcome: 'cancelled', stepsExecuted: 0, toolCallCount: 0, durationMs: 0, messages: [],
+    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    error: { code: 'phase_account_unavailable', message, retryable: false },
+  } });
+  return true;
+}
 
 parentPort.on('message', (msg: MainToWorkerMessage) => {
   if (msg.type === 'abort') {
@@ -396,17 +435,28 @@ async function runSingleSession(
   skipPhaseLogging = false,
   outputSchema?: import('zod').ZodSchema,
 ): Promise<SessionResult> {
-  // Use queue-resolved model ID from baseSession (already mapped to the correct
-  // provider-specific model, e.g., 'gpt-5.3-codex' for OpenAI Codex).
-  // getPhaseModel() only knows local shorthands (opus → claude-opus-4-6) and
-  // would create a mismatch when the provider queue selected a non-Anthropic account.
-  // zeenha fork: a task's per-phase model now applies; see resolveSessionModelId.
-  const phaseModelId = await resolveSessionModelId(
-    { modelId: baseSession.modelId, provider: baseSession.provider },
-    specDir,
-    phase,
-  );
-  const phaseThinking = await getPhaseThinking(specDir, phase);
+  // zeenha fork: token budget gate. Re-read the spent baseline for this session;
+  // when it is already used up, skip the model call entirely (no provider, no
+  // run_metrics entry) and report a budget stop.
+  if (budgetGuard) {
+    budgetGuard.beginSession();
+    const gated = budgetGateResult(budgetGuard);
+    if (gated) {
+      tripBudget(budgetGuard);
+      if (logWriter && !skipPhaseLogging) {
+        logWriter.endPhase(phase, true, budgetPauseMessage(budgetGuard.snapshot()));
+      }
+      if (logWriter) logWriter.setSubtask(undefined);
+      return gated;
+    }
+  }
+
+  const connection = config.resolvePhaseConnection
+    ? await requestPhaseConnection(phase).catch((error: Error) => pauseForAccount(phase, error.message))
+    : baseSession;
+  const phaseModelId = config.resolvePhaseConnection ? connection.modelId
+    : await resolveSessionModelId(baseSession, specDir, phase);
+  const phaseThinking = (config.resolvePhaseConnection && connection.thinkingLevel) || await getPhaseThinking(specDir, phase);
 
   const metrics = new SessionMetricsCollector();
   const startedAt = new Date();
@@ -427,35 +477,20 @@ async function runSingleSession(
     );
   };
 
-  // zeenha fork: token budget gate. Re-read the spent baseline for this session;
-  // when it is already used up, skip the model call entirely (no provider, no
-  // run_metrics entry) and report a budget stop.
-  if (budgetGuard) {
-    budgetGuard.beginSession();
-    const gated = budgetGateResult(budgetGuard);
-    if (gated) {
-      tripBudget(budgetGuard);
-      if (logWriter && !skipPhaseLogging) {
-        logWriter.endPhase(phase, true, budgetPauseMessage(budgetGuard.snapshot()));
-      }
-      if (logWriter) logWriter.setSubtask(undefined);
-      return gated;
-    }
-  }
-
   const model = createProvider({
     config: {
-      provider: baseSession.provider as SupportedProvider,
-      apiKey: baseSession.apiKey,
-      baseURL: baseSession.baseURL,
-      oauthTokenFilePath: baseSession.oauthTokenFilePath,
-      claudeConfigDir: baseSession.configDir,
+      provider: connection.provider as SupportedProvider,
+      apiKey: connection.apiKey,
+      baseURL: connection.baseURL,
+      oauthTokenFilePath: connection.oauthTokenFilePath,
+      claudeConfigDir: connection.configDir,
     },
     modelId: phaseModelId,
   });
 
+  const phaseToolsContext = { ...toolContext, modelSupportsVision: modelSupportsVision(phaseModelId) };
   const tools: Record<string, AITool> = {
-    ...registry.getToolsForAgent(agentType, toolContext),
+    ...registry.getToolsForAgent(agentType, phaseToolsContext),
     ...(await mcpToolsFor(agentType)),
     ...memoryTools(),
   };
@@ -473,7 +508,8 @@ async function runSingleSession(
     model,
     systemPrompt,
     initialMessages,
-    toolContext,
+    toolContext: phaseToolsContext,
+    codexOAuth: !!connection.oauthTokenFilePath,
     maxSteps: baseSession.maxSteps,
     thinkingLevel: phaseThinking as SessionConfig['thinkingLevel'],
     abortSignal: abortController.signal,
@@ -496,6 +532,9 @@ async function runSingleSession(
     logWriter.setSubtask(subtaskId);
   }
 
+  const routeMessage = `${phase}: ${connection.provider} / ${phaseModelId}`;
+  postLog(routeMessage);
+  logWriter?.logText(routeMessage, phase);
   const runnerOptions = {
     tools,
     ...memoryContext(),
@@ -513,16 +552,16 @@ async function runSingleSession(
         projectId: config.projectId,
       });
     },
-    onAuthRefresh: baseSession.configDir
-      ? () => refreshOAuthTokenReactive(baseSession.configDir as string)
+    onAuthRefresh: connection.configDir
+      ? () => refreshOAuthTokenReactive(connection.configDir as string)
       : undefined,
-    onModelRefresh: baseSession.configDir
+    onModelRefresh: connection.configDir
       ? (newToken: string) => createProvider({
           config: {
-            provider: baseSession.provider as SupportedProvider,
+            provider: connection.provider as SupportedProvider,
             apiKey: newToken,
-            baseURL: baseSession.baseURL,
-            claudeConfigDir: baseSession.configDir,
+            baseURL: connection.baseURL,
+            claudeConfigDir: connection.configDir,
           },
           modelId: phaseModelId,
         })
@@ -533,10 +572,6 @@ async function runSingleSession(
   try {
     sessionResult = await runContinuableSession(sessionConfig, runnerOptions, {
       contextWindowLimit,
-      apiKey: baseSession.apiKey,
-      baseURL: baseSession.baseURL,
-      oauthTokenFilePath: baseSession.oauthTokenFilePath,
-      claudeConfigDir: baseSession.configDir,
     });
   } catch (error) {
     recordMetrics(null);
@@ -549,6 +584,14 @@ async function runSingleSession(
   }
 
   recordMetrics(sessionResult);
+  if (config.resolvePhaseConnection) {
+    if (sessionResult.outcome === 'auth_failure' || sessionResult.outcome === 'completed') {
+      postMessage({ type: 'phase-key-outcome', outcome: sessionResult.outcome === 'auth_failure' ? 'rejected' : 'valid' });
+    }
+    if (sessionResult.outcome === 'auth_failure' || sessionResult.outcome === 'rate_limited') {
+      pauseForAccount(phase, `The ${phase} phase stopped on ${connection.provider} / ${phaseModelId} (${sessionResult.outcome}). Check the account or change the task agent, then resume.`);
+    }
+  }
 
   // zeenha fork: the session stopped on the budget. Trip after recording metrics
   // so the tokens it used are in run_metrics.json when the task resumes.
@@ -608,7 +651,7 @@ async function run(): Promise<void> {
 
     // Route to spec orchestrator for spec_orchestrator agent type
     if (session.agentType === 'spec_orchestrator') {
-      if (session.useAgenticOrchestration) {
+      if (session.useAgenticOrchestration && !config.resolvePhaseConnection) {
         await runAgenticSpecOrchestrator(session, toolContext, registry);
       } else {
         await runSpecOrchestrator(session, toolContext, registry);
@@ -619,6 +662,7 @@ async function run(): Promise<void> {
     // Default: single session for all other agent types
     await runDefaultSession(session, toolContext, registry);
   } catch (error: unknown) {
+    if (finishAccountPause()) return;
     const message = error instanceof Error ? error.message : String(error);
     postError(`Agent session failed: ${message}`);
   } finally {
@@ -672,6 +716,7 @@ async function runDefaultSession(
   const sessionConfig: SessionConfig = {
     agentType: session.agentType,
     model,
+    codexOAuth: !!session.oauthTokenFilePath,
     systemPrompt: session.systemPrompt,
     initialMessages,
     toolContext,
@@ -726,10 +771,6 @@ async function runDefaultSession(
         : undefined,
     }, {
       contextWindowLimit,
-      apiKey: session.apiKey,
-      baseURL: session.baseURL,
-      oauthTokenFilePath: session.oauthTokenFilePath,
-      claudeConfigDir: session.configDir,
     });
   } finally {
     if (logWriter) {
@@ -769,6 +810,7 @@ async function runBuildOrchestrator(
   postLog('Starting BuildOrchestrator pipeline (planning → coding → QA)');
 
   const orchestrator = new BuildOrchestrator({
+    requireQAVerdict: config.resolvePhaseConnection,
     specDir: session.specDir,
     projectDir: session.projectDir,
     sourceSpecDir: session.sourceSpecDir,
@@ -819,6 +861,7 @@ async function runBuildOrchestrator(
   });
 
   orchestrator.on('phase-change', (phase: ExecutionPhase, message: string) => {
+    if (accountPause) return;
     postLog(`Phase: ${phase} — ${message}`);
     // Start the phase in the log writer at orchestrator level (not per-session)
     const logPhase = mapExecutionPhaseToPhase(phase);
@@ -890,6 +933,7 @@ async function runBuildOrchestrator(
   });
 
   const outcome = await orchestrator.run();
+  if (finishAccountPause()) return;
   const paused = budgetTrip;
 
   // End the final phase and flush any remaining accumulated log entries.
@@ -995,6 +1039,7 @@ async function runQALoop(
   }
 
   const outcome = await qaLoop.run();
+  if (finishAccountPause()) return;
   const paused = budgetTrip;
 
   // End QA validation phase and flush any remaining accumulated log entries
@@ -1071,6 +1116,7 @@ async function runSpecOrchestrator(
     specDir: session.specDir,
     projectDir: session.projectDir,
     taskDescription,
+    separatePlanning: !!config.resolvePhaseConnection,
     projectIndex: projectIndexContent,
     abortSignal: abortController.signal,
 
@@ -1155,6 +1201,7 @@ async function runSpecOrchestrator(
   });
 
   const outcome = await orchestrator.run();
+  if (finishAccountPause()) return;
 
   // Emit task event on failure so XState gets a specific signal
   // instead of relying on the generic PROCESS_EXITED fallback.
@@ -1337,10 +1384,6 @@ async function runAgenticSpecOrchestrator(
         : undefined,
     }, {
       contextWindowLimit,
-      apiKey: session.apiKey,
-      baseURL: session.baseURL,
-      oauthTokenFilePath: session.oauthTokenFilePath,
-      claudeConfigDir: session.configDir,
     });
   } finally {
     if (logWriter) {

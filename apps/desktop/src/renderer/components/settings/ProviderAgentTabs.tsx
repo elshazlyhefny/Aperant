@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useActiveProvider } from '../../hooks/useActiveProvider';
 import { PROVIDER_REGISTRY } from '@shared/constants/providers';
 import type { BuiltinProvider } from '@shared/types/provider-account';
+import { TaskAgentSelector } from '../task-form/TaskAgentSelector';
 import { ProviderTabBar } from './ProviderTabBar';
 import { AgentProfileSettings } from './AgentProfileSettings';
 import { FeatureModelSettings } from './FeatureModelSettings';
@@ -62,9 +63,13 @@ export function ProviderAgentTabs() {
 
   const isCrossProviderActive = activeTab === 'cross-provider';
 
+  const defaultSelector = <TaskAgentSelector isDefault value={settings.defaultTaskAgent}
+    onChange={defaultTaskAgent => void saveSettings({ defaultTaskAgent })} />;
+
   if (orderedProviders.length === 0) {
     return (
-      <div className="rounded-lg bg-muted/50 p-6 text-center">
+      <div className="space-y-4">
+        {defaultSelector}
         <p className="text-sm text-muted-foreground">
           {t('agentProfile.providerTabs.noProviders')}
         </p>
@@ -84,6 +89,7 @@ export function ProviderAgentTabs() {
         <h3 className="text-lg font-semibold text-foreground mb-1">{t('agentProfile.title')}</h3>
         <p className="text-sm text-muted-foreground">{t('agentProfile.sectionDescription')}</p>
       </div>
+      {defaultSelector}
       <Separator />
 
       {/* Tab strip (below heading) */}

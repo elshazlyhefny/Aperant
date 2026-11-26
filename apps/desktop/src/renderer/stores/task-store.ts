@@ -284,7 +284,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     const oldStatus = oldTask.status;
 
     // zeenha fork: a failed task keeps its reason; any other status drops it.
-    const nextFailureReason = status === 'error' ? (failureReason ?? oldTask.failureReason) : undefined;
+    const nextFailureReason = status === 'error' || reviewReason === 'account_required' ? (failureReason ?? oldTask.failureReason) : undefined;
 
     // Skip if status AND reviewReason are the same
     if (oldStatus === status && oldTask.reviewReason === reviewReason && oldTask.failureReason === nextFailureReason) {

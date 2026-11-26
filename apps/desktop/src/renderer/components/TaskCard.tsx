@@ -399,6 +399,8 @@ export const TaskCard = memo(function TaskCard({
         return { label: t('reviewReason.approvePlan'), variant: 'warning' };
       case 'stopped':
         return { label: t('reviewReason.stopped'), variant: 'warning' };
+      case 'account_required':
+        return { label: t('reviewReason.accountRequired'), variant: 'warning' };
       case 'token_budget':
         return { label: t('reviewReason.tokenBudget'), variant: 'warning' };
       default:
@@ -406,10 +408,10 @@ export const TaskCard = memo(function TaskCard({
     }
   };
 
-  // When executionPhase is 'complete', always show 'completed' badge regardless of reviewReason
+  // Prefer the recorded review reason when a paused task has completed subtasks.
   // This ensures the user sees "Complete" when the task finished successfully
   const effectiveReviewReason: ReviewReason | undefined =
-    executionPhase === 'complete' ? 'completed' : task.reviewReason;
+    task.reviewReason ?? (executionPhase === 'complete' ? 'completed' : undefined);
   const reviewReasonInfo = task.status === 'human_review' ? getReviewReasonLabel(effectiveReviewReason) : null;
 
   const isArchived = !!task.metadata?.archivedAt;
@@ -710,7 +712,7 @@ export const TaskCard = memo(function TaskCard({
                   </>
                 )}
               </Button>
-            ) : isIncomplete ? (
+            ) : isIncomplete || task.reviewReason === 'account_required' ? (
               <Button
                 variant="default"
                 size="sm"

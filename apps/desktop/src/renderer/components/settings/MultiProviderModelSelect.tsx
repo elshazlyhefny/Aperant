@@ -4,7 +4,7 @@ import { ChevronDown, Search, Check, Brain, Eye, Wrench, ExternalLink, Loader2 }
 import { ALL_AVAILABLE_MODELS, resolveModelEquivalent, type ModelOption } from '@shared/constants/models';
 import { PROVIDER_REGISTRY } from '@shared/constants/providers';
 import type { BuiltinProvider } from '@shared/types/provider-account';
-import { useSettingsStore } from '@/stores/settings-store';
+import { useSettingsStore } from '../../stores/settings-store';
 import { cn } from '../../lib/utils';
 import { Input } from '../ui/input';
 
@@ -28,8 +28,7 @@ export function MultiProviderModelSelect({ value, onChange, className, filterPro
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const settings = useSettingsStore(s => s.settings);
-  const providerAccounts = settings.providerAccounts ?? [];
+  const providerAccounts = useSettingsStore(s => s.providerAccounts);
 
   // Dynamic Ollama model fetching
   const [ollamaModels, setOllamaModels] = useState<ModelOption[]>([]);

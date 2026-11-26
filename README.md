@@ -33,8 +33,8 @@ Then either:
 
 ## Requirements
 
-- **Claude Pro/Max subscription** - [Get one here](https://claude.ai/upgrade)
-- **Claude Code CLI** - `npm install -g @anthropic-ai/claude-code`
+- **Claude tasks** use an Anthropic API key or a Claude subscription with the Claude Code CLI (`npm install -g @anthropic-ai/claude-code`).
+- **Codex tasks** use a connected ChatGPT account with Codex access or an OpenAI API key. Connect both providers for mixed tasks.
 - **Git repository** - Your project must be initialized as a git repo
 
 ---
@@ -43,8 +43,8 @@ Then either:
 
 1. **Install** the app - see [Install](#install)
 2. **Open your project** - Select a git repository folder
-3. **Connect Claude** - The app will guide you through OAuth setup
-4. **Create a task** - Describe what you want to build
+3. **Connect your accounts** in Settings → Accounts. In agent settings, choose the default task agent.
+4. **Create a task** and select Claude, Codex, or Both. Both starts with Claude writing the specification, planning and reviewing, and Codex coding. Expand **Customize task phases** to change the assignments.
 5. **Watch it work** - Agents plan, code, and validate autonomously
 
 ---

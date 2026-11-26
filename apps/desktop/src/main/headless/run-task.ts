@@ -18,6 +18,7 @@ import type { WorkerBridgeCoreOptions } from '../ai/agent/worker-bridge-core';
 import {
   buildDefaultPlannerPrompt,
   buildTaskExecutionMessages,
+  readTaskMetadata,
   resolveTaskModelId,
   resolveTaskPhaseProvider,
   resolveTaskTokenBudget,
@@ -25,7 +26,8 @@ import {
 } from '../ai/agent/task-session';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
 import { createOrGetWorktree } from '../ai/worktree/worktree-manager';
-import { resolveHeadlessAuth } from './auth';
+import { phaseConnectionResolver } from '../ai/agent/phase-connection';
+import { resolveHeadlessPhaseFallback, resolveHeadlessAuth, type HeadlessAuthResult } from './auth';
 import { loadHeadlessConfig, mcpOptionsForHeadless, resolveProjectSettings } from './config';
 import type { HeadlessConfig } from './config';
 import { collectBridgeRun } from './bridge-run';
@@ -216,7 +218,15 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     // (3) model and credentials, before anything is created on disk
     const modelId = await resolveTaskModelId(specDir, 'planning', providerPhaseModels(config));
     const preferredProvider = resolveTaskPhaseProvider(specDir, 'planning');
-    const resolvedAuth = await resolveHeadlessAuth(modelId, preferredProvider, config);
+    const resolvePhase = phaseConnectionResolver(readTaskMetadata(specDir), () => ({
+      accounts: config.providerAccounts ?? [],
+      priorityOrder: config.globalPriorityOrder ?? [],
+      codexTokenFilePath: config.codexTokenFilePath,
+      fallback: resolveHeadlessPhaseFallback,
+    }));
+    const resolvedAuth: HeadlessAuthResult = resolvePhase
+      ? { provider: preferredProvider ?? 'anthropic', modelId, auth: {} }
+      : await resolveHeadlessAuth(modelId, preferredProvider, config);
     if (resolvedAuth.auth.apiKey) secrets.push(resolvedAuth.auth.apiKey);
 
     // (4) worktree; no fallback to the project root
@@ -278,6 +288,11 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       taskId: specId,
       processType: 'task-execution',
       session: sessionConfig,
+      resolvePhaseConnection: resolvePhase && (async phase => {
+        const connection = await resolvePhase(phase);
+        if (connection.apiKey && !secrets.includes(connection.apiKey)) secrets.push(connection.apiKey);
+        return connection;
+      }),
     };
 
     // (6) bridge, events, outcome collection

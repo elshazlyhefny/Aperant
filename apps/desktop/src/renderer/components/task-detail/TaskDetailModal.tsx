@@ -298,7 +298,7 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
       );
     }
 
-    if (state.isIncomplete) {
+    if (state.isIncomplete || task.reviewReason === 'account_required') {
       return (
         <Button variant="default" onClick={handleStartStop} disabled={state.isLoadingPlan}>
           {state.isLoadingPlan ? (
@@ -469,6 +469,7 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                               {task.reviewReason === 'completed' ? 'Completed' :
                                task.reviewReason === 'errors' ? 'Has Errors' :
                                task.reviewReason === 'plan_review' ? 'Approve Plan' :
+                               task.reviewReason === 'account_required' ? t('tasks:reviewReason.accountRequired') :
                                task.reviewReason === 'stopped' ? 'Stopped' : 'QA Issues'}
                             </Badge>
                           )}
@@ -520,6 +521,10 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                   <Progress value={progressPercent} className="h-1.5 flex-1" />
                   <span className="text-xs text-muted-foreground tabular-nums w-10 text-right">{progressPercent}%</span>
                 </div>
+              )}
+
+              {task.reviewReason === 'account_required' && task.failureReason && (
+                <p className="mt-3 text-sm" role="status">{task.failureReason}</p>
               )}
 
               {task.status === 'human_review' && task.reviewReason === 'token_budget' && (

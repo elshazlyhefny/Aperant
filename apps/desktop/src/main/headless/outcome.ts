@@ -29,6 +29,7 @@ export interface RunInput {
 export interface RunOutcome {
   kind: 'success' | 'qa_failed' | 'error';
   exitCode: 0 | 1 | 2;
+  accountPaused?: boolean;
   reason?: string;
   /** Pull request url seen on any event (last one wins). */
   prUrl?: string;
@@ -65,6 +66,9 @@ function classifyRunBase(input: RunInput): RunOutcome {
   if (abortSignal) {
     return { kind: 'error', exitCode: EXIT_ERROR, reason: `aborted by ${abortSignal}` };
   }
+
+  const pause = events.find(e => e.type === 'PHASE_ACCOUNT_UNAVAILABLE');
+  if (pause) return { kind: 'error', exitCode: EXIT_ERROR, accountPaused: true, reason: field(pause, 'error') };
 
   if (events.some((e) => e.type === 'QA_PASSED')) {
     return { kind: 'success', exitCode: EXIT_SUCCESS };
@@ -129,7 +133,7 @@ export function classifySpecRun(input: RunInput): RunOutcome {
     return { kind: 'error', exitCode: EXIT_ERROR, reason: `aborted by ${abortSignal}` };
   }
 
-  const failed = events.find((e) => e.type === 'PLANNING_FAILED');
+  const failed = events.find((e) => e.type === 'PLANNING_FAILED' || e.type === 'PHASE_ACCOUNT_UNAVAILABLE');
   if (failed) {
     return { kind: 'error', exitCode: EXIT_ERROR, reason: field(failed, 'error') ?? 'planning failed' };
   }

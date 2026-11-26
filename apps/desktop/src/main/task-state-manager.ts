@@ -25,6 +25,7 @@ interface TaskContextEntry {
 }
 
 const TERMINAL_EVENTS = new Set<string>([
+  'PHASE_ACCOUNT_UNAVAILABLE',
   'QA_PASSED',
   'PLANNING_COMPLETE',
   'PLANNING_FAILED',
@@ -338,7 +339,7 @@ export class TaskStateManager {
       // zeenha fork: an `error` state that did no work goes to the Failed column.
       const failure = stateValue === 'error'
         ? this.describeFailure(task, project, snapshot.context.error)
-        : { failedBeforeWork: false, failureReason: undefined };
+        : { failedBeforeWork: false, failureReason: snapshot.context.reviewReason === 'account_required' ? snapshot.context.error : undefined };
       const { status, reviewReason } = mapStateToLegacy(
         stateValue,
         snapshot.context.reviewReason,
@@ -357,7 +358,7 @@ export class TaskStateManager {
       });
 
       this.persistStatus(task, project, status, reviewReason, stateValue, executionPhase, failure.failureReason);
-      this.emitStatus(taskId, status, reviewReason, project.id, status === 'error' ? failure.failureReason : undefined);
+      this.emitStatus(taskId, status, reviewReason, project.id, status === 'error' || reviewReason === 'account_required' ? failure.failureReason : undefined);
 
       // zeenha fork: this subscriber is the single funnel for every task state
       // transition, so terminal outcomes (failed / ready for review / blocked)

@@ -363,6 +363,7 @@ export function registerTaskCRUDHandlers(agentManager: AgentManager): void {
             writeFileSync(metadataPath, JSON.stringify(updatedMetadata, null, 2), 'utf-8');
           } catch (err) {
             console.error('Failed to update task_metadata.json:', err);
+            throw err;
           }
 
           // Update requirements.json if it exists

@@ -1,3 +1,4 @@
+import { taskPhaseMetadata } from '@shared/utils/task-agent';
 /**
  * TaskCreationWizard - Dialog for creating new tasks
  *
@@ -28,7 +29,7 @@ import { parseTokenBudgetText } from '../../shared/utils/token-budget';
 import { buildBranchOptions } from '../lib/branch-utils';
 import { cn } from '../lib/utils';
 import type { TaskCategory, TaskPriority, TaskComplexity, TaskImpact, TaskMetadata, ImageAttachment, TaskDraft, ModelType, ThinkingLevel, ReferencedFile, GitBranchDetail } from '../../shared/types';
-import type { PhaseModelConfig, PhaseThinkingConfig } from '../../shared/types/settings';
+import type { TaskAgentSelection, PhaseModelConfig, PhaseThinkingConfig } from '../../shared/types/settings';
 import {
   DEFAULT_AGENT_PROFILES,
   DEFAULT_PHASE_MODELS,
@@ -135,6 +136,7 @@ export function TaskCreationWizard({
   const [impact, setImpact] = useState<TaskImpact | ''>('');
 
   // Model configuration
+  const [taskAgent, setTaskAgent] = useState<TaskAgentSelection | null>(settings.defaultTaskAgent ?? null);
   const [profileId, setProfileId] = useState<string>(resolvedProfileId);
   const [model, setModel] = useState<ModelType | ''>(selectedProfile.model);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | ''>(selectedProfile.thinkingLevel);
@@ -160,10 +162,11 @@ export function TaskCreationWizard({
 
   // Show Fast Mode toggle when any phase uses an Opus model
   const showFastModeToggle = useMemo(() => {
+    if (taskAgent) return Object.values(taskAgent.phases).some(p => p.provider === 'anthropic' && FAST_MODE_MODELS.includes(p.modelId));
     if (!isAnthropic) return false;
     if (!phaseModels) return false;
     return PHASE_KEYS.some(phase => FAST_MODE_MODELS.includes(phaseModels[phase]));
-  }, [isAnthropic, phaseModels]);
+  }, [isAnthropic, phaseModels, taskAgent]);
 
   // Draft state
   const [isDraftRestored, setIsDraftRestored] = useState(false);
@@ -188,7 +191,8 @@ export function TaskCreationWizard({
   useEffect(() => {
     if (open && projectId) {
       const draft = loadDraft(projectId);
-      if (draft && !isDraftEmpty(draft)) {
+      if (draft && (!isDraftEmpty(draft) || draft.taskAgent !== undefined)) {
+        setTaskAgent(draft.taskAgent === undefined ? settings.defaultTaskAgent ?? null : draft.taskAgent);
         setTitle(draft.title);
         setDescription(draft.description);
         setCategory(draft.category);
@@ -214,6 +218,7 @@ export function TaskCreationWizard({
       } else {
         // No draft - reset to clean state for new task creation
         // This ensures no stale data from previous task creation persists
+        setTaskAgent(settings.defaultTaskAgent ?? null);
         setTitle('');
         setDescription('');
         setCategory('');
@@ -239,7 +244,7 @@ export function TaskCreationWizard({
         setShowGitOptions(false);
       }
     }
-  }, [open, projectId, projectPushNewBranches, resolvedProfileId, resolvedPhaseModels, resolvedPhaseThinking, selectedProfile.model, selectedProfile.thinkingLevel]);
+  }, [open, projectId, settings.defaultTaskAgent, projectPushNewBranches, resolvedProfileId, resolvedPhaseModels, resolvedPhaseThinking, selectedProfile.model, selectedProfile.thinkingLevel]);
 
   // Fetch branches when dialog opens - using structured branch data with type indicators
   useEffect(() => {
@@ -317,6 +322,7 @@ export function TaskCreationWizard({
     priority,
     complexity,
     impact,
+    taskAgent,
     profileId,
     model,
     thinkingLevel,
@@ -329,7 +335,7 @@ export function TaskCreationWizard({
     pushNewBranches,
     tokenBudget: parseTokenBudgetText(tokenBudgetText),
     savedAt: new Date()
-  }), [projectId, title, description, category, priority, complexity, impact, profileId, model, thinkingLevel, phaseModels, phaseThinking, images, referencedFiles, requireReviewBeforeCoding, fastMode, pushNewBranches, tokenBudgetText]);
+  }), [projectId, title, description, category, priority, complexity, impact, taskAgent, profileId, model, thinkingLevel, phaseModels, phaseThinking, images, referencedFiles, requireReviewBeforeCoding, fastMode, pushNewBranches, tokenBudgetText]);
 
   /**
    * Detect @ mention being typed and show autocomplete
@@ -497,29 +503,10 @@ export function TaskCreationWizard({
         metadata.phaseThinking = phaseThinking;
       }
 
-      // Cross-provider mode: override phaseModels/phaseThinking from mixed config
-      // and add phaseProviders to metadata
-      if (settings.customMixedProfileActive && settings.customMixedPhaseConfig) {
-        const mixed = settings.customMixedPhaseConfig;
-        metadata.phaseModels = {
-          spec: mixed.spec.modelId,
-          planning: mixed.planning.modelId,
-          coding: mixed.coding.modelId,
-          qa: mixed.qa.modelId,
-        };
-        metadata.phaseThinking = {
-          spec: mixed.spec.thinkingLevel,
-          planning: mixed.planning.thinkingLevel,
-          coding: mixed.coding.thinkingLevel,
-          qa: mixed.qa.thinkingLevel,
-        };
-        metadata.phaseProviders = {
-          spec: mixed.spec.provider,
-          planning: mixed.planning.provider,
-          coding: mixed.coding.provider,
-          qa: mixed.qa.provider,
-        };
-        metadata.isAutoProfile = true; // Ensure per-phase resolution is used
+      if (taskAgent) {
+        Object.assign(metadata, taskPhaseMetadata(taskAgent.phases), { taskAgentMode: taskAgent.mode });
+      } else if (settings.customMixedProfileActive && settings.customMixedPhaseConfig) {
+        Object.assign(metadata, taskPhaseMetadata(settings.customMixedPhaseConfig));
       }
 
       if (images.length > 0) metadata.attachedImages = images;
@@ -539,7 +526,7 @@ export function TaskCreationWizard({
       // This preserves gitignored files (.env, configs) by not switching to origin
       if (isSelectedBranchLocal) metadata.useLocalBranch = true;
       if (!pushNewBranches) metadata.pushNewBranches = false;
-      metadata.fastMode = fastMode;
+      metadata.fastMode = fastMode && (!taskAgent || showFastModeToggle);
       if (taskDependencies.length > 0) metadata.taskDependencies = taskDependencies;
       const budgetOverride = parseTokenBudgetText(tokenBudgetText);
       if (budgetOverride !== undefined) metadata.tokenBudget = budgetOverride;
@@ -560,6 +547,7 @@ export function TaskCreationWizard({
   };
 
   const resetForm = () => {
+    setTaskAgent(settings.defaultTaskAgent ?? null);
     setTitle('');
     setDescription('');
     setCategory('');
@@ -590,7 +578,8 @@ export function TaskCreationWizard({
     if (isCreating) return;
 
     const draft = getCurrentDraft();
-    if (!isDraftEmpty(draft)) {
+    const customizedAgent = JSON.stringify(taskAgent) !== JSON.stringify(settings.defaultTaskAgent ?? null);
+    if (!isDraftEmpty(draft) || customizedAgent) {
       saveDraft(draft);
     } else {
       clearDraft(projectId);
@@ -725,6 +714,8 @@ export function TaskCreationWizard({
 
         {/* Main form fields */}
         <TaskFormFields
+          taskAgent={taskAgent}
+          onTaskAgentChange={setTaskAgent}
           description={description}
           onDescriptionChange={handleDescriptionChange}
           descriptionPlaceholder={t('tasks:wizard.descriptionPlaceholder')}

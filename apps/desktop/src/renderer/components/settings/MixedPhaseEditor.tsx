@@ -1,3 +1,4 @@
+import { taskAgentPreset } from '@shared/utils/task-agent';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore, saveSettings } from '../../stores/settings-store';
 import { MultiProviderModelSelect } from './MultiProviderModelSelect';
@@ -6,7 +7,7 @@ import { ALL_AVAILABLE_MODELS } from '@shared/constants/models';
 import { PROVIDER_REGISTRY } from '@shared/constants/providers';
 import { PHASE_KEYS } from '@shared/constants/models';
 import { Label } from '../ui/label';
-import type { MixedPhaseConfig, MixedPhaseEntry, PipelinePhase, ThinkingLevel } from '@shared/types/settings';
+import type { MixedPhaseConfig, TaskAgentMode, PipelinePhase, ThinkingLevel } from '@shared/types/settings';
 import type { BuiltinProvider } from '@shared/types/provider-account';
 
 /**
@@ -55,39 +56,22 @@ function ProviderBadge({ provider }: { provider: BuiltinProvider }) {
  * adapted to that provider, and displays a provider badge.
  */
 export function MixedPhaseEditor() {
-  const { t } = useTranslation('settings');
   const settings = useSettingsStore((s) => s.settings);
 
-  const config: MixedPhaseConfig =
-    settings.customMixedPhaseConfig ?? DEFAULT_MIXED_PHASE_CONFIG;
+  return <PhaseEditor config={settings.customMixedPhaseConfig ?? DEFAULT_MIXED_PHASE_CONFIG}
+    onChange={customMixedPhaseConfig => void saveSettings({ customMixedPhaseConfig })} />;
+}
 
-  const handleModelChange = async (phase: PipelinePhase, modelId: string) => {
-    const provider = resolveProviderForModel(modelId);
-    const current: MixedPhaseEntry = config[phase];
-
-    const updatedEntry: MixedPhaseEntry = {
-      ...current,
-      provider,
-      modelId,
-    };
-
-    await saveSettings({
-      customMixedPhaseConfig: {
-        ...config,
-        [phase]: updatedEntry,
-      },
-    });
-  };
-
-  const handleThinkingChange = async (phase: PipelinePhase, thinkingLevel: ThinkingLevel) => {
-    const current: MixedPhaseEntry = config[phase];
-
-    await saveSettings({
-      customMixedPhaseConfig: {
-        ...config,
-        [phase]: { ...current, thinkingLevel },
-      },
-    });
+export function PhaseEditor({ config, onChange, mode }: {
+  config: MixedPhaseConfig;
+  onChange: (config: MixedPhaseConfig) => void;
+  mode?: TaskAgentMode;
+}) {
+  const { t } = useTranslation('settings');
+  const settings = useSettingsStore(s => s.settings);
+  const handleModelChange = (phase: PipelinePhase, modelId: string) => {
+    const provider = mode ? config[phase].provider : resolveProviderForModel(modelId);
+    onChange({ ...config, [phase]: { ...config[phase], provider, modelId } });
   };
 
   return (
@@ -115,6 +99,7 @@ export function MixedPhaseEditor() {
                   {t('agentProfile.model', { defaultValue: 'Model' })}
                 </span>
                 <MultiProviderModelSelect
+                  filterProvider={mode ? entry.provider : undefined}
                   value={entry.modelId}
                   onChange={(modelId) => handleModelChange(phase, modelId)}
                 />
@@ -123,14 +108,24 @@ export function MixedPhaseEditor() {
               {/* Thinking level selector, adapted to provider */}
               <ThinkingLevelSelect
                 value={entry.thinkingLevel}
-                onChange={(level) => handleThinkingChange(phase, level as ThinkingLevel)}
+                onChange={level => onChange({ ...config, [phase]: { ...entry, thinkingLevel: level as ThinkingLevel } })}
                 modelValue={entry.modelId}
                 provider={entry.provider}
               />
 
               {/* Provider badge */}
               <div className="pb-0.5">
-                <ProviderBadge provider={entry.provider} />
+                {mode === 'both' ? (
+                  <select className="rounded border bg-background p-1 text-xs"
+                    aria-label={t('taskAgent.phaseAgent', { phase: t(`agentProfile.phases.${phase}.label`) })}
+                    value={entry.provider} onChange={event => {
+                      const preset = taskAgentPreset(event.target.value === 'openai' ? 'codex' : 'claude', settings);
+                      onChange({ ...config, [phase]: preset.phases[phase] });
+                    }}>
+                    <option value="anthropic">Claude</option>
+                    <option value="openai">Codex</option>
+                  </select>
+                ) : <ProviderBadge provider={entry.provider} />}
               </div>
             </div>
           </div>

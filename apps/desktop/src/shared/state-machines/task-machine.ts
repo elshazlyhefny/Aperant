@@ -28,6 +28,7 @@ export type TaskEvent =
   | { type: 'QA_MAX_ITERATIONS'; iteration: number; maxIterations: number }
   | { type: 'QA_AGENT_ERROR'; iteration: number; consecutiveErrors: number }
   | { type: 'PROCESS_EXITED'; exitCode: number; signal?: string; unexpected?: boolean }
+  | { type: 'PHASE_ACCOUNT_UNAVAILABLE'; error: string }
   | { type: 'TOKEN_BUDGET_REACHED'; used?: number; limit?: number }
   | { type: 'USER_STOPPED'; hasPlan?: boolean }
   | { type: 'USER_MOVED_TO_BACKLOG' }
@@ -48,6 +49,9 @@ export const taskMachine = createMachine(
     context: {
       reviewReason: undefined,
       error: undefined
+    },
+    on: {
+      PHASE_ACCOUNT_UNAVAILABLE: { target: '.human_review', actions: ['setReviewReasonAccount', 'setError'] }
     },
     states: {
       backlog: {
@@ -184,6 +188,7 @@ export const taskMachine = createMachine(
     actions: {
       setReviewReasonPlan: assign({ reviewReason: () => 'plan_review' }),
       setReviewReasonCompleted: assign({ reviewReason: () => 'completed' }),
+      setReviewReasonAccount: assign({ reviewReason: () => 'account_required' }),
       setReviewReasonStopped: assign({ reviewReason: () => 'stopped' }),
       setReviewReasonQaRejected: assign({ reviewReason: () => 'qa_rejected' }),
       setReviewReasonTokenBudget: assign({ reviewReason: () => 'token_budget' }),
@@ -191,7 +196,7 @@ export const taskMachine = createMachine(
       clearReviewReason: assign({ reviewReason: () => undefined, error: () => undefined }),
       setError: assign({
         error: ({ event }) => {
-          if (event.type === 'PLANNING_FAILED') {
+          if (event.type === 'PLANNING_FAILED' || event.type === 'PHASE_ACCOUNT_UNAVAILABLE') {
             return event.error;
           }
           if (event.type === 'CODING_FAILED') {

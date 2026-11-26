@@ -7,6 +7,7 @@
  * (WorkerBridge) and the worker thread (worker.ts).
  */
 
+import type { Phase } from '../config/types';
 import type { ExecutionProgressData, ProcessType } from '../../../main/agent/types';
 import type { CustomMcpServerDefinition } from '../mcp/types';
 import type { SessionConfig, SessionResult, StreamEvent } from '../session/types';
@@ -16,11 +17,22 @@ import type { RunnerOptions } from '../session/runner';
 // Worker Configuration
 // =============================================================================
 
-/**
- * Configuration passed to the worker thread via workerData.
- * Must be serializable (no class instances, functions, or LanguageModel).
- */
+export const PHASE_ACCOUNT_PAUSE_EXIT = 3;
+
+export interface PhaseConnection {
+  provider: string;
+  modelId: string;
+  apiKey?: string;
+  baseURL?: string;
+  configDir?: string;
+  oauthTokenFilePath?: string;
+  accountId?: string;
+  thinkingLevel?: string;
+}
+
+/** Configuration cloned into a worker thread. */
 export interface WorkerConfig {
+  resolvePhaseConnection?: boolean;
   /** Task ID for tracking and event correlation */
   taskId: string;
   /** Project ID for multi-project support */
@@ -115,6 +127,8 @@ export interface SerializableSessionConfig {
 
 /** Discriminated union of all messages posted from worker to main thread */
 export type WorkerMessage =
+  | { type: 'phase-key-outcome'; outcome: 'valid' | 'rejected' }
+  | { type: 'phase-connection'; phase: Phase; requestId: number }
   | WorkerLogMessage
   | WorkerErrorMessage
   | WorkerProgressMessage
@@ -170,7 +184,9 @@ export interface WorkerTaskEventMessage {
 
 /** Messages sent from main thread to worker */
 export type MainToWorkerMessage =
-  | { type: 'abort' };
+  | { type: 'abort' }
+  | { type: 'phase-connection'; requestId: number; connection: PhaseConnection }
+  | { type: 'phase-unavailable'; requestId: number; message: string };
 
 // =============================================================================
 // Serialized Security Profile
@@ -209,6 +225,7 @@ export interface SerializedSecurityProfile {
  * Configuration for AgentExecutor.
  */
 export interface AgentExecutorConfig {
+  resolvePhaseConnection?: (phase: Phase) => Promise<PhaseConnection>;
   /** Task ID for tracking */
   taskId: string;
   /** Project ID for multi-project support */

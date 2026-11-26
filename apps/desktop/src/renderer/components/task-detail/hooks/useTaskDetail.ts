@@ -107,7 +107,7 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
   const isRunning = task.status === 'in_progress';
   // isActiveTask includes ai_review for stuck detection (CHANGELOG documents this feature)
   const isActiveTask = task.status === 'in_progress' || task.status === 'ai_review';
-  const needsReview = task.status === 'human_review';
+  const needsReview = task.status === 'human_review' && task.reviewReason !== 'account_required';
   const executionPhase = task.executionProgress?.phase;
   const hasActiveExecution = executionPhase && executionPhase !== 'idle' && executionPhase !== 'complete' && executionPhase !== 'failed';
   const isIncomplete = isIncompleteHumanReview(task);

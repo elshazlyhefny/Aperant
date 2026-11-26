@@ -221,6 +221,10 @@ export function buildThinkingProviderOptions(
     }
 
     case 'openai': {
+      if (modelId.startsWith('gpt-5')) {
+        const effort = thinkingLevel === 'xhigh' && modelId.includes('codex-mini') ? 'high' : thinkingLevel;
+        return { openai: { reasoningEffort: effort } };
+      }
       if (modelId.startsWith('o1-') || modelId.startsWith('o3-') || modelId.startsWith('o4-')) {
         const effortMap: Record<ThinkingLevel, string> = {
           low: 'low',

@@ -1,4 +1,12 @@
 {
+  "taskAgent": {
+    "label": "Agent de tâche",
+    "defaultLabel": "Agent de tâche par défaut",
+    "profile": "Utiliser le profil configuré",
+    "both": "Les deux",
+    "customize": "Personnaliser les phases",
+    "phaseAgent": "Agent pour {{phase}}"
+  },
   "title": "Paramètres",
   "tabs": {
     "app": "Paramètres de l'app",
