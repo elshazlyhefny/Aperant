@@ -1,6 +1,6 @@
 # Owner comment agents
 
-Add `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` under **Settings → Secrets and variables → Actions**. The workflows use the automatically supplied `GITHUB_TOKEN` for GitHub operations.
+Add `CLAUDE_CODE_OAUTH_TOKEN` (a Claude Max subscription token from `claude setup-token`; Claude runs on it, not on an API key) and `OPENAI_API_KEY` under **Settings → Secrets and variables → Actions**. The workflows use the automatically supplied `GITHUB_TOKEN` for GitHub operations.
 
 Post a new conversation comment as `elshazlyhefny` on an issue or pull request.
 
