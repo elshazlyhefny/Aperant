@@ -95,7 +95,9 @@ export function resolveServeWebhookSettings(config: HeadlessConfig): WebhookSett
 
 export function eventsForOutcome(outcome: RunOutcome, toggles: WebhookToggles): WebhookEvent[] {
   const events: WebhookEvent[] = [];
-  if (outcome.kind === 'success') events.push('review_ready');
+  // zeenha fork: an account pause is resumable, so it is not reported as failed.
+  if (outcome.accountPaused) events.push('account_required');
+  else if (outcome.kind === 'success') events.push('review_ready');
   else if (outcome.kind === 'qa_failed') events.push('blocked');
   else events.push('failed');
   if (outcome.prUrl) events.push('pr_opened');
@@ -104,6 +106,7 @@ export function eventsForOutcome(outcome: RunOutcome, toggles: WebhookToggles): 
     review_ready: toggles.reviewReady,
     failed: toggles.failed,
     blocked: toggles.blocked,
+    account_required: toggles.blocked,
     pr_opened: toggles.prOpened
   };
   return events.filter((event) => enabled[event]);

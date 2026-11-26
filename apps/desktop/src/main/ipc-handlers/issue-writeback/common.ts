@@ -11,7 +11,14 @@ import { sanitizeUrl } from '../shared/sanitize';
 const MAX_TITLE_LENGTH = 200;
 
 // zeenha fork: pr_opened is webhook-only; issue trackers get the PR link in the review_ready comment.
-export type OutcomeEvent = Exclude<WebhookEvent, 'pr_opened'>;
+// account_required (a resumable account pause) is webhook-only too: each Resume
+// without a usable account pauses again, and would post another public comment.
+export type OutcomeEvent = Exclude<WebhookEvent, 'pr_opened' | 'account_required'>;
+
+/** zeenha fork: whether an event is ever written back to an issue tracker. */
+export function isIssueOutcomeEvent(event: WebhookEvent): event is OutcomeEvent {
+  return event !== 'pr_opened' && event !== 'account_required';
+}
 
 export const EVENT_LABELS: Record<OutcomeEvent, string> = {
   review_ready: 'Aperant: task is ready for review.',

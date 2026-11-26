@@ -8,6 +8,8 @@ import { AUTO_BUILD_PATHS } from '../../../shared/constants';
 import type { TaskMetadata } from '../../../shared/types';
 import { sanitizeText, sanitizeUrl, sanitizeStringArray } from '../shared/sanitize';
 import { allocateSpecDir } from '../../utils/spec-number-lock';
+import { applyDefaultTaskAgent } from '../../utils/default-task-agent';
+import { readSettingsFile } from '../../settings-utils';
 import { normalizeJiraSiteUrl, isValidIssueKey } from './jira-client';
 import type { JiraIssueData } from './jira-client';
 
@@ -93,14 +95,15 @@ export async function createSpecFromJiraIssue(
     'utf-8'
   );
 
-  const metadata: TaskMetadata = {
+  // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
+  const metadata: TaskMetadata = applyDefaultTaskAgent({
     sourceType: 'jira',
     jiraIssueKey: key,
     jiraIssueId: issueId,
     jiraSiteUrl: site,
     jiraUrl,
     category,
-  };
+  }, readSettingsFile());
   writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
 
   return { specId, specDir, description, metadata };

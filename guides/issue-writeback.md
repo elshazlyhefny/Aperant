@@ -41,9 +41,10 @@ Write-back follows the same task states as the webhook (see [Events](notificatio
 | Status `error` | `failed` | `Aperant: task failed.` |
 | Human review, reason `completed` | `review_ready` | `Aperant: task is ready for review.` |
 | Human review, reason `qa_rejected` or `errors` | `blocked` | `Aperant: task is blocked and needs attention.` |
+| Human review, reason `account_required` (paused: no usable account for a phase's provider) | none | none |
 | Any other state | none | none |
 
-One comment is posted each time a task moves into one of these states. `pr_opened` is never written back (see [Why PR opened is webhook-only](#why-pr-opened-is-webhook-only)).
+One comment is posted each time a task moves into one of these states. `pr_opened` is never written back (see [Why PR opened is webhook-only](#why-pr-opened-is-webhook-only)). An account pause (`account_required`) is never written back either, and is never reported as `failed`: every Resume without a usable account pauses the task again, and each pause would post another public comment. The webhook still reports it (see [Events](notifications-and-webhooks.md#events)).
 
 ## Turn it on
 

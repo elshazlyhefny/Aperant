@@ -11,6 +11,8 @@ import { debugLog } from './utils/logger';
 import { labelMatchesWholeWord } from '../shared/label-utils';
 import { sanitizeText, sanitizeStringArray, sanitizeUrl } from '../shared/sanitize';
 import { slugifySpecTitle } from '../../utils/spec-slug';
+import { applyDefaultTaskAgent } from '../../utils/default-task-agent';
+import { readSettingsFile } from '../../settings-utils';
 
 export interface SpecCreationData {
   specId: string;
@@ -157,7 +159,8 @@ export async function createSpecForIssue(
     const category = determineCategoryFromLabels(safeLabels);
 
     // task_metadata.json
-    const metadata: TaskMetadata = {
+    // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
+    const metadata: TaskMetadata = applyDefaultTaskAgent({
       sourceType: 'github',
       githubIssueNumber: issueNumber,
       githubUrl: safeGithubUrl,
@@ -165,7 +168,7 @@ export async function createSpecForIssue(
       // Store baseBranch for worktree creation and QA comparison
       // This comes from project.settings.mainBranch or task-level override
       ...(baseBranch && { baseBranch })
-    };
+    }, readSettingsFile());
     // lgtm[js/http-to-file-access] - specDir is controlled, slugifiedTitle sanitizes input
     writeFileSync(
       path.join(specDir, 'task_metadata.json'),

@@ -30,12 +30,13 @@ A project can have its own webhook URL, set in the project's **Settings > Webhoo
 | Status `error` | `failed` | Failed | Error | Task failed |
 | Human review, reason `completed` | `review_ready` | Ready for review | Completed | Review ready |
 | Human review, reason `qa_rejected` or `errors` | `blocked` | Blocked | Needs attention | Task blocked |
+| Human review, reason `account_required` (paused: no usable account for a phase's provider; the task can be resumed) | `account_required` | Paused | Waiting for an account to be connected | Task blocked |
 | Status `pr_created` | `pr_opened` | PR opened | Awaiting review | PR opened |
 | Any other state | none | none | none | none |
 
 `pr_opened` fires once each time a task moves into the `pr_created` state. A PR follow-up (sending a task with an open PR back to coding) does not send it again while that follow-up starts. Every other state sends nothing. A message is sent only when **Enable webhook** is on, the toggle for that event is on, and the saved URL is valid.
 
-The same `review_ready`, `failed` and `blocked` events can also be written back as a comment on the issue a task was imported from. This is off by default, and `pr_opened` is never written back. See [issue-writeback.md](issue-writeback.md).
+The same `review_ready`, `failed` and `blocked` events can also be written back as a comment on the issue a task was imported from. This is off by default. `pr_opened` and `account_required` are never written back. See [issue-writeback.md](issue-writeback.md).
 
 ## Payload (Slack)
 
@@ -342,6 +343,7 @@ Outcome to event:
 | QA passed | 0 | `review_ready` |
 | QA failed after the maximum iterations | 2 | `blocked` |
 | Error | 1 | `failed` |
+| Paused: no usable account for a phase's provider | 1 | `account_required` (sent when the **blocked** toggle is on) |
 | The run reports a PR link | any | `pr_opened`, in addition to the event above |
 
 The CLI does not open the PR itself. `pr_opened` is sent only when the run reports a PR link, and only if the **prOpened** toggle is on.

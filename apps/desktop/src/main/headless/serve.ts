@@ -277,19 +277,25 @@ export async function runServe(options: ServeOptions): Promise<number> {
       } catch (error) {
         log(`Webhook for ${taskId} failed: ${error instanceof Error ? error.message : String(error)}`);
       }
-      try {
-        // Awaited, so shutdown (which waits on run.done) does not drop a pending write.
-        await dispatchWriteback({
-          settings: writebackSettings,
-          project,
-          specDirs: findAllSpecPaths(projectPath, specsBaseDir, taskId, '[headless-serve]'),
-          event: mapOutcomeToWebhookEvent(status, reviewReason) ?? 'failed',
-          title: run.title,
-          prUrl: result?.outcome?.prUrl,
-          warn: log,
-        });
-      } catch (error) {
-        log(`Write-back for ${taskId} failed: ${error instanceof Error ? error.message : String(error)}`);
+      // zeenha fork: an account pause is resumable and goes to the webhook only.
+      // It is never written back to the issue (not even as failed): each paused
+      // retry would post another public comment.
+      const writebackEvent = mapOutcomeToWebhookEvent(status, reviewReason) ?? 'failed';
+      if (writebackEvent !== 'account_required') {
+        try {
+          // Awaited, so shutdown (which waits on run.done) does not drop a pending write.
+          await dispatchWriteback({
+            settings: writebackSettings,
+            project,
+            specDirs: findAllSpecPaths(projectPath, specsBaseDir, taskId, '[headless-serve]'),
+            event: writebackEvent,
+            title: run.title,
+            prUrl: result?.outcome?.prUrl,
+            warn: log,
+          });
+        } catch (error) {
+          log(`Write-back for ${taskId} failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
 

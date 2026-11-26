@@ -11,6 +11,8 @@ import { sanitizeText, sanitizeUrl } from './shared/sanitize';
 
 import { AgentManager } from '../agent';
 import { allocateSpecDir } from '../utils/spec-number-lock';
+import { applyDefaultTaskAgent } from '../utils/default-task-agent';
+import { readSettingsFile } from '../settings-utils';
 
 /**
  * Register all linear-related IPC handlers
@@ -431,13 +433,14 @@ ${safeDescription || 'No description provided.'}
             writeFileSync(path.join(specDir, AUTO_BUILD_PATHS.REQUIREMENTS), JSON.stringify(requirements, null, 2), 'utf-8');
 
             // Build metadata
-            const metadata: TaskMetadata = {
+            // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
+            const metadata: TaskMetadata = applyDefaultTaskAgent({
               sourceType: 'linear',
               linearIssueId: sanitizeText(issue.id, 100),
               linearIdentifier: safeIdentifier,
               linearUrl: safeUrl,
               category: 'feature'
-            };
+            }, readSettingsFile());
             // lgtm[js/http-to-file-access] - specDir is controlled, Linear data sanitized
             writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
 

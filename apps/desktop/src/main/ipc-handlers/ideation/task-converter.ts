@@ -21,6 +21,8 @@ import { normalizeIdea, readIdeationFile, writeIdeationFile, updateIdeationTimes
 import type { RawIdea } from './types';
 import { withSpecNumberLock } from '../../utils/spec-number-lock';
 import { slugifySpecTitle } from '../../utils/spec-slug';
+import { applyDefaultTaskAgent } from '../../utils/default-task-agent';
+import { readSettingsFile } from '../../settings-utils';
 
 /**
  * Create a slugified version of a title for use in directory names
@@ -300,7 +302,8 @@ export async function convertIdeaToTask(
 
       // Build task description and metadata
       const taskDescription = buildTaskDescription(idea);
-      const metadata = buildTaskMetadata(idea);
+      // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
+      const metadata = applyDefaultTaskAgent(buildTaskMetadata(idea), readSettingsFile());
 
       // Create spec files (inside lock to ensure atomicity)
       createSpecFiles(specDir, idea, taskDescription);

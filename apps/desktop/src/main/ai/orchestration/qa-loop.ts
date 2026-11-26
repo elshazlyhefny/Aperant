@@ -520,6 +520,18 @@ export class QALoop extends EventEmitter {
     // to be deleted on any non-transient outcome, so a failed fix lost the user's
     // request and the next run short-circuited on the stale "approved" signoff.
     if (result.outcome === 'completed') {
+      // zeenha fork: the old qa_report.md (often "Status: PASSED" from before the
+      // change request) no longer describes the code. If the re-review below
+      // pauses (no account for a routed task's QA phase), Resume finds no request
+      // and runs the BuildOrchestrator, which read that stale PASSED report as
+      // "already complete". Without a report it runs QA (requireQAVerdict).
+      // Removed before the request, so a crash in between leaves the request to
+      // be retried rather than a stale pass with nothing pending.
+      try {
+        await unlink(join(this.config.specDir, 'qa_report.md'));
+      } catch {
+        // Absent or not removable — nothing to clear
+      }
       try {
         await unlink(join(this.config.specDir, 'QA_FIX_REQUEST.md'));
       } catch {

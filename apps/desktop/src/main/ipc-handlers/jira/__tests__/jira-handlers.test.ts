@@ -14,6 +14,9 @@ vi.mock('electron', () => ({
   },
 }));
 
+// The electron mock above has no `app`, so settings.json cannot be read here.
+vi.mock('../../../settings-utils', () => ({ readSettingsFile: () => undefined }));
+
 vi.mock('../../../project-store', () => ({
   projectStore: { getProject: (...args: unknown[]) => getProject(...args) },
 }));

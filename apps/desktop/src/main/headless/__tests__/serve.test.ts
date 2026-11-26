@@ -434,6 +434,19 @@ describe('runServe source write-back', () => {
     await stop(p);
   });
 
+  it('reports an account pause to the webhook as account_required and does not write it back', async () => {
+    makeSpec('001-a');
+    const p = serve();
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    spawned()[0].finish([{ type: 'PHASE_ACCOUNT_UNAVAILABLE', error: 'no account for openai' }], 3);
+    await vi.waitFor(() => expect(webhook).toHaveBeenCalledTimes(1));
+    expect(plan('001-a').status).toBe('human_review');
+    expect(plan('001-a').reviewReason).toBe('account_required');
+    expect(webhook.mock.calls[0][1]).toMatchObject({ status: 'human_review', reviewReason: 'account_required' });
+    await stop(p);
+    expect(writeback).not.toHaveBeenCalled();
+  });
+
   it('does not write back for an interrupted run', async () => {
     makeSpec('001-a');
     const p = serve();

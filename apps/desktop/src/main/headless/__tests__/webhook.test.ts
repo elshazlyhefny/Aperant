@@ -208,6 +208,12 @@ describe('eventsForOutcome', () => {
     expect(eventsForOutcome({ kind: 'error', exitCode: 1 }, allOn)).toEqual(['failed']);
   });
 
+  it('maps an account pause to account_required, gated by the blocked toggle', () => {
+    const paused: RunOutcome = { kind: 'error', exitCode: 1, accountPaused: true };
+    expect(eventsForOutcome(paused, allOn)).toEqual(['account_required']);
+    expect(eventsForOutcome(paused, { ...allOn, blocked: false })).toEqual([]);
+  });
+
   it('appends pr_opened after the outcome event', () => {
     const outcome: RunOutcome = { ...success, prUrl: 'https://github.com/o/r/pull/1' };
     expect(eventsForOutcome(outcome, allOn)).toEqual(['review_ready', 'pr_opened']);

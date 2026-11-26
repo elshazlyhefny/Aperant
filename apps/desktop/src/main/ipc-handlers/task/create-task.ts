@@ -2,7 +2,7 @@ import { AUTO_BUILD_PATHS, VALID_THINKING_LEVELS, sanitizeThinkingLevel } from '
 import type { IPCResult, Task, TaskMetadata } from '../../../shared/types';
 import path from 'path';
 import { writeFileSync, mkdirSync } from 'fs';
-import { taskPhaseMetadata } from '../../../shared/utils/task-agent';
+import { applyDefaultTaskAgent } from '../../utils/default-task-agent';
 import { readSettingsFile } from '../../settings-utils';
 import { projectStore } from '../../project-store';
 import { titleGenerator } from '../../title-generator';
@@ -153,14 +153,10 @@ export async function createTaskSpec(
   const { specId, specDir } = await allocateSpecDir(project, finalTitle);
 
   // Build metadata with source type
-  const taskMetadata: TaskMetadata = {
-    sourceType: 'manual',
-    ...metadata
-  };
-  if (!metadata?.provider && !metadata?.model && !metadata?.phaseProviders && !metadata?.phaseModels) {
-    const selection = readSettingsFile()?.defaultTaskAgent;
-    if (selection) Object.assign(taskMetadata, taskPhaseMetadata(selection.phases), { taskAgentMode: selection.mode });
-  }
+  const taskMetadata: TaskMetadata = applyDefaultTaskAgent(
+    { sourceType: 'manual', ...metadata },
+    readSettingsFile()
+  );
   if (validatedDeps !== undefined) {
     taskMetadata.taskDependencies = validatedDeps;
   }

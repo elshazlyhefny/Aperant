@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildOutcomeComment, cleanTitle, readMetadata } from '../common';
+import { buildOutcomeComment, cleanTitle, isIssueOutcomeEvent, readMetadata } from '../common';
 
 describe('readMetadata', () => {
   let root: string;
@@ -55,5 +55,15 @@ describe('buildOutcomeComment', () => {
     expect(buildOutcomeComment('review_ready', 'T', 'https://github.com/o/r/pull/1')).toBe(
       'Aperant: task is ready for review.\nTask: T\nPull request: https://github.com/o/r/pull/1'
     );
+  });
+});
+
+describe('isIssueOutcomeEvent', () => {
+  it('excludes the webhook-only events: pr_opened and account pauses', () => {
+    expect(isIssueOutcomeEvent('review_ready')).toBe(true);
+    expect(isIssueOutcomeEvent('failed')).toBe(true);
+    expect(isIssueOutcomeEvent('blocked')).toBe(true);
+    expect(isIssueOutcomeEvent('pr_opened')).toBe(false);
+    expect(isIssueOutcomeEvent('account_required')).toBe(false);
   });
 });

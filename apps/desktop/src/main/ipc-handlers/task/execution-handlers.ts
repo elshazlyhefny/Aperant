@@ -24,6 +24,7 @@ import { getIsolatedGitEnv, detectWorktreeBranch } from '../../utils/git-isolati
 import { cancelFallbackTimer } from '../agent-events-handlers';
 import { canMoveFailedTaskTo } from '../../../shared/utils/task-failure';
 import { preflightTaskLaunch, launchTask, planHasSubtasks, safeReadFileSync, checkSubtasksCompletion } from './launch-task';
+import { findPendingQAFixResume, resumeQAFixRun, startQAFixRun } from './qa-fix-run';
 
 import { appLog } from '../../app-logger';
 
@@ -167,6 +168,31 @@ export async function applyTaskStatusUpdate(
   const planPath = getPlanPath(project, task);
 
   try {
+    // zeenha fork: dragging an account-paused "Request changes" or PR follow-up QA
+    // run to In Progress resumes it as the QA process, as TASK_START does (see
+    // qa-fix-run.ts). Checked before handleManualStatusChange: resumeQAFixRun sends
+    // USER_RESUMED only once QA is running, so a failed start leaves the task
+    // paused and untouched.
+    const qaFixResume = status === 'in_progress' && !agentManager.isRunning(taskId)
+      ? findPendingQAFixResume(task, project)
+      : null;
+    if (qaFixResume) {
+      const mainWindow = getMainWindow();
+      const pre = await preflightTaskLaunch(task, project);
+      if (!pre.ok) {
+        if (mainWindow) mainWindow.webContents.send(IPC_CHANNELS.TASK_ERROR, taskId, pre.error);
+        return { success: false, error: pre.error };
+      }
+      cancelFallbackTimer(taskId);
+      const qa = await resumeQAFixRun(agentManager, task, project, qaFixResume, '[TASK_UPDATE_STATUS]');
+      if (!qa.started) {
+        if (mainWindow && !qa.reported) mainWindow.webContents.send(IPC_CHANNELS.TASK_ERROR, taskId, qa.error);
+        return { success: false, error: qa.error };
+      }
+      if (mainWindow) mainWindow.webContents.send(IPC_CHANNELS.TASK_STATUS_CHANGE, taskId, 'in_progress', project.id);
+      return { success: true };
+    }
+
     const handledByMachine = taskStateManager.handleManualStatusChange(taskId, status, task, project);
     if (!handledByMachine) {
       // Use shared utility for thread-safe plan file updates (legacy/manual override)
@@ -302,6 +328,18 @@ export function registerTaskExecutionHandlers(
       // - terminalEventSeen doesn't suppress future PROCESS_EXITED events
       // - lastSequenceByTask doesn't drop events from the new process
       taskStateManager.prepareForRestart(taskId);
+
+      // zeenha fork: a "Request changes" or PR follow-up QA run that paused for an
+      // account resumes as the same QA process. launchTask would run the
+      // BuildOrchestrator, which reads the old PASSED qa_report.md as "already
+      // complete" and drops the request (and never pushes a PR follow-up).
+      const qaFixResume = findPendingQAFixResume(task, project);
+      if (qaFixResume) {
+        // The task stays paused unless the QA process actually started.
+        const qa = await resumeQAFixRun(agentManager, task, project, qaFixResume, '[TASK_START]');
+        if (!qa.started && !qa.reported) mainWindow.webContents.send(IPC_CHANNELS.TASK_ERROR, taskId, qa.error);
+        return;
+      }
 
       const specsBaseDir = getSpecsDir(project.autoBuildPath);
       const specDir = path.join(
@@ -546,21 +584,12 @@ export function registerTaskExecutionHandlers(
           return { success: false, error: 'Failed to write QA fix request file' };
         }
 
-        // Clear stale tracking state before starting new QA process
-        taskStateManager.prepareForRestart(taskId);
-
         // Restart QA process - use worktree path if it exists, otherwise main project
         // The QA process needs to run where the implementation_plan.json with completed subtasks is
-        const qaProjectPath = hasWorktree ? worktreePath : project.path;
-        console.warn('[TASK_REVIEW] Starting QA process with projectPath:', qaProjectPath);
-        agentManager.startQAProcess(taskId, qaProjectPath, task.specId, project.id);
-
-        taskStateManager.handleUiEvent(
-          taskId,
-          { type: 'USER_RESUMED' },
-          task,
-          project
-        );
+        // zeenha fork: shared with TASK_START, which resumes this run after an account pause.
+        const qaProjectPath = hasWorktree && worktreePath ? worktreePath : project.path;
+        const qa = await startQAFixRun(agentManager, task, project, qaProjectPath, '[TASK_REVIEW]');
+        if (!qa.started) return { success: false, error: qa.error };
       }
 
       return { success: true };

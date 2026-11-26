@@ -25,6 +25,8 @@ import { writeFileWithRetry, readFileWithRetry } from "../utils/atomic-file";
 import { withFileLock } from "../utils/file-lock";
 import { getActiveProviderFeatureSettings } from "./feature-settings-helper";
 import { allocateSpecDir } from "../utils/spec-number-lock";
+import { applyDefaultTaskAgent } from "../utils/default-task-agent";
+import { readSettingsFile } from "../settings-utils";
 import { loadRoadmapFromDisk } from "./roadmap/transformers";
 
 /**
@@ -418,11 +420,12 @@ ${(feature.acceptance_criteria || []).map((c: string) => `- [ ] ${c}`).join("\n"
         await writeFileWithRetry(path.join(specDir, AUTO_BUILD_PATHS.SPEC_FILE), taskDescription, { encoding: 'utf-8' });
 
         // Build metadata
-        const metadata: TaskMetadata = {
+        // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
+        const metadata: TaskMetadata = applyDefaultTaskAgent({
           sourceType: "roadmap",
           featureId: feature.id,
           category: "feature",
-        };
+        }, readSettingsFile());
         await writeFileWithRetry(path.join(specDir, "task_metadata.json"), JSON.stringify(metadata, null, 2), { encoding: 'utf-8' });
 
         // NOTE: We do NOT auto-start spec creation here - user should explicitly start the task

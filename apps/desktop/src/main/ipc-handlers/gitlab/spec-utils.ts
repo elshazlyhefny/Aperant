@@ -8,12 +8,14 @@
 import { mkdir, writeFile, stat } from 'fs/promises';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import path from 'path';
-import type { Project } from '../../../shared/types';
+import type { Project, TaskMetadata } from '../../../shared/types';
 import type { GitLabAPIIssue, GitLabAPINoteBasic, GitLabConfig } from './types';
 import { labelMatchesWholeWord } from '../shared/label-utils';
 import { sanitizeText, sanitizeStringArray } from '../shared/sanitize';
 import { buildSpecId } from '../../utils/spec-slug';
 import { withSpecNumberLock } from '../../utils/spec-number-lock';
+import { applyDefaultTaskAgent } from '../../utils/default-task-agent';
+import { readSettingsFile } from '../../settings-utils';
 import { createDebugLog } from '../../../shared/utils/debug-logger';
 
 /**
@@ -473,14 +475,15 @@ export async function createSpecForIssue(
       await writeFile(path.join(specDir, 'TASK.md'), taskContent, 'utf-8');
 
       // Create task_metadata.json (consistent with GitHub format for backend compatibility)
-      const taskMetadata = {
-        sourceType: 'gitlab' as const,
+      // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
+      const taskMetadata: TaskMetadata = applyDefaultTaskAgent({
+        sourceType: 'gitlab',
         gitlabIssueIid: safeIssue.iid,
         gitlabUrl: safeIssue.web_url,
         category: determineCategoryFromLabels(safeIssue.labels || []),
         // Store baseBranch for worktree creation and QA comparison
         ...(baseBranch && { baseBranch })
-      };
+      }, readSettingsFile());
       await writeFile(
         path.join(specDir, 'task_metadata.json'),
         JSON.stringify(taskMetadata, null, 2),

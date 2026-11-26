@@ -21,6 +21,8 @@ import { safeSendToRenderer } from "./utils";
 import { getActiveProviderFeatureSettings } from "./feature-settings-helper";
 import type { ThinkingLevel } from "../../shared/types/settings";
 import { allocateSpecDir } from "../utils/spec-number-lock";
+import { applyDefaultTaskAgent } from "../utils/default-task-agent";
+import { readSettingsFile } from "../settings-utils";
 
 import { appLog } from '../app-logger';
 /**
@@ -146,10 +148,11 @@ export function registerInsightsHandlers(getMainWindow: () => BrowserWindow | nu
         const { specId, specDir } = await allocateSpecDir(project, title);
 
         // Build metadata with source type
-        const taskMetadata: TaskMetadata = {
+        // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
+        const taskMetadata: TaskMetadata = applyDefaultTaskAgent({
           sourceType: "insights",
           ...metadata,
-        };
+        }, readSettingsFile());
 
         // Create initial implementation_plan.json
         const now = new Date().toISOString();

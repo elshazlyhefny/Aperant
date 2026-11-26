@@ -36,9 +36,10 @@ describe('dispatchIssueOutcomeWith', () => {
     });
   });
 
-  it('skips pr_opened, null meta, disabled settings and unknown sources', async () => {
+  it('skips pr_opened, account pauses, null meta, disabled settings and unknown sources', async () => {
     const w = makeWriter('alpha', { settingKey: 'github' });
     await dispatchIssueOutcomeWith({ project, event: 'pr_opened', meta, raw: on, writers: [w] });
+    await dispatchIssueOutcomeWith({ project, event: 'account_required', meta, raw: on, writers: [w] });
     await dispatchIssueOutcomeWith({ project, event: 'failed', meta: null, raw: on, writers: [w] });
     await dispatchIssueOutcomeWith({ project, event: 'failed', meta, raw: off, writers: [w] });
     await dispatchIssueOutcomeWith({ project, event: 'failed', meta: { sourceType: 'zzz' }, raw: on, writers: [w] });
