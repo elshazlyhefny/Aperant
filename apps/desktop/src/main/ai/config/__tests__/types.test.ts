@@ -3,6 +3,10 @@ import { buildThinkingProviderOptions } from '../types';
 import type { ThinkingLevel } from '../types';
 
 describe('buildThinkingProviderOptions', () => {
+  it('sends the task phase effort to Codex', () => {
+    expect(buildThinkingProviderOptions('gpt-5.3-codex', 'xhigh')).toEqual({ openai: { reasoningEffort: 'xhigh' } });
+  });
+
   it('should return Anthropic thinking options for Claude models', () => {
     const result = buildThinkingProviderOptions('claude-sonnet-4-6', 'high');
     expect(result).toEqual({

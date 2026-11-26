@@ -118,6 +118,7 @@ export interface TaskMetadata {
   isAutoProfile?: boolean;
   phaseModels?: Record<string, string>;
   phaseProviders?: Record<string, string>;
+  phaseThinking?: Record<string, string>;
   provider?: string;
   model?: string;
   /** zeenha fork: per-task token budget override (0 = unlimited, undefined = inherit). */

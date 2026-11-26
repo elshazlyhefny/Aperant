@@ -68,6 +68,8 @@ type BuildPhase = 'planning' | 'coding' | 'qa_review' | 'qa_fixing';
 
 /** Configuration for the build orchestrator */
 export interface BuildOrchestratorConfig {
+  /** A resumed routed task may have stopped at the QA account check. */
+  requireQAVerdict?: boolean;
   /** Spec directory path (e.g., .auto-claude/specs/001-feature/) */
   specDir: string;
   /** Project root directory */
@@ -274,6 +276,11 @@ export class BuildOrchestrator extends EventEmitter {
 
       // Check if build is already complete
       if (await this.isBuildComplete()) {
+        if (this.config.requireQAVerdict && await this.readQAStatus() !== 'passed') {
+          this.markPhaseCompleted('coding');
+          const qa = await this.runQAPhase();
+          return this.buildOutcome(qa.success, Date.now() - startTime, qa.error);
+        }
         this.transitionPhase('complete', 'Build already complete');
         return this.buildOutcome(true, Date.now() - startTime);
       }

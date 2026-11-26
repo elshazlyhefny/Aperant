@@ -61,6 +61,7 @@
     "failed": "Échec"
   },
   "reviewReason": {
+    "accountRequired": "Compte requis",
     "completed": "Terminé",
     "hasErrors": "Contient des erreurs",
     "qaIssues": "Problèmes QA",

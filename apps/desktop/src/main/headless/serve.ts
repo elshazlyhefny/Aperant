@@ -232,7 +232,10 @@ export async function runServe(options: ServeOptions): Promise<number> {
       reason = 'token budget reached';
     } else if (result?.outcome) {
       reason = result.outcome.reason;
-      if (result.outcome.kind === 'success') {
+      if (result.outcome.accountPaused) {
+        status = 'human_review';
+        reviewReason = 'account_required';
+      } else if (result.outcome.kind === 'success') {
         status = 'human_review';
         reviewReason = 'completed';
       } else if (result.outcome.kind === 'qa_failed') {

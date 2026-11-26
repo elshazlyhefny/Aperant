@@ -63,6 +63,8 @@ export interface HeadlessWritebackConfig {
 }
 
 export interface HeadlessConfig {
+  /** Explicit path to Aperant’s Codex OAuth token file for runs outside Electron. */
+  codexTokenFilePath?: string;
   providerAccounts?: ProviderAccount[];
   globalPriorityOrder?: string[];
   providerAgentConfig?: Record<string, unknown>;
@@ -106,6 +108,7 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
   }
 
   const config: HeadlessConfig = {};
+  if (typeof raw.codexTokenFilePath === 'string') config.codexTokenFilePath = raw.codexTokenFilePath;
   if (raw.providerAccounts !== undefined) {
     if (!Array.isArray(raw.providerAccounts)) {
       throw new Error(`Config file ${configPath}: providerAccounts must be an array`);

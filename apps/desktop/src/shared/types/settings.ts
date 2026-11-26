@@ -256,6 +256,12 @@ export type PipelinePhase = 'spec' | 'planning' | 'coding' | 'qa';
 // Cross-provider phase config
 export type MixedPhaseConfig = Record<PipelinePhase, MixedPhaseEntry>;
 
+export type TaskAgentMode = 'claude' | 'codex' | 'both';
+export interface TaskAgentSelection {
+  mode: TaskAgentMode;
+  phases: MixedPhaseConfig;
+}
+
 // Cross-provider feature config
 export type MixedFeatureConfig = Record<keyof FeatureModelConfig, MixedPhaseEntry>;
 
@@ -369,6 +375,7 @@ export interface AppSettings {
   // Per-provider agent configuration
   providerAgentConfig?: Partial<Record<BuiltinProvider, PerProviderAgentConfig>>;
   customMixedProfileActive?: boolean;
+  defaultTaskAgent?: TaskAgentSelection | null;
   customMixedPhaseConfig?: MixedPhaseConfig;
   customMixedFeatureConfig?: MixedFeatureConfig;
   // Migration flags (internal use)

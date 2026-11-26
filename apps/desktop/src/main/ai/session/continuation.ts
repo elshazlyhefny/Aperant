@@ -16,7 +16,7 @@
  * continuations — they call `runSingleSession()` which uses this wrapper.
  */
 
-import { generateText } from 'ai';
+import { generateText, streamText } from 'ai';
 
 import { runAgentSession } from './runner';
 import type { RunnerOptions } from './runner';
@@ -56,14 +56,6 @@ export interface ContinuationConfig {
   maxContinuations?: number;
   /** Context window limit in tokens (from model metadata) */
   contextWindowLimit: number;
-  /** API key for creating the summarization model */
-  apiKey?: string;
-  /** Base URL for the summarization model */
-  baseURL?: string;
-  /** OAuth token file path (for token refresh) */
-  oauthTokenFilePath?: string;
-  /** CLAUDE_CONFIG_DIR of the Claude profile (Claude Code engine) */
-  claudeConfigDir?: string;
 }
 
 /**
@@ -168,7 +160,7 @@ export async function runContinuableSession(
     continuationCount++;
     const summary = await compactSessionMessages(
       result.messages,
-      continuationConfig,
+      currentConfig,
       config.abortSignal,
     );
 
@@ -204,12 +196,12 @@ export async function runContinuableSession(
 
 /**
  * Compact session messages into a summary for continuation.
- * Uses Haiku via `generateText()` for fast, cheap summarization.
+ * Uses the same model and credentials as the interrupted session.
  * Falls back to raw truncation if the summarization call fails.
  */
 async function compactSessionMessages(
   messages: SessionMessage[],
-  continuationConfig: ContinuationConfig,
+  config: SessionConfig,
   abortSignal?: AbortSignal,
 ): Promise<string> {
   // Serialize messages to text
@@ -224,15 +216,6 @@ async function compactSessionMessages(
   }
 
   try {
-    // Use Haiku for summarization — fast and cheap
-    const { createProviderFromModelId } = await import('../providers/factory');
-    const summarizerModel = createProviderFromModelId('claude-haiku-5-5', {
-      apiKey: continuationConfig.apiKey,
-      baseURL: continuationConfig.baseURL,
-      oauthTokenFilePath: continuationConfig.oauthTokenFilePath,
-      claudeConfigDir: continuationConfig.claudeConfigDir,
-    });
-
     const prompt =
       `Summarize this AI agent conversation in approximately ${SUMMARY_TARGET_WORDS} words.\n\n` +
       `Focus on:\n` +
@@ -243,16 +226,15 @@ async function compactSessionMessages(
       `- Any errors encountered and how they were resolved\n\n` +
       `## Conversation:\n${serialized}\n\n## Summary:`;
 
-    const result = await generateText({
-      model: summarizerModel,
-      system: SUMMARIZER_SYSTEM_PROMPT,
-      prompt,
-      abortSignal,
-    });
-
-    if (result.text.trim()) {
-      return result.text.trim();
-    }
+    const model = config.model;
+    const codex = config.codexOAuth || (typeof model !== 'string' && model.modelId.includes('codex'));
+    const summary = codex
+      ? await streamText({
+          model, prompt, abortSignal,
+          providerOptions: { openai: { instructions: SUMMARIZER_SYSTEM_PROMPT, store: false } },
+        }).text
+      : (await generateText({ model, system: SUMMARIZER_SYSTEM_PROMPT, prompt, abortSignal })).text;
+    if (summary.trim()) return summary.trim();
   } catch {
     // Summarization failed — fall back to raw truncation
   }

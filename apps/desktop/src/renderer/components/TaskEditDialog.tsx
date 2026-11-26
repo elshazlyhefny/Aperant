@@ -1,3 +1,4 @@
+import { savedTaskAgent, taskPhaseMetadata } from '@shared/utils/task-agent';
 /**
  * TaskEditDialog - Dialog for editing task details
  *
@@ -46,7 +47,7 @@ import {
   PHASE_KEYS,
   getProviderPreset
 } from '../../shared/constants';
-import type { PhaseModelConfig, PhaseThinkingConfig } from '../../shared/types/settings';
+import type { TaskAgentSelection, PhaseModelConfig, PhaseThinkingConfig } from '../../shared/types/settings';
 import { useSettingsStore } from '../stores/settings-store';
 import { useActiveProvider } from '../hooks/useActiveProvider';
 
@@ -104,6 +105,7 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
   const [impact, setImpact] = useState<TaskImpact | ''>(task.metadata?.impact || '');
 
   // Agent profile / model configuration
+  const [taskAgent, setTaskAgent] = useState<TaskAgentSelection | null>(() => savedTaskAgent(task.metadata));
   const [profileId, setProfileId] = useState<string>(() => {
     if (task.metadata?.isAutoProfile) {
       return 'auto';
@@ -147,10 +149,11 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
 
   // Show Fast Mode toggle when any phase uses an Opus model
   const showFastModeToggle = useMemo(() => {
+    if (taskAgent) return Object.values(taskAgent.phases).some(p => p.provider === 'anthropic' && FAST_MODE_MODELS.includes(p.modelId));
     if (!isAnthropic) return false;
     if (!phaseModels) return false;
     return PHASE_KEYS.some(phase => FAST_MODE_MODELS.includes(phaseModels[phase]));
-  }, [isAnthropic, phaseModels]);
+  }, [isAnthropic, phaseModels, taskAgent]);
 
   // Disable fast mode toggle for tasks that have moved past backlog
   const isFastModeEditable = task.status === 'backlog';
@@ -158,6 +161,7 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
   // Reset form when task changes or dialog opens
   useEffect(() => {
     if (open) {
+      setTaskAgent(savedTaskAgent(task.metadata));
       setTitle(task.title);
       setDescription(task.description);
       setCategory(task.metadata?.category || '');
@@ -233,6 +237,7 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     const trimmedTitle = title.trim();
     const trimmedDescription = description.trim();
     const hasChanges =
+      JSON.stringify(taskAgent) !== JSON.stringify(savedTaskAgent(task.metadata)) ||
       trimmedTitle !== task.title ||
       trimmedDescription !== task.description ||
       category !== (task.metadata?.category || '') ||
@@ -265,16 +270,18 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     if (impact) metadataUpdates.impact = impact;
     if (model) metadataUpdates.model = model as ModelType;
     if (thinkingLevel) metadataUpdates.thinkingLevel = thinkingLevel as ThinkingLevel;
-    if (activeProvider) metadataUpdates.provider = activeProvider;
+    const provider = task.metadata?.provider ?? activeProvider;
+    if (provider) metadataUpdates.provider = provider;
     if (phaseModels && phaseThinking) {
       metadataUpdates.isAutoProfile = profileId === 'auto';
       metadataUpdates.phaseModels = phaseModels;
       metadataUpdates.phaseThinking = phaseThinking;
     }
+    if (taskAgent) Object.assign(metadataUpdates, taskPhaseMetadata(taskAgent.phases), { taskAgentMode: taskAgent.mode });
     // Always set attachedImages to persist removal when all images are deleted
     metadataUpdates.attachedImages = images.length > 0 ? images : [];
     metadataUpdates.requireReviewBeforeCoding = requireReviewBeforeCoding;
-    metadataUpdates.fastMode = fastMode;
+    metadataUpdates.fastMode = fastMode && (!taskAgent || showFastModeToggle);
     metadataUpdates.taskDependencies = taskDependencies;
     // undefined clears the override so the task inherits the project default
     metadataUpdates.tokenBudget = parseTokenBudgetText(tokenBudgetText);
@@ -323,6 +330,9 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
       }
     >
       <TaskFormFields
+        taskAgent={taskAgent}
+        onTaskAgentChange={setTaskAgent}
+        allowConfiguredProfile={!task.metadata?.taskAgentMode}
         projectPath={projectPath}
         specId={task.specId}
         description={description}

@@ -349,7 +349,7 @@ async function executeStream(
   // `instructions` in the request body instead of system messages in `input`.
   // Pass system prompt via providerOptions and enable store for proper Codex API behavior.
   const modelId = typeof config.model === 'string' ? config.model : config.model.modelId;
-  const isCodex = modelId?.includes('codex') ?? false;
+  const isCodex = config.codexOAuth || modelId?.includes('codex');
   const isAnthropicModel = modelId?.startsWith('claude-') ?? false;
   const isClaudeCode = isClaudeCodeModel(config.model);
 

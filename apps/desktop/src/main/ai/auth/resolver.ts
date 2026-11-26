@@ -368,6 +368,7 @@ export async function resolveAuthFromQueue(
   queue: ProviderAccount[],
   options?: {
     excludeAccountIds?: string[];
+    codexTokenFilePath?: string;
     userModelOverrides?: Record<string, Partial<Record<BuiltinProvider, import('../../../shared/constants/models').ProviderModelSpec>>>;
     autoSwitchSettings?: ClaudeAutoSwitchSettings;
   }
@@ -436,7 +437,7 @@ export async function resolveAuthFromQueue(
     // is needed here. All OpenAI models are eligible through Codex OAuth.
 
     // Resolve credentials for this account
-    const auth = await resolveCredentialsForAccount(account, supportedProvider);
+    const auth = await resolveCredentialsForAccount(account, supportedProvider, options?.codexTokenFilePath);
     if (!auth) continue;
 
     // Success — return the fully resolved auth
@@ -520,6 +521,7 @@ function resolveZaiBaseUrl(account: ProviderAccount): string {
 async function resolveCredentialsForAccount(
   account: ProviderAccount,
   provider: SupportedProvider,
+  codexTokenFilePath?: string,
 ): Promise<ResolvedAuth | null> {
   // No-auth providers (e.g., Ollama) — no API key required
   if (NO_AUTH_PROVIDERS.has(provider)) {
@@ -533,8 +535,7 @@ async function resolveCredentialsForAccount(
   // File-based OAuth (e.g., OpenAI Codex subscription)
   if (account.authType === 'oauth' && account.provider === 'openai') {
     try {
-      const { app } = await import('electron');
-      const tokenFilePath = path.join(app.getPath('userData'), 'codex-auth.json');
+      const tokenFilePath = codexTokenFilePath ?? path.join((await import('electron')).app.getPath('userData'), 'codex-auth.json');
       const { ensureValidOAuthToken } = await import('../providers/oauth-fetch');
       const token = await ensureValidOAuthToken(tokenFilePath, 'openai');
       if (token) {
@@ -557,7 +558,7 @@ async function resolveCredentialsForAccount(
         profileId: account.claudeProfileId,
         configDir: await profileConfigDir(account.claudeProfileId),
       };
-      return resolveAuth(ctx);
+      return resolveFromProfileOAuth(ctx);
     }
     return null;
   }

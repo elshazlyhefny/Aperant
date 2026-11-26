@@ -7,7 +7,7 @@ import { AgentEvents } from './agent-events';
 import { AgentProcessManager } from './agent-process';
 import { AgentQueueManager } from './agent-queue';
 import { getClaudeProfileManager, initializeClaudeProfileManager } from '../claude-profile-manager';
-import type { ClaudeProfileManager } from '../claude-profile-manager';
+import { phaseConnectionResolver } from '../ai/agent/phase-connection';
 import { getOperationRegistry } from '../claude-profile/operation-registry';
 import {
   SpecCreationMetadata,
@@ -23,8 +23,10 @@ import { resolveModelId } from '../ai/config/phase-config';
 import { detectProviderFromModel } from '../ai/providers/factory';
 import { resolveModelEquivalent } from '../../shared/constants/models';
 import type { BuiltinProvider } from '../../shared/types/provider-account';
+import { PHASE_ACCOUNT_PAUSE_EXIT } from '../ai/agent/types';
 import type { AgentExecutorConfig, SerializableSessionConfig, SerializedSecurityProfile } from '../ai/agent/types';
 import {
+  readTaskMetadata,
   serializeSecurityProfile,
   buildTaskExecutionMessages,
   resolveTaskModelId,
@@ -109,7 +111,7 @@ export class AgentManager extends EventEmitter {
         }
 
         // If task completed successfully, always clean up
-        if (code === 0) {
+        if (code === 0 || code === PHASE_ACCOUNT_PAUSE_EXIT) {
           this.taskExecutionContext.delete(taskId);
           // Unregister from OperationRegistry
           getOperationRegistry().unregisterOperation(taskId);
@@ -345,6 +347,32 @@ export class AgentManager extends EventEmitter {
     };
   }
 
+  private taskPhaseResolver(metadata: ReturnType<typeof readTaskMetadata>) {
+    return phaseConnectionResolver(metadata, () => {
+      const settings = readSettingsFile();
+      return {
+        accounts: settings?.providerAccounts ?? [],
+        priorityOrder: settings?.globalPriorityOrder ?? [],
+        fallback: async provider => {
+          if (provider !== 'openai' && provider !== 'anthropic') return null;
+          const configDir = provider === 'anthropic'
+            ? (await initializeClaudeProfileManager()).getActiveProfile()?.configDir : undefined;
+          return resolveAuth({ provider, configDir });
+        },
+      };
+    });
+  }
+
+  private async readyForLegacyTask(taskId: string): Promise<boolean> {
+    try {
+      if (hasUsableAuth(await initializeClaudeProfileManager())) return true;
+      this.emit('error', taskId, 'Authentication required. Please add an account in Settings > Accounts before starting tasks.');
+    } catch {
+      this.emit('error', taskId, 'Failed to initialize profile manager. Please check file permissions and disk space.');
+    }
+    return false;
+  }
+
   async startSpecCreation(
     taskId: string,
     projectPath: string,
@@ -354,20 +382,8 @@ export class AgentManager extends EventEmitter {
     baseBranch?: string,
     projectId?: string
   ): Promise<void> {
-    // Pre-flight auth check: Verify active profile has valid authentication
-    // Ensure profile manager is initialized to prevent race condition
-    let profileManager: ClaudeProfileManager;
-    try {
-      profileManager = await initializeClaudeProfileManager();
-    } catch (error) {
-      console.error('[AgentManager] Failed to initialize profile manager:', error);
-      this.emit('error', taskId, 'Failed to initialize profile manager. Please check file permissions and disk space.');
-      return;
-    }
-    if (!hasUsableAuth(profileManager)) {
-      this.emit('error', taskId, 'Authentication required. Please add an account in Settings > Accounts before starting tasks.');
-      return;
-    }
+    const resolvePhaseConnection = this.taskPhaseResolver((specDir && readTaskMetadata(specDir)) || metadata || null);
+    if (!resolvePhaseConnection && !(await this.readyForLegacyTask(taskId))) return;
 
     // Reset stuck subtasks if restarting an existing spec creation task
     if (specDir) {
@@ -407,7 +423,9 @@ export class AgentManager extends EventEmitter {
     const systemPrompt = this.loadPrompt('spec_orchestrator') ?? this.buildDefaultSpecPrompt(taskDescription, specDir);
 
     // Resolve auth from provider accounts priority queue (falls back to legacy profile)
-    const resolved = await this.resolveAuthFromProviderQueue(specModelId, preferredProvider);
+    const resolved = resolvePhaseConnection
+      ? { provider: preferredProvider ?? 'anthropic', modelId: specModelId, auth: null, configDir: undefined }
+      : await this.resolveAuthFromProviderQueue(specModelId, preferredProvider);
 
     // Build the serializable session config for the worker
     const resolvedSpecDir = specDir ?? path.join(projectPath, '.auto-claude', 'specs', taskId);
@@ -460,6 +478,7 @@ export class AgentManager extends EventEmitter {
       projectId,
       processType: 'spec-creation',
       session: sessionConfig,
+      resolvePhaseConnection,
       accountId: resolved.auth?.accountId,
     };
 
@@ -467,7 +486,7 @@ export class AgentManager extends EventEmitter {
     this.storeTaskContext(taskId, projectPath, '', {}, true, taskDescription, specDir, metadata, baseBranch, projectId);
 
     // Register with unified OperationRegistry for proactive swap support
-    this.registerTaskWithOperationRegistry(taskId, 'spec-creation', { projectPath, taskDescription, specDir });
+    if (!resolvePhaseConnection) this.registerTaskWithOperationRegistry(taskId, 'spec-creation', { projectPath, taskDescription, specDir });
 
     await this.processManager.spawnWorkerProcess(taskId, executorConfig, {}, 'spec-creation', projectId);
 
@@ -487,25 +506,13 @@ export class AgentManager extends EventEmitter {
     options: TaskExecutionOptions = {},
     projectId?: string
   ): Promise<void> {
-    // Pre-flight auth check: Verify active profile has valid authentication
-    // Ensure profile manager is initialized to prevent race condition
-    let profileManager: ClaudeProfileManager;
-    try {
-      profileManager = await initializeClaudeProfileManager();
-    } catch (error) {
-      console.error('[AgentManager] Failed to initialize profile manager:', error);
-      this.emit('error', taskId, 'Failed to initialize profile manager. Please check file permissions and disk space.');
-      return;
-    }
-    if (!hasUsableAuth(profileManager)) {
-      this.emit('error', taskId, 'Authentication required. Please add an account in Settings > Accounts before starting tasks.');
-      return;
-    }
-
     // Resolve the spec directory from specId
     const project = projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath);
     const specsBaseDir = getSpecsDir(project?.autoBuildPath);
     const specDir = path.join(projectPath, specsBaseDir, specId);
+
+    const resolvePhaseConnection = this.taskPhaseResolver(readTaskMetadata(specDir));
+    if (!resolvePhaseConnection && !(await this.readyForLegacyTask(taskId))) return;
 
     // Load model configuration from task_metadata.json if available
     const modelId = await this.resolveTaskModelId(specDir, 'planning');
@@ -515,7 +522,9 @@ export class AgentManager extends EventEmitter {
     const systemPrompt = this.loadPrompt('planner') ?? this.buildDefaultPlannerPrompt(specId, projectPath);
 
     // Resolve auth from provider accounts priority queue (falls back to legacy profile)
-    const resolved = await this.resolveAuthFromProviderQueue(modelId, preferredProvider);
+    const resolved = resolvePhaseConnection
+      ? { provider: preferredProvider ?? 'anthropic', modelId: modelId, auth: null, configDir: undefined }
+      : await this.resolveAuthFromProviderQueue(modelId, preferredProvider);
 
     // Create or get existing git worktree for task isolation
     // This matches the Python backend's WorktreeManager.create_worktree() behavior
@@ -595,6 +604,7 @@ export class AgentManager extends EventEmitter {
       projectId,
       processType: 'task-execution',
       session: sessionConfig,
+      resolvePhaseConnection,
       accountId: resolved.auth?.accountId,
     };
 
@@ -602,7 +612,7 @@ export class AgentManager extends EventEmitter {
     this.storeTaskContext(taskId, projectPath, specId, options, false, undefined, undefined, undefined, undefined, projectId);
 
     // Register with unified OperationRegistry for proactive swap support
-    this.registerTaskWithOperationRegistry(taskId, 'task-execution', { projectPath, specId, options });
+    if (!resolvePhaseConnection) this.registerTaskWithOperationRegistry(taskId, 'task-execution', { projectPath, specId, options });
 
     await this.processManager.spawnWorkerProcess(taskId, executorConfig, {}, 'task-execution', projectId);
 
@@ -621,24 +631,13 @@ export class AgentManager extends EventEmitter {
     specId: string,
     projectId?: string
   ): Promise<void> {
-    // Ensure profile manager is initialized for auth resolution
-    let profileManager: ClaudeProfileManager;
-    try {
-      profileManager = await initializeClaudeProfileManager();
-    } catch (error) {
-      console.error('[AgentManager] Failed to initialize profile manager:', error);
-      this.emit('error', taskId, 'Failed to initialize profile manager. Please check file permissions and disk space.');
-      return;
-    }
-    if (!hasUsableAuth(profileManager)) {
-      this.emit('error', taskId, 'Authentication required. Please add an account in Settings > Accounts before starting tasks.');
-      return;
-    }
-
     // Resolve the spec directory from specId
     const project = projectStore.getProjects().find((p) => p.id === projectId || p.path === projectPath);
     const specsBaseDir = getSpecsDir(project?.autoBuildPath);
     const specDir = path.join(projectPath, specsBaseDir, specId);
+
+    const resolvePhaseConnection = this.taskPhaseResolver(readTaskMetadata(specDir));
+    if (!resolvePhaseConnection && !(await this.readyForLegacyTask(taskId))) return;
 
     // Load model configuration from task_metadata.json if available
     const modelId = await this.resolveTaskModelId(specDir, 'qa');
@@ -648,7 +647,9 @@ export class AgentManager extends EventEmitter {
     const systemPrompt = this.loadPrompt('qa_reviewer') ?? this.buildDefaultQAPrompt(specId, projectPath);
 
     // Resolve auth from provider accounts priority queue (falls back to legacy profile)
-    const resolved = await this.resolveAuthFromProviderQueue(modelId, preferredProvider);
+    const resolved = resolvePhaseConnection
+      ? { provider: preferredProvider ?? 'anthropic', modelId: modelId, auth: null, configDir: undefined }
+      : await this.resolveAuthFromProviderQueue(modelId, preferredProvider);
 
     // Find existing worktree for QA (created during task execution)
     const worktreePath = findTaskWorktree(projectPath, specId);
@@ -702,6 +703,7 @@ export class AgentManager extends EventEmitter {
       projectId,
       processType: 'qa-process',
       session: sessionConfig,
+      resolvePhaseConnection,
       accountId: resolved.auth?.accountId,
     };
 

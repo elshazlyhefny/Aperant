@@ -12,6 +12,7 @@ import { XSTATE_SETTLED_STATES, XSTATE_ACTIVE_STATES, XSTATE_TO_PHASE, mapStateT
 import { AgentManager } from "../agent";
 import type { ProcessType, ExecutionProgressData } from "../agent";
 import { titleGenerator } from "../title-generator";
+import { PHASE_ACCOUNT_PAUSE_EXIT } from "../ai/agent/types";
 import { fileWatcher } from "../file-watcher";
 import { notificationService } from "../notification-service";
 import { persistPlanLastEventSync, getPlanPath, persistPlanPhaseSync, persistPlanStatusAndReasonSync, hasPlanWithSubtasks, syncPlanPhasesToMainSync } from "./task/plan-file-utils";
@@ -200,6 +201,8 @@ export function registerAgenteventsHandlers(
     fileWatcher.unwatch(taskId).catch((err) => {
       console.error(`[agent-events-handlers] Failed to unwatch for ${taskId}:`, err);
     });
+
+    if (code === PHASE_ACCOUNT_PAUSE_EXIT) return;
 
     if (processType === "spec-creation") {
       console.warn(`[Task ${taskId}] Spec creation completed with code ${code}`);

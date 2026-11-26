@@ -1,4 +1,12 @@
 {
+  "taskAgent": {
+    "label": "Task agent",
+    "defaultLabel": "Default task agent",
+    "profile": "Use configured profile",
+    "both": "Both",
+    "customize": "Customize task phases",
+    "phaseAgent": "Agent for {{phase}}"
+  },
   "title": "Settings",
   "tabs": {
     "app": "App Settings",

@@ -264,7 +264,7 @@ export function persistPlanStatusAndReasonSync(
     if (xstateState) {
       plan.xstateState = xstateState;
       // zeenha fork: keep why a run failed while it is failed; drop it once it moves on.
-      if (xstateState !== 'error') {
+      if (xstateState !== 'error' && reviewReason !== 'account_required') {
         delete plan.failureReason;
       } else if (failureReason) {
         plan.failureReason = failureReason;

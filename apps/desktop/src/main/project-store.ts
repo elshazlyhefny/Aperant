@@ -737,6 +737,7 @@ export class ProjectStore {
           logs: [],
           metadata,
           ...(correctedReviewReason !== undefined && { reviewReason: correctedReviewReason }),
+          ...(correctedReviewReason === 'account_required' && { failureReason: plan?.failureReason }),
           ...(executionProgress && { executionProgress }),
           stagedInMainProject,
           stagedAt,

@@ -2,7 +2,7 @@
  * Task-related types
  */
 
-import type { ThinkingLevel, PhaseModelConfig, PhaseThinkingConfig } from './settings';
+import type { TaskAgentMode, TaskAgentSelection, ThinkingLevel, PhaseModelConfig, PhaseThinkingConfig } from './settings';
 import type { ExecutionPhase as ExecutionPhaseType, CompletablePhase } from '../constants/phase-protocol';
 
 export type TaskStatus = 'backlog' | 'queue' | 'in_progress' | 'ai_review' | 'human_review' | 'done' | 'pr_created' | 'error';
@@ -16,7 +16,7 @@ export type TaskOrderState = Record<TaskStatus, string[]>;
 // - 'qa_rejected': QA found issues that need fixing
 // - 'plan_review': Spec/plan created and awaiting approval before coding starts
 // zeenha fork: 'token_budget' = paused because the task reached its token budget
-export type ReviewReason = 'completed' | 'errors' | 'qa_rejected' | 'plan_review' | 'stopped' | 'token_budget';
+export type ReviewReason = 'completed' | 'errors' | 'qa_rejected' | 'plan_review' | 'stopped' | 'token_budget' | 'account_required';
 
 export type SubtaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
@@ -141,6 +141,7 @@ export interface ReferencedFile {
 
 // Draft state for task creation (auto-saved when dialog closes)
 export interface TaskDraft {
+  taskAgent?: TaskAgentSelection | null;
   projectId: string;
   title: string;
   description: string;
@@ -254,6 +255,7 @@ export interface TaskMetadata {
   isAutoProfile?: boolean;  // True when using Auto (Optimized) profile
   phaseModels?: PhaseModelConfig;  // Per-phase model configuration
   phaseThinking?: PhaseThinkingConfig;  // Per-phase thinking configuration
+  taskAgentMode?: TaskAgentMode;
   phaseProviders?: Record<string, string>;  // Per-phase provider preference (cross-provider mode)
   fastMode?: boolean;  // Fast Mode — faster Opus 4.6 output, higher cost per token
 

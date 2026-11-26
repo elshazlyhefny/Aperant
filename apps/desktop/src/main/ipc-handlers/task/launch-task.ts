@@ -125,11 +125,11 @@ export function buildExecutionOptions(task: Task, baseBranch: string | undefined
 }
 
 export type PreflightResult =
-  | { ok: true; profileManager: ClaudeProfileManager }
+  | { ok: true; profileManager?: ClaudeProfileManager }
   | { ok: false; error: string };
 
 /** Git repository, profile manager and authentication checks before launching. */
-export async function preflightTaskLaunch(_task: Task, project: Project): Promise<PreflightResult> {
+export async function preflightTaskLaunch(task: Task, project: Project): Promise<PreflightResult> {
   const gitStatus = checkGitStatus(project.path);
   if (!gitStatus.isGitRepo) {
     return {
@@ -144,6 +144,8 @@ export async function preflightTaskLaunch(_task: Task, project: Project): Promis
     };
   }
 
+  // Explicit phase assignments resolve their own account when each phase starts.
+  if (task.metadata?.phaseProviders && Object.keys(task.metadata.phaseProviders).length) return { ok: true };
   const initResult = await ensureProfileManagerInitialized();
   if (!initResult.success) {
     return { ok: false, error: initResult.error };
