@@ -168,6 +168,31 @@ export async function applyTaskStatusUpdate(
   const planPath = getPlanPath(project, task);
 
   try {
+    // zeenha fork: dragging an account-paused "Request changes" or PR follow-up QA
+    // run to In Progress resumes it as the QA process, as TASK_START does (see
+    // qa-fix-run.ts). Checked before handleManualStatusChange: resumeQAFixRun sends
+    // USER_RESUMED only once QA is running, so a failed start leaves the task
+    // paused and untouched.
+    const qaFixResume = status === 'in_progress' && !agentManager.isRunning(taskId)
+      ? findPendingQAFixResume(task, project)
+      : null;
+    if (qaFixResume) {
+      const mainWindow = getMainWindow();
+      const pre = await preflightTaskLaunch(task, project);
+      if (!pre.ok) {
+        if (mainWindow) mainWindow.webContents.send(IPC_CHANNELS.TASK_ERROR, taskId, pre.error);
+        return { success: false, error: pre.error };
+      }
+      cancelFallbackTimer(taskId);
+      const qa = await resumeQAFixRun(agentManager, task, project, qaFixResume, '[TASK_UPDATE_STATUS]');
+      if (!qa.started) {
+        if (mainWindow && !qa.reported) mainWindow.webContents.send(IPC_CHANNELS.TASK_ERROR, taskId, qa.error);
+        return { success: false, error: qa.error };
+      }
+      if (mainWindow) mainWindow.webContents.send(IPC_CHANNELS.TASK_STATUS_CHANGE, taskId, 'in_progress', project.id);
+      return { success: true };
+    }
+
     const handledByMachine = taskStateManager.handleManualStatusChange(taskId, status, task, project);
     if (!handledByMachine) {
       // Use shared utility for thread-safe plan file updates (legacy/manual override)
@@ -209,29 +234,14 @@ export async function applyTaskStatusUpdate(
       // This prevents the stale timer from incorrectly stopping the newly started task
       cancelFallbackTimer(taskId);
 
-      // zeenha fork: dragging an account-paused "Request changes" or PR follow-up
-      // QA run to In Progress resumes it as the QA process, as TASK_START does
-      // (see qa-fix-run.ts). `task` still holds the paused status read above.
-      const qaFixResume = findPendingQAFixResume(task, project);
-      if (qaFixResume) {
-        const qa = await resumeQAFixRun(agentManager, task, project, qaFixResume, '[TASK_UPDATE_STATUS]');
-        if (!qa.started) {
-          // handleManualStatusChange already resumed the machine; put the task back
-          // to its account pause so the card does not sit in In Progress idle.
-          taskStateManager.handleUiEvent(taskId, { type: 'PHASE_ACCOUNT_UNAVAILABLE', error: qa.error }, task, project);
-          if (mainWindow && !qa.reported) mainWindow.webContents.send(IPC_CHANNELS.TASK_ERROR, taskId, qa.error);
-          return { success: false, error: qa.error };
-        }
-      } else {
-        // Reset any stuck subtasks before starting execution
-        // This handles recovery from previous rate limits or crashes
-        const resetResult = await resetStuckSubtasks(planPath, project.id);
-        if (resetResult.success && resetResult.resetCount > 0) {
-          console.warn(`[TASK_UPDATE_STATUS] Reset ${resetResult.resetCount} stuck subtask(s) before starting`);
-        }
-
-        launchTask({ task, project, agentManager, logTag: '[TASK_UPDATE_STATUS]' });
+      // Reset any stuck subtasks before starting execution
+      // This handles recovery from previous rate limits or crashes
+      const resetResult = await resetStuckSubtasks(planPath, project.id);
+      if (resetResult.success && resetResult.resetCount > 0) {
+        console.warn(`[TASK_UPDATE_STATUS] Reset ${resetResult.resetCount} stuck subtask(s) before starting`);
       }
+
+      launchTask({ task, project, agentManager, logTag: '[TASK_UPDATE_STATUS]' });
 
       // Notify renderer about status change
       if (mainWindow) {

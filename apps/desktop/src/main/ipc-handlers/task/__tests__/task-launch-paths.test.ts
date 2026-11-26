@@ -433,6 +433,16 @@ describe('TASK_START resume of an account-paused QA fix run', () => {
       expect(signoffNow().status).toBe('fixes_applied');
     });
 
+    it('puts the original signoff back when QA fails to start', async () => {
+      setUpFollowUp(OLD_APPROVAL);
+      agentManager.startQAProcess.mockRejectedValueOnce(new Error('spawn failed'));
+
+      await startTask();
+
+      expect(signoffNow()).toEqual(OLD_APPROVAL);
+      expect(machine.handleUiEvent).not.toHaveBeenCalled();
+    });
+
     it('leaves a signoff the fixer already changed alone', async () => {
       const fixed = { status: 'fixes_applied', timestamp: '2026-02-02T00:00:00Z' };
       setUpFollowUp(fixed);
@@ -524,14 +534,22 @@ describe('applyTaskStatusUpdate -> in_progress resume of an account-paused QA fi
     expect(mainWindow.webContents.send).toHaveBeenCalledWith(IPC_CHANNELS.TASK_STATUS_CHANGE, 't1', 'in_progress', 'p1');
   });
 
-  it('puts the task back to its account pause and reports the error when QA fails to start', async () => {
+  it('starts QA without the manual status change, which would resume the machine before QA runs', async () => {
+    await updateStatus('in_progress');
+    expect(machine.handleManualStatusChange).not.toHaveBeenCalled();
+    expect(machine.handleUiEvent.mock.calls.map((c) => c[1])).toEqual([{ type: 'USER_RESUMED' }]);
+  });
+
+  it('leaves the task paused and untouched, with no state event, when QA fails to start', async () => {
     agentManager.startQAProcess.mockRejectedValueOnce(new Error('spawn failed'));
 
     const res = await updateStatus('in_progress');
 
     expect(res.success).toBe(false);
-    expect(machine.handleUiEvent.mock.calls.at(-1)?.[1]).toMatchObject({ type: 'PHASE_ACCOUNT_UNAVAILABLE' });
+    expect(machine.handleManualStatusChange).not.toHaveBeenCalled();
+    expect(machine.handleUiEvent).not.toHaveBeenCalled();
     expect(errorsSent()).toHaveLength(1);
+    expect(mainWindow.webContents.send).not.toHaveBeenCalledWith(IPC_CHANNELS.TASK_STATUS_CHANGE, 't1', 'in_progress', 'p1');
     expectNothingStarted();
   });
 

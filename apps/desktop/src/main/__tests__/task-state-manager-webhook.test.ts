@@ -224,3 +224,41 @@ describe('TaskStateManager issue write-back dispatch', () => {
     expect(sends[sends.length - 1]?.[2]).toBe('human_review');
   });
 });
+
+// zeenha fork: actor.start() notifies the subscriber with the state an actor is
+// rebuilt in. That restored state is not a transition and must not be reported.
+describe('TaskStateManager rebuilt actor', () => {
+  it('sends no account_required webhook or write-back for a restored account pause on USER_RESUMED', () => {
+    const manager = make();
+    const paused = { ...task, status: 'human_review', reviewReason: 'account_required' } as Task;
+
+    manager.handleUiEvent('t1', { type: 'USER_RESUMED' }, paused, project);
+
+    expect(manager.getCurrentState('t1')).toBe('coding');
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(issueDispatch).not.toHaveBeenCalled();
+    // The restored state is still persisted and sent to the renderer as before
+    expect(sends.some((args) => args[2] === 'human_review')).toBe(true);
+  });
+
+  it('sends no review_ready for a restored completed task that is then marked done', () => {
+    const manager = make();
+    const completed = { ...task, status: 'human_review', reviewReason: 'completed' } as Task;
+
+    manager.handleManualStatusChange('t1', 'done', completed, project);
+
+    expect(dispatch.mock.calls.some((c) => c[0].reviewReason === 'completed')).toBe(false);
+  });
+
+  it('still reports a real account pause on a rebuilt actor', () => {
+    const manager = make();
+    const paused = { ...task, status: 'human_review', reviewReason: 'account_required' } as Task;
+    manager.handleUiEvent('t1', { type: 'USER_RESUMED' }, paused, project);
+    dispatch.mockClear();
+
+    manager.handleUiEvent('t1', { type: 'PHASE_ACCOUNT_UNAVAILABLE', error: 'no account' }, paused, project);
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0]).toMatchObject({ status: 'human_review', reviewReason: 'account_required' });
+  });
+});

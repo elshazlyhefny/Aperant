@@ -111,23 +111,46 @@ function readRunningPRFollowUp(specDir: string): PRFollowUpMarker | null {
  * would stop at "Build already approved" without reviewing, and
  * finalizePRFollowUp would find no fresh approval and never push. Mark it
  * "fixes_applied" (what prompts/qa_fixer.md has the fixer write) so QA reviews.
+ *
+ * This must happen before the QA process starts: startQAProcess copies the plan
+ * into the reviewer's first message, and the worker reads qa_signoff as soon as
+ * it runs. Returns an undo for when the process does not start, or null when
+ * nothing was changed.
  */
-function resetStalePRFollowUpSignoff(specDir: string, logTag: string): void {
+function resetStalePRFollowUpSignoff(specDir: string, logTag: string): (() => void) | null {
   const marker = readRunningPRFollowUp(specDir);
-  if (!marker || typeof marker.qaSignoffBefore !== 'string') return;
-  if (safeReadFileSync(path.join(specDir, FIX_REQUEST_FILE)) !== null) return;
+  if (!marker || typeof marker.qaSignoffBefore !== 'string') return null;
+  if (safeReadFileSync(path.join(specDir, FIX_REQUEST_FILE)) !== null) return null;
   const planPath = path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
+  const raw = safeReadFileSync(planPath);
+  if (!raw) return null;
+  try {
+    const plan = JSON.parse(raw) as { qa_signoff?: unknown };
+    if (plan.qa_signoff === undefined || plan.qa_signoff === null) return null;
+    if (JSON.stringify(plan.qa_signoff) !== marker.qaSignoffBefore) return null;
+    const original = plan.qa_signoff;
+    const reset = { status: 'fixes_applied', timestamp: new Date().toISOString() };
+    plan.qa_signoff = reset;
+    writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
+    appLog.info(`${logTag} Reset the pre-follow-up qa_signoff so QA re-reviews the PR follow-up`);
+    return () => restoreSignoff(planPath, reset, original, logTag);
+  } catch (error) {
+    appLog.warn(`${logTag} Could not reset the stale qa_signoff at ${planPath}:`, error);
+    return null;
+  }
+}
+
+/** Put the original qa_signoff back, unless something replaced the reset one meanwhile. */
+function restoreSignoff(planPath: string, reset: unknown, original: unknown, logTag: string): void {
   const raw = safeReadFileSync(planPath);
   if (!raw) return;
   try {
     const plan = JSON.parse(raw) as { qa_signoff?: unknown };
-    if (plan.qa_signoff === undefined || plan.qa_signoff === null) return;
-    if (JSON.stringify(plan.qa_signoff) !== marker.qaSignoffBefore) return;
-    plan.qa_signoff = { status: 'fixes_applied', timestamp: new Date().toISOString() };
+    if (JSON.stringify(plan.qa_signoff) !== JSON.stringify(reset)) return;
+    plan.qa_signoff = original;
     writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
-    appLog.info(`${logTag} Reset the pre-follow-up qa_signoff so QA re-reviews the PR follow-up`);
   } catch (error) {
-    appLog.warn(`${logTag} Could not reset the stale qa_signoff at ${planPath}:`, error);
+    appLog.warn(`${logTag} Could not restore the qa_signoff at ${planPath}:`, error);
   }
 }
 
@@ -170,13 +193,16 @@ export function findPendingQAFixResume(task: Task, project: Project): QAFixTarge
  * launchTask. Used by every path that relaunches a paused task (TASK_START and a
  * drag to In Progress).
  */
-export function resumeQAFixRun(
+export async function resumeQAFixRun(
   agentManager: Pick<AgentManager, 'startQAProcess' | 'isRunning'>,
   task: Task,
   project: Project,
   target: QAFixTarget,
   logTag: string
 ): Promise<QAFixRunStart> {
-  resetStalePRFollowUpSignoff(target.specDir, logTag);
-  return startQAFixRun(agentManager, task, project, target.qaProjectPath, logTag);
+  const undoSignoffReset = resetStalePRFollowUpSignoff(target.specDir, logTag);
+  const result = await startQAFixRun(agentManager, task, project, target.qaProjectPath, logTag);
+  // Nothing runs, so the task stays exactly as it was paused.
+  if (!result.started) undoSignoffReset?.();
+  return result;
 }

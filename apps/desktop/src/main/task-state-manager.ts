@@ -315,7 +315,17 @@ export class TaskStateManager {
     const actor = snapshot
       ? createActor(taskMachine, { snapshot })
       : createActor(taskMachine);
+    // zeenha fork: actor.start() notifies the subscriber with the state the actor
+    // was rebuilt in (from the saved task status, e.g. after an app restart). That
+    // is not a transition, so it must not report an outcome: a restored
+    // human_review / account_required used to send a stale "Paused" webhook (and
+    // issue write-back) the moment the user resumed. Persistence and the renderer
+    // event still run as before. A brand-new actor starts in backlog, which has
+    // no outcome anyway.
+    let restoredNotification = true;
     actor.subscribe((snapshot) => {
+      const isRestoredState = restoredNotification;
+      restoredNotification = false;
       const stateValue = String(snapshot.value);
       const lastState = this.lastStateByTask.get(taskId);
 
@@ -375,7 +385,7 @@ export class TaskStateManager {
       // handleManualStatusChange('pr_created'). worktree-pr.ts writes prUrl to
       // metadata on disk, so the in-memory task may not have it yet; then the
       // message goes out without the link (prUrl is optional).
-      const outcomeEvent = mapOutcomeToWebhookEvent(status, reviewReason);
+      const outcomeEvent = isRestoredState ? null : mapOutcomeToWebhookEvent(status, reviewReason);
       if (outcomeEvent) {
         if (!(outcomeEvent === 'pr_opened' && this.prFollowUpInProgress.has(taskId))) {
           try {
