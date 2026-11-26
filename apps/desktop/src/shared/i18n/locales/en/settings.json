@@ -766,7 +766,7 @@
     "crossProviderTab": {
       "title": "Cross-Provider Configuration",
       "description": "Assign a different provider and model to each pipeline phase for maximum flexibility.",
-      "activateInfo": "Tasks created while this configuration is active will use the cross-provider setup.",
+      "activateInfo": "Use cross-provider settings for the default agent profile",
       "featureModelsTitle": "Feature Models",
       "featureModelsDescription": "Configure models for non-pipeline features (Insights, Ideation, etc.)"
     },

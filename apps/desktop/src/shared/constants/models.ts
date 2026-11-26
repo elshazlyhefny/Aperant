@@ -46,6 +46,10 @@ export const ALL_AVAILABLE_MODELS: ModelOption[] = [
   { value: 'opus-4.5', label: 'Claude Opus 4.5', provider: 'anthropic', description: 'Legacy', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 200000 } },
   { value: 'haiku', label: 'Claude Haiku 5.5', provider: 'anthropic', description: 'Fast', capabilities: { thinking: false, tools: true, vision: true, contextWindow: 200000 } },
   // OpenAI
+  { value: 'gpt-6.2-sol', label: 'GPT-6.2-Sol', provider: 'openai', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 500000 } },
+  { value: 'gpt-6.2-astra', label: 'GPT-6.2-Astra', provider: 'openai', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 272000 } },
+  { value: 'gpt-6.1-terra', label: 'GPT-6.1 Terra', provider: 'openai', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 500000 } },
+  { value: 'gpt-6-luna', label: 'GPT-6-Luna', provider: 'openai', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 272000 } },
   { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', provider: 'openai', description: 'Agentic coding', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 1047576 } },
   { value: 'gpt-5.2', label: 'GPT-5.2', provider: 'openai', description: 'Flagship', apiKeyOnly: true, capabilities: { thinking: true, tools: true, vision: true, contextWindow: 400000 } },
   { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex', provider: 'openai', description: 'Coding', capabilities: { thinking: true, tools: true, vision: true, contextWindow: 1047576 } },

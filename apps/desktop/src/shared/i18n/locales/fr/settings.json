@@ -766,7 +766,7 @@
     "crossProviderTab": {
       "title": "Configuration multi-fournisseur",
       "description": "Attribuez un fournisseur et un modèle différents à chaque phase du pipeline pour une flexibilité maximale.",
-      "activateInfo": "Les tâches créées avec cette configuration active utiliseront la configuration multi-fournisseur.",
+      "activateInfo": "Utiliser les réglages multi-fournisseurs pour le profil d’agent par défaut",
       "featureModelsTitle": "Modèles de fonctionnalités",
       "featureModelsDescription": "Configurer les modèles pour les fonctionnalités hors pipeline (Insights, Idéation, etc.)"
     },

@@ -555,6 +555,15 @@ describe('applyTaskStatusUpdate -> in_progress resume of an account-paused QA fi
     expect(mainWindow.webContents.send).toHaveBeenCalledWith(IPC_CHANNELS.TASK_STATUS_CHANGE, 't1', 'in_progress', 'p1');
   });
 
+  it('promotes a queued fix request after the queue has cleared the review reason', async () => {
+    ref.task.status = 'queue';
+    ref.task.reviewReason = undefined;
+    expect(await updateStatus('in_progress')).toEqual({ success: true });
+    expect(agentManager.startQAProcess).toHaveBeenCalledOnce();
+    expectNothingStarted();
+    expect(machine.handleManualStatusChange).toHaveBeenCalledWith('t1', 'in_progress', ref.task, ref.project);
+  });
+
   it('starts QA without the manual status change, which would resume the machine before QA runs', async () => {
     await updateStatus('in_progress');
     expect(machine.handleManualStatusChange).not.toHaveBeenCalled();
