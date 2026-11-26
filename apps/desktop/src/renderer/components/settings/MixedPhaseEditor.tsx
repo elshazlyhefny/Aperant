@@ -122,8 +122,8 @@ export function PhaseEditor({ config, onChange, mode }: {
                       const preset = taskAgentPreset(event.target.value === 'openai' ? 'codex' : 'claude', settings);
                       onChange({ ...config, [phase]: preset.phases[phase] });
                     }}>
-                    <option value="anthropic">Claude</option>
-                    <option value="openai">Codex</option>
+                    <option value="anthropic">{t('taskAgent.claude')}</option>
+                    <option value="openai">{t('taskAgent.codex')}</option>
                   </select>
                 ) : <ProviderBadge provider={entry.provider} />}
               </div>

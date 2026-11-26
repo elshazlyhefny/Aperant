@@ -5,6 +5,19 @@ import type { ThinkingLevel } from '../types';
 describe('buildThinkingProviderOptions', () => {
   it('sends the task phase effort to Codex', () => {
     expect(buildThinkingProviderOptions('gpt-5.3-codex', 'xhigh')).toEqual({ openai: { reasoningEffort: 'xhigh' } });
+    expect(buildThinkingProviderOptions('gpt-5.2', 'xhigh')).toEqual({ openai: { reasoningEffort: 'xhigh' } });
+    expect(buildThinkingProviderOptions('gpt-5.1-codex-mini', 'medium')).toEqual({ openai: { reasoningEffort: 'medium' } });
+  });
+
+  it('lowers xhigh to high for GPT-5 models that reject it', () => {
+    for (const modelId of ['gpt-5.1-codex-mini', 'gpt-5.1', 'gpt-5', 'gpt-5-mini']) {
+      expect(buildThinkingProviderOptions(modelId, 'xhigh')).toEqual({ openai: { reasoningEffort: 'high' } });
+    }
+  });
+
+  it('sends no reasoning effort to GPT-5 models listed without thinking', () => {
+    expect(buildThinkingProviderOptions('gpt-5-nano', 'xhigh')).toBeUndefined();
+    expect(buildThinkingProviderOptions('gpt-5-nano', 'low')).toBeUndefined();
   });
 
   it('should return Anthropic thinking options for Claude models', () => {

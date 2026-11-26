@@ -408,8 +408,9 @@ export const TaskCard = memo(function TaskCard({
     }
   };
 
-  // Prefer the recorded review reason when a paused task has completed subtasks.
-  // This ensures the user sees "Complete" when the task finished successfully
+  // zeenha fork: prefer the recorded review reason. Every human_review task is persisted with
+  // executionPhase 'complete', so the phase alone cannot tell a finished task from a
+  // stopped, rejected or account_required one; it only fills in a missing reason.
   const effectiveReviewReason: ReviewReason | undefined =
     task.reviewReason ?? (executionPhase === 'complete' ? 'completed' : undefined);
   const reviewReasonInfo = task.status === 'human_review' ? getReviewReasonLabel(effectiveReviewReason) : null;

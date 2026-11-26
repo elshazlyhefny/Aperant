@@ -1,4 +1,6 @@
-// Build the routing table from the saved task before launching its worker.
+// zeenha fork: per-phase provider routing. A task chooses Claude, Codex, or both
+// (upstream has no per-task agent choice), so each phase resolves its own account
+// from that phase's provider queue in the main process when the phase starts.
 // Only the current phase's credentials cross the worker boundary.
 import { ALL_AVAILABLE_MODELS } from '../../../shared/constants/models';
 import type { ProviderAccount } from '../../../shared/types/provider-account';
@@ -20,7 +22,9 @@ export function phaseConnectionResolver(metadata: TaskMetadata | null | undefine
   const assignments = metadata?.phaseProviders;
   if (!assignments || !Object.keys(assignments).length) return undefined;
 
-  return async (phase: Phase): Promise<PhaseConnection> => {
+  // excludeAccountIds: accounts this task must skip, e.g. one that just hit a rate
+  // limit, so the phase moves to the next account of the same provider.
+  return async (phase: Phase, excludeAccountIds: string[] = []): Promise<PhaseConnection> => {
     const provider = assignments[phase] ?? metadata.provider;
     const modelId = resolveModelId(metadata.phaseModels?.[phase] ?? metadata.model ?? 'sonnet');
     const label = provider === 'openai' ? 'Codex (OpenAI)' : provider === 'anthropic' ? 'Claude (Anthropic)' : provider;
@@ -37,7 +41,10 @@ export function phaseConnectionResolver(metadata: TaskMetadata | null | undefine
     if (queue.length) {
       const keyOnly = ALL_AVAILABLE_MODELS.some(model => model.provider === provider && model.value === modelId && model.apiKeyOnly);
       const eligible = keyOnly ? queue.filter(a => a.authType === 'api-key') : queue;
-      const resolved = await resolveAuthFromQueue(modelId, eligible, { codexTokenFilePath });
+      // Only this queue's own accounts count: any exclusion makes resolveAuthFromQueue
+      // move unverified API keys last, so another provider's ids would reorder it.
+      const excluded = excludeAccountIds.filter(id => eligible.some(a => a.id === id));
+      const resolved = await resolveAuthFromQueue(modelId, eligible, { codexTokenFilePath, excludeAccountIds: excluded });
       if (!resolved) throw unavailable;
       return {
         provider: resolved.resolvedProvider,

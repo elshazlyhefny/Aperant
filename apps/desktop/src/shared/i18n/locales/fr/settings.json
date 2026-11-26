@@ -3,6 +3,8 @@
     "label": "Agent de tâche",
     "defaultLabel": "Agent de tâche par défaut",
     "profile": "Utiliser le profil configuré",
+    "claude": "Claude",
+    "codex": "Codex",
     "both": "Les deux",
     "customize": "Personnaliser les phases",
     "phaseAgent": "Agent pour {{phase}}"
