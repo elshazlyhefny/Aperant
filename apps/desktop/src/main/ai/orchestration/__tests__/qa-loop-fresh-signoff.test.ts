@@ -209,3 +209,43 @@ describe("the reviewer's own QA_FIX_REQUEST.md", () => {
     expect(second.outcome.totalIterations).toBe(0);
   });
 });
+
+// zeenha fork: once the change-request fixer completes, the old qa_report.md
+// (PASSED from before the request) must go too. If the re-review then pauses for
+// an account, Resume runs the BuildOrchestrator, which read that stale PASSED
+// report as "already complete".
+describe('the stale qa_report.md of a change request', () => {
+  const reportPath = () => join(specDir, 'qa_report.md');
+  const STALE_REPORT = '# QA Report\n\nStatus: PASSED\n';
+
+  it('is removed with the request once the fixer completes, before the re-review runs', async () => {
+    await writePlan(STALE_APPROVAL);
+    await writeFile(reportPath(), STALE_REPORT);
+    await writeFile(fixRequestPath(), '# QA Fix Request\n\nStatus: REJECTED\n\n## Feedback\n\nMake the button blue\n');
+
+    let atReview: { report: boolean; request: boolean } | undefined;
+    const { agents } = await runLoop([
+      async () => 'completed', // human-feedback fixer
+      async () => {
+        atReview = { report: await exists(reportPath()), request: await exists(fixRequestPath()) };
+        throw new Error('account pause'); // the re-review stops before writing anything
+      },
+    ]);
+
+    expect(agents).toEqual(['qa_fixer', 'qa_reviewer']);
+    expect(atReview).toEqual({ report: false, request: false });
+    expect(await exists(reportPath())).toBe(false);
+  });
+
+  it('is kept, with the request, when the fixer does not complete', async () => {
+    await writePlan(STALE_APPROVAL);
+    await writeFile(reportPath(), STALE_REPORT);
+    await writeFile(fixRequestPath(), '# QA Fix Request\n\nStatus: REJECTED\n\n## Feedback\n\nMake the button blue\n');
+
+    const { agents } = await runLoop([async () => 'max_steps']);
+
+    expect(agents).toEqual(['qa_fixer']);
+    expect(await exists(fixRequestPath())).toBe(true);
+    expect(await readFile(reportPath(), 'utf-8')).toBe(STALE_REPORT);
+  });
+});

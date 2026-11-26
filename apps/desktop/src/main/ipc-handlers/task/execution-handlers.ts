@@ -24,6 +24,7 @@ import { getIsolatedGitEnv, detectWorktreeBranch } from '../../utils/git-isolati
 import { cancelFallbackTimer } from '../agent-events-handlers';
 import { canMoveFailedTaskTo } from '../../../shared/utils/task-failure';
 import { preflightTaskLaunch, launchTask, planHasSubtasks, safeReadFileSync, checkSubtasksCompletion } from './launch-task';
+import { findPendingQAFixResume, startQAFixRun } from './qa-fix-run';
 
 import { appLog } from '../../app-logger';
 
@@ -303,6 +304,16 @@ export function registerTaskExecutionHandlers(
       // - lastSequenceByTask doesn't drop events from the new process
       taskStateManager.prepareForRestart(taskId);
 
+      // zeenha fork: a "Request changes" or PR follow-up QA run that paused for an
+      // account resumes as the same QA process. launchTask would run the
+      // BuildOrchestrator, which reads the old PASSED qa_report.md as "already
+      // complete" and drops the request (and never pushes a PR follow-up).
+      const qaFixResume = findPendingQAFixResume(task, project);
+      if (qaFixResume) {
+        startQAFixRun(agentManager, task, project, qaFixResume.qaProjectPath, '[TASK_START]');
+        return;
+      }
+
       const specsBaseDir = getSpecsDir(project.autoBuildPath);
       const specDir = path.join(
         project.path,
@@ -542,21 +553,11 @@ export function registerTaskExecutionHandlers(
           return { success: false, error: 'Failed to write QA fix request file' };
         }
 
-        // Clear stale tracking state before starting new QA process
-        taskStateManager.prepareForRestart(taskId);
-
         // Restart QA process - use worktree path if it exists, otherwise main project
         // The QA process needs to run where the implementation_plan.json with completed subtasks is
+        // zeenha fork: shared with TASK_START, which resumes this run after an account pause.
         const qaProjectPath = hasWorktree ? worktreePath : project.path;
-        console.warn('[TASK_REVIEW] Starting QA process with projectPath:', qaProjectPath);
-        agentManager.startQAProcess(taskId, qaProjectPath, task.specId, project.id);
-
-        taskStateManager.handleUiEvent(
-          taskId,
-          { type: 'USER_RESUMED' },
-          task,
-          project
-        );
+        startQAFixRun(agentManager, task, project, qaProjectPath, '[TASK_REVIEW]');
       }
 
       return { success: true };

@@ -11,7 +11,7 @@
  * defined in phase-protocol.ts.
  */
 
-import { readFile, stat, writeFile, unlink } from 'node:fs/promises';
+import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EventEmitter } from 'events';
 
@@ -276,26 +276,7 @@ export class BuildOrchestrator extends EventEmitter {
 
       // Check if build is already complete
       if (await this.isBuildComplete()) {
-        // zeenha fork: a pending QA_FIX_REQUEST.md is a change request the
-        // fixer has not applied yet. A human-feedback QA run that paused (e.g. no
-        // account for the QA phase) resumes through this orchestrator, and the
-        // old "Status: PASSED" report used to make it return "already complete",
-        // dropping the user's request. Apply it, then re-review.
-        if (await this.hasPendingFixRequest()) {
-          this.markPhaseCompleted('coding');
-          const fix = await this.runPendingFixRequest();
-          if (!fix.success) {
-            return this.buildOutcome(false, Date.now() - startTime, fix.error);
-          }
-          const qa = await this.runQAPhase();
-          return this.buildOutcome(qa.success, Date.now() - startTime, qa.error);
-        }
-        // zeenha fork: a fix request was applied but its re-review never gave a
-        // verdict (stopped or crashed). The request and the old report are gone,
-        // so without this an unrouted task (requireQAVerdict=false) would return
-        // "already complete" and the requested changes would never be reviewed.
-        const fixAwaitingReview = await this.hasFixAwaitingReview();
-        if (fixAwaitingReview || (this.config.requireQAVerdict && await this.readQAStatus() !== 'passed')) {
+        if (this.config.requireQAVerdict && await this.readQAStatus() !== 'passed') {
           this.markPhaseCompleted('coding');
           const qa = await this.runQAPhase();
           return this.buildOutcome(qa.success, Date.now() - startTime, qa.error);
@@ -574,11 +555,6 @@ export class BuildOrchestrator extends EventEmitter {
       const qaStatus = await this.readQAStatus();
 
       if (qaStatus === 'passed') {
-        // zeenha fork: a rejecting reviewer writes QA_FIX_REQUEST.md
-        // (prompts/qa_reviewer.md). Once QA passes it describes fixed issues;
-        // left in place, the next resume would read it as a pending request.
-        await this.clearFixRequest();
-        await this.clearFixAwaitingReview();
         this.markPhaseCompleted('qa_review');
         this.transitionPhase('complete', 'Build complete - QA passed');
         return { success: true };
@@ -642,7 +618,6 @@ export class BuildOrchestrator extends EventEmitter {
       }
 
       // QA failed and no more cycles
-      await this.clearFixAwaitingReview();
       this.transitionPhase('failed', 'QA review failed after maximum fix cycles');
       return { success: false, error: 'QA review failed after maximum fix cycles' };
     }
@@ -832,129 +807,6 @@ export class BuildOrchestrator extends EventEmitter {
     }
   }
 
-  /**
-   * zeenha fork: whether a QA_FIX_REQUEST.md is a change request the fixer has
-   * not applied yet. Before PR #176, runQAPhase never deleted the request a
-   * rejecting reviewer writes (prompts/qa_reviewer.md), so tasks that went
-   * reject -> fix -> pass still carry one describing fixed issues. Only these
-   * count as pending:
-   * - A request the app wrote for a human (isHumanFixRequest). The app deletes
-   *   these once the fixer completes them, so one that is still there is
-   *   pending whatever its age. The fixer may have touched qa_report.md before
-   *   failing, so mtimes cannot be trusted for these.
-   * - Any other request (reviewer-written, or written by hand as the QA
-   *   escalation report suggests) only when no QA report was written after it.
-   *   A passing re-review always writes qa_report.md after the reviewer's
-   *   request, so a stale request on a passed task never counts.
-   */
-  private async hasPendingFixRequest(): Promise<boolean> {
-    const requestPath = join(this.config.specDir, 'QA_FIX_REQUEST.md');
-    let content: string;
-    try {
-      content = await readFile(requestPath, 'utf-8');
-    } catch {
-      return false;
-    }
-    if (isHumanFixRequest(content)) return true;
-    try {
-      const [request, report] = await Promise.all([
-        stat(requestPath),
-        stat(join(this.config.specDir, 'qa_report.md')),
-      ]);
-      return request.mtimeMs >= report.mtimeMs;
-    } catch {
-      // No QA report: nothing has reviewed the code since the request was written.
-      return true;
-    }
-  }
-
-  /**
-   * zeenha fork: marker kept from the moment runPendingFixRequest applies a fix
-   * request until runQAPhase gives a verdict, so an interrupted re-review is
-   * resumed rather than skipped (see run()).
-   */
-  private async hasFixAwaitingReview(): Promise<boolean> {
-    try {
-      await stat(join(this.config.specDir, FIX_AWAITING_REVIEW_MARKER));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async clearFixAwaitingReview(): Promise<void> {
-    try {
-      await unlink(join(this.config.specDir, FIX_AWAITING_REVIEW_MARKER));
-    } catch {
-      // Absent or not removable — nothing to clear
-    }
-  }
-
-  private async clearFixRequest(): Promise<void> {
-    try {
-      await unlink(join(this.config.specDir, 'QA_FIX_REQUEST.md'));
-    } catch {
-      // Absent or not removable — nothing to clear
-    }
-  }
-
-  /**
-   * zeenha fork: run the fixer on a pending QA_FIX_REQUEST.md for a build whose
-   * subtasks are all complete, as QALoop.processHumanFeedback does. The request
-   * is removed only once the fixer finished it, so a failed or paused fix
-   * keeps it for the next resume. The old qa_report.md is removed too, so the
-   * re-review cannot be read as the earlier PASSED verdict. The
-   * FIX_AWAITING_REVIEW_MARKER written first keeps the re-review pending until
-   * runQAPhase gives a verdict.
-   */
-  private async runPendingFixRequest(): Promise<{ success: boolean; error?: string }> {
-    this.transitionPhase('qa_fixing', 'Applying requested changes');
-    this.emitTyped('log', 'Pending QA fix request found — running QA Fixer before re-review');
-
-    this.iteration++;
-    this.emitTyped('iteration-start', this.iteration, 'qa_fixing');
-
-    const fixPrompt = await this.config.generatePrompt('qa_fixer', 'qa_fixing', {
-      iteration: this.iteration,
-      attemptCount: 0,
-    });
-
-    const fixResult = await this.config.runSession({
-      agentType: 'qa_fixer',
-      phase: 'qa',
-      systemPrompt: fixPrompt,
-      specDir: this.config.specDir,
-      projectDir: this.config.projectDir,
-      sessionNumber: this.iteration,
-      abortSignal: this.config.abortSignal,
-      cliModel: this.config.cliModel,
-      cliThinking: this.config.cliThinking,
-    });
-
-    this.emitTyped('session-complete', fixResult, 'qa_fixing');
-
-    if (fixResult.outcome === 'cancelled') {
-      return { success: false, error: 'Build cancelled' };
-    }
-    // zeenha fork: max_steps and context_window end a session that did work, as
-    // worker.ts treats them; failing on them would rerun a large request from
-    // scratch on every resume. The re-review judges whether it is complete.
-    if (!FIX_DONE_OUTCOMES.has(fixResult.outcome)) {
-      const detail = fixResult.error?.message ? `: ${fixResult.error.message}` : '';
-      return { success: false, error: `QA Fixer did not complete the requested changes (${fixResult.outcome})${detail}` };
-    }
-
-    this.markPhaseCompleted('qa_fixing');
-    await writeFile(
-      join(this.config.specDir, FIX_AWAITING_REVIEW_MARKER),
-      `Fix request applied at ${new Date().toISOString()}; awaiting QA re-review.\n`,
-      'utf-8',
-    );
-    await this.clearFixRequest();
-    await this.resetQAReport();
-    return { success: true };
-  }
-
   // ===========================================================================
   // Helpers
   // ===========================================================================
@@ -987,26 +839,6 @@ export class BuildOrchestrator extends EventEmitter {
   ): void {
     this.emit(event, ...args);
   }
-}
-
-/**
- * zeenha fork: marker file (in the spec dir) for a fix request whose re-review
- * has not given a verdict yet. See BuildOrchestrator.runPendingFixRequest.
- */
-export const FIX_AWAITING_REVIEW_MARKER = '.qa_fix_awaiting_review';
-
-/** zeenha fork: fixer outcomes after which the requested changes count as applied. */
-const FIX_DONE_OUTCOMES: ReadonlySet<SessionResult['outcome']> = new Set(['completed', 'max_steps', 'context_window']);
-
-/**
- * zeenha fork: whether QA_FIX_REQUEST.md text was written by the app for a
- * human: "Request changes" in task review (ipc-handlers/task/execution-handlers.ts
- * writes a "## Feedback" section) or a PR follow-up (pr-followup-request.ts
- * writes a "# QA Fix Request: PR follow-up" heading). The reviewer's template
- * (prompts/qa_reviewer.md) uses neither.
- */
-export function isHumanFixRequest(content: string): boolean {
-  return /^## Feedback[ \t]*$/m.test(content) || /^# QA Fix Request: PR follow-up\b/m.test(content);
 }
 
 /**

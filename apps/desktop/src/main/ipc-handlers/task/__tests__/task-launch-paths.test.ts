@@ -44,7 +44,8 @@ vi.mock('../plan-file-utils', () => ({
   hasPlanWithSubtasks: vi.fn(() => false),
 }));
 
-vi.mock('../../../worktree-paths', () => ({ findTaskWorktree: () => null }));
+const worktree = vi.hoisted(() => ({ path: null as string | null }));
+vi.mock('../../../worktree-paths', () => ({ findTaskWorktree: () => worktree.path }));
 vi.mock('../../../project-store', () => ({
   projectStore: { invalidateTasksCache: vi.fn(), getProject: vi.fn() },
 }));
@@ -84,6 +85,7 @@ const agentManager = {
   killTask: vi.fn(),
   startSpecCreation: vi.fn(),
   startTaskExecution: vi.fn(),
+  startQAProcess: vi.fn(async () => undefined),
 };
 const mainWindow = { webContents: { send: vi.fn() } };
 
@@ -158,6 +160,7 @@ beforeEach(() => {
   auth.hasValidAuth.mockReturnValue(true);
   auth.init.mockResolvedValue({ hasValidAuth: auth.hasValidAuth });
   settings.value = {};
+  worktree.path = null;
   watcher.watch.mockReturnValue(Promise.resolve());
   watcher.unwatch.mockReturnValue(Promise.resolve());
 
@@ -320,6 +323,105 @@ describe('TASK_START launch', () => {
       expect(errorsSent()).toHaveLength(0);
       expect(agentManager.startSpecCreation).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+// zeenha fork: a "Request changes" or PR follow-up QA run that paused for an
+// account (human_review / account_required) resumes as the same QA process. Going
+// through launchTask ran the BuildOrchestrator, which saw the complete build with
+// its old PASSED qa_report.md and dropped the request.
+describe('TASK_START resume of an account-paused QA fix run', () => {
+  const COMPLETE_PLAN = { phases: [{ subtasks: [{ id: 's1', status: 'completed' }] }] };
+  const REQUEST_CHANGES = '# QA Fix Request\n\nStatus: REJECTED\n\n## Feedback\n\nMake the button blue\n';
+  const lastEvent = () => machine.handleUiEvent.mock.calls.at(-1)?.[1];
+
+  function pauseForAccount() {
+    ref.task.status = 'human_review';
+    ref.task.reviewReason = 'account_required';
+    ref.task.metadata = { ...ref.task.metadata, phaseProviders: { qa: { provider: 'anthropic' } } };
+  }
+
+  it('starts the QA process, not launchTask, when a Request-changes QA_FIX_REQUEST.md is pending', async () => {
+    pauseForAccount();
+    writeSpec();
+    writePlan(COMPLETE_PLAN);
+    fs.writeFileSync(path.join(specDir, 'QA_FIX_REQUEST.md'), REQUEST_CHANGES);
+
+    await startTask();
+
+    expect(agentManager.startQAProcess).toHaveBeenCalledWith('t1', ref.project.path, '001-x', 'p1');
+    expectNothingStarted();
+    expect(machine.prepareForRestart).toHaveBeenCalledWith('t1');
+    expect(lastEvent()).toEqual({ type: 'USER_RESUMED' });
+    // The request stays for QALoop's fixer
+    expect(fs.existsSync(path.join(specDir, 'QA_FIX_REQUEST.md'))).toBe(true);
+  });
+
+  it('resumes a running PR follow-up as a QA process in the worktree and leaves its marker alone', async () => {
+    pauseForAccount();
+    writeSpec();
+    const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'task-launch-paths-wt-'));
+    worktree.path = wt;
+    const wtSpecDir = path.join(wt, '.auto-claude', 'specs', '001-x');
+    fs.mkdirSync(wtSpecDir, { recursive: true });
+    fs.writeFileSync(path.join(wtSpecDir, 'implementation_plan.json'), JSON.stringify(COMPLETE_PLAN));
+    const marker = JSON.stringify({ version: 1, prUrl: 'https://github.com/o/r/pull/1', status: 'running' });
+    fs.writeFileSync(path.join(wtSpecDir, 'PR_FOLLOWUP.json'), marker);
+    // No QA_FIX_REQUEST.md: the fixer already finished it and the re-review paused
+
+    await startTask();
+
+    expect(agentManager.startQAProcess).toHaveBeenCalledWith('t1', wt, '001-x', 'p1');
+    expectNothingStarted();
+    expect(fs.readFileSync(path.join(wtSpecDir, 'PR_FOLLOWUP.json'), 'utf-8')).toBe(marker);
+  });
+
+  it('uses launchTask when there is no fix request', async () => {
+    pauseForAccount();
+    writeSpec();
+    writePlan(COMPLETE_PLAN);
+
+    await startTask();
+
+    expect(agentManager.startQAProcess).not.toHaveBeenCalled();
+    expect(agentManager.startTaskExecution).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses launchTask for a reviewer's leftover QA_FIX_REQUEST.md, so its fixer does not run again", async () => {
+    pauseForAccount();
+    writeSpec();
+    writePlan(COMPLETE_PLAN);
+    fs.writeFileSync(path.join(specDir, 'QA_FIX_REQUEST.md'), '# QA Fix Request\n\n**Status**: REJECTED\n\n### 1. Null check\n');
+
+    await startTask();
+
+    expect(agentManager.startQAProcess).not.toHaveBeenCalled();
+    expect(agentManager.startTaskExecution).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses launchTask when the build is not complete', async () => {
+    pauseForAccount();
+    writeSpec();
+    writePlan(PLAN_WITH_SUBTASKS);
+    fs.writeFileSync(path.join(specDir, 'QA_FIX_REQUEST.md'), REQUEST_CHANGES);
+
+    await startTask();
+
+    expect(agentManager.startQAProcess).not.toHaveBeenCalled();
+    expect(agentManager.startTaskExecution).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses launchTask when the task was not paused for an account', async () => {
+    ref.task.status = 'human_review';
+    ref.task.reviewReason = 'stopped';
+    writeSpec();
+    writePlan(COMPLETE_PLAN);
+    fs.writeFileSync(path.join(specDir, 'QA_FIX_REQUEST.md'), REQUEST_CHANGES);
+
+    await startTask();
+
+    expect(agentManager.startQAProcess).not.toHaveBeenCalled();
+    expect(agentManager.startTaskExecution).toHaveBeenCalledTimes(1);
   });
 });
 
