@@ -58,9 +58,16 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ github.token }}
           prompt: ${{ steps.request.outputs.prompt }}
-          claude_args: >-
-            --permission-mode auto --max-turns 30
-            --json-schema '{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"],"additionalProperties":false}'
+          # The summary is Claude's final message, read from the execution log below.
+          # With --json-schema the action reports a missing structured_output instead of
+          # the reason a session failed.
+          claude_args: --permission-mode auto --max-turns 30
+      - name: Read Claude's final message
+        if: ${{ !cancelled() && steps.request.outputs.mode == 'work' && inputs.agent == 'claude' && steps.claude.outcome != 'skipped' }}
+        env:
+          AGENT: ${{ inputs.agent }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: python3 .github/actions/comment-agent/run.py claude-result
       - name: Run Codex
         id: codex
         if: steps.request.outputs.mode == 'work' && inputs.agent == 'codex'
@@ -75,13 +82,11 @@ jobs:
         env:
           BASE_SHA: ${{ steps.request.outputs.head }}
           CODEX_SUMMARY: ${{ steps.codex.outputs.final-message }}
-          CLAUDE_SUMMARY: ${{ steps.claude.outputs.structured_output }}
         run: |
           mkdir -p "$RUNNER_TEMP/agent-result"
           git add --all
           git diff --cached --binary --no-ext-diff "$BASE_SHA" > "$RUNNER_TEMP/agent-result/changes.patch"
           printf '%s' "$CODEX_SUMMARY" > "$RUNNER_TEMP/agent-result/codex.txt"
-          printf '%s' "$CLAUDE_SUMMARY" > "$RUNNER_TEMP/agent-result/claude.json"
       - name: Pass changes to the publishing job
         if: steps.request.outputs.mode == 'work'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

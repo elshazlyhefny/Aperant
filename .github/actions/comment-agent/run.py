@@ -120,6 +120,36 @@ Issue or PR context:
     set_output("mode", "work")
 
 
+def escape_annotation(text):
+    # One line after "::error::" cannot start another workflow command.
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def claude_result(event, agent):
+    """Save Claude's final message for the publish job, or report why the session failed."""
+    temp = Path(os.environ["RUNNER_TEMP"])
+    execution = Path(os.environ.get("EXECUTION_FILE") or temp / "claude-execution-output.json")
+    try:
+        messages = json.loads(execution.read_text())
+    except (OSError, json.JSONDecodeError):
+        raise ValueError("Claude Code did not leave a readable execution log.") from None
+    result = next(
+        (message for message in reversed(messages) if isinstance(message, dict) and message.get("type") == "result"),
+        None,
+    )
+    if result is None:
+        raise ValueError("Claude Code finished without a result message.")
+    text = result.get("result") or ""
+    if result.get("subtype") != "success" or result.get("is_error"):
+        # The action hides the session output, so this is the only place the cause appears.
+        reason = text or ", ".join(map(str, result.get("errors") or [])) or str(result.get("subtype"))
+        print(f"::error title=Claude Code failed::{escape_annotation(reason[:2000])}")
+        raise ValueError("Claude Code did not finish successfully.")
+    output = temp / "agent-result"
+    output.mkdir(exist_ok=True)
+    (output / "claude.txt").write_text(text.strip())
+
+
 def git(*args):
     return subprocess.check_output(
         ["git", "-c", "core.hooksPath=/dev/null", *args],
@@ -134,11 +164,7 @@ def comment(event, message):
 def publish(event, agent):
     result = Path(os.environ["RUNNER_TEMP"]) / "agent-result"
     patch = result / "changes.patch"
-    if agent == "claude":
-        raw_summary = (result / "claude.json").read_text().strip()
-        summary = json.loads(raw_summary).get("summary", "") if raw_summary else ""
-    else:
-        summary = (result / "codex.txt").read_text().strip()
+    summary = (result / f"{agent}.txt").read_text().strip()
     if patch.stat().st_size == 0:
         comment(event, summary[:20_000] or "The agent finished without proposing file changes.")
         return
@@ -265,7 +291,7 @@ if __name__ == "__main__":
     agent = os.environ["AGENT"]
     event = get_event(agent)
     try:
-        {"prepare": prepare, "publish": publish, "merge": merge}[sys.argv[1]](event, agent)
+        {"prepare": prepare, "claude-result": claude_result, "publish": publish, "merge": merge}[sys.argv[1]](event, agent)
     except (ValueError, subprocess.CalledProcessError) as error:
         if sys.argv[1] == "publish":
             comment(event, "The proposed changes could not be published. See the publish job for details.")
