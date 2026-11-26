@@ -397,10 +397,11 @@ describe('runRoadmapGeneration', () => {
   });
 
   it('writes the project index before discovery and supplies the shell security profile', async () => {
-    const outputDir = resolve('/project/.auto-claude/roadmap');
+    const projectDir = resolve('roadmap-test-project');
+    const outputDir = join(projectDir, '.auto-claude', 'roadmap');
     const indexPath = join(outputDir, 'project_index.json');
 
-    await runRoadmapGeneration(baseConfig({ outputDir }));
+    await runRoadmapGeneration(baseConfig({ projectDir, outputDir }));
 
     expect(mockRenameSync).toHaveBeenCalledWith(expect.any(String), indexPath);
     expect(mockRenameSync.mock.invocationCallOrder[0]).toBeLessThan(mockStreamText.mock.invocationCallOrder[0]);
