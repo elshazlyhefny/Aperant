@@ -3,6 +3,8 @@
     "label": "Task agent",
     "defaultLabel": "Default task agent",
     "profile": "Use configured profile",
+    "claude": "Claude",
+    "codex": "Codex",
     "both": "Both",
     "customize": "Customize task phases",
     "phaseAgent": "Agent for {{phase}}"

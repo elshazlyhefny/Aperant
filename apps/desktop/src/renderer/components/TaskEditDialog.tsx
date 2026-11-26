@@ -270,7 +270,9 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     if (impact) metadataUpdates.impact = impact;
     if (model) metadataUpdates.model = model as ModelType;
     if (thinkingLevel) metadataUpdates.thinkingLevel = thinkingLevel as ThinkingLevel;
-    const provider = task.metadata?.provider ?? activeProvider;
+    // zeenha fork: a profile-based task takes its models from the active provider, so save
+    // that provider. A task-agent task keeps its own, and taskPhaseMetadata sets it below.
+    const provider = taskAgent ? (task.metadata?.provider ?? activeProvider) : activeProvider;
     if (provider) metadataUpdates.provider = provider;
     if (phaseModels && phaseThinking) {
       metadataUpdates.isAutoProfile = profileId === 'auto';

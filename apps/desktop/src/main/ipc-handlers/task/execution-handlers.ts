@@ -310,6 +310,10 @@ export function registerTaskExecutionHandlers(
         task.specId
       );
       const hasSubtasks = planHasSubtasks(specDir);
+      // zeenha fork: a task paused for a missing Claude/Codex account before it had a
+      // plan restarts spec/planning in launchTask, so the state machine must go to
+      // planning (PLANNING_STARTED), not coding (USER_RESUMED).
+      const restartsPlanning = !hasSubtasks && task.reviewReason === 'account_required';
 
       // Immediately mark as started so the UI moves the card to In Progress.
       // Use XState actor state as source of truth (if actor exists), with task data as fallback.
@@ -323,10 +327,10 @@ export function registerTaskExecutionHandlers(
         // XState says plan_review - send PLAN_APPROVED
         console.warn('[TASK_START] XState: plan_review -> coding via PLAN_APPROVED');
         taskStateManager.handleUiEvent(taskId, { type: 'PLAN_APPROVED' }, task, project);
-      } else if (currentXState === 'error' && !hasSubtasks) {
+      } else if ((currentXState === 'error' && !hasSubtasks) || (currentXState === 'human_review' && restartsPlanning)) {
         // FIX (#1562): Task crashed during planning (no subtasks yet).
         // Uses planHasSubtasks from implementation_plan.json (more reliable than task.subtasks.length).
-        console.warn('[TASK_START] XState: error with no plan subtasks -> planning via PLANNING_STARTED');
+        console.warn('[TASK_START] XState:', currentXState, 'with no plan subtasks -> planning via PLANNING_STARTED');
         taskStateManager.handleUiEvent(taskId, { type: 'PLANNING_STARTED' }, task, project);
       } else if (currentXState === 'human_review' || currentXState === 'error') {
         // XState says human_review or error - send USER_RESUMED
@@ -341,10 +345,10 @@ export function registerTaskExecutionHandlers(
         // No XState actor - fallback to task data (e.g., after app restart)
         console.warn('[TASK_START] No XState actor, task data: plan_review -> coding via PLAN_APPROVED');
         taskStateManager.handleUiEvent(taskId, { type: 'PLAN_APPROVED' }, task, project);
-      } else if (task.status === 'error' && !hasSubtasks) {
+      } else if ((task.status === 'error' && !hasSubtasks) || (task.status === 'human_review' && restartsPlanning)) {
         // FIX (#1562): No XState actor, task crashed during planning (no subtasks).
         // Uses planHasSubtasks from implementation_plan.json (more reliable than task.subtasks.length).
-        console.warn('[TASK_START] No XState actor, error with no plan subtasks -> planning via PLANNING_STARTED');
+        console.warn('[TASK_START] No XState actor,', task.status, 'with no plan subtasks -> planning via PLANNING_STARTED');
         taskStateManager.handleUiEvent(taskId, { type: 'PLANNING_STARTED' }, task, project);
       } else if (task.status === 'human_review' || task.status === 'error') {
         // No XState actor - fallback to task data for resuming

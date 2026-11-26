@@ -408,10 +408,14 @@ export const TaskCard = memo(function TaskCard({
     }
   };
 
-  // Prefer the recorded review reason when a paused task has completed subtasks.
-  // This ensures the user sees "Complete" when the task finished successfully
+  // When executionPhase is 'complete', show 'completed' regardless of a leftover reviewReason,
+  // so the user sees "Complete" when the task finished successfully.
+  // zeenha fork: a task paused for a missing Claude/Codex account keeps that reason,
+  // because its phases can show complete while the next phase still waits for an account.
   const effectiveReviewReason: ReviewReason | undefined =
-    task.reviewReason ?? (executionPhase === 'complete' ? 'completed' : undefined);
+    task.reviewReason === 'account_required'
+      ? 'account_required'
+      : executionPhase === 'complete' ? 'completed' : task.reviewReason;
   const reviewReasonInfo = task.status === 'human_review' ? getReviewReasonLabel(effectiveReviewReason) : null;
 
   const isArchived = !!task.metadata?.archivedAt;

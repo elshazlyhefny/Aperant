@@ -264,6 +264,27 @@ describe('TASK_START launch', () => {
       expect(lastEvent()).toEqual({ type: 'USER_RESUMED' });
     });
 
+    // zeenha fork: a task paused for a missing account before planning restarts planning.
+    it.each([undefined, 'human_review'])(
+      'human_review account_required with no plan subtasks -> PLANNING_STARTED (XState %s)',
+      async (xstate) => {
+        machine.getCurrentState.mockReturnValue(xstate);
+        ref.task.status = 'human_review';
+        ref.task.reviewReason = 'account_required';
+        await startTask();
+        expect(lastEvent()).toEqual({ type: 'PLANNING_STARTED' });
+      }
+    );
+
+    it('human_review account_required with plan subtasks -> USER_RESUMED', async () => {
+      ref.task.status = 'human_review';
+      ref.task.reviewReason = 'account_required';
+      writeSpec();
+      writePlan(PLAN_WITH_SUBTASKS);
+      await startTask();
+      expect(lastEvent()).toEqual({ type: 'USER_RESUMED' });
+    });
+
     it('plan_review -> PLAN_APPROVED', async () => {
       ref.task.status = 'human_review';
       ref.task.reviewReason = 'plan_review';

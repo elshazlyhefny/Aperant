@@ -8,6 +8,7 @@ import { AgentProcessManager } from './agent-process';
 import { AgentQueueManager } from './agent-queue';
 import { getClaudeProfileManager, initializeClaudeProfileManager } from '../claude-profile-manager';
 import { phaseConnectionResolver } from '../ai/agent/phase-connection';
+import type { Phase } from '../ai/config/types';
 import { getOperationRegistry } from '../claude-profile/operation-registry';
 import {
   SpecCreationMetadata,
@@ -115,6 +116,7 @@ export class AgentManager extends EventEmitter {
           this.taskExecutionContext.delete(taskId);
           // Unregister from OperationRegistry
           getOperationRegistry().unregisterOperation(taskId);
+          this.swappedAccounts.delete(taskId);
           return;
         }
 
@@ -123,6 +125,7 @@ export class AgentManager extends EventEmitter {
           this.taskExecutionContext.delete(taskId);
           // Unregister from OperationRegistry
           getOperationRegistry().unregisterOperation(taskId);
+          this.swappedAccounts.delete(taskId);
         }
         // Otherwise keep context for potential restart
       }, 1000); // Delay to allow restart logic to run first
@@ -347,8 +350,21 @@ export class AgentManager extends EventEmitter {
     };
   }
 
-  private taskPhaseResolver(metadata: ReturnType<typeof readTaskMetadata>) {
-    return phaseConnectionResolver(metadata, () => {
+  // zeenha fork: Claude accounts a proactive swap moved each routed task away from.
+  private swappedAccounts = new Map<string, Set<string>>();
+
+  /**
+   * zeenha fork: resolver for a task with per-phase providers (see phase-connection.ts).
+   * With `operation`, each phase that runs on a Claude subscription account is
+   * registered with the OperationRegistry under that account's Claude profile, so a
+   * proactive swap restarts the task on another account of the same provider. A
+   * phase on any other account is unregistered, so a Claude swap never restarts it.
+   */
+  private taskPhaseResolver(
+    metadata: ReturnType<typeof readTaskMetadata>,
+    operation?: { taskId: string; type: 'spec-creation' | 'task-execution'; metadata: Record<string, unknown> },
+  ) {
+    const resolve = phaseConnectionResolver(metadata, () => {
       const settings = readSettingsFile();
       return {
         accounts: settings?.providerAccounts ?? [],
@@ -361,6 +377,25 @@ export class AgentManager extends EventEmitter {
         },
       };
     });
+    if (!resolve || !operation) return resolve;
+    const { taskId } = operation;
+    return async (phase: Phase, excludeAccountIds: string[] = []) => {
+      const swapped = [...(this.swappedAccounts.get(taskId) ?? [])];
+      // A swapped-away account is skipped while another account can run the phase.
+      const connection = await resolve(phase, [...excludeAccountIds, ...swapped])
+        .catch(error => swapped.length ? resolve(phase, excludeAccountIds) : Promise.reject(error));
+      const account = readSettingsFile()?.providerAccounts?.find(a => a.id === connection.accountId);
+      const registry = getOperationRegistry();
+      if (account?.provider === 'anthropic' && account.claudeProfileId) {
+        registry.registerOperation(taskId, operation.type, account.claudeProfileId, account.name, (newProfileId: string) => {
+          this.swappedAccounts.set(taskId, new Set([...swapped, account.id]));
+          return this.restartTask(taskId, newProfileId);
+        }, { metadata: operation.metadata });
+      } else {
+        registry.unregisterOperation(taskId);
+      }
+      return connection;
+    };
   }
 
   private async readyForLegacyTask(taskId: string): Promise<boolean> {
@@ -382,7 +417,8 @@ export class AgentManager extends EventEmitter {
     baseBranch?: string,
     projectId?: string
   ): Promise<void> {
-    const resolvePhaseConnection = this.taskPhaseResolver((specDir && readTaskMetadata(specDir)) || metadata || null);
+    const resolvePhaseConnection = this.taskPhaseResolver((specDir && readTaskMetadata(specDir)) || metadata || null,
+      { taskId, type: 'spec-creation', metadata: { projectPath, taskDescription, specDir } });
     if (!resolvePhaseConnection && !(await this.readyForLegacyTask(taskId))) return;
 
     // Reset stuck subtasks if restarting an existing spec creation task
@@ -511,7 +547,8 @@ export class AgentManager extends EventEmitter {
     const specsBaseDir = getSpecsDir(project?.autoBuildPath);
     const specDir = path.join(projectPath, specsBaseDir, specId);
 
-    const resolvePhaseConnection = this.taskPhaseResolver(readTaskMetadata(specDir));
+    const resolvePhaseConnection = this.taskPhaseResolver(readTaskMetadata(specDir),
+      { taskId, type: 'task-execution', metadata: { projectPath, specId, options } });
     if (!resolvePhaseConnection && !(await this.readyForLegacyTask(taskId))) return;
 
     // Load model configuration from task_metadata.json if available

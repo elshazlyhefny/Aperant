@@ -57,10 +57,13 @@ vi.mock('../../project/project-indexer', () => ({ runProjectIndexer: vi.fn() }))
 let dir: string;
 let calls: Array<{phase: string; provider: string; model: string; key?: string}>;
 const accounts: ProviderAccount[] = [];
-function addAccount(provider: 'anthropic' | 'openai') {
-  accounts.push({ provider, id: provider, name: provider, createdAt: 0, updatedAt: 0,
-    authType: 'api-key', billingModel: 'pay-per-use', apiKey: `fixture-${provider}` });
+function addAccount(provider: 'anthropic' | 'openai', id: string = provider) {
+  accounts.push({ provider, id, name: id, createdAt: 0, updatedAt: 0,
+    authType: 'api-key', billingModel: 'pay-per-use', apiKey: `fixture-${id}` });
 }
+const rateLimited = { outcome: 'rate_limited' as const, stepsExecuted: 1, durationMs: 1, toolCallCount: 0, messages: [],
+  usage: { promptTokens: 1, completionTokens: 0, totalTokens: 1 },
+  error: { code: 'rate_limited', message: '429 Too Many Requests', retryable: true } };
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'aperant-routing-'));
@@ -70,6 +73,8 @@ beforeEach(async () => {
     if (typeof session.model === 'string') throw new Error('Expected resolved SDK model');
     calls.push({ phase: session.phase!, provider: session.model.provider, model: session.model.modelId, key: harness.keys.get(session.model) });
     expect(session.toolContext.cwd).toBe(dir);
+    if (session.agentType === 'spec_discovery') await writeFile(join(dir, 'context.json'), '{}');
+    if (session.agentType === 'spec_gatherer') await writeFile(join(dir, 'requirements.json'), '{}');
     if (session.agentType === 'spec_writer') await writeFile(join(dir, 'spec.md'), '# Specification');
     if (session.phase === 'planning') {
       expect(await readFile(join(dir, 'spec.md'), 'utf8')).toBe('# Specification');
@@ -173,3 +178,39 @@ it('resolves a ChatGPT subscription token for a Codex phase without a Claude acc
   }));
   expect(await resolve!('coding')).toMatchObject({ provider: 'openai', oauthTokenFilePath: tokenFile, modelId: metadata.phaseModels.coding });
 });
+
+// zeenha fork: a rate limit moves a routed phase to the next account of the same provider.
+it('continues a rate-limited coding phase on the next account of the same provider', async () => {
+  addAccount('anthropic');
+  addAccount('anthropic', 'anthropic-2');
+  await run('claude', true);
+  calls = [];
+  const completed = harness.runModel.getMockImplementation();
+  harness.runModel.mockImplementation(async (session: SessionConfig, ...rest: unknown[]) => {
+    const key = typeof session.model === 'string' ? undefined : harness.keys.get(session.model);
+    if (session.phase === 'coding' && key === 'fixture-anthropic') {
+      calls.push({ phase: 'coding', provider: 'anthropic', model: '', key });
+      return rateLimited;
+    }
+    return completed?.(session, ...rest);
+  });
+  const result = await run('claude');
+  expect(result.code).toBe(0);
+  expect(result.events.map(e => e.type)).not.toContain('PHASE_ACCOUNT_UNAVAILABLE');
+  expect(calls.filter(c => c.phase === 'coding').map(c => c.key)).toEqual(['fixture-anthropic', 'fixture-anthropic-2']);
+  // The limited account stays skipped for the rest of the run.
+  expect(calls.find(c => c.phase === 'qa')?.key).toBe('fixture-anthropic-2');
+}, 20000);
+
+it('pauses for an account when a rate-limited phase has no other account of its provider', async () => {
+  addAccount('anthropic');
+  addAccount('openai');
+  await run('claude', true);
+  harness.runModel.mockImplementation(async (session: SessionConfig) => {
+    if (session.phase === 'coding') return rateLimited;
+    throw new Error(`Unexpected ${session.phase} session`);
+  });
+  const result = await run('claude');
+  expect(result.code).toBe(3);
+  expect(result.events).toContainEqual(expect.objectContaining({ type: 'PHASE_ACCOUNT_UNAVAILABLE', error: expect.stringContaining('coding') }));
+}, 20000);

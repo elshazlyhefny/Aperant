@@ -128,7 +128,7 @@ export interface SerializableSessionConfig {
 /** Discriminated union of all messages posted from worker to main thread */
 export type WorkerMessage =
   | { type: 'phase-key-outcome'; outcome: 'valid' | 'rejected' }
-  | { type: 'phase-connection'; phase: Phase; requestId: number }
+  | { type: 'phase-connection'; phase: Phase; requestId: number; excludeAccountIds?: string[] }
   | WorkerLogMessage
   | WorkerErrorMessage
   | WorkerProgressMessage
@@ -225,7 +225,7 @@ export interface SerializedSecurityProfile {
  * Configuration for AgentExecutor.
  */
 export interface AgentExecutorConfig {
-  resolvePhaseConnection?: (phase: Phase) => Promise<PhaseConnection>;
+  resolvePhaseConnection?: (phase: Phase, excludeAccountIds?: string[]) => Promise<PhaseConnection>;
   /** Task ID for tracking */
   taskId: string;
   /** Project ID for multi-project support */

@@ -108,7 +108,7 @@ export class WorkerBridgeCore extends EventEmitter {
         let response: MainToWorkerMessage;
         try {
           if (!config.resolvePhaseConnection) throw new Error('Phase routing is unavailable.');
-          const connection = await config.resolvePhaseConnection(message.phase);
+          const connection = await config.resolvePhaseConnection(message.phase, message.excludeAccountIds);
           response = { type: 'phase-connection', requestId: message.requestId, connection };
           if (worker === this.worker) this.accountId = connection.accountId;
         } catch (error) {
