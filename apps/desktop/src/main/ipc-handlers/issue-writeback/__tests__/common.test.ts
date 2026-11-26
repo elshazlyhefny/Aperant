@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildOutcomeComment, cleanTitle, readMetadata } from '../common';
+import { buildOutcomeComment, cleanTitle, isIssueOutcomeEvent, readMetadata } from '../common';
 
 describe('readMetadata', () => {
   let root: string;
@@ -58,10 +58,12 @@ describe('buildOutcomeComment', () => {
   });
 });
 
-describe('buildOutcomeComment account pause', () => {
-  it('says the task is waiting for an account, not that it failed', () => {
-    const text = buildOutcomeComment('account_required', 'T');
-    expect(text.split('\n')[0]).toBe('Aperant: task is paused, waiting for an account to be connected for its provider.');
-    expect(text).not.toContain('failed');
+describe('isIssueOutcomeEvent', () => {
+  it('excludes the webhook-only events: pr_opened and account pauses', () => {
+    expect(isIssueOutcomeEvent('review_ready')).toBe(true);
+    expect(isIssueOutcomeEvent('failed')).toBe(true);
+    expect(isIssueOutcomeEvent('blocked')).toBe(true);
+    expect(isIssueOutcomeEvent('pr_opened')).toBe(false);
+    expect(isIssueOutcomeEvent('account_required')).toBe(false);
   });
 });

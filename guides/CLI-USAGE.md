@@ -139,7 +139,7 @@ The command never reads the desktop app's settings. Credentials come from the en
 
 `webhook` sends a message in Slack, Microsoft Teams or Discord format when the run ends (`format` is `auto`, `slack`, `teams` or `discord`; `auto` is the default and detects it from the URL): `review_ready` on exit 0, `blocked` on exit 2, `failed` on exit 1, except `account_required` (gated by the `blocked` toggle) when the run paused because no account is usable for a phase's provider. The `APERANT_WEBHOOK_URL` environment variable overrides `webhook.url`, and `APERANT_WEBHOOK_SECRET` overrides `webhook.secret`. With a secret, requests are signed, whatever the format (see [Signing requests](notifications-and-webhooks.md#signing-requests-optional-secret)). A webhook problem never changes the exit code. See [notifications-and-webhooks.md](notifications-and-webhooks.md#headless-runs-clijs-run).
 
-`writeback` reports the outcome back to the issue tracker the task was imported from. It is off by default, applies to both `run` and `serve`, and never changes the exit code. Credentials come from the project's `.auto-claude/.env`. Example:
+`writeback` reports the outcome back to the issue tracker the task was imported from. It is off by default, applies to both `run` and `serve`, and never changes the exit code. A run that paused because no account is usable for a phase's provider produces no write-back (the webhook still sends `account_required`). Credentials come from the project's `.auto-claude/.env`. Example:
 
 ```json
 {

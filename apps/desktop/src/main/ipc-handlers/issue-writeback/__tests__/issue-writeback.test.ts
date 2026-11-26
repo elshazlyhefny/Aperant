@@ -97,7 +97,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function run(event: 'review_ready' | 'failed' | 'blocked' | 'pr_opened' = 'review_ready') {
+async function run(event: 'review_ready' | 'failed' | 'blocked' | 'account_required' | 'pr_opened' = 'review_ready') {
   dispatchIssueOutcome({ task, project, event });
   await flush();
 }
@@ -134,6 +134,15 @@ describe('dispatchIssueOutcome', () => {
   it('ignores pr_opened, which is webhook-only', async () => {
     await run('pr_opened');
     expectNoCalls();
+  });
+
+  it('ignores an account pause, which is webhook-only', async () => {
+    for (const meta of [ghMeta, glMeta, lnMeta]) {
+      writeMeta(meta);
+      await run('account_required');
+    }
+    expectNoCalls();
+    expect(addIssueComment).not.toHaveBeenCalled();
   });
 
   it('posts a GitLab note', async () => {

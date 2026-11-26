@@ -155,6 +155,9 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       }
     }
     if (!writebackSettings || !mainSpecDir) return;
+    // zeenha fork: null for an account pause, which is never written back.
+    const writebackEvent = writebackEventForOutcome(outcome);
+    if (!writebackEvent) return;
     try {
       // Awaited: cli.ts exits right after this function returns.
       await (options.reportOutcome ?? reportOutcomeToSource)({
@@ -166,7 +169,7 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
           autoBuildPath: AUTO_BUILD_PATH,
         } as Project,
         specDirs: worktreeSpecDirForWriteback ? [mainSpecDir, worktreeSpecDirForWriteback] : [mainSpecDir],
-        event: writebackEventForOutcome(outcome),
+        event: writebackEvent,
         title: webhookTitle,
         prUrl: outcome.prUrl,
         warn: (message) => rawErr(redact(`warning: ${message}\n`)),

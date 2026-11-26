@@ -357,6 +357,16 @@ describe('runHeadlessTask outcome webhook', () => {
     expect(prOpened.text.split(' ').at(-1)).toBe(PR);
   });
 
+  it('posts a Paused message, not Failed, for an account pause', async () => {
+    makeSpec();
+    script([{ type: 'PHASE_ACCOUNT_UNAVAILABLE', error: 'no account for openai' }]);
+    expect(await runHook()).toBe(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [paused] = bodies();
+    expect(paused.text).toMatch(/paused/i);
+    expect(paused.text).not.toMatch(/fail/i);
+  });
+
   it('sends no pr_opened when events.prOpened is false', async () => {
     makeSpec();
     script([{ type: 'QA_PASSED', prUrl: PR }]);
@@ -463,6 +473,13 @@ describe('runHeadlessTask source write-back', () => {
     ]);
     expect(input.project.path).toBe(projectDir);
     if (_name === 'success') expect(input.prUrl).toBe('https://github.com/o/r/pull/1');
+  });
+
+  it('does not write back an account pause (not even as failed)', async () => {
+    makeSpec();
+    script([{ type: 'PHASE_ACCOUNT_UNAVAILABLE', error: 'no account for openai' }]);
+    expect(await runWb()).toBe(1);
+    expect(reportOutcome).not.toHaveBeenCalled();
   });
 
   it('reports a setup failure with only the main spec dir', async () => {

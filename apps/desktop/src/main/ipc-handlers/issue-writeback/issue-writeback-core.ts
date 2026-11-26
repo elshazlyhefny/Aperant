@@ -12,7 +12,7 @@ import type { AppSettings, IssueWritebackSettings } from '../../../shared/types/
 import { normalizeIssueWritebackSettings } from '../../../shared/utils/issue-writeback-settings';
 import type { WebhookEvent } from '../../task-webhook-core';
 import type { OutcomeWriter } from '../forge/types';
-import { buildOutcomeComment } from './common';
+import { buildOutcomeComment, isIssueOutcomeEvent } from './common';
 
 export function isWriterEnabled(
   writer: OutcomeWriter,
@@ -41,7 +41,8 @@ export async function dispatchIssueOutcomeWith(input: {
 }): Promise<void> {
   try {
     const { title, prUrl, project, event, meta, raw, writers } = input;
-    if (event === 'pr_opened' || !meta) return;
+    // zeenha fork: pr_opened and account pauses are never written back (see OutcomeEvent).
+    if (!isIssueOutcomeEvent(event) || !meta) return;
     const writer = writers.find((w) => w.sourceType === String(meta.sourceType));
     if (!writer) return;
     const settings = normalizeIssueWritebackSettings(raw.issueWriteback);

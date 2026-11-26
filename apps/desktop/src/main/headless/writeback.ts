@@ -45,10 +45,14 @@ export function resolveHeadlessWritebackSettings(config: HeadlessConfig): Headle
   };
 }
 
-/** Mirrors eventsForOutcome in webhook.ts; pr_opened is never written back. */
-export function writebackEventForOutcome(outcome: RunOutcome): WebhookEvent {
-  // zeenha fork: an account pause is resumable, so it is not written back as failed.
-  if (outcome.accountPaused) return 'account_required';
+/**
+ * Mirrors eventsForOutcome in webhook.ts; pr_opened is never written back.
+ * Returns null when nothing is written back.
+ */
+export function writebackEventForOutcome(outcome: RunOutcome): WebhookEvent | null {
+  // zeenha fork: an account pause is resumable, so it is neither written back as
+  // failed nor written back at all: each paused retry would post another comment.
+  if (outcome.accountPaused) return null;
   if (outcome.kind === 'success') return 'review_ready';
   if (outcome.kind === 'qa_failed') return 'blocked';
   return 'failed';

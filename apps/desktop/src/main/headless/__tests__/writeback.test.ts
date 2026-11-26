@@ -68,7 +68,8 @@ describe('writebackEventForOutcome', () => {
     expect(writebackEventForOutcome({ kind: 'success', exitCode: 0, prUrl: 'x' } as RunOutcome)).toBe('review_ready');
     expect(writebackEventForOutcome({ kind: 'qa_failed', exitCode: 2 })).toBe('blocked');
     expect(writebackEventForOutcome({ kind: 'error', exitCode: 1 })).toBe('failed');
-    expect(writebackEventForOutcome({ kind: 'error', exitCode: 1, accountPaused: true })).toBe('account_required');
+    // zeenha fork: an account pause is never written back, and never as failed.
+    expect(writebackEventForOutcome({ kind: 'error', exitCode: 1, accountPaused: true })).toBeNull();
   });
 });
 

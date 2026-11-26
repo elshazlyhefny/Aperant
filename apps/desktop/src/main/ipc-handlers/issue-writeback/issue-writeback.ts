@@ -16,13 +16,14 @@ import { readSettingsFile } from '../../settings-utils';
 import { taskSpecDirs } from '../../task-failure-facts';
 import type { WebhookEvent } from '../../task-webhook-core';
 import { OUTCOME_WRITERS } from '../forge/registry';
-import { readMetadata } from './common';
+import { isIssueOutcomeEvent, readMetadata } from './common';
 import { anyWriterEnabled, dispatchIssueOutcomeWith } from './issue-writeback-core';
 
 export function dispatchIssueOutcome(input: { task: Task; project: Project; event: WebhookEvent }): void {
   try {
     const { task, project, event } = input;
-    if (event === 'pr_opened') return;
+    // zeenha fork: pr_opened and account pauses are webhook-only (see OutcomeEvent).
+    if (!isIssueOutcomeEvent(event)) return;
     const raw = (readSettingsFile() ?? {}) as Partial<AppSettings>;
     if (!anyWriterEnabled(OUTCOME_WRITERS, raw)) return;
 

@@ -41,10 +41,10 @@ Write-back follows the same task states as the webhook (see [Events](notificatio
 | Status `error` | `failed` | `Aperant: task failed.` |
 | Human review, reason `completed` | `review_ready` | `Aperant: task is ready for review.` |
 | Human review, reason `qa_rejected` or `errors` | `blocked` | `Aperant: task is blocked and needs attention.` |
-| Human review, reason `account_required` (paused: no usable account for a phase's provider) | `account_required` | `Aperant: task is paused, waiting for an account to be connected for its provider.` |
+| Human review, reason `account_required` (paused: no usable account for a phase's provider) | none | none |
 | Any other state | none | none |
 
-One comment is posted each time a task moves into one of these states. `pr_opened` is never written back (see [Why PR opened is webhook-only](#why-pr-opened-is-webhook-only)).
+One comment is posted each time a task moves into one of these states. `pr_opened` is never written back (see [Why PR opened is webhook-only](#why-pr-opened-is-webhook-only)). An account pause (`account_required`) is never written back either, and is never reported as `failed`: every Resume without a usable account pauses the task again, and each pause would post another public comment. The webhook still reports it (see [Events](notifications-and-webhooks.md#events)).
 
 ## Turn it on
 
@@ -106,7 +106,7 @@ Pull request: <url>
 
 | Line | Content |
 |------|---------|
-| First line | `Aperant: task is ready for review.`, `Aperant: task failed.`, `Aperant: task is blocked and needs attention.` or `Aperant: task is paused, waiting for an account to be connected for its provider.` |
+| First line | `Aperant: task is ready for review.`, `Aperant: task failed.` or `Aperant: task is blocked and needs attention.` |
 | `Task: <title>` | The task title. Control characters (U+0000 to U+001F and U+007F to U+009F) become a space, and the result is trimmed. A title longer than 200 characters is cut to 199 characters followed by an ellipsis. The line is left out when the title is empty. |
 | `Pull request: <url>` | Added only when the task has a PR URL that is a valid `https://` URL without embedded credentials (the same rule as the webhook link). Otherwise the line is left out. |
 
