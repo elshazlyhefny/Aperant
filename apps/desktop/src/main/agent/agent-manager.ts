@@ -380,7 +380,16 @@ export class AgentManager extends EventEmitter {
   private restartAfterSwap(taskId: string, accountIds: string[], newProfileId: string): boolean {
     if (!this.isRunning(taskId)) return false;
     const restarted = this.restartTask(taskId);
-    if (restarted) this.swappedAccounts.set(taskId, { accountIds: new Set(accountIds), profileId: newProfileId });
+    if (restarted) {
+      // The account the swap chose is never excluded, even if the task left it
+      // earlier (A → B → A); otherwise the task would skip it for a third account.
+      const chosen = new Set((readSettingsFile()?.providerAccounts ?? [])
+        .filter(a => a.provider === 'anthropic' && a.claudeProfileId === newProfileId).map(a => a.id));
+      this.swappedAccounts.set(taskId, {
+        accountIds: new Set(accountIds.filter(id => !chosen.has(id))),
+        profileId: newProfileId,
+      });
+    }
     return restarted;
   }
 

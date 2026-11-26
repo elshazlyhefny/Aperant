@@ -11,6 +11,12 @@ vi.mock('electron', () => ({
   BrowserWindow: vi.fn(),
 }));
 
+const settings = vi.hoisted(() => ({ value: undefined as Record<string, unknown> | undefined }));
+vi.mock('../../settings-utils', async importOriginal => ({
+  ...(await importOriginal<object>()),
+  readSettingsFile: () => settings.value,
+}));
+
 import { AgentManager } from '../agent-manager';
 import { getOperationRegistry } from '../../claude-profile/operation-registry';
 
@@ -61,6 +67,20 @@ describe('AgentManager swapped accounts', () => {
 
     await manager.startTaskExecution('t', '/project', '001-x');
     expect(internals.swappedAccounts.has('t')).toBe(false);
+  });
+
+  it('never excludes the account the swap chose, even one the task left earlier', async () => {
+    settings.value = { providerAccounts: [
+      { id: 'a', provider: 'anthropic', claudeProfileId: 'profile-a' },
+      { id: 'b', provider: 'anthropic', claudeProfileId: 'profile-b' },
+    ] };
+    internals.storeTaskContext('t', '/project', '001-x', {});
+    markRunning('t');
+    // A → B earlier, now B → A: A must not stay excluded.
+    expect(internals.restartAfterSwap('t', ['a', 'b'], 'profile-a')).toBe(true);
+    expect(internals.swappedAccounts.get('t')).toEqual({ accountIds: new Set(['b']), profileId: 'profile-a' });
+    settings.value = undefined;
+    await vi.advanceTimersByTimeAsync(600);
   });
 
   it('drops the swap when the task is stopped', () => {
