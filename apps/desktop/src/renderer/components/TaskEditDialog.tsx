@@ -236,6 +236,13 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     // Check if anything changed
     const trimmedTitle = title.trim();
     const trimmedDescription = description.trim();
+    // Model/profile selection differs from what the task has saved (also true when the
+    // task had none saved, since the dialog then fills in the active provider's defaults).
+    const modelSelectionChanged =
+      model !== (task.metadata?.model || '') ||
+      thinkingLevel !== (task.metadata?.thinkingLevel || '') ||
+      JSON.stringify(phaseModels) !== JSON.stringify(task.metadata?.phaseModels || DEFAULT_PHASE_MODELS) ||
+      JSON.stringify(phaseThinking) !== JSON.stringify(task.metadata?.phaseThinking || DEFAULT_PHASE_THINKING);
     const hasChanges =
       JSON.stringify(taskAgent) !== JSON.stringify(savedTaskAgent(task.metadata)) ||
       trimmedTitle !== task.title ||
@@ -244,15 +251,12 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
       priority !== (task.metadata?.priority || '') ||
       complexity !== (task.metadata?.complexity || '') ||
       impact !== (task.metadata?.impact || '') ||
-      model !== (task.metadata?.model || '') ||
-      thinkingLevel !== (task.metadata?.thinkingLevel || '') ||
+      modelSelectionChanged ||
       requireReviewBeforeCoding !== (task.metadata?.requireReviewBeforeCoding ?? false) ||
       fastMode !== (task.metadata?.fastMode ?? false) ||
       JSON.stringify(taskDependencies) !== JSON.stringify(task.metadata?.taskDependencies || []) ||
       parseTokenBudgetText(tokenBudgetText) !== task.metadata?.tokenBudget ||
-      JSON.stringify(images) !== JSON.stringify(task.metadata?.attachedImages || []) ||
-      JSON.stringify(phaseModels) !== JSON.stringify(task.metadata?.phaseModels || DEFAULT_PHASE_MODELS) ||
-      JSON.stringify(phaseThinking) !== JSON.stringify(task.metadata?.phaseThinking || DEFAULT_PHASE_THINKING);
+      JSON.stringify(images) !== JSON.stringify(task.metadata?.attachedImages || []);
 
     if (!hasChanges) {
       onOpenChange(false);
@@ -270,9 +274,13 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     if (impact) metadataUpdates.impact = impact;
     if (model) metadataUpdates.model = model as ModelType;
     if (thinkingLevel) metadataUpdates.thinkingLevel = thinkingLevel as ThinkingLevel;
-    // zeenha fork: a profile-based task takes its models from the active provider, so save
-    // that provider. A task-agent task keeps its own, and taskPhaseMetadata sets it below.
-    const provider = taskAgent ? (task.metadata?.provider ?? activeProvider) : activeProvider;
+    // zeenha fork: a profile-based task whose models were picked in this dialog takes them
+    // from the active provider, so save that provider. Otherwise the saved models still
+    // belong to the task's own provider, so keep it. A task-agent task keeps its own, and
+    // taskPhaseMetadata sets it below.
+    const provider = !taskAgent && modelSelectionChanged
+      ? activeProvider
+      : (task.metadata?.provider ?? activeProvider);
     if (provider) metadataUpdates.provider = provider;
     if (phaseModels && phaseThinking) {
       metadataUpdates.isAutoProfile = profileId === 'auto';

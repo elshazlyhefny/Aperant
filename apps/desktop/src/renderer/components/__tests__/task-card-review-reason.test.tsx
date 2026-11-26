@@ -1,8 +1,9 @@
 /**
  * @vitest-environment jsdom
  *
- * zeenha fork: a finished task shows "Completed" even with a leftover review
- * reason, unless it is waiting for a Claude/Codex account.
+ * zeenha fork: the review badge shows the recorded review reason. Every
+ * human_review task is persisted with executionPhase 'complete', so "Completed"
+ * appears only when no reason was recorded.
  */
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
@@ -29,7 +30,7 @@ beforeAll(async () => {
 
 afterEach(() => useTaskStore.setState({ tasks: [] }));
 
-const renderReview = (reviewReason: string) => {
+const renderReview = (reviewReason?: string) => {
   const task = {
     id: 'x',
     specId: '001-x',
@@ -38,7 +39,8 @@ const renderReview = (reviewReason: string) => {
     description: '',
     status: 'human_review',
     reviewReason,
-    subtasks: [],
+    // A finished build: with no reason and no completed subtask the card shows "Incomplete".
+    subtasks: [{ id: 's1', title: 'S1', description: '', status: 'completed', files: [] }],
     logs: [],
     executionProgress: { phase: 'complete', phaseProgress: 100, overallProgress: 100 },
     createdAt: new Date(),
@@ -55,15 +57,20 @@ const renderReview = (reviewReason: string) => {
 };
 
 describe('TaskCard review reason badge', () => {
-  it('shows Completed for a finished task with a leftover review reason', () => {
+  it('shows Stopped for a stopped task even though its phase is complete', () => {
     renderReview('stopped');
-    expect(screen.getByText('Completed')).toBeInTheDocument();
-    expect(screen.queryByText('Stopped')).toBeNull();
+    expect(screen.getByText('Stopped')).toBeInTheDocument();
+    expect(screen.queryByText('Completed')).toBeNull();
   });
 
   it('keeps the account reason for a task waiting on an account', () => {
     renderReview('account_required');
     expect(screen.getByText('Account needed')).toBeInTheDocument();
     expect(screen.queryByText('Completed')).toBeNull();
+  });
+
+  it('shows Completed when no reason was recorded and the phase is complete', () => {
+    renderReview(undefined);
+    expect(screen.getByText('Completed')).toBeInTheDocument();
   });
 });

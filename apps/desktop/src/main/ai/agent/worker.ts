@@ -598,6 +598,11 @@ async function runSingleSession(
     if (sessionResult.outcome === 'rate_limited' && connection.accountId && !rateLimitedAccounts.has(connection.accountId)) {
       rateLimitedAccounts.add(connection.accountId);
       postLog(`${phase}: ${connection.provider} account rate limited, trying the next ${connection.provider} account.`);
+      // Close this attempt's log phase; the retry starts its own.
+      if (logWriter && !skipPhaseLogging) {
+        logWriter.endPhase(phase, false, phaseEndMessage(phase, false, `the ${connection.provider} account hit a rate limit`));
+      }
+      if (logWriter) logWriter.setSubtask(undefined);
       return runSingleSession(agentType, phase, systemPrompt, specDir, projectDir, sessionNumber, subtaskId,
         baseSession, toolContext, registry, initialUserMessage, skipPhaseLogging, outputSchema);
     }

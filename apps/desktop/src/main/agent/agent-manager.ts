@@ -111,12 +111,15 @@ export class AgentManager extends EventEmitter {
           return; // Stale exit event - task was restarted, don't clean up new context
         }
 
+        // zeenha fork: no restart followed this exit, so the run is over and the accounts
+        // a swap moved it away from no longer apply.
+        this.swappedAccounts.delete(taskId);
+
         // If task completed successfully, always clean up
         if (code === 0 || code === PHASE_ACCOUNT_PAUSE_EXIT) {
           this.taskExecutionContext.delete(taskId);
           // Unregister from OperationRegistry
           getOperationRegistry().unregisterOperation(taskId);
-          this.swappedAccounts.delete(taskId);
           return;
         }
 
@@ -125,7 +128,6 @@ export class AgentManager extends EventEmitter {
           this.taskExecutionContext.delete(taskId);
           // Unregister from OperationRegistry
           getOperationRegistry().unregisterOperation(taskId);
-          this.swappedAccounts.delete(taskId);
         }
         // Otherwise keep context for potential restart
       }, 1000); // Delay to allow restart logic to run first
@@ -350,8 +352,27 @@ export class AgentManager extends EventEmitter {
     };
   }
 
-  // zeenha fork: Claude accounts a proactive swap moved each routed task away from.
-  private swappedAccounts = new Map<string, Set<string>>();
+  // zeenha fork: per routed task, the Claude accounts a proactive swap moved it away
+  // from and the Claude profile the swap chose. Kept only across swap restarts.
+  private swappedAccounts = new Map<string, { accountIds: Set<string>; profileId: string }>();
+  // zeenha fork: tasks whose next start comes from restartTask rather than the user.
+  private restartingTasks = new Set<string>();
+
+  /** zeenha fork: a user start begins a fresh run, so earlier swaps no longer apply. */
+  private beginRun(taskId: string): void {
+    if (!this.restartingTasks.delete(taskId)) this.swappedAccounts.delete(taskId);
+  }
+
+  /**
+   * zeenha fork: proactive swap of a routed task. The swap is recorded only when the
+   * restart goes ahead. The global active profile is left alone: the restarted task
+   * prefers the provider account linked to `newProfileId` instead.
+   */
+  private restartAfterSwap(taskId: string, accountIds: string[], newProfileId: string): boolean {
+    const restarted = this.restartTask(taskId);
+    if (restarted) this.swappedAccounts.set(taskId, { accountIds: new Set(accountIds), profileId: newProfileId });
+    return restarted;
+  }
 
   /**
    * zeenha fork: resolver for a task with per-phase providers (see phase-connection.ts).
@@ -366,9 +387,14 @@ export class AgentManager extends EventEmitter {
   ) {
     const resolve = phaseConnectionResolver(metadata, () => {
       const settings = readSettingsFile();
+      const accounts = settings?.providerAccounts ?? [];
+      const priorityOrder = settings?.globalPriorityOrder ?? [];
+      // zeenha fork: after a proactive swap, try the account the swap chose first.
+      const swapProfileId = operation && this.swappedAccounts.get(operation.taskId)?.profileId;
+      const target = swapProfileId && accounts.find(a => a.provider === 'anthropic' && a.claudeProfileId === swapProfileId);
       return {
-        accounts: settings?.providerAccounts ?? [],
-        priorityOrder: settings?.globalPriorityOrder ?? [],
+        accounts,
+        priorityOrder: target ? [target.id, ...priorityOrder.filter(id => id !== target.id)] : priorityOrder,
         fallback: async provider => {
           if (provider !== 'openai' && provider !== 'anthropic') return null;
           const configDir = provider === 'anthropic'
@@ -380,17 +406,16 @@ export class AgentManager extends EventEmitter {
     if (!resolve || !operation) return resolve;
     const { taskId } = operation;
     return async (phase: Phase, excludeAccountIds: string[] = []) => {
-      const swapped = [...(this.swappedAccounts.get(taskId) ?? [])];
+      const swapped = [...(this.swappedAccounts.get(taskId)?.accountIds ?? [])];
       // A swapped-away account is skipped while another account can run the phase.
       const connection = await resolve(phase, [...excludeAccountIds, ...swapped])
         .catch(error => swapped.length ? resolve(phase, excludeAccountIds) : Promise.reject(error));
       const account = readSettingsFile()?.providerAccounts?.find(a => a.id === connection.accountId);
       const registry = getOperationRegistry();
       if (account?.provider === 'anthropic' && account.claudeProfileId) {
-        registry.registerOperation(taskId, operation.type, account.claudeProfileId, account.name, (newProfileId: string) => {
-          this.swappedAccounts.set(taskId, new Set([...swapped, account.id]));
-          return this.restartTask(taskId, newProfileId);
-        }, { metadata: operation.metadata });
+        registry.registerOperation(taskId, operation.type, account.claudeProfileId, account.name,
+          (newProfileId: string) => this.restartAfterSwap(taskId, [...swapped, account.id], newProfileId),
+          { metadata: operation.metadata });
       } else {
         registry.unregisterOperation(taskId);
       }
@@ -417,6 +442,7 @@ export class AgentManager extends EventEmitter {
     baseBranch?: string,
     projectId?: string
   ): Promise<void> {
+    this.beginRun(taskId);
     const resolvePhaseConnection = this.taskPhaseResolver((specDir && readTaskMetadata(specDir)) || metadata || null,
       { taskId, type: 'spec-creation', metadata: { projectPath, taskDescription, specDir } });
     if (!resolvePhaseConnection && !(await this.readyForLegacyTask(taskId))) return;
@@ -547,6 +573,7 @@ export class AgentManager extends EventEmitter {
     const specsBaseDir = getSpecsDir(project?.autoBuildPath);
     const specDir = path.join(projectPath, specsBaseDir, specId);
 
+    this.beginRun(taskId);
     const resolvePhaseConnection = this.taskPhaseResolver(readTaskMetadata(specDir),
       { taskId, type: 'task-execution', metadata: { projectPath, specId, options } });
     if (!resolvePhaseConnection && !(await this.readyForLegacyTask(taskId))) return;
@@ -782,6 +809,9 @@ export class AgentManager extends EventEmitter {
    * Kill a specific task's process
    */
   killTask(taskId: string): boolean {
+    // zeenha fork: a stopped task forgets its swaps. restartTask also kills, but
+    // restartAfterSwap records the swap only after restartTask returns.
+    this.swappedAccounts.delete(taskId);
     return this.processManager.killProcess(taskId);
   }
 
@@ -943,6 +973,7 @@ export class AgentManager extends EventEmitter {
           console.error('[AgentManager] Cannot restart spec creation: taskDescription is missing');
           return;
         }
+        this.restartingTasks.add(taskId);
         this.startSpecCreation(
           taskId,
           context.projectPath,
@@ -954,6 +985,7 @@ export class AgentManager extends EventEmitter {
         );
       } else {
         appLog.info('[AgentManager] Restarting as task execution');
+        this.restartingTasks.add(taskId);
         this.startTaskExecution(
           taskId,
           context.projectPath,
