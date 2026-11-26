@@ -69,20 +69,10 @@ export class TitleGenerator extends EventEmitter {
         thinkingLevel: namingSettings.thinkingLevel as 'low' | 'medium' | 'high' | 'xhigh',
       });
 
-      // Handle Codex models the same way as runner.ts:
-      // Codex requires instructions field (not system messages in input) and store=false
-      const isCodex = client.resolvedModelId?.includes('codex') ?? false;
-
       const result = streamText({
         model: client.model,
-        system: isCodex ? undefined : client.systemPrompt,
+        system: client.systemPrompt,
         prompt,
-        providerOptions: isCodex ? {
-          openai: {
-            ...(client.systemPrompt ? { instructions: client.systemPrompt } : {}),
-            store: false,
-          },
-        } : undefined,
       });
 
       const raw = (await result.text).trim();

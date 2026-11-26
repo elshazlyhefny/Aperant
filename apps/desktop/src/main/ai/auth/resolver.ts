@@ -26,7 +26,8 @@ import {
 } from './types';
 import type { ProviderAccount } from '../../../shared/types/provider-account';
 import type { BuiltinProvider } from '../../../shared/types/provider-account';
-import { resolveModelEquivalent } from '../../../shared/constants/models';
+import { resolveCodexOAuthModelId, resolveModelEquivalent } from '../../../shared/constants/models';
+import type { AppSettings } from '../../../shared/types/settings';
 import { scoreProviderAccount } from '../../claude-profile/profile-scorer';
 import { getKeyStatus } from '../../../shared/utils/api-key-status';
 import type { ClaudeAutoSwitchSettings } from '../../../shared/types/agent';
@@ -369,7 +370,7 @@ export async function resolveAuthFromQueue(
   options?: {
     excludeAccountIds?: string[];
     codexTokenFilePath?: string;
-    userModelOverrides?: Record<string, Partial<Record<BuiltinProvider, import('../../../shared/constants/models').ProviderModelSpec>>>;
+    userModelOverrides?: AppSettings['modelOverrides'];
     autoSwitchSettings?: ClaudeAutoSwitchSettings;
   }
 ): Promise<QueueResolvedAuth | null> {
@@ -430,11 +431,11 @@ export async function resolveAuthFromQueue(
       if (supportedProvider === 'ollama' && nativeProvider && nativeProvider !== 'ollama') continue;
     }
 
-    const resolvedModelId = modelSpec?.modelId ?? requestedModel;
-
-    // Note: Codex OAuth accounts now use .responses() for ALL models (not just
-    // Codex-named ones) in the provider factory, so no format mismatch guard
-    // is needed here. All OpenAI models are eligible through Codex OAuth.
+    const modelId = modelSpec?.modelId ?? requestedModel;
+    const resolvedModelId = account.provider === 'openai' && account.authType === 'oauth'
+      ? resolveCodexOAuthModelId(modelId)
+      : modelId;
+    if (!resolvedModelId) continue;
 
     // Resolve credentials for this account
     const auth = await resolveCredentialsForAccount(account, supportedProvider, options?.codexTokenFilePath);
@@ -463,7 +464,13 @@ export async function resolveAuthFromQueue(
  */
 export function buildDefaultQueueConfig(
   requestedModel: string,
-): { queue: ProviderAccount[]; requestedModel: string } | undefined {
+): {
+  queue: ProviderAccount[];
+  requestedModel: string;
+  excludeAccountIds?: string[];
+  codexTokenFilePath?: string;
+  userModelOverrides?: AppSettings['modelOverrides'];
+} | undefined {
   if (!_getSettingsValue) return undefined;
 
   // Read providerAccounts
@@ -499,7 +506,20 @@ export function buildDefaultQueueConfig(
     return effectiveA - effectiveB;
   });
 
-  return { queue: sorted, requestedModel };
+  const rawOverrides = _getSettingsValue('modelOverrides');
+  let userModelOverrides: AppSettings['modelOverrides'];
+  try {
+    userModelOverrides = typeof rawOverrides === 'string' ? JSON.parse(rawOverrides) : rawOverrides;
+  } catch {
+    // Ignore unreadable saved overrides and use the built-in equivalences.
+  }
+  const codexTokenFilePath = _getSettingsValue('codexTokenFilePath');
+  return {
+    queue: sorted,
+    requestedModel,
+    ...(userModelOverrides ? { userModelOverrides } : {}),
+    ...(codexTokenFilePath ? { codexTokenFilePath } : {}),
+  };
 }
 
 /**

@@ -2,7 +2,7 @@
 // (upstream has no per-task agent choice), so each phase resolves its own account
 // from that phase's provider queue in the main process when the phase starts.
 // Only the current phase's credentials cross the worker boundary.
-import { ALL_AVAILABLE_MODELS } from '../../../shared/constants/models';
+import { resolveCodexOAuthModelId } from '../../../shared/constants/models';
 import type { ProviderAccount } from '../../../shared/types/provider-account';
 import type { Phase } from '../config/types';
 import { resolveModelId } from '../config/phase-config';
@@ -39,12 +39,10 @@ export function phaseConnectionResolver(metadata: TaskMetadata | null | undefine
     const thinkingLevel = metadata.phaseThinking?.[phase];
     // Never retry an exhausted or rejected configured account via the legacy resolver.
     if (queue.length) {
-      const keyOnly = ALL_AVAILABLE_MODELS.some(model => model.provider === provider && model.value === modelId && model.apiKeyOnly);
-      const eligible = keyOnly ? queue.filter(a => a.authType === 'api-key') : queue;
       // Only this queue's own accounts count: any exclusion makes resolveAuthFromQueue
       // move unverified API keys last, so another provider's ids would reorder it.
-      const excluded = excludeAccountIds.filter(id => eligible.some(a => a.id === id));
-      const resolved = await resolveAuthFromQueue(modelId, eligible, { codexTokenFilePath, excludeAccountIds: excluded });
+      const excluded = excludeAccountIds.filter(id => queue.some(a => a.id === id));
+      const resolved = await resolveAuthFromQueue(modelId, queue, { codexTokenFilePath, excludeAccountIds: excluded });
       if (!resolved) throw unavailable;
       return {
         provider: resolved.resolvedProvider,
@@ -59,7 +57,9 @@ export function phaseConnectionResolver(metadata: TaskMetadata | null | undefine
     }
     const auth = await fallback(provider);
     if (!auth) throw unavailable;
-    return { provider, modelId, thinkingLevel, apiKey: auth.apiKey, configDir: auth.configDir,
+    const resolvedModelId = provider === 'openai' && auth.oauthTokenFilePath ? resolveCodexOAuthModelId(modelId) : modelId;
+    if (!resolvedModelId) throw unavailable;
+    return { provider, modelId: resolvedModelId, thinkingLevel, apiKey: auth.apiKey, configDir: auth.configDir,
       baseURL: auth.baseURL, oauthTokenFilePath: auth.oauthTokenFilePath };
   };
 }

@@ -33,9 +33,12 @@ vi.mock('../../../claude-profile/profile-scorer', () => ({
 
 // Mock model equivalence
 // ../../../../shared/ = src/shared/ (4 levels up from __tests__ = src/)
-vi.mock('../../../../shared/constants/models', () => ({
+vi.mock(import('../../../../shared/constants/models'), async (importOriginal) => ({
+  ...await importOriginal(),
   resolveModelEquivalent: vi.fn(),
 }));
+
+vi.mock('../../providers/oauth-fetch', () => ({ ensureValidOAuthToken: vi.fn().mockResolvedValue('fixture-token') }));
 
 // Mock provider factory detection
 // ../../providers/ = src/main/ai/providers/
@@ -445,6 +448,26 @@ describe('resolveAuthFromQueue', () => {
     expect(result?.resolvedModelId).toBe('claude-haiku-4-5');
   });
 
+  it('migrates a legacy model for Codex OAuth and preserves it for an API key', async () => {
+    const apiAccount = { ...baseAccount, provider: 'openai' as const };
+    const oauthAccount = { ...apiAccount, authType: 'oauth' as const };
+    mockResolveModelEquivalent.mockReturnValue({ modelId: 'gpt-5.3-codex', reasoning: { type: 'reasoning_effort' } });
+
+    expect(await resolveAuthFromQueue('gpt-5.3-codex', [oauthAccount], { codexTokenFilePath: 'fixture-auth.json' }))
+      .toMatchObject({ resolvedModelId: 'gpt-6.2-sol', source: 'codex-oauth' });
+    expect(await resolveAuthFromQueue('gpt-5.3-codex', [apiAccount]))
+      .toMatchObject({ resolvedModelId: 'gpt-5.3-codex', source: 'profile-api-key' });
+  });
+
+  it('selects an API key for an API-only model even when Codex OAuth comes first', async () => {
+    const apiAccount = { ...baseAccount, provider: 'openai' as const };
+    const oauthAccount = { ...apiAccount, id: 'oauth', authType: 'oauth' as const };
+    mockResolveModelEquivalent.mockReturnValue({ modelId: 'o3', reasoning: { type: 'reasoning_effort' } });
+
+    expect(await resolveAuthFromQueue('o3', [oauthAccount, apiAccount], { codexTokenFilePath: 'fixture-auth.json' }))
+      .toMatchObject({ accountId: apiAccount.id, resolvedModelId: 'o3' });
+  });
+
   it('an anthropic OAuth account carries its profile config dir, and reads its token there', async () => {
     mockEnsureValidToken.mockResolvedValueOnce({ token: 'oauth-b', wasRefreshed: false });
     const oauthAccount = { ...baseAccount, authType: 'oauth' as const, apiKey: undefined, claudeProfileId: 'profile-b' };
@@ -547,6 +570,18 @@ describe('buildDefaultQueueConfig', () => {
 
     const result = buildDefaultQueueConfig('sonnet');
     expect(result).toBeUndefined();
+  });
+
+  it('passes saved model overrides and a headless Codex token path to utility clients', () => {
+    const modelOverrides = { opus: { openai: { modelId: 'gpt-6.2-astra', reasoning: { type: 'reasoning_effort' } } } };
+    const savedSettings: Record<string, string> = {
+      providerAccounts: JSON.stringify([{ id: 'codex', provider: 'openai', authType: 'oauth' }]),
+      modelOverrides: JSON.stringify(modelOverrides),
+      codexTokenFilePath: 'fixture-auth.json',
+    };
+    registerSettingsAccessor(key => savedSettings[key]);
+
+    expect(buildDefaultQueueConfig('opus')).toMatchObject({ userModelOverrides: modelOverrides, codexTokenFilePath: 'fixture-auth.json' });
   });
 
   it('returns accounts in natural order when no priority order is set', () => {

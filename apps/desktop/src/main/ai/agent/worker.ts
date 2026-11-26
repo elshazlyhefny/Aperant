@@ -513,7 +513,6 @@ async function runSingleSession(
     systemPrompt,
     initialMessages,
     toolContext: phaseToolsContext,
-    codexOAuth: !!connection.oauthTokenFilePath,
     maxSteps: baseSession.maxSteps,
     thinkingLevel: phaseThinking as SessionConfig['thinkingLevel'],
     abortSignal: abortController.signal,
@@ -734,7 +733,6 @@ async function runDefaultSession(
   const sessionConfig: SessionConfig = {
     agentType: session.agentType,
     model,
-    codexOAuth: !!session.oauthTokenFilePath,
     systemPrompt: session.systemPrompt,
     initialMessages,
     toolContext,

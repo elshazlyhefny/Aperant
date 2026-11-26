@@ -20,8 +20,10 @@ import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createXai } from '@ai-sdk/xai';
 import type { LanguageModel } from 'ai';
 
+import { resolveCodexOAuthModelId } from '../../../shared/constants/models';
 import { createClaudeCodeModel } from '../claude-code/model';
-import { MODEL_PROVIDER_MAP } from '../config/types';
+import { MODEL_PROVIDER_MAP, type ThinkingLevel } from '../config/types';
+import { CODEX_RESPONSES_BASE_URL, configureCodexModel } from './codex-responses';
 import { createOAuthProviderFetch } from './oauth-fetch';
 import { type ProviderConfig, SupportedProvider } from './types';
 
@@ -92,7 +94,7 @@ function createProviderInstance(config: ProviderConfig) {
       if (config.oauthTokenFilePath) {
         return createOpenAI({
           apiKey: apiKey ?? 'codex-oauth-placeholder',
-          baseURL,
+          baseURL: CODEX_RESPONSES_BASE_URL,
           headers,
           fetch: createOAuthProviderFetch(config.oauthTokenFilePath, 'openai'),
         });
@@ -202,6 +204,7 @@ export interface CreateProviderOptions {
   config: ProviderConfig;
   /** Full model ID (e.g., 'claude-sonnet-4-5-20250929') */
   modelId: string;
+  codexReasoningEffort?: ThinkingLevel;
 }
 
 // =============================================================================
@@ -232,15 +235,14 @@ export function createProvider(options: CreateProviderOptions): LanguageModel {
     return (instance as ReturnType<typeof createAzure>).chat(deploymentName);
   }
 
-  // OpenAI: Codex OAuth accounts rewrite ALL URLs to the Codex Responses endpoint,
-  // so every model must use `.responses()` to avoid a format mismatch (Chat Completions
-  // format sent to Responses endpoint → 400). Regular API-key accounts use
-  // `.responses()` for Codex models and `.chat()` for everything else.
   if (config.provider === SupportedProvider.OpenAI) {
-    if (config.oauthTokenFilePath || isCodexModel(modelId)) {
-      return (instance as ReturnType<typeof createOpenAI>).responses(modelId);
+    const openai = instance as ReturnType<typeof createOpenAI>;
+    if (config.oauthTokenFilePath) {
+      const codexModel = resolveCodexOAuthModelId(modelId);
+      if (!codexModel) throw new Error(`${modelId} requires an OpenAI API key. Choose a model available with ChatGPT sign-in.`);
+      return configureCodexModel(openai.responses(codexModel), options.codexReasoningEffort);
     }
-    return (instance as ReturnType<typeof createOpenAI>).chat(modelId);
+    return isCodexModel(modelId) || modelId.startsWith('gpt-6') ? openai.responses(modelId) : openai.chat(modelId);
   }
 
   // Generic path: call provider instance as function with model ID

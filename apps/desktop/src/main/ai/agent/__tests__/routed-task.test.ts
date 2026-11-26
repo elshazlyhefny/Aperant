@@ -138,7 +138,8 @@ it.each(['claude', 'codex', 'both'] as const)('runs a %s task from specification
     const expected = mode === 'codex' || (mode === 'both' && call.phase === 'coding') ? 'openai' : 'anthropic';
     expect(call.provider).toContain(expected);
     expect(call.key).toBe(`fixture-${expected}`);
-    expect(call.model).toContain(expected === 'openai' ? 'codex' : 'claude');
+    if (expected === 'openai') expect(call.model).toBe('gpt-6.2-sol');
+    else expect(call.model).toMatch(/^claude-/);
   }
 }, 20000);
 

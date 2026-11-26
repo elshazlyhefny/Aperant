@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, Search, Check, Brain, Eye, Wrench, ExternalLink, Loader2 } from 'lucide-react';
-import { ALL_AVAILABLE_MODELS, resolveModelEquivalent, type ModelOption } from '@shared/constants/models';
+import { ALL_AVAILABLE_MODELS, resolveCodexOAuthModelId, resolveModelEquivalent, type ModelOption } from '@shared/constants/models';
 import { PROVIDER_REGISTRY } from '@shared/constants/providers';
 import type { BuiltinProvider } from '@shared/types/provider-account';
 import { useSettingsStore } from '../../stores/settings-store';
@@ -160,8 +160,7 @@ export function MultiProviderModelSelect({ value, onChange, className, filterPro
   }, [search, groupedModels]);
 
   // Resolve value to provider-equivalent when filterProvider is set
-  // e.g., 'opus' → 'gpt-5.3' when filterProvider='openai'
-  const resolvedValue = useMemo(() => {
+  const equivalentValue = useMemo(() => {
     if (!filterProvider || !value) return value;
     // Ollama uses raw model names — skip equivalence resolution
     if (filterProvider === 'ollama') return value;
@@ -179,6 +178,7 @@ export function MultiProviderModelSelect({ value, onChange, className, filterPro
     }
     return value;
   }, [value, filterProvider]);
+  const resolvedValue = openaiIsOAuthOnly ? resolveCodexOAuthModelId(equivalentValue) ?? equivalentValue : equivalentValue;
 
   // Find current selection label (check grouped models which includes custom models)
   const selectedModel = useMemo(() => {

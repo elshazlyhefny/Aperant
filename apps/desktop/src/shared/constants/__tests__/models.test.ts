@@ -3,7 +3,29 @@ import {
   getProviderPreset,
   getProviderPresetOrFallback,
   PROVIDER_PRESET_DEFINITIONS,
+  resolveCodexOAuthModelId,
+  resolveModelEquivalent,
 } from '../models';
+
+describe('Codex OAuth model resolution', () => {
+  it.each([
+    ['gpt-5.3-codex', 'gpt-6.2-sol'],
+    ['gpt-5.2-codex', 'gpt-6.2-sol'],
+    ['gpt-5.2', 'gpt-6.2-sol'],
+    ['gpt-5.1-codex-mini', 'gpt-6-luna'],
+    ['gpt-6.2-astra', 'gpt-6.2-astra'],
+    ['o3', null],
+  ])('routes %s to %s', (requested, expected) => {
+    expect(resolveCodexOAuthModelId(requested)).toBe(expected);
+  });
+
+  it('uses current OpenAI equivalents and honors overrides saved under a shorthand', () => {
+    expect(resolveModelEquivalent('opus', 'openai')?.modelId).toBe('gpt-6.2-sol');
+    const override = { modelId: 'gpt-6.2-astra', reasoning: { type: 'reasoning_effort', level: 'high' } } as const;
+    expect(resolveModelEquivalent('claude-opus-5-5', 'openai', { opus: { openai: override } })).toEqual(override);
+    expect(resolveModelEquivalent('gpt-5.3-codex', 'openai')?.modelId).toBe('gpt-5.3-codex');
+  });
+});
 
 describe('getProviderPreset', () => {
   it('returns correct preset for known provider and presetId', () => {
@@ -23,7 +45,7 @@ describe('getProviderPreset', () => {
   it('returns correct preset for openai provider', () => {
     const result = getProviderPreset('openai', 'auto');
     expect(result).not.toBeNull();
-    expect(result?.primaryModel).toBe('gpt-5.3-codex');
+    expect(result?.primaryModel).toBe('gpt-6.2-sol');
   });
 
   it('returns null for unknown presetId', () => {
@@ -53,7 +75,7 @@ describe('getProviderPresetOrFallback', () => {
 
   it('returns openai balanced preset exactly when available', () => {
     const result = getProviderPresetOrFallback('openai', 'balanced');
-    expect(result.primaryModel).toBe('gpt-5.2-codex');
+    expect(result.primaryModel).toBe('gpt-6.2-sol');
     expect(result.primaryThinking).toBe('medium');
   });
 

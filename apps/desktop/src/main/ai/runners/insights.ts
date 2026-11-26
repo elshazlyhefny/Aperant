@@ -278,14 +278,10 @@ export async function runInsightsQuery(
   const toolCalls: ToolCallInfo[] = [];
   let responseText = '';
 
-  // Detect Codex models — they require instructions via providerOptions, not system
-  const insightsModelId = typeof client.model === 'string' ? client.model : client.model.modelId;
-  const isCodexInsights = insightsModelId?.includes('codex') ?? false;
-
   try {
     const result = streamText({
       model: client.model,
-      system: isCodexInsights ? undefined : client.systemPrompt,
+      system: client.systemPrompt,
       // History stays text-only inside fullPrompt, so images are sent only on the current turn
       ...(images.length > 0
         ? {
@@ -307,14 +303,7 @@ export async function runInsightsQuery(
       tools: client.tools,
       stopWhen: stepCountIs(client.maxSteps),
       abortSignal,
-      ...(isCodexInsights ? {
-        providerOptions: {
-          openai: {
-            instructions: client.systemPrompt,
-            store: false,
-          },
-        },
-      } : {}),
+
     });
 
     for await (const part of result.fullStream) {

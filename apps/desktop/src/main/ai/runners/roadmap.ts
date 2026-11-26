@@ -9,7 +9,7 @@
  * Uses `createSimpleClient()` with read-only tools and streaming.
  */
 
-import { stepCountIs } from 'ai';
+import { APICallError, stepCountIs } from 'ai';
 import { streamText } from '../claude-code/sdk';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -148,6 +148,7 @@ async function streamRoadmapAttempt(
       case 'error':
         streamError = part.error instanceof Error ? part.error.message : String(part.error);
         onStream?.({ type: 'error', error: streamError });
+        if (APICallError.isInstance(part.error) && !part.error.isRetryable) throw part.error;
         break;
       case 'tool-error': {
         const message = part.error instanceof Error ? part.error.message : String(part.error);
@@ -186,10 +187,6 @@ async function runDiscoveryPhase(
 
   const errors: string[] = [];
 
-  // Detect Codex models — they require instructions via providerOptions, not system
-  const discoveryModelId = typeof client.model === 'string' ? client.model : client.model.modelId;
-  const isCodexDiscovery = discoveryModelId?.includes('codex') ?? false;
-
   // Load the full prompt file with JSON schema; fall back to inline prompt
   const loadedDiscoveryPrompt = tryLoadPrompt('roadmap_discovery');
 
@@ -222,19 +219,12 @@ Do NOT ask questions. Make educated inferences and create the file.${notes}`;
     try {
       const attemptError = await streamRoadmapAttempt({
         model: client.model,
-        system: isCodexDiscovery ? undefined : prompt,
+        system: prompt,
         prompt: discoveryUserPrompt,
         tools: client.tools,
         stopWhen: stepCountIs(client.maxSteps),
         abortSignal,
-        ...(isCodexDiscovery ? {
-          providerOptions: {
-            openai: {
-              instructions: prompt,
-              store: false,
-            },
-          },
-        } : {}),
+
       }, onStream);
 
       // Validate output (only a file written by this attempt counts)
@@ -257,6 +247,7 @@ Do NOT ask questions. Make educated inferences and create the file.${notes}`;
       }
     } catch (error) {
       errors.push(`Attempt ${attempt + 1}: ${error instanceof Error ? error.message : String(error)}`);
+      if (APICallError.isInstance(error) && !error.isRetryable) break;
     }
   }
 
@@ -296,10 +287,6 @@ async function runFeaturesPhase(
   const preservedFeatures = loadPreservedFeatures(roadmapFile);
 
   const errors: string[] = [];
-
-  // Detect Codex models — they require instructions via providerOptions, not system
-  const featuresModelId = typeof client.model === 'string' ? client.model : client.model.modelId;
-  const isCodexFeatures = featuresModelId?.includes('codex') ?? false;
 
   // Load the full prompt file with JSON schema; fall back to inline prompt
   const loadedFeaturesPrompt = tryLoadPrompt('roadmap_features');
@@ -343,19 +330,12 @@ The JSON must contain: vision, target_audience (object with "primary" key), phas
     try {
       const attemptError = await streamRoadmapAttempt({
         model: client.model,
-        system: isCodexFeatures ? undefined : prompt,
+        system: prompt,
         prompt: featuresUserPrompt,
         tools: client.tools,
         stopWhen: stepCountIs(client.maxSteps),
         abortSignal,
-        ...(isCodexFeatures ? {
-          providerOptions: {
-            openai: {
-              instructions: prompt,
-              store: false,
-            },
-          },
-        } : {}),
+
       }, onStream);
 
       // Validate and merge — read/write through fd to avoid TOCTOU
@@ -399,6 +379,7 @@ The JSON must contain: vision, target_audience (object with "primary" key), phas
       }
     } catch (error) {
       errors.push(`Attempt ${attempt + 1}: ${error instanceof Error ? error.message : String(error)}`);
+      if (APICallError.isInstance(error) && !error.isRetryable) break;
     }
   }
 
