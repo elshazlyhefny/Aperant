@@ -79,7 +79,11 @@ export async function startQAFixRun(
   if (!agentManager.isRunning(task.id)) {
     return { started: false, error: 'QA did not start.', reported: true };
   }
-  taskStateManager.handleUiEvent(task.id, { type: 'USER_RESUMED' }, task, project);
+  if (task.status === 'queue') {
+    taskStateManager.handleManualStatusChange(task.id, 'in_progress', task, project);
+  } else {
+    taskStateManager.handleUiEvent(task.id, { type: 'USER_RESUMED' }, task, project);
+  }
   return { started: true };
 }
 
@@ -179,7 +183,7 @@ function buildIsComplete(specDir: string): boolean {
  * it would run the fixer again on issues already fixed.
  */
 export function findPendingQAFixResume(task: Task, project: Project): QAFixTarget | null {
-  if (task.status !== 'human_review' || task.reviewReason !== 'account_required') return null;
+  if (task.status !== 'queue' && !(task.status === 'human_review' && task.reviewReason === 'account_required')) return null;
   const target = resolveQAFixTarget(project, task);
   if (!buildIsComplete(target.specDir)) return null;
   const request = safeReadFileSync(path.join(target.specDir, FIX_REQUEST_FILE));

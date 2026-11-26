@@ -194,7 +194,7 @@ function detectProviderFromModelId(modelId: string): SupportedProvider | undefin
  * on gpt-5.2 and later, minus the small codex-mini/nano variants.
  */
 function openAISupportsXHighEffort(modelId: string): boolean {
-  if (modelId.includes('codex-max')) return true;
+  if (modelId.startsWith('gpt-6') || modelId.includes('codex-max')) return true;
   if (modelId.includes('mini') || modelId.includes('nano')) return false;
   const minor = /^gpt-5\.(\d+)/.exec(modelId)?.[1];
   return minor !== undefined && Number(minor) >= 2;
@@ -232,7 +232,7 @@ export function buildThinkingProviderOptions(
     }
 
     case 'openai': {
-      if (modelId.startsWith('gpt-5')) {
+      if (modelId.startsWith('gpt-5') || modelId.startsWith('gpt-6')) {
         // zeenha fork: per-task Codex phases send the phase thinking level as effort.
         // Skip models the registry marks as non-thinking, and lower 'xhigh' to 'high'
         // for models that reject it, so neither case returns a 400.

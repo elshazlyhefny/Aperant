@@ -1,6 +1,4 @@
-import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Info } from 'lucide-react';
 import { useSettingsStore, saveSettings } from '../../stores/settings-store';
 import { MixedPhaseEditor } from './MixedPhaseEditor';
 import { MixedFeatureEditor } from './MixedFeatureEditor';
@@ -9,20 +7,10 @@ import { MixedFeatureEditor } from './MixedFeatureEditor';
  * CrossProviderTabContent — rendered when the user selects the "Cross-Provider" tab
  * in Agent Profile settings.
  *
- * Activates cross-provider mode on mount, then shows separate sections for
- * pipeline phase configuration (MixedPhaseEditor) and feature model configuration
- * (MixedFeatureEditor).
  */
 export function CrossProviderTabContent() {
   const { t } = useTranslation('settings');
   const settings = useSettingsStore((s) => s.settings);
-
-  // Activate cross-provider mode when this tab is shown
-  useEffect(() => {
-    if (!settings.customMixedProfileActive) {
-      saveSettings({ customMixedProfileActive: true });
-    }
-  }, []); // Only on mount
 
   return (
     <div className="space-y-6">
@@ -36,13 +24,11 @@ export function CrossProviderTabContent() {
         </p>
       </div>
 
-      {/* Info banner */}
-      <div className="flex items-start gap-2 rounded-lg bg-primary/5 border border-primary/20 p-3">
-        <Info className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-        <p className="text-xs text-primary/80">
-          {t('agentProfile.crossProviderTab.activateInfo')}
-        </p>
-      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!settings.customMixedProfileActive}
+          onChange={event => void saveSettings({ customMixedProfileActive: event.target.checked })} />
+        {t('agentProfile.crossProviderTab.activateInfo')}
+      </label>
 
       {/* Pipeline Phase Configuration */}
       <div className="rounded-lg border border-border bg-card p-4">

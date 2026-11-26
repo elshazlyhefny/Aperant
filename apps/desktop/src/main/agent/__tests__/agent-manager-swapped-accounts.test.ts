@@ -17,6 +17,7 @@ vi.mock('../../settings-utils', async importOriginal => ({
   readSettingsFile: () => settings.value,
 }));
 
+import * as phaseConnection from '../../ai/agent/phase-connection';
 import { AgentManager } from '../agent-manager';
 import { getOperationRegistry } from '../../claude-profile/operation-registry';
 
@@ -81,6 +82,27 @@ describe('AgentManager swapped accounts', () => {
     expect(internals.swappedAccounts.get('t')).toEqual({ accountIds: new Set(['b']), profileId: 'profile-a' });
     settings.value = undefined;
     await vi.advanceTimersByTimeAsync(600);
+  });
+
+  it('retains rate limits across a swap even when resolution falls back to swapped-away accounts', async () => {
+    settings.value = { providerAccounts: [{ id: 'a', provider: 'anthropic', claudeProfileId: 'profile-a' }] };
+    const resolve = vi.fn().mockResolvedValue({ provider: 'anthropic', modelId: 'sonnet', accountId: 'a' });
+    const factory = vi.spyOn(phaseConnection, 'phaseConnectionResolver').mockReturnValue(resolve);
+    try {
+      internals.storeTaskContext('t', '/project', '001-x', {});
+      markRunning('t');
+      const operation = { taskId: 't', type: 'task-execution' as const, metadata: {} };
+      const createResolver = () => AgentManager.prototype['taskPhaseResolver'].call(manager, null, operation)!;
+      await createResolver()('qa', ['limited']);
+      await getOperationRegistry().restartOperationsOnProfile('profile-a', 'profile-b', 'B');
+      await vi.advanceTimersByTimeAsync(600);
+      resolve.mockRejectedValueOnce(new Error('no alternative'));
+      await createResolver()('qa');
+      expect(resolve.mock.calls.slice(-2)).toEqual([['qa', ['limited', 'a']], ['qa', ['limited']]]);
+    } finally {
+      factory.mockRestore();
+      settings.value = undefined;
+    }
   });
 
   it('drops the swap when the task is stopped', () => {

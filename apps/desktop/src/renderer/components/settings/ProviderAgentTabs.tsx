@@ -96,12 +96,7 @@ export function ProviderAgentTabs() {
       <ProviderTabBar
         providers={orderedProviders}
         activeProvider={resolvedTab}
-        onProviderChange={(provider) => {
-          if (isCrossProviderActive) {
-            saveSettings({ customMixedProfileActive: false });
-          }
-          setActiveTab(provider);
-        }}
+        onProviderChange={setActiveTab}
         showCrossProvider
         isCrossProviderActive={isCrossProviderActive}
         onCrossProviderClick={() => setActiveTab('cross-provider')}

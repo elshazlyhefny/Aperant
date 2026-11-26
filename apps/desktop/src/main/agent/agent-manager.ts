@@ -354,7 +354,7 @@ export class AgentManager extends EventEmitter {
 
   // zeenha fork: per routed task, the Claude accounts a proactive swap moved it away
   // from and the Claude profile the swap chose. Kept only across swap restarts.
-  private swappedAccounts = new Map<string, { accountIds: Set<string>; profileId: string }>();
+  private swappedAccounts = new Map<string, { accountIds: Set<string>; rateLimitedIds?: Set<string>; profileId: string }>();
   // zeenha fork: tasks whose next start comes from restartTask rather than the user.
   private restartingTasks = new Set<string>();
 
@@ -377,7 +377,7 @@ export class AgentManager extends EventEmitter {
    * restart goes ahead. The global active profile is left alone: the restarted task
    * prefers the provider account linked to `newProfileId` instead.
    */
-  private restartAfterSwap(taskId: string, accountIds: string[], newProfileId: string): boolean {
+  private restartAfterSwap(taskId: string, accountIds: string[], newProfileId: string, rateLimitedIds?: Set<string>): boolean {
     if (!this.isRunning(taskId)) return false;
     const restarted = this.restartTask(taskId);
     if (restarted) {
@@ -388,6 +388,7 @@ export class AgentManager extends EventEmitter {
       this.swappedAccounts.set(taskId, {
         accountIds: new Set(accountIds.filter(id => !chosen.has(id))),
         profileId: newProfileId,
+        ...(rateLimitedIds?.size && { rateLimitedIds: new Set(rateLimitedIds) }),
       });
     }
     return restarted;
@@ -425,15 +426,17 @@ export class AgentManager extends EventEmitter {
     if (!resolve || !operation) return resolve;
     const { taskId } = operation;
     return async (phase: Phase, excludeAccountIds: string[] = []) => {
-      const swapped = [...(this.swappedAccounts.get(taskId)?.accountIds ?? [])];
+      const previous = this.swappedAccounts.get(taskId);
+      const swapped = [...(previous?.accountIds ?? [])];
+      const limited = new Set([...(previous?.rateLimitedIds ?? []), ...excludeAccountIds]);
       // A swapped-away account is skipped while another account can run the phase.
-      const connection = await resolve(phase, [...excludeAccountIds, ...swapped])
-        .catch(error => swapped.length ? resolve(phase, excludeAccountIds) : Promise.reject(error));
+      const connection = await resolve(phase, [...limited, ...swapped])
+        .catch(error => swapped.length ? resolve(phase, [...limited]) : Promise.reject(error));
       const account = readSettingsFile()?.providerAccounts?.find(a => a.id === connection.accountId);
       const registry = getOperationRegistry();
       if (account?.provider === 'anthropic' && account.claudeProfileId) {
         registry.registerOperation(taskId, operation.type, account.claudeProfileId, account.name,
-          (newProfileId: string) => this.restartAfterSwap(taskId, [...swapped, account.id], newProfileId),
+          (newProfileId: string) => this.restartAfterSwap(taskId, [...swapped, account.id], newProfileId, limited),
           { metadata: operation.metadata });
       } else {
         registry.unregisterOperation(taskId);
@@ -735,7 +738,7 @@ export class AgentManager extends EventEmitter {
       : await this.resolveAuthFromProviderQueue(modelId, preferredProvider);
 
     // Find existing worktree for QA (created during task execution)
-    const worktreePath = findTaskWorktree(projectPath, specId);
+    const worktreePath = findTaskWorktree(project?.path ?? projectPath, specId);
     // zeenha fork: QA fixes commit too; never in the project root under PR-only landing.
     if (!worktreePath && landsThroughPullRequestsOnly(project?.settings)) {
       this.emit('error', taskId, "QA was not started: the task has no git worktree, and this project lands changes through pull requests only.");
@@ -771,7 +774,7 @@ export class AgentManager extends EventEmitter {
       baseURL: resolved.auth?.baseURL,
       configDir: resolved.configDir,
       oauthTokenFilePath: resolved.auth?.oauthTokenFilePath,
-      mcpOptions: this.mcpOptionsForProject(projectPath),
+      mcpOptions: this.mcpOptionsForProject(project?.path ?? projectPath),
       toolContext: {
         cwd: effectiveCwd,
         projectDir: effectiveProjectDir,
