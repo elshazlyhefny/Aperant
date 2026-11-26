@@ -108,7 +108,9 @@ export class WorkerBridgeCore extends EventEmitter {
         let response: MainToWorkerMessage;
         try {
           if (!config.resolvePhaseConnection) throw new Error('Phase routing is unavailable.');
-          const connection = await config.resolvePhaseConnection(message.phase);
+          // zeenha fork: pass on the accounts the worker must skip, so a rate-limited
+          // phase moves to the next account of the same provider.
+          const connection = await config.resolvePhaseConnection(message.phase, message.excludeAccountIds);
           response = { type: 'phase-connection', requestId: message.requestId, connection };
           if (worker === this.worker) this.accountId = connection.accountId;
         } catch (error) {

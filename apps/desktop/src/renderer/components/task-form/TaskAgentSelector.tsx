@@ -1,3 +1,4 @@
+// zeenha fork: the per-task Claude/Codex/Both agent choice exists only in this fork.
 import { useTranslation } from 'react-i18next';
 import type { TaskAgentMode, TaskAgentSelection } from '@shared/types/settings';
 import { taskAgentPreset } from '@shared/utils/task-agent';
@@ -24,8 +25,8 @@ export function TaskAgentSelector({ value, onChange, isDefault, allowProfile = t
             onChange(mode === 'profile' ? null : taskAgentPreset(mode as TaskAgentMode, settings));
           }}>
           {allowProfile && <option value="profile">{t('taskAgent.profile')}</option>}
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
+          <option value="claude">{t('taskAgent.claude')}</option>
+          <option value="codex">{t('taskAgent.codex')}</option>
           <option value="both">{t('taskAgent.both')}</option>
         </select>
       </label>

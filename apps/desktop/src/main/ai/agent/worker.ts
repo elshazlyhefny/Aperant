@@ -155,6 +155,10 @@ function postTaskEvent(eventType: string, extra?: Record<string, unknown>): void
 const abortController = new AbortController();
 
 let requestId = 0;
+// zeenha fork: accounts that hit a rate limit in this run. Every later phase
+// connection skips them, so a routed task moves to the next account of the
+// phase's provider instead of pausing.
+const rateLimitedAccounts = new Set<string>();
 function requestPhaseConnection(phase: Phase): Promise<PhaseConnection> {
   const id = ++requestId;
   return new Promise((resolve, reject) => {
@@ -165,7 +169,7 @@ function requestPhaseConnection(phase: Phase): Promise<PhaseConnection> {
       else reject(new Error(reply.message));
     };
     parentPort!.on('message', receive);
-    postMessage({ type: 'phase-connection', phase, requestId: id });
+    postMessage({ type: 'phase-connection', phase, requestId: id, excludeAccountIds: [...rateLimitedAccounts] });
   });
 }
 
@@ -451,7 +455,7 @@ async function runSingleSession(
     }
   }
 
-  const connection = config.resolvePhaseConnection
+  const connection: PhaseConnection = config.resolvePhaseConnection
     ? await requestPhaseConnection(phase).catch((error: Error) => pauseForAccount(phase, error.message))
     : baseSession;
   const phaseModelId = config.resolvePhaseConnection ? connection.modelId
@@ -587,6 +591,20 @@ async function runSingleSession(
   if (config.resolvePhaseConnection) {
     if (sessionResult.outcome === 'auth_failure' || sessionResult.outcome === 'completed') {
       postMessage({ type: 'phase-key-outcome', outcome: sessionResult.outcome === 'auth_failure' ? 'rejected' : 'valid' });
+    }
+    // zeenha fork: on a rate limit, retry the session on the next usable account of
+    // the same provider. Only when none is left does the request fail and the
+    // task pause for an account (account_required).
+    if (sessionResult.outcome === 'rate_limited' && connection.accountId && !rateLimitedAccounts.has(connection.accountId)) {
+      rateLimitedAccounts.add(connection.accountId);
+      postLog(`${phase}: ${connection.provider} account rate limited, trying the next ${connection.provider} account.`);
+      // Close this attempt's log phase; the retry starts its own.
+      if (logWriter && !skipPhaseLogging) {
+        logWriter.endPhase(phase, false, phaseEndMessage(phase, false, `the ${connection.provider} account hit a rate limit`));
+      }
+      if (logWriter) logWriter.setSubtask(undefined);
+      return runSingleSession(agentType, phase, systemPrompt, specDir, projectDir, sessionNumber, subtaskId,
+        baseSession, toolContext, registry, initialUserMessage, skipPhaseLogging, outputSchema);
     }
     if (sessionResult.outcome === 'auth_failure' || sessionResult.outcome === 'rate_limited') {
       pauseForAccount(phase, `The ${phase} phase stopped on ${connection.provider} / ${phaseModelId} (${sessionResult.outcome}). Check the account or change the task agent, then resume.`);

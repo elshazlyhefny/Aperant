@@ -1,3 +1,4 @@
+// zeenha fork: the per-task Claude/Codex/Both agent choice exists only in this fork.
 import { getProviderPresetOrFallback } from '../constants/models';
 import type { AppSettings, MixedPhaseConfig, PipelinePhase, TaskAgentMode, TaskAgentSelection } from '../types/settings';
 import type { TaskMetadata } from '../types/task';

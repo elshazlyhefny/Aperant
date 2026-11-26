@@ -325,8 +325,12 @@ export class SpecOrchestrator extends EventEmitter {
       // ===================================================================
       const phasesToRun = [...COMPLEXITY_PHASES[complexity]];
 
+      // zeenha fork: a routed task plans on its own planning connection, so quick_spec
+      // splits into spec_writing + planning. spec_writer needs context.json and
+      // requirements.json (without them it writes a greenfield spec), so run
+      // discovery and requirements first.
       if (this.config.separatePlanning && phasesToRun.includes('quick_spec')) {
-        phasesToRun.splice(phasesToRun.indexOf('quick_spec'), 1, 'spec_writing', 'planning');
+        phasesToRun.splice(phasesToRun.indexOf('quick_spec'), 1, 'discovery', 'requirements', 'spec_writing', 'planning');
       }
 
       // Inject research/self-critique if flagged but not already in the tier

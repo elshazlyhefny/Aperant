@@ -156,7 +156,7 @@ export const MODEL_PROVIDER_MAP: Record<string, SupportedProvider> = {
 // Reasoning Parameter Resolution
 // ============================================
 
-import type { ReasoningConfig } from '../../../shared/constants/models';
+import { ALL_AVAILABLE_MODELS, type ReasoningConfig } from '../../../shared/constants/models';
 
 export function resolveReasoningParams(config: ReasoningConfig): Record<string, unknown> {
   switch (config.type) {
@@ -187,6 +187,17 @@ function detectProviderFromModelId(modelId: string): SupportedProvider | undefin
     }
   }
   return undefined;
+}
+
+/**
+ * zeenha fork: OpenAI accepts reasoningEffort 'xhigh' only on gpt-5.1-codex-max and
+ * on gpt-5.2 and later, minus the small codex-mini/nano variants.
+ */
+function openAISupportsXHighEffort(modelId: string): boolean {
+  if (modelId.includes('codex-max')) return true;
+  if (modelId.includes('mini') || modelId.includes('nano')) return false;
+  const minor = /^gpt-5\.(\d+)/.exec(modelId)?.[1];
+  return minor !== undefined && Number(minor) >= 2;
 }
 
 /**
@@ -222,7 +233,12 @@ export function buildThinkingProviderOptions(
 
     case 'openai': {
       if (modelId.startsWith('gpt-5')) {
-        const effort = thinkingLevel === 'xhigh' && modelId.includes('codex-mini') ? 'high' : thinkingLevel;
+        // zeenha fork: per-task Codex phases send the phase thinking level as effort.
+        // Skip models the registry marks as non-thinking, and lower 'xhigh' to 'high'
+        // for models that reject it, so neither case returns a 400.
+        const listed = ALL_AVAILABLE_MODELS.find(m => m.provider === 'openai' && m.value === modelId);
+        if (listed?.capabilities?.thinking === false) return undefined;
+        const effort = thinkingLevel === 'xhigh' && !openAISupportsXHighEffort(modelId) ? 'high' : thinkingLevel;
         return { openai: { reasoningEffort: effort } };
       }
       if (modelId.startsWith('o1-') || modelId.startsWith('o3-') || modelId.startsWith('o4-')) {
