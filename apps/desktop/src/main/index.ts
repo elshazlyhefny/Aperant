@@ -42,6 +42,7 @@ const possibleEnvPaths = [
 
 // Must stay above every import that reads app.getPath('userData') while loading.
 import './dev-instance-isolation';
+import './network-defaults';
 import { app, BrowserWindow, ipcMain, nativeImage, session, screen, Menu, MenuItem } from 'electron';
 import { join } from 'path';
 import { accessSync, readFileSync, writeFileSync, rmSync, cpSync } from 'fs';
