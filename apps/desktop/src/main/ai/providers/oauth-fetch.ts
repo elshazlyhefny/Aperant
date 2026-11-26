@@ -9,7 +9,13 @@
  */
 
 import * as fs from 'node:fs';
+// @ts-expect-error - no types available for proper-lockfile
+import * as lockfile from 'proper-lockfile';
 import { createDebugLog, isDebugEnabled } from '../../../shared/utils/debug-logger';
+import { getCodexAccountId } from '../../claude-profile/codex-usage-fetcher';
+import { writeJsonAtomic } from '../../utils/atomic-file';
+import { withFileLock } from '../../utils/file-lock';
+import { CODEX_RESPONSES_URL, readCodexResponse } from './codex-responses';
 
 // =============================================================================
 // Debug Logging
@@ -30,19 +36,11 @@ interface OAuthProviderSpec {
   rewriteUrl?: (url: string) => string;
 }
 
-const CODEX_API_ENDPOINT = 'https://chatgpt.com/backend-api/codex/responses';
-
 const OAUTH_PROVIDER_REGISTRY: Record<string, OAuthProviderSpec> = {
   openai: {
     tokenEndpoint: 'https://auth.openai.com/oauth/token',
     clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
-    rewriteUrl: (url: string) => {
-      const parsed = new URL(url);
-      if (parsed.pathname.includes('/chat/completions') || parsed.pathname.includes('/v1/responses')) {
-        return CODEX_API_ENDPOINT;
-      }
-      return url;
-    },
+    rewriteUrl: () => CODEX_RESPONSES_URL,
   },
   // Future OAuth providers: just add entries here
 };
@@ -72,22 +70,6 @@ function readTokenFile(tokenFilePath: string): StoredTokens | null {
   }
 }
 
-function writeTokenFile(tokenFilePath: string, tokens: StoredTokens): void {
-  // CodeQL: network data validated before write - validate token fields match expected StoredTokens schema
-  const safeTokens: StoredTokens = {
-    access_token: typeof tokens.access_token === 'string' ? tokens.access_token : '',
-    refresh_token: typeof tokens.refresh_token === 'string' ? tokens.refresh_token : '',
-    expires_at: typeof tokens.expires_at === 'number' ? tokens.expires_at : 0,
-  };
-  fs.writeFileSync(tokenFilePath, JSON.stringify(safeTokens, null, 2), 'utf8');
-  try {
-    fs.chmodSync(tokenFilePath, 0o600);
-  } catch {
-    // chmod may fail on Windows; non-critical
-  }
-  debugLog('Wrote tokens to file', { path: tokenFilePath, expiresAt: tokens.expires_at });
-}
-
 // =============================================================================
 // Token Refresh
 // =============================================================================
@@ -109,6 +91,7 @@ async function refreshOAuthToken(
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
+    signal: AbortSignal.timeout(15_000),
   });
 
   debugLog('Token refresh response', { status: response.status, ok: response.ok });
@@ -143,11 +126,14 @@ async function refreshOAuthToken(
   const expiresIn = typeof data.expires_in === 'number' ? data.expires_in : 3600;
   const expiresAt = Date.now() + expiresIn * 1000;
 
-  writeTokenFile(tokenFilePath, {
+  // A login or logout can replace/remove the credentials while the request is in flight.
+  const current = readTokenFile(tokenFilePath);
+  if (current?.refresh_token !== refreshToken) return current?.access_token ?? null;
+  await writeJsonAtomic(tokenFilePath, {
     access_token: data.access_token,
     refresh_token: newRefreshToken,
     expires_at: expiresAt,
-  });
+  }, { mode: 0o600 });
 
   return data.access_token;
 }
@@ -203,7 +189,20 @@ export async function ensureValidOAuthToken(
   }
 
   try {
-    return await refreshOAuthToken(stored.refresh_token, providerSpec, tokenFilePath);
+    return await withFileLock(tokenFilePath, async () => {
+      // Workers and the usage monitor can race to refresh a rotating OAuth token.
+      const release: () => Promise<void> = await lockfile.lock(tokenFilePath, {
+        retries: { retries: 20, factor: 1, minTimeout: 1_000 },
+      });
+      try {
+        const current = readTokenFile(tokenFilePath);
+        if (!current) return null;
+        if (current.expires_at - Date.now() > REFRESH_THRESHOLD_MS) return current.access_token;
+        return await refreshOAuthToken(current.refresh_token, providerSpec, tokenFilePath);
+      } finally {
+        await release();
+      }
+    });
   } catch (err) {
     debugLog('Token refresh failed', { error: err instanceof Error ? err.message : String(err) });
     return null;
@@ -262,7 +261,19 @@ export function createOAuthProviderFetch(
       debugLog(`${originalUrl} -> ${url} (token: [redacted])`);
     }
 
-    const finalInit = { ...init, headers };
+    const codexRequest = url === CODEX_RESPONSES_URL && typeof init?.body === 'string'
+      ? JSON.parse(init.body) as Record<string, unknown>
+      : undefined;
+    if (codexRequest) {
+      headers.set('Accept', 'text/event-stream');
+      const accountId = getCodexAccountId(token);
+      if (accountId && !headers.has('ChatGPT-Account-Id')) headers.set('ChatGPT-Account-Id', accountId);
+    }
+    const finalInit = {
+      ...init,
+      headers,
+      ...(codexRequest ? { body: JSON.stringify({ ...codexRequest, stream: true }), redirect: 'error' as const } : {}),
+    };
     const response = await globalThis.fetch(url, finalInit);
 
     if (isDebugEnabled()) {
@@ -278,6 +289,6 @@ export function createOAuthProviderFetch(
       }
     }
 
-    return response;
+    return codexRequest && codexRequest.stream !== true ? readCodexResponse(response) : response;
   };
 }

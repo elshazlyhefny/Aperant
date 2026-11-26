@@ -345,11 +345,7 @@ async function executeStream(
     content: msg.content,
   }));
 
-  // Codex models (via chatgpt.com/backend-api/codex/responses) require
-  // `instructions` in the request body instead of system messages in `input`.
-  // Pass system prompt via providerOptions and enable store for proper Codex API behavior.
   const modelId = typeof config.model === 'string' ? config.model : config.model.modelId;
-  const isCodex = config.codexOAuth || modelId?.includes('codex');
   const isAnthropicModel = modelId?.startsWith('claude-') ?? false;
   const isClaudeCode = isClaudeCodeModel(config.model);
 
@@ -375,24 +371,18 @@ async function executeStream(
 
   const result = streamText({
     model: config.model,
-    system: isCodex ? undefined : config.systemPrompt,
+    system: config.systemPrompt,
     messages: aiMessages,
     tools: tools ?? {},
     ...(useOutputSchema ? { output: Output.object({ schema: config.outputSchema! }) } : {}),
     stopWhen,
     abortSignal: mergedAbortSignal,
-    ...((thinkingOptions || isCodex || (useOutputSchema && isAnthropicModel) || isClaudeCode) ? {
+    ...((thinkingOptions || (useOutputSchema && isAnthropicModel) || isClaudeCode) ? {
       providerOptions: {
         // Claude Code engine (subscription): run the CLI in the task worktree.
         ...(isClaudeCode ? { 'claude-code': { cwd: config.toolContext.cwd } } : {}),
         ...(thinkingOptions ?? {}),
-        ...(isCodex ? {
-          openai: {
-            ...(thinkingOptions?.openai ?? {}),
-            ...(config.systemPrompt ? { instructions: config.systemPrompt } : {}),
-            store: false,
-          },
-        } : {}),
+
         ...(useOutputSchema && isAnthropicModel ? {
           anthropic: { structuredOutputMode: 'outputFormat' },
         } : {}),

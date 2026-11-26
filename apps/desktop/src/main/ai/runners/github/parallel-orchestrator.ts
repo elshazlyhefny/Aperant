@@ -320,36 +320,13 @@ Return ONLY valid JSON (no markdown fencing):
 // Provider-agnostic generateText options
 // =============================================================================
 
-/**
- * Build provider-agnostic options for generateText().
- *
- * Codex models require system prompt via providerOptions.openai.instructions
- * instead of the `system` parameter, plus `store: false`.
- * Other providers use the standard `system` parameter.
- */
 function buildGenerateTextOptions(
   client: SimpleClientResult,
 ): { system: string | undefined; providerOptions?: Record<string, Record<string, string | number | boolean | null>> } {
-  const isCodex = client.resolvedModelId?.includes('codex') ?? false;
-
   // Build thinking/reasoning provider options
   const thinkingOptions = client.thinkingLevel
     ? buildThinkingProviderOptions(client.resolvedModelId, client.thinkingLevel)
     : undefined;
-
-  if (isCodex) {
-    return {
-      system: undefined,
-      providerOptions: {
-        ...(thinkingOptions ?? {}),
-        openai: {
-          ...(thinkingOptions?.openai as Record<string, string | number | boolean | null> ?? {}),
-          ...(client.systemPrompt ? { instructions: client.systemPrompt } : {}),
-          store: false,
-        },
-      },
-    };
-  }
 
   return {
     system: client.systemPrompt,
@@ -611,7 +588,6 @@ export class ParallelOrchestratorReviewer {
       let toolCallCount = 0;
       const toolsUsed = new Set<string>();
 
-      // Use streamText instead of generateText — Codex endpoint only supports streaming.
       // Output.object() generates structured output as a final step after all tool calls.
       const stream = streamText({
         model: client.model,
@@ -809,7 +785,6 @@ Validate each finding by reading the actual code at the specified file and line.
     try {
       let validatorToolCalls = 0;
 
-      // Use streamText — Codex endpoint only supports streaming.
       // Output.object() generates the validation array (wrapped in { validations: [...] }) as a final step.
       const stream = streamText({
         model: client.model,
@@ -967,7 +942,6 @@ Validate each finding by reading the actual code at the specified file and line.
     };
 
     try {
-      // Use streamText — Codex endpoint only supports streaming.
       // Output.object() generates the structured verdict as a final step.
       const stream = streamText({
         model: client.model,

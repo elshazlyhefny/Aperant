@@ -33,7 +33,6 @@ export interface SessionConfig {
   agentType: AgentType;
   /** Resolved language model instance from the provider layer */
   model: LanguageModel;
-  codexOAuth?: boolean;
   /** System prompt for the session */
   systemPrompt: string;
   /** Initial user message(s) to start the conversation */

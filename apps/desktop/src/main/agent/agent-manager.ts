@@ -159,7 +159,7 @@ export class AgentManager extends EventEmitter {
     const accounts = settings?.providerAccounts ?? [];
     const priorityOrder = settings?.globalPriorityOrder ?? [];
 
-    if (accounts.length > 0 && priorityOrder.length > 0) {
+    if (accounts.length > 0) {
       // Sort accounts by priority order
       const orderedQueue = priorityOrder
         .map(id => accounts.find(a => a.id === id))
@@ -186,7 +186,7 @@ export class AgentManager extends EventEmitter {
         orderedQueue.splice(0, orderedQueue.length, ...preferred, ...rest);
       }
 
-      const resolved = await resolveAuthFromQueue(requestedModel, orderedQueue);
+      const resolved = await resolveAuthFromQueue(requestedModel, orderedQueue, { userModelOverrides: settings?.modelOverrides });
       if (resolved) {
         console.warn(`[AgentManager] Resolved auth from provider queue: account=${resolved.accountId} provider=${resolved.resolvedProvider} model=${resolved.resolvedModelId}`);
         return {

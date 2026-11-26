@@ -16,7 +16,7 @@
  * continuations — they call `runSingleSession()` which uses this wrapper.
  */
 
-import { generateText, streamText } from 'ai';
+import { generateText } from 'ai';
 
 import { runAgentSession } from './runner';
 import type { RunnerOptions } from './runner';
@@ -226,14 +226,9 @@ async function compactSessionMessages(
       `- Any errors encountered and how they were resolved\n\n` +
       `## Conversation:\n${serialized}\n\n## Summary:`;
 
-    const model = config.model;
-    const codex = config.codexOAuth || (typeof model !== 'string' && model.modelId.includes('codex'));
-    const summary = codex
-      ? await streamText({
-          model, prompt, abortSignal,
-          providerOptions: { openai: { instructions: SUMMARIZER_SYSTEM_PROMPT, store: false } },
-        }).text
-      : (await generateText({ model, system: SUMMARIZER_SYSTEM_PROMPT, prompt, abortSignal })).text;
+    const { text: summary } = await generateText({
+      model: config.model, system: SUMMARIZER_SYSTEM_PROMPT, prompt, abortSignal,
+    });
     if (summary.trim()) return summary.trim();
   } catch {
     // Summarization failed — fall back to raw truncation

@@ -55,6 +55,7 @@ export async function resolveHeadlessAuth(
     providerAccounts: config.providerAccounts,
     globalPriorityOrder: config.globalPriorityOrder,
     providerAgentConfig: config.providerAgentConfig,
+    codexTokenFilePath: config.codexTokenFilePath,
   };
   registerSettingsAccessor((key) => {
     const value = settings[key];

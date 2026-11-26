@@ -2,7 +2,6 @@
  * OpenAI Codex OAuth PKCE Authentication
  *
  * Handles the full OAuth 2.0 PKCE flow for OpenAI Codex subscriptions.
- * Uses Node.js built-ins only: crypto, http, fs, path, url.
  * Uses Electron APIs: shell, app.
  *
  * Flow:
@@ -21,6 +20,8 @@ import * as http from 'http';
 import * as path from 'path';
 import * as url from 'url';
 import { createDebugLog } from '../../../shared/utils/debug-logger';
+import { writeJsonAtomic } from '../../utils/atomic-file';
+import { ensureValidOAuthToken } from '../providers/oauth-fetch';
 
 // Electron APIs loaded lazily to avoid crashing in worker threads
 // (workers don't have access to Electron main-process modules)
@@ -59,9 +60,6 @@ const TOKEN_ENDPOINT = 'https://auth.openai.com/oauth/token';
 const REDIRECT_URI = 'http://localhost:1455/auth/callback';
 const SCOPES = 'openid profile email offline_access';
 
-/** How far before expiry to consider a token "near expiry" and trigger refresh */
-const REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-
 /** Timeout for the OAuth browser flow before giving up */
 const OAUTH_FLOW_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -96,9 +94,9 @@ async function getTokenFilePath(): Promise<string> {
   return path.join(electronApp.getPath('userData'), 'codex-auth.json');
 }
 
-async function readStoredTokens(explicitPath?: string): Promise<StoredTokens | null> {
+async function readStoredTokens(): Promise<StoredTokens | null> {
   try {
-    const filePath = explicitPath ?? await getTokenFilePath();
+    const filePath = await getTokenFilePath();
     const raw = fs.readFileSync(filePath, 'utf8');
     const tokens = JSON.parse(raw) as StoredTokens;
     return tokens;
@@ -116,12 +114,7 @@ async function writeStoredTokens(tokens: StoredTokens): Promise<void> {
     refresh_token: typeof tokens.refresh_token === 'string' ? tokens.refresh_token : '',
     expires_at: typeof tokens.expires_at === 'number' ? tokens.expires_at : 0,
   };
-  fs.writeFileSync(filePath, JSON.stringify(safeTokens, null, 2), 'utf8');
-  try {
-    fs.chmodSync(filePath, 0o600);
-  } catch {
-    // chmod may fail on Windows; non-critical
-  }
+  await writeJsonAtomic(filePath, safeTokens, { mode: 0o600 });
   debugLog('Wrote tokens to disk', { path: filePath, expiresAt: tokens.expires_at });
 }
 
@@ -142,9 +135,7 @@ function generateCodeChallenge(verifier: string): string {
 }
 
 function generateState(): string {
-  const state = crypto.randomBytes(16).toString('hex');
-  debugLog('Generated OAuth state', { state });
-  return state;
+  return crypto.randomBytes(16).toString('hex');
 }
 
 // =============================================================================
@@ -176,8 +167,6 @@ export async function startCodexOAuthFlow(): Promise<CodexAuthResult> {
   authUrl.searchParams.set('originator', 'auto-claude');
   authUrl.searchParams.set('codex_cli_simplified_flow', 'true');
 
-  debugLog('Built authorization URL', { url: authUrl.toString() });
-
   return new Promise<CodexAuthResult>((resolve, reject) => {
     let server: http.Server | null = null;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -201,7 +190,7 @@ export async function startCodexOAuthFlow(): Promise<CodexAuthResult> {
       }
 
       const parsedUrl = new url.URL(req.url, 'http://localhost:1455');
-      debugLog('Received request', { pathname: parsedUrl.pathname, search: parsedUrl.search });
+      debugLog('Received request', { pathname: parsedUrl.pathname });
 
       if (parsedUrl.pathname !== '/auth/callback') {
         debugLog('Non-callback request, returning 404', { pathname: parsedUrl.pathname });
@@ -217,9 +206,6 @@ export async function startCodexOAuthFlow(): Promise<CodexAuthResult> {
       debugLog('Callback received', {
         hasCode: !!code,
         error,
-        errorDescription,
-        returnedState,
-        expectedState: state,
         stateMatch: returnedState === state,
       });
 
@@ -256,7 +242,7 @@ export async function startCodexOAuthFlow(): Promise<CodexAuthResult> {
 
       // Verify state parameter to prevent CSRF attacks
       if (returnedState !== state) {
-        debugLog('State mismatch!', { expected: state, received: returnedState });
+        debugLog('OAuth callback state mismatch');
         res.writeHead(400, { 'Content-Type': 'text/html' }).end(errorHtml);
         cleanup();
         reject(new Error('OAuth error: State parameter mismatch — possible CSRF attack'));
@@ -264,7 +250,6 @@ export async function startCodexOAuthFlow(): Promise<CodexAuthResult> {
       }
 
       debugLog('State verified, exchanging code for tokens');
-      res.writeHead(200, { 'Content-Type': 'text/html' }).end(successHtml);
       cleanup();
 
       // Exchange code for tokens
@@ -276,10 +261,12 @@ export async function startCodexOAuthFlow(): Promise<CodexAuthResult> {
             refresh_token: result.refreshToken,
             expires_at: result.expiresAt,
           });
+          res.writeHead(200, { 'Content-Type': 'text/html' }).end(successHtml);
           resolve(result);
         })
         .catch((err) => {
           debugLog('Token exchange failed', { error: err instanceof Error ? err.message : String(err) });
+          res.writeHead(502, { 'Content-Type': 'text/html' }).end(errorHtml);
           reject(err);
         });
     });
@@ -335,6 +322,7 @@ async function exchangeCodeForTokens(code: string, codeVerifier: string): Promis
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
+    signal: AbortSignal.timeout(15_000),
   });
 
   debugLog('Token exchange response', { status: response.status, ok: response.ok });
@@ -343,7 +331,6 @@ async function exchangeCodeForTokens(code: string, codeVerifier: string): Promis
     let errorMessage = `HTTP ${response.status}`;
     try {
       const errorData = await response.json() as Record<string, string>;
-      debugLog('Token exchange error response', errorData);
       errorMessage = errorData.error_description ?? errorData.error ?? errorMessage;
     } catch {
       // Ignore parse errors
@@ -380,76 +367,6 @@ async function exchangeCodeForTokens(code: string, codeVerifier: string): Promis
   };
 }
 
-// =============================================================================
-// Token Refresh
-// =============================================================================
-
-/**
- * Refresh a Codex access token using the stored refresh token.
- */
-export async function refreshCodexToken(refreshToken: string): Promise<CodexAuthResult> {
-  debugLog('Refreshing Codex access token');
-
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken,
-    client_id: CLIENT_ID,
-  });
-
-  const response = await fetch(TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-  });
-
-  debugLog('Token refresh response', { status: response.status, ok: response.ok });
-
-  if (!response.ok) {
-    let errorMessage = `HTTP ${response.status}`;
-    try {
-      const errorData = await response.json() as Record<string, string>;
-      debugLog('Token refresh error response', errorData);
-      errorMessage = errorData.error_description ?? errorData.error ?? errorMessage;
-    } catch {
-      // Ignore parse errors
-    }
-    throw new Error(`Token refresh failed: ${errorMessage}`);
-  }
-
-  const data = await response.json() as Record<string, unknown>;
-  debugLog('Token refresh success', {
-    hasAccessToken: !!data.access_token,
-    hasNewRefreshToken: !!data.refresh_token,
-    expiresIn: data.expires_in,
-  });
-
-  if (!data.access_token || typeof data.access_token !== 'string') {
-    throw new Error('Token refresh response missing access_token');
-  }
-
-  // Token rotation: new refresh token may be issued; fall back to the existing one
-  const newRefreshToken =
-    typeof data.refresh_token === 'string' ? data.refresh_token : refreshToken;
-
-  const expiresIn = typeof data.expires_in === 'number' ? data.expires_in : 3600;
-  const expiresAt = Date.now() + expiresIn * 1000;
-
-  const result: CodexAuthResult = {
-    accessToken: data.access_token,
-    refreshToken: newRefreshToken,
-    expiresAt,
-    ...(typeof data.id_token === 'string' ? { email: getEmailFromIdToken(data.id_token) } : {}),
-  };
-
-  await writeStoredTokens({
-    access_token: result.accessToken,
-    refresh_token: result.refreshToken,
-    expires_at: result.expiresAt,
-  });
-
-  return result;
-}
-
 function getEmailFromIdToken(idToken: string): string | undefined {
   const parts = idToken.split('.');
   if (parts.length !== 3) return undefined;
@@ -475,28 +392,8 @@ function getEmailFromIdToken(idToken: string): string | undefined {
  * - Returns the valid access token.
  */
 export async function ensureValidCodexToken(tokenFilePath?: string): Promise<string | null> {
-  const stored = await readStoredTokens(tokenFilePath);
-  if (!stored) {
-    debugLog('No stored tokens — returning null');
-    return null;
-  }
-
-  const expiresIn = stored.expires_at - Date.now();
-
-  if (expiresIn > REFRESH_THRESHOLD_MS) {
-    return stored.access_token;
-  }
-
-  // Token expired or near expiry — attempt refresh
-  debugLog('Token expired or near expiry, attempting refresh');
-  try {
-    const refreshed = await refreshCodexToken(stored.refresh_token);
-    debugLog('Token refreshed successfully');
-    return refreshed.accessToken;
-  } catch (err) {
-    debugLog('Token refresh failed', { error: err instanceof Error ? err.message : String(err) });
-    return null;
-  }
+  const filePath = tokenFilePath ?? await getTokenFilePath().catch(() => undefined);
+  return filePath ? ensureValidOAuthToken(filePath, 'openai') : null;
 }
 
 // =============================================================================

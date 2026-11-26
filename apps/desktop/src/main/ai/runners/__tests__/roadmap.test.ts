@@ -1,4 +1,5 @@
 import { join, resolve } from 'node:path';
+import { APICallError } from 'ai';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // =============================================================================
@@ -7,9 +8,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockStreamText = vi.fn();
 
-vi.mock('ai', () => ({
+vi.mock(import('ai'), async (importOriginal) => ({
+  ...await importOriginal(),
   streamText: (...args: unknown[]) => mockStreamText(...args),
-  stepCountIs: (n: number) => ({ type: 'stepCount', count: n }),
 }));
 
 const mockCreateSimpleClient = vi.fn();
@@ -185,6 +186,17 @@ describe('runRoadmapGeneration', () => {
       const result = await runRoadmapGeneration(baseConfig({ refresh: true }));
 
       expect(result.error).toContain('Discovery file was not updated. Write: Permission denied');
+    });
+
+    it('reports a permanent model rejection without sending the request again', async () => {
+      existingFiles();
+      const error = new APICallError({ message: 'Model unavailable for this account', url: 'https://example.com', requestBodyValues: {}, statusCode: 400 });
+      mockStreamText.mockReturnValue(makeStream([{ type: 'error', error }]));
+
+      const result = await runRoadmapGeneration(baseConfig({ refresh: true }));
+
+      expect(result.error).toBe('Discovery failed: Attempt 1: Model unavailable for this account');
+      expect(mockStreamText).toHaveBeenCalledTimes(1);
     });
 
     it('succeeds when the agent rewrote both files', async () => {

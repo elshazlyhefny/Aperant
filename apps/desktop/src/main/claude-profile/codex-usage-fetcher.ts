@@ -148,9 +148,8 @@ export function normalizeCodexResponse(
 /**
  * Extract account ID from a Codex JWT access token.
  *
- * The JWT payload typically contains a `chatgpt_account_id` or `account_id`
- * field for team accounts. Returns undefined if extraction fails — non-critical
- * because the endpoint works without it for personal accounts.
+ * The account ID is normally in OpenAI's namespaced auth claim. Keep support
+ * for older tokens with a top-level account ID.
  */
 export function getCodexAccountId(accessToken: string): string | undefined {
   try {
@@ -164,7 +163,8 @@ export function getCodexAccountId(accessToken: string): string | undefined {
       unknown
     >;
 
-    const id = payload.chatgpt_account_id ?? payload.account_id;
+    const auth = payload['https://api.openai.com/auth'] as { chatgpt_account_id?: unknown } | undefined;
+    const id = auth?.chatgpt_account_id ?? payload.chatgpt_account_id ?? payload.account_id;
     return typeof id === 'string' ? id : undefined;
   } catch {
     // JWT decode failed — non-critical

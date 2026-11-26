@@ -100,7 +100,8 @@ export async function createAgentClient(
       queueConfig.queue,
       {
         excludeAccountIds: queueConfig.excludeAccountIds,
-        userModelOverrides: queueConfig.userModelOverrides as any,
+        ...(queueConfig.codexTokenFilePath ? { codexTokenFilePath: queueConfig.codexTokenFilePath } : {}),
+        userModelOverrides: queueConfig.userModelOverrides,
       }
     );
 
@@ -234,14 +235,13 @@ export async function createSimpleClient(
 
   if (queueConfig) {
     // Queue-based resolution: use global priority queue
-    const excludeAccountIds = (queueConfig as { excludeAccountIds?: string[] }).excludeAccountIds;
-    const userModelOverrides = (queueConfig as { userModelOverrides?: Record<string, unknown> }).userModelOverrides;
     queueAuth = await resolveAuthFromQueue(
       queueConfig.requestedModel,
       queueConfig.queue,
       {
-        excludeAccountIds,
-        userModelOverrides: userModelOverrides as any,
+        excludeAccountIds: queueConfig.excludeAccountIds,
+        ...(queueConfig.codexTokenFilePath ? { codexTokenFilePath: queueConfig.codexTokenFilePath } : {}),
+        userModelOverrides: queueConfig.userModelOverrides,
       }
     );
 
@@ -250,6 +250,7 @@ export async function createSimpleClient(
     }
 
     resolvedModelId = queueAuth.resolvedModelId;
+    resolvedThinkingLevel = config.thinkingLevel ?? queueAuth.reasoningConfig.level ?? thinkingLevel;
     // Use createProvider() with the queue-resolved provider to avoid re-detecting
     // from model ID prefix. This is critical for providers like Ollama whose models
     // (e.g., 'llama3.1:8b') don't follow predictable prefix conventions.
@@ -263,10 +264,10 @@ export async function createSimpleClient(
         claudeConfigDir: queueAuth.configDir,
       },
       modelId: resolvedModelId,
+      ...(queueAuth.oauthTokenFilePath ? { codexReasoningEffort: resolvedThinkingLevel } : {}),
     });
 
     resolveReasoningParams(queueAuth.reasoningConfig);
-    resolvedThinkingLevel = (queueAuth.reasoningConfig.level as ThinkingLevel) ?? thinkingLevel;
   } else {
     // Legacy per-provider resolution
     resolvedModelId = resolveModelId(modelShorthand);
@@ -286,7 +287,9 @@ export async function createSimpleClient(
         claudeConfigDir: auth?.configDir,
       },
       modelId: resolvedModelId,
+      ...(auth?.oauthTokenFilePath ? { codexReasoningEffort: resolvedThinkingLevel } : {}),
     });
+    if (auth?.oauthTokenFilePath && typeof model !== 'string') resolvedModelId = model.modelId;
   }
 
   return {

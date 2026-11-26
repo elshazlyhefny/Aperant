@@ -15,7 +15,7 @@ import type { McpClientResult } from '../mcp/types';
 import type { ToolContext } from '../tools/types';
 import type { QueueResolvedAuth } from '../auth/types';
 import type { ProviderAccount } from '../../../shared/types/provider-account';
-import type { ProviderModelSpec } from '../../../shared/constants/models';
+import type { AppSettings } from '../../../shared/types/settings';
 
 // =============================================================================
 // Client Configuration
@@ -51,7 +51,8 @@ export interface AgentClientConfig {
     queue: ProviderAccount[];
     requestedModel: string;
     excludeAccountIds?: string[];
-    userModelOverrides?: Record<string, Partial<Record<string, ProviderModelSpec>>>;
+    codexTokenFilePath?: string;
+    userModelOverrides?: AppSettings['modelOverrides'];
   };
 }
 
@@ -80,7 +81,8 @@ export interface SimpleClientConfig {
     queue: ProviderAccount[];
     requestedModel: string;
     excludeAccountIds?: string[];
-    userModelOverrides?: Record<string, Partial<Record<string, ProviderModelSpec>>>;
+    codexTokenFilePath?: string;
+    userModelOverrides?: AppSettings['modelOverrides'];
   };
 }
 
