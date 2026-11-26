@@ -88,6 +88,7 @@ interface RoadmapGenerationProgressProps {
   generationStatus: RoadmapGenerationStatus;
   className?: string;
   onStop?: () => void | Promise<void>;
+  onDismissError?: () => void;
 }
 
 // Type for generation phases (excluding idle)
@@ -297,7 +298,8 @@ function PhaseStepsIndicator({
 export function RoadmapGenerationProgress({
   generationStatus,
   className,
-  onStop
+  onStop,
+  onDismissError,
 }: RoadmapGenerationProgressProps) {
   const { t } = useTranslation('common');
   const { phase, progress, message, error, startedAt, lastActivityAt } = generationStatus;
@@ -580,6 +582,13 @@ export function RoadmapGenerationProgress({
           </motion.div>
         )}
       </AnimatePresence>
+      {phase === 'error' && onDismissError && (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={onDismissError}>
+            {t('actions.dismiss')}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

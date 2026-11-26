@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Archive } from 'lucide-react';
+import { useRoadmapStore } from '../stores/roadmap-store';
 import { RoadmapGenerationProgress } from './RoadmapGenerationProgress';
 import { CompetitorAnalysisDialog } from './CompetitorAnalysisDialog';
 import { ExistingCompetitorAnalysisDialog } from './ExistingCompetitorAnalysisDialog';
@@ -93,6 +94,7 @@ export function Roadmap({ projectId, onGoToTask }: RoadmapProps) {
           generationStatus={generationStatus}
           className="w-full max-w-md"
           onStop={handleStop}
+          onDismissError={() => useRoadmapStore.getState().setGenerationStatus({ phase: 'idle', progress: 0, message: '' })}
         />
       </div>
     );

@@ -17,9 +17,14 @@ const calls = vi.hoisted(() => ({
 }));
 
 vi.mock('../ai/runners/roadmap', () => ({
-  runRoadmapGeneration: vi.fn(async (config: (typeof calls.configs)[number]) => {
+  runRoadmapGeneration: vi.fn(async (
+    config: (typeof calls.configs)[number],
+    onStream: import('../ai/runners/roadmap').RoadmapStreamCallback,
+  ) => {
     calls.order.push('roadmap');
     calls.configs.push(config);
+    onStream({ type: 'phase-start', phase: 'discovery' });
+    onStream({ type: 'phase-start', phase: 'features' });
     return { success: false, phases: [], error: 'stopped by the test' };
   }),
 }));
@@ -52,17 +57,19 @@ const stub = () => new Proxy({}, { get: (_t, key) => (key === 'generateSpawnId' 
 async function run() {
   const emitter = new EventEmitter();
   const logs: string[] = [];
+  const phases: string[] = [];
   emitter.on('roadmap-log', (_id: string, line: string) => logs.push(line));
+  emitter.on('roadmap-progress', (_id: string, status: { phase: string }) => phases.push(status.phase));
   const queue = new AgentQueueManager(stub() as never, stub() as never, stub() as never, emitter);
   await queue.startRoadmapGeneration('p1', project, true, false, false);
-  return logs;
+  return { logs, phases };
 }
 
 describe('roadmap queue context', () => {
   it('updates the checkout before the run, and lists the project tasks', async () => {
     calls.update = { kind: 'pulled', upstream: 'origin/main', count: 66, from: 'c609e38f', to: 'ef5719fe' };
 
-    const logs = await run();
+    const { logs } = await run();
 
     expect(calls.order).toEqual(['update', 'roadmap']);
     expect(logs).toContain('LOG pulled');
@@ -73,9 +80,15 @@ describe('roadmap queue context', () => {
   it('tells the agents what is missing when the checkout could not be updated', async () => {
     calls.update = { kind: 'behind', reason: 'it has uncommitted changes', unpulled: { upstream: 'origin/main', count: 66, subjects: [] } };
 
-    const logs = await run();
+    const { logs } = await run();
 
     expect(logs).toContain('LOG behind');
     expect(calls.configs[0].checkoutNote).toBe('CHECKOUT NOTE: 66 behind origin/main');
+  });
+
+  it('reports the phase names recognized by the renderer', async () => {
+    const { phases } = await run();
+
+    expect(phases).toEqual(['analyzing', 'discovering', 'generating']);
   });
 });

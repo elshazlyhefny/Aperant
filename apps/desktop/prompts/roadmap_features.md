@@ -84,18 +84,14 @@ You MUST create `roadmap.json` with this EXACT structure:
 ## PHASE 0: LOAD CONTEXT
 
 ```bash
-# Read discovery data
-cat roadmap_discovery.json
-
-# Read project structure
-cat project_index.json
-
 # Check for existing features or TODOs
 grep -r "TODO\|FEATURE\|IDEA" --include="*.md" . 2>/dev/null | head -30
 
 # Check for competitor analysis data (if enabled by user)
 cat competitor_analysis.json 2>/dev/null || echo "No competitor analysis available"
 ```
+
+Use Read on the **Discovery File** and **Project Index** paths from the runner context.
 
 Extract key information:
 - Target audience and their pain points

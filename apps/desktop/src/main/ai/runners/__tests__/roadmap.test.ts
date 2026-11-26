@@ -1,3 +1,4 @@
+import { join, resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // =============================================================================
@@ -172,6 +173,18 @@ describe('runRoadmapGeneration', () => {
       expect(result.success).toBe(false);
       expect(result.phases[0].errors.join(' ')).toContain('Discovery file was not updated');
       expect(mockStreamText).toHaveBeenCalledTimes(3); // retried, never accepted the stale file
+    });
+
+    it('reports the tool failure that prevented discovery from being updated', async () => {
+      existingFiles();
+      mockStatSync.mockImplementation(() => ({ mtimeMs: Date.now() - 3_600_000 }));
+      mockStreamText.mockReturnValue(makeStream([
+        { type: 'tool-error', toolName: 'Write', error: new Error('Permission denied') },
+      ]));
+
+      const result = await runRoadmapGeneration(baseConfig({ refresh: true }));
+
+      expect(result.error).toContain('Discovery file was not updated. Write: Permission denied');
     });
 
     it('succeeds when the agent rewrote both files', async () => {
@@ -381,6 +394,18 @@ describe('runRoadmapGeneration', () => {
 
     const ctx = mockGetToolsForAgent.mock.calls[0][1];
     expect(ctx.writeRoot).toBe(config.outputDir);
+  });
+
+  it('writes the project index before discovery and supplies the shell security profile', async () => {
+    const outputDir = resolve('/project/.auto-claude/roadmap');
+    const indexPath = join(outputDir, 'project_index.json');
+
+    await runRoadmapGeneration(baseConfig({ outputDir }));
+
+    expect(mockRenameSync).toHaveBeenCalledWith(expect.any(String), indexPath);
+    expect(mockRenameSync.mock.invocationCallOrder[0]).toBeLessThan(mockStreamText.mock.invocationCallOrder[0]);
+    expect(mockStreamText.mock.calls[0][0].system).toContain(indexPath);
+    expect(mockGetToolsForAgent.mock.calls[0][1].securityProfile.getAllAllowedCommands()).toBeInstanceOf(Set);
   });
 
   // ---------------------------------------------------------------------------

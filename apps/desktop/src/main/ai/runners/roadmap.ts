@@ -16,10 +16,14 @@ import { join } from 'node:path';
 
 import { createSimpleClient } from '../client/factory';
 import type { SimpleClientResult } from '../client/types';
+import { buildProjectIndex } from '../project/project-indexer';
+import { assertNotProtectedPath } from '../security/path-containment';
+import { getSecurityProfile } from '../security/security-profile';
+import { assertWriteAllowed } from '../security/write-guard';
 import { buildToolRegistry } from '../tools/build-registry';
 import type { ToolContext } from '../tools/types';
 import type { ModelShorthand, ThinkingLevel } from '../config/types';
-import type { SecurityProfile } from '../security/bash-validator';
+import { writeFileAtomicSync } from '../../utils/atomic-file';
 import { safeParseJson } from '../../utils/json-repair';
 import { tryLoadPrompt } from '../prompts/prompt-loader';
 
@@ -127,6 +131,35 @@ export type RoadmapStreamEvent =
   | { type: 'tool-use'; name: string }
   | { type: 'error'; error: string };
 
+async function streamRoadmapAttempt(
+  options: Parameters<typeof streamText>[0],
+  onStream?: RoadmapStreamCallback,
+): Promise<string | undefined> {
+  let toolError: string | undefined;
+  let streamError: string | undefined;
+  for await (const part of streamText(options).fullStream) {
+    switch (part.type) {
+      case 'text-delta':
+        onStream?.({ type: 'text-delta', text: part.text });
+        break;
+      case 'tool-call':
+        onStream?.({ type: 'tool-use', name: part.toolName });
+        break;
+      case 'error':
+        streamError = part.error instanceof Error ? part.error.message : String(part.error);
+        onStream?.({ type: 'error', error: streamError });
+        break;
+      case 'tool-error': {
+        const message = part.error instanceof Error ? part.error.message : String(part.error);
+        toolError = `${part.toolName}: ${message}`;
+        onStream?.({ type: 'error', error: toolError });
+        break;
+      }
+    }
+  }
+  return streamError ?? toolError;
+}
+
 // =============================================================================
 // Discovery Phase
 // =============================================================================
@@ -161,6 +194,7 @@ async function runDiscoveryPhase(
   const loadedDiscoveryPrompt = tryLoadPrompt('roadmap_discovery');
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    abortSignal?.throwIfAborted();
     const contextBlock = `\n\n---\n\n## CONTEXT (injected by runner)\n\n**Project Directory**: ${projectDir}\n**Project Index**: ${projectIndexFile}\n**Output Directory**: ${outputDir}\n**Output File**: ${discoveryFile}\n\nUse the paths above when reading input files and writing output.${notes}`;
 
     const prompt = loadedDiscoveryPrompt
@@ -186,7 +220,7 @@ Do NOT ask questions. Make educated inferences and create the file.${notes}`;
 
     const attemptStartedAt = Date.now();
     try {
-      const result = streamText({
+      const attemptError = await streamRoadmapAttempt({
         model: client.model,
         system: isCodexDiscovery ? undefined : prompt,
         prompt: discoveryUserPrompt,
@@ -201,27 +235,11 @@ Do NOT ask questions. Make educated inferences and create the file.${notes}`;
             },
           },
         } : {}),
-      });
-
-      for await (const part of result.fullStream) {
-        switch (part.type) {
-          case 'text-delta':
-            onStream?.({ type: 'text-delta', text: part.text });
-            break;
-          case 'tool-call':
-            onStream?.({ type: 'tool-use', name: part.toolName });
-            break;
-          case 'error': {
-            const errorMsg = part.error instanceof Error ? part.error.message : String(part.error);
-            onStream?.({ type: 'error', error: errorMsg });
-            break;
-          }
-        }
-      }
+      }, onStream);
 
       // Validate output (only a file written by this attempt counts)
       if (existsSync(discoveryFile) && !writtenSince(discoveryFile, attemptStartedAt)) {
-        errors.push(`Attempt ${attempt + 1}: Discovery file was not updated (the agent may have run out of steps)`);
+        errors.push(`Attempt ${attempt + 1}: Discovery file was not updated${attemptError ? `. ${attemptError}` : ''}`);
       } else if (existsSync(discoveryFile)) {
         const data = safeParseJson<Record<string, unknown>>(readFileSync(discoveryFile, 'utf-8'));
         if (data) {
@@ -235,7 +253,7 @@ Do NOT ask questions. Make educated inferences and create the file.${notes}`;
           errors.push(`Attempt ${attempt + 1}: Invalid JSON in discovery file`);
         }
       } else {
-        errors.push(`Attempt ${attempt + 1}: Discovery file not created`);
+        errors.push(`Attempt ${attempt + 1}: Discovery file was not created${attemptError ? `. ${attemptError}` : ''}`);
       }
     } catch (error) {
       errors.push(`Attempt ${attempt + 1}: ${error instanceof Error ? error.message : String(error)}`);
@@ -287,6 +305,7 @@ async function runFeaturesPhase(
   const loadedFeaturesPrompt = tryLoadPrompt('roadmap_features');
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    abortSignal?.throwIfAborted();
     let preservedSection = '';
     if (preservedFeatures.length > 0) {
       const preservedInfo = preservedFeatures
@@ -322,7 +341,7 @@ The JSON must contain: vision, target_audience (object with "primary" key), phas
 
     const attemptStartedAt = Date.now();
     try {
-      const result = streamText({
+      const attemptError = await streamRoadmapAttempt({
         model: client.model,
         system: isCodexFeatures ? undefined : prompt,
         prompt: featuresUserPrompt,
@@ -337,23 +356,7 @@ The JSON must contain: vision, target_audience (object with "primary" key), phas
             },
           },
         } : {}),
-      });
-
-      for await (const part of result.fullStream) {
-        switch (part.type) {
-          case 'text-delta':
-            onStream?.({ type: 'text-delta', text: part.text });
-            break;
-          case 'tool-call':
-            onStream?.({ type: 'tool-use', name: part.toolName });
-            break;
-          case 'error': {
-            const errorMsg = part.error instanceof Error ? part.error.message : String(part.error);
-            onStream?.({ type: 'error', error: errorMsg });
-            break;
-          }
-        }
-      }
+      }, onStream);
 
       // Validate and merge — read/write through fd to avoid TOCTOU
       let roadmapRaw: string | null = null;
@@ -363,7 +366,7 @@ The JSON must contain: vision, target_audience (object with "primary" key), phas
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       }
       if (roadmapRaw !== null && !writtenSince(roadmapFile, attemptStartedAt)) {
-        errors.push(`Attempt ${attempt + 1}: Roadmap file was not updated (the agent may have run out of steps)`);
+        errors.push(`Attempt ${attempt + 1}: Roadmap file was not updated${attemptError ? `. ${attemptError}` : ''}`);
       } else if (roadmapRaw !== null) {
         const data = safeParseJson<Record<string, unknown>>(roadmapRaw);
         if (data) {
@@ -392,7 +395,7 @@ The JSON must contain: vision, target_audience (object with "primary" key), phas
           errors.push(`Attempt ${attempt + 1}: Invalid JSON in roadmap file`);
         }
       } else {
-        errors.push(`Attempt ${attempt + 1}: Roadmap file not created`);
+        errors.push(`Attempt ${attempt + 1}: Roadmap file was not created${attemptError ? `. ${attemptError}` : ''}`);
       }
     } catch (error) {
       errors.push(`Attempt ${attempt + 1}: ${error instanceof Error ? error.message : String(error)}`);
@@ -493,6 +496,7 @@ export async function runRoadmapGeneration(
   } = config;
 
   const outputDir = config.outputDir ?? join(projectDir, '.auto-claude', 'roadmap');
+  abortSignal?.throwIfAborted();
 
   // Ensure output directory exists
   if (!existsSync(outputDir)) {
@@ -504,11 +508,18 @@ export async function runRoadmapGeneration(
     cwd: projectDir,
     projectDir,
     specDir: join(projectDir, '.auto-claude', 'specs'),
-    securityProfile: null as unknown as SecurityProfile,
+    securityProfile: getSecurityProfile(projectDir),
     abortSignal,
     // Write/Edit are confined to the output directory
     writeRoot: outputDir,
   };
+
+  if (refresh || !existsSync(join(outputDir, 'roadmap_discovery.json')) || !existsSync(join(outputDir, 'roadmap.json'))) {
+    const { resolvedPath } = assertWriteAllowed(join(outputDir, 'project_index.json'), toolContext);
+    assertNotProtectedPath(resolvedPath);
+    const projectIndex = buildProjectIndex(projectDir);
+    writeFileAtomicSync(resolvedPath, JSON.stringify(projectIndex, null, 2));
+  }
 
   const registry = buildToolRegistry();
   const tools = registry.getToolsForAgent('roadmap_discovery', toolContext);
