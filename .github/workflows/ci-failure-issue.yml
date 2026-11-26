@@ -1,0 +1,146 @@
+# Opens (or updates) an issue when the CI workflow fails on a push to
+# the default branch.
+#
+# workflow_run fires once the triggering run completes, whatever its
+# conclusion, so the `if:` below keeps only failures. It also keeps only `push`
+# runs on the default branch from this repository. The event runs this file
+# from the DEFAULT BRANCH, so it does nothing until this file is merged there.
+#
+# The issue holds the run URL, branch, commit SHA, time, and the names of the
+# failed jobs and steps. It never holds log lines: the full logs stay in Actions.
+#
+# One open issue per (branch, failing job). Each job's key is a hidden marker
+# in the issue body. When a failing job already has an open `ci-failure`
+# issue, this run comments there instead of opening a duplicate. Closing the
+# issue re-arms it. `concurrency` serialises runs so two quick failures cannot
+# both open one.
+#
+# It never summons an agent. Issues and comments created with GITHUB_TOKEN
+# trigger no workflows, so @claude/@codex workflows cannot start from here.
+# Every name taken from the run also has its `@` defanged, so no app that
+# reads mentions is pinged either.
+name: CI failure issue
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [zeenha]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: ci-failure-issue
+  cancel-in-progress: false
+
+jobs:
+  report:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_branch == github.event.repository.default_branch
+      && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Open or update the CI failure issue
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+            const LABEL = 'ci-failure';
+            const FAILED = new Set(['failure', 'timed_out']);
+
+            // Defang @-mentions and keep names on one line.
+            const clean = (s) => String(s ?? '').replace(/@/g, '@​').replace(/[\r\n]+/g, ' ');
+            const tick = (s) => '`' + clean(s).replace(/`/g, "'") + '`';
+            const branch = run.head_branch;
+            const marker = (job) =>
+              `<!-- ci-failure-key: ${encodeURIComponent(branch)}/${encodeURIComponent(job)} -->`;
+
+            // Failed jobs and steps of the latest attempt: names only, no logs.
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+            });
+            let failed = jobs
+              .filter((j) => FAILED.has(j.conclusion))
+              .map((j) => ({
+                name: j.name,
+                steps: (j.steps || []).filter((s) => FAILED.has(s.conclusion)).map((s) => s.name),
+              }));
+            if (failed.length === 0) {
+              failed = [{ name: '(no job reported a failure)', steps: [] }];
+            }
+
+            const details = (forJobs) => [
+              `- **Run:** ${run.html_url}`,
+              `- **Branch:** ${tick(branch)}`,
+              `- **Commit:** ${tick(run.head_sha)}`,
+              `- **Time:** ${run.updated_at} (UTC)`,
+              '',
+              '**Failed jobs and steps**',
+              '',
+              ...forJobs.map((j) =>
+                `- ${tick(j.name)}${j.steps.length ? ': ' + j.steps.map(tick).join(', ') : ''}`),
+              '',
+              'Full logs are in Actions (run link above).',
+            ].join('\n');
+
+            // The label must exist before an issue can carry it.
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: LABEL });
+            } catch (e) {
+              if (e.status !== 404) throw e;
+              try {
+                await github.rest.issues.createLabel({
+                  owner, repo, name: LABEL, color: 'b60205',
+                  description: 'Opened automatically when CI fails on the default branch',
+                });
+              } catch (e2) {
+                if (e2.status !== 422) throw e2; // created by a concurrent run
+              }
+            }
+
+            const open = (await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', labels: LABEL, per_page: 100,
+            })).filter((i) => !i.pull_request);
+
+            // Route each failed job to the open issue that already tracks it.
+            const byIssue = new Map();
+            const untracked = [];
+            for (const job of failed) {
+              const issue = open.find((i) => (i.body || '').includes(marker(job.name)));
+              if (issue) {
+                if (!byIssue.has(issue.number)) byIssue.set(issue.number, []);
+                byIssue.get(issue.number).push(job);
+              } else {
+                untracked.push(job);
+              }
+            }
+
+            for (const [number, forJobs] of byIssue) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: number,
+                body: `Failed again in run ${run.id}.\n\n${details(forJobs)}`,
+              });
+              core.info(`Commented on #${number}`);
+            }
+
+            if (untracked.length) {
+              let title = `CI failure on ${branch}: ${untracked.map((j) => j.name).join(', ')}, run ${run.id}`;
+              title = clean(title);
+              if (title.length > 250) title = title.slice(0, 247) + '...';
+              const body = `${details(untracked)}\n\n${untracked.map((j) => marker(j.name)).join('\n')}`;
+              const { data: issue } = await github.rest.issues.create({
+                owner, repo, title, body, labels: [LABEL],
+              });
+              // Labels on create are dropped silently without push access; make sure it stuck.
+              if (!(issue.labels || []).some((l) => (l.name || l) === LABEL)) {
+                await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [LABEL] });
+              }
+              core.info(`Opened #${issue.number}`);
+            }
