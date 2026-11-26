@@ -28,6 +28,29 @@ class CommentAgentTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     run.get_event("codex")
 
+    def test_claude_result_saves_the_final_message(self):
+        messages = [{"type": "system", "subtype": "init"}, {"type": "result", "subtype": "success", "is_error": False, "result": " Fixed it. \n"}]
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "claude-execution-output.json"
+            log.write_text(json.dumps(messages))
+            with patch.dict(run.os.environ, {"RUNNER_TEMP": directory, "EXECUTION_FILE": ""}):
+                run.claude_result({}, "claude")
+            self.assertEqual((Path(directory) / "agent-result" / "claude.txt").read_text(), "Fixed it.")
+
+    def test_claude_result_reports_why_a_session_failed(self):
+        messages = [{"type": "result", "subtype": "success", "is_error": True, "result": "Credit balance is too low\n::warning::x"}]
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "log.json"
+            log.write_text(json.dumps(messages))
+            with (
+                patch.dict(run.os.environ, {"RUNNER_TEMP": directory, "EXECUTION_FILE": str(log)}),
+                patch("builtins.print") as printed,
+            ):
+                with self.assertRaisesRegex(ValueError, "did not finish successfully"):
+                    run.claude_result({}, "claude")
+            printed.assert_called_once_with("::error title=Claude Code failed::Credit balance is too low%0A::warning::x")
+            self.assertFalse((Path(directory) / "agent-result").exists())
+
     def test_old_ci_cannot_authorize_merge(self):
         pull = {"number": 12, "head": {"sha": "head"}, "base": {"sha": "new"}}
         test_pr = {"number": 12, "base": {"ref": run.TRUNK, "sha": "old"}}
