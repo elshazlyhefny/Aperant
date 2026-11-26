@@ -15,6 +15,7 @@ jobs:
       github.repository == 'elshazlyhefny/Aperant' &&
       github.event.comment.user.login == 'elshazlyhefny' &&
       github.event.sender.login == 'elshazlyhefny' &&
+      github.triggering_actor == 'elshazlyhefny' &&
       contains(github.event.comment.body, '@codex')
     uses: ./.github/workflows/owner-comment-agent.yml
     with:
