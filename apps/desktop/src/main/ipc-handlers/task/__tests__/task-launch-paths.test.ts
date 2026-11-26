@@ -80,12 +80,15 @@ vi.mock('../../../task-queue-manager', () => ({
 }));
 vi.mock('../../agent-events-handlers', () => ({ cancelFallbackTimer: vi.fn() }));
 
+const running = vi.hoisted(() => ({ value: false }));
 const agentManager = {
-  isRunning: vi.fn(() => false),
+  isRunning: vi.fn(() => running.value),
   killTask: vi.fn(),
   startSpecCreation: vi.fn(),
   startTaskExecution: vi.fn(),
-  startQAProcess: vi.fn(async () => undefined),
+  startQAProcess: vi.fn(async (): Promise<void> => {
+    running.value = true;
+  }),
 };
 const mainWindow = { webContents: { send: vi.fn() } };
 
@@ -161,6 +164,7 @@ beforeEach(() => {
   auth.init.mockResolvedValue({ hasValidAuth: auth.hasValidAuth });
   settings.value = {};
   worktree.path = null;
+  running.value = false;
   watcher.watch.mockReturnValue(Promise.resolve());
   watcher.unwatch.mockReturnValue(Promise.resolve());
 
@@ -338,7 +342,7 @@ describe('TASK_START resume of an account-paused QA fix run', () => {
   function pauseForAccount() {
     ref.task.status = 'human_review';
     ref.task.reviewReason = 'account_required';
-    ref.task.metadata = { ...ref.task.metadata, phaseProviders: { qa: { provider: 'anthropic' } } };
+    ref.task.metadata = { ...ref.task.metadata, phaseProviders: { qa: 'anthropic' } };
   }
 
   it('starts the QA process, not launchTask, when a Request-changes QA_FIX_REQUEST.md is pending', async () => {
@@ -374,6 +378,80 @@ describe('TASK_START resume of an account-paused QA fix run', () => {
     expect(agentManager.startQAProcess).toHaveBeenCalledWith('t1', wt, '001-x', 'p1');
     expectNothingStarted();
     expect(fs.readFileSync(path.join(wtSpecDir, 'PR_FOLLOWUP.json'), 'utf-8')).toBe(marker);
+  });
+
+  it('leaves the task paused and reports the error when the QA process fails to start', async () => {
+    pauseForAccount();
+    writeSpec();
+    writePlan(COMPLETE_PLAN);
+    fs.writeFileSync(path.join(specDir, 'QA_FIX_REQUEST.md'), REQUEST_CHANGES);
+    agentManager.startQAProcess.mockRejectedValueOnce(new Error('spawn failed'));
+
+    await startTask();
+
+    expect(machine.handleUiEvent).not.toHaveBeenCalled();
+    expect(errorsSent()).toHaveLength(1);
+    expect(errorsSent()[0][2]).toContain('spawn failed');
+    expectNothingStarted();
+  });
+
+  it('leaves the task paused, without a second error, when startQAProcess declines to start', async () => {
+    pauseForAccount();
+    writeSpec();
+    writePlan(COMPLETE_PLAN);
+    fs.writeFileSync(path.join(specDir, 'QA_FIX_REQUEST.md'), REQUEST_CHANGES);
+    // e.g. missing auth: the agent manager emits its own 'error' and returns
+    agentManager.startQAProcess.mockResolvedValueOnce(undefined);
+
+    await startTask();
+
+    expect(machine.handleUiEvent).not.toHaveBeenCalled();
+    expect(errorsSent()).toHaveLength(0);
+  });
+
+  describe('a PR follow-up whose fixer finished before the pause', () => {
+    const OLD_APPROVAL = { status: 'approved', timestamp: '2026-01-01T00:00:00Z', issues_found: [] };
+
+    function setUpFollowUp(signoff: Record<string, unknown>) {
+      pauseForAccount();
+      writeSpec();
+      writePlan({ ...COMPLETE_PLAN, qa_signoff: signoff });
+      fs.writeFileSync(
+        path.join(specDir, 'PR_FOLLOWUP.json'),
+        JSON.stringify({ status: 'running', qaSignoffBefore: JSON.stringify(OLD_APPROVAL) })
+      );
+    }
+    const signoffNow = () =>
+      JSON.parse(fs.readFileSync(path.join(specDir, 'implementation_plan.json'), 'utf-8')).qa_signoff;
+
+    it("resets a qa_signoff still equal to the marker's qaSignoffBefore, so QALoop reviews instead of short-circuiting", async () => {
+      setUpFollowUp(OLD_APPROVAL);
+
+      await startTask();
+
+      expect(agentManager.startQAProcess).toHaveBeenCalledTimes(1);
+      expect(signoffNow().status).toBe('fixes_applied');
+    });
+
+    it('leaves a signoff the fixer already changed alone', async () => {
+      const fixed = { status: 'fixes_applied', timestamp: '2026-02-02T00:00:00Z' };
+      setUpFollowUp(fixed);
+
+      await startTask();
+
+      expect(agentManager.startQAProcess).toHaveBeenCalledTimes(1);
+      expect(signoffNow()).toEqual(fixed);
+    });
+
+    it('leaves the signoff alone while the follow-up request is still pending', async () => {
+      setUpFollowUp(OLD_APPROVAL);
+      fs.writeFileSync(path.join(specDir, 'QA_FIX_REQUEST.md'), '# QA Fix Request: PR follow-up\n');
+
+      await startTask();
+
+      expect(agentManager.startQAProcess).toHaveBeenCalledTimes(1);
+      expect(signoffNow()).toEqual(OLD_APPROVAL);
+    });
   });
 
   it('uses launchTask when there is no fix request', async () => {
@@ -420,6 +498,46 @@ describe('TASK_START resume of an account-paused QA fix run', () => {
 
     await startTask();
 
+    expect(agentManager.startQAProcess).not.toHaveBeenCalled();
+    expect(agentManager.startTaskExecution).toHaveBeenCalledTimes(1);
+  });
+});
+
+// zeenha fork: dragging an account-paused QA fix run to In Progress resumes it
+// as the QA process too.
+describe('applyTaskStatusUpdate -> in_progress resume of an account-paused QA fix run', () => {
+  const REQUEST_CHANGES = '# QA Fix Request\n\nStatus: REJECTED\n\n## Feedback\n\nMake the button blue\n';
+
+  beforeEach(() => {
+    ref.task.status = 'human_review';
+    ref.task.reviewReason = 'account_required';
+    ref.task.metadata = { ...ref.task.metadata, phaseProviders: { qa: 'anthropic' } };
+    writeSpec();
+    writePlan({ phases: [{ subtasks: [{ id: 's1', status: 'completed' }] }] });
+    fs.writeFileSync(path.join(specDir, 'QA_FIX_REQUEST.md'), REQUEST_CHANGES);
+  });
+
+  it('starts the QA process, not launchTask', async () => {
+    expect(await updateStatus('in_progress')).toEqual({ success: true });
+    expect(agentManager.startQAProcess).toHaveBeenCalledWith('t1', ref.project.path, '001-x', 'p1');
+    expectNothingStarted();
+    expect(mainWindow.webContents.send).toHaveBeenCalledWith(IPC_CHANNELS.TASK_STATUS_CHANGE, 't1', 'in_progress', 'p1');
+  });
+
+  it('puts the task back to its account pause and reports the error when QA fails to start', async () => {
+    agentManager.startQAProcess.mockRejectedValueOnce(new Error('spawn failed'));
+
+    const res = await updateStatus('in_progress');
+
+    expect(res.success).toBe(false);
+    expect(machine.handleUiEvent.mock.calls.at(-1)?.[1]).toMatchObject({ type: 'PHASE_ACCOUNT_UNAVAILABLE' });
+    expect(errorsSent()).toHaveLength(1);
+    expectNothingStarted();
+  });
+
+  it('uses launchTask when there is no fix request', async () => {
+    fs.rmSync(path.join(specDir, 'QA_FIX_REQUEST.md'));
+    await updateStatus('in_progress');
     expect(agentManager.startQAProcess).not.toHaveBeenCalled();
     expect(agentManager.startTaskExecution).toHaveBeenCalledTimes(1);
   });

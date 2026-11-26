@@ -95,6 +95,7 @@ export async function createSpecFromJiraIssue(
     'utf-8'
   );
 
+  // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
   const metadata: TaskMetadata = applyDefaultTaskAgent({
     sourceType: 'jira',
     jiraIssueKey: key,

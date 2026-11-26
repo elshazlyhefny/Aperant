@@ -148,6 +148,7 @@ export function registerInsightsHandlers(getMainWindow: () => BrowserWindow | nu
         const { specId, specDir } = await allocateSpecDir(project, title);
 
         // Build metadata with source type
+        // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
         const taskMetadata: TaskMetadata = applyDefaultTaskAgent({
           sourceType: "insights",
           ...metadata,

@@ -113,6 +113,7 @@ export async function createSpecFromWorkItem(
     'utf-8'
   );
 
+  // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
   const metadata: TaskMetadata = applyDefaultTaskAgent({
     sourceType: 'azure_boards',
     azureBoardsWorkItemId: id,

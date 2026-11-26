@@ -7,9 +7,10 @@
  * (human_review / account_required). Resume used to go through launchTask, so
  * the BuildOrchestrator saw a complete build with the old PASSED qa_report.md,
  * reported "already complete" and dropped the request. Resume now restarts the
- * same QA process instead (TASK_START, via findPendingQAFixResume). A PR
- * follow-up resumed this way also exits as a qa-process, so
- * finalizePRFollowUp still pushes it (PR_FOLLOWUP.json is left untouched).
+ * same QA process instead (TASK_START and a drag to In Progress, via
+ * findPendingQAFixResume and resumeQAFixRun). A PR follow-up resumed this way
+ * also exits as a qa-process, so finalizePRFollowUp still pushes it
+ * (PR_FOLLOWUP.json is left untouched; see resetStalePRFollowUpSignoff).
  */
 import path from 'path';
 import { AUTO_BUILD_PATHS, getSpecsDir } from '../../../shared/constants';
@@ -18,6 +19,7 @@ import type { AgentManager } from '../../agent';
 import { appLog } from '../../app-logger';
 import { taskStateManager } from '../../task-state-manager';
 import { findTaskWorktree } from '../../worktree-paths';
+import { writeFileAtomicSync } from '../../utils/atomic-file';
 import { checkSubtasksCompletion, safeReadFileSync } from './launch-task';
 
 /** Same file name as PR_FOLLOWUP_MARKER in pr-followup-handlers.ts (not imported: that module registers IPC). */
@@ -44,21 +46,41 @@ export function resolveQAFixTarget(project: Project, task: Task): QAFixTarget {
   return { qaProjectPath, specDir: path.join(qaProjectPath, specsBaseDir, task.specId), worktreePath };
 }
 
-/** Start the QA process for a task and move its state machine back to running. */
-export function startQAFixRun(
-  agentManager: Pick<AgentManager, 'startQAProcess'>,
+/** `reported`: the agent manager already sent this failure to the renderer (its 'error' event). */
+export type QAFixRunStart = { started: true } | { started: false; error: string; reported: boolean };
+
+/**
+ * Start the QA process for a task and, once it is running, move its state
+ * machine back to running (USER_RESUMED). If the process does not start, the
+ * task is left where it was and the error is returned for the caller to report.
+ * USER_RESUMED after the await is safe: spawnWorkerProcess resolves right after
+ * the worker is created, before any of its messages are handled.
+ */
+export async function startQAFixRun(
+  agentManager: Pick<AgentManager, 'startQAProcess' | 'isRunning'>,
   task: Task,
   project: Project,
   qaProjectPath: string,
   logTag: string
-): void {
+): Promise<QAFixRunStart> {
   // Clear stale tracking state before starting the new QA process
   taskStateManager.prepareForRestart(task.id);
   appLog.info(`${logTag} Starting QA process with projectPath:`, qaProjectPath);
-  Promise.resolve(agentManager.startQAProcess(task.id, qaProjectPath, task.specId, project.id)).catch((error) => {
+  try {
+    await agentManager.startQAProcess(task.id, qaProjectPath, task.specId, project.id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     appLog.error(`${logTag} Failed to start QA process for ${task.id}:`, error);
-  });
+    return { started: false, error: `Could not start QA: ${message}`, reported: false };
+  }
+  // startQAProcess returns without starting (and emits its own 'error', which
+  // reaches the renderer as TASK_ERROR) when auth is missing or no worktree exists
+  // under PR-only landing.
+  if (!agentManager.isRunning(task.id)) {
+    return { started: false, error: 'QA did not start.', reported: true };
+  }
   taskStateManager.handleUiEvent(task.id, { type: 'USER_RESUMED' }, task, project);
+  return { started: true };
 }
 
 /** Text TASK_REVIEW writes for "Request changes". The reviewer's template (prompts/qa_reviewer.md) has no such section. */
@@ -66,13 +88,46 @@ function isRequestChangesText(content: string): boolean {
   return /^## Feedback[ \t]*$/m.test(content);
 }
 
-function hasRunningPRFollowUp(specDir: string): boolean {
+interface PRFollowUpMarker {
+  status?: unknown;
+  qaSignoffBefore?: unknown;
+}
+
+function readRunningPRFollowUp(specDir: string): PRFollowUpMarker | null {
   const raw = safeReadFileSync(path.join(specDir, PR_FOLLOWUP_MARKER_FILE));
-  if (!raw) return false;
+  if (!raw) return null;
   try {
-    return (JSON.parse(raw) as { status?: unknown }).status === 'running';
+    const marker = JSON.parse(raw) as PRFollowUpMarker;
+    return marker?.status === 'running' ? marker : null;
   } catch {
-    return false;
+    return null;
+  }
+}
+
+/**
+ * A PR follow-up whose fixer finished before the pause has no QA_FIX_REQUEST.md
+ * left. If qa_signoff is still the one recorded when the follow-up started
+ * (PR_FOLLOWUP.json qaSignoffBefore, usually the earlier "approved"), QALoop
+ * would stop at "Build already approved" without reviewing, and
+ * finalizePRFollowUp would find no fresh approval and never push. Mark it
+ * "fixes_applied" (what prompts/qa_fixer.md has the fixer write) so QA reviews.
+ */
+function resetStalePRFollowUpSignoff(specDir: string, logTag: string): void {
+  const marker = readRunningPRFollowUp(specDir);
+  if (!marker || typeof marker.qaSignoffBefore !== 'string') return;
+  if (safeReadFileSync(path.join(specDir, FIX_REQUEST_FILE)) !== null) return;
+  const planPath = path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
+  const raw = safeReadFileSync(planPath);
+  if (!raw) return;
+  try {
+    const plan = JSON.parse(raw) as { qa_signoff?: unknown };
+    if (plan.qa_signoff === undefined || plan.qa_signoff === null) return;
+    if (JSON.stringify(plan.qa_signoff) !== marker.qaSignoffBefore) return;
+    plan.qa_signoff = { status: 'fixes_applied', timestamp: new Date().toISOString() };
+    writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
+    appLog.info(`${logTag} Reset the pre-follow-up qa_signoff so QA re-reviews the PR follow-up`);
+  } catch (error) {
+    appLog.warn(`${logTag} Could not reset the stale qa_signoff at ${planPath}:`, error);
   }
 }
 
@@ -106,6 +161,22 @@ export function findPendingQAFixResume(task: Task, project: Project): QAFixTarge
   if (!buildIsComplete(target.specDir)) return null;
   const request = safeReadFileSync(path.join(target.specDir, FIX_REQUEST_FILE));
   if (request !== null && isRequestChangesText(request)) return target;
-  if (hasRunningPRFollowUp(target.specDir)) return target;
+  if (readRunningPRFollowUp(target.specDir)) return target;
   return null;
+}
+
+/**
+ * Resume a QA fix run found by findPendingQAFixResume: the QA process, never
+ * launchTask. Used by every path that relaunches a paused task (TASK_START and a
+ * drag to In Progress).
+ */
+export function resumeQAFixRun(
+  agentManager: Pick<AgentManager, 'startQAProcess' | 'isRunning'>,
+  task: Task,
+  project: Project,
+  target: QAFixTarget,
+  logTag: string
+): Promise<QAFixRunStart> {
+  resetStalePRFollowUpSignoff(target.specDir, logTag);
+  return startQAFixRun(agentManager, task, project, target.qaProjectPath, logTag);
 }

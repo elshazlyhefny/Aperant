@@ -302,6 +302,7 @@ export async function convertIdeaToTask(
 
       // Build task description and metadata
       const taskDescription = buildTaskDescription(idea);
+      // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
       const metadata = applyDefaultTaskAgent(buildTaskMetadata(idea), readSettingsFile());
 
       // Create spec files (inside lock to ensure atomicity)

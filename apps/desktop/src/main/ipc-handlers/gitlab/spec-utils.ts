@@ -475,6 +475,7 @@ export async function createSpecForIssue(
       await writeFile(path.join(specDir, 'TASK.md'), taskContent, 'utf-8');
 
       // Create task_metadata.json (consistent with GitHub format for backend compatibility)
+      // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
       const taskMetadata: TaskMetadata = applyDefaultTaskAgent({
         sourceType: 'gitlab',
         gitlabIssueIid: safeIssue.iid,

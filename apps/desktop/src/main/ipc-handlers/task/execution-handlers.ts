@@ -24,7 +24,7 @@ import { getIsolatedGitEnv, detectWorktreeBranch } from '../../utils/git-isolati
 import { cancelFallbackTimer } from '../agent-events-handlers';
 import { canMoveFailedTaskTo } from '../../../shared/utils/task-failure';
 import { preflightTaskLaunch, launchTask, planHasSubtasks, safeReadFileSync, checkSubtasksCompletion } from './launch-task';
-import { findPendingQAFixResume, startQAFixRun } from './qa-fix-run';
+import { findPendingQAFixResume, resumeQAFixRun, startQAFixRun } from './qa-fix-run';
 
 import { appLog } from '../../app-logger';
 
@@ -209,14 +209,29 @@ export async function applyTaskStatusUpdate(
       // This prevents the stale timer from incorrectly stopping the newly started task
       cancelFallbackTimer(taskId);
 
-      // Reset any stuck subtasks before starting execution
-      // This handles recovery from previous rate limits or crashes
-      const resetResult = await resetStuckSubtasks(planPath, project.id);
-      if (resetResult.success && resetResult.resetCount > 0) {
-        console.warn(`[TASK_UPDATE_STATUS] Reset ${resetResult.resetCount} stuck subtask(s) before starting`);
-      }
+      // zeenha fork: dragging an account-paused "Request changes" or PR follow-up
+      // QA run to In Progress resumes it as the QA process, as TASK_START does
+      // (see qa-fix-run.ts). `task` still holds the paused status read above.
+      const qaFixResume = findPendingQAFixResume(task, project);
+      if (qaFixResume) {
+        const qa = await resumeQAFixRun(agentManager, task, project, qaFixResume, '[TASK_UPDATE_STATUS]');
+        if (!qa.started) {
+          // handleManualStatusChange already resumed the machine; put the task back
+          // to its account pause so the card does not sit in In Progress idle.
+          taskStateManager.handleUiEvent(taskId, { type: 'PHASE_ACCOUNT_UNAVAILABLE', error: qa.error }, task, project);
+          if (mainWindow && !qa.reported) mainWindow.webContents.send(IPC_CHANNELS.TASK_ERROR, taskId, qa.error);
+          return { success: false, error: qa.error };
+        }
+      } else {
+        // Reset any stuck subtasks before starting execution
+        // This handles recovery from previous rate limits or crashes
+        const resetResult = await resetStuckSubtasks(planPath, project.id);
+        if (resetResult.success && resetResult.resetCount > 0) {
+          console.warn(`[TASK_UPDATE_STATUS] Reset ${resetResult.resetCount} stuck subtask(s) before starting`);
+        }
 
-      launchTask({ task, project, agentManager, logTag: '[TASK_UPDATE_STATUS]' });
+        launchTask({ task, project, agentManager, logTag: '[TASK_UPDATE_STATUS]' });
+      }
 
       // Notify renderer about status change
       if (mainWindow) {
@@ -310,7 +325,9 @@ export function registerTaskExecutionHandlers(
       // complete" and drops the request (and never pushes a PR follow-up).
       const qaFixResume = findPendingQAFixResume(task, project);
       if (qaFixResume) {
-        startQAFixRun(agentManager, task, project, qaFixResume.qaProjectPath, '[TASK_START]');
+        // The task stays paused unless the QA process actually started.
+        const qa = await resumeQAFixRun(agentManager, task, project, qaFixResume, '[TASK_START]');
+        if (!qa.started && !qa.reported) mainWindow.webContents.send(IPC_CHANNELS.TASK_ERROR, taskId, qa.error);
         return;
       }
 
@@ -556,8 +573,9 @@ export function registerTaskExecutionHandlers(
         // Restart QA process - use worktree path if it exists, otherwise main project
         // The QA process needs to run where the implementation_plan.json with completed subtasks is
         // zeenha fork: shared with TASK_START, which resumes this run after an account pause.
-        const qaProjectPath = hasWorktree ? worktreePath : project.path;
-        startQAFixRun(agentManager, task, project, qaProjectPath, '[TASK_REVIEW]');
+        const qaProjectPath = hasWorktree && worktreePath ? worktreePath : project.path;
+        const qa = await startQAFixRun(agentManager, task, project, qaProjectPath, '[TASK_REVIEW]');
+        if (!qa.started) return { success: false, error: qa.error };
       }
 
       return { success: true };

@@ -420,6 +420,7 @@ ${(feature.acceptance_criteria || []).map((c: string) => `- [ ] ${c}`).join("\n"
         await writeFileWithRetry(path.join(specDir, AUTO_BUILD_PATHS.SPEC_FILE), taskDescription, { encoding: 'utf-8' });
 
         // Build metadata
+        // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
         const metadata: TaskMetadata = applyDefaultTaskAgent({
           sourceType: "roadmap",
           featureId: feature.id,

@@ -433,6 +433,7 @@ ${safeDescription || 'No description provided.'}
             writeFileSync(path.join(specDir, AUTO_BUILD_PATHS.REQUIREMENTS), JSON.stringify(requirements, null, 2), 'utf-8');
 
             // Build metadata
+            // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
             const metadata: TaskMetadata = applyDefaultTaskAgent({
               sourceType: 'linear',
               linearIssueId: sanitizeText(issue.id, 100),

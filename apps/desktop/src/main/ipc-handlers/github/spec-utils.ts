@@ -159,6 +159,7 @@ export async function createSpecForIssue(
     const category = determineCategoryFromLabels(safeLabels);
 
     // task_metadata.json
+    // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
     const metadata: TaskMetadata = applyDefaultTaskAgent({
       sourceType: 'github',
       githubIssueNumber: issueNumber,
