@@ -57,3 +57,11 @@ describe('buildOutcomeComment', () => {
     );
   });
 });
+
+describe('buildOutcomeComment account pause', () => {
+  it('says the task is waiting for an account, not that it failed', () => {
+    const text = buildOutcomeComment('account_required', 'T');
+    expect(text.split('\n')[0]).toBe('Aperant: task is paused, waiting for an account to be connected for its provider.');
+    expect(text).not.toContain('failed');
+  });
+});

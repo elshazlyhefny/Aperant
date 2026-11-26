@@ -16,7 +16,9 @@ export type OutcomeEvent = Exclude<WebhookEvent, 'pr_opened'>;
 export const EVENT_LABELS: Record<OutcomeEvent, string> = {
   review_ready: 'Aperant: task is ready for review.',
   failed: 'Aperant: task failed.',
-  blocked: 'Aperant: task is blocked and needs attention.'
+  blocked: 'Aperant: task is blocked and needs attention.',
+  // zeenha fork: a resumable account pause, worded so it does not read as a failure.
+  account_required: 'Aperant: task is paused, waiting for an account to be connected for its provider.'
 };
 
 export function cleanTitle(value: unknown): string {

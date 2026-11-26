@@ -15,7 +15,9 @@ import {
   type WebhookFormat
 } from '../shared/utils/webhook-format';
 
-export type WebhookEvent = 'review_ready' | 'failed' | 'blocked' | 'pr_opened';
+// zeenha fork: account_required is a resumable pause (no usable account for a
+// phase's provider), reported apart from failed so receivers do not see a failure.
+export type WebhookEvent = 'review_ready' | 'failed' | 'blocked' | 'account_required' | 'pr_opened';
 
 export interface SlackWebhookPayload {
   text: string;
@@ -73,6 +75,7 @@ export const EVENT_LABELS: Record<WebhookEvent, { event: string; outcome: string
   review_ready: { event: 'Ready for review', outcome: 'Completed' },
   failed: { event: 'Failed', outcome: 'Error' },
   blocked: { event: 'Blocked', outcome: 'Needs attention' },
+  account_required: { event: 'Paused', outcome: 'Waiting for an account to be connected' },
   pr_opened: { event: 'PR opened', outcome: 'Awaiting review' }
 };
 
@@ -187,6 +190,7 @@ const DISCORD_COLORS: Record<WebhookEvent, number> = {
   review_ready: 0x2ecc71,
   failed: 0xe74c3c,
   blocked: 0xf39c12,
+  account_required: 0xf1c40f,
   pr_opened: 0x3498db
 };
 

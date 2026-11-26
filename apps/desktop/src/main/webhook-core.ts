@@ -21,6 +21,8 @@ export function mapOutcomeToWebhookEvent(
   if (status === 'human_review') {
     if (reviewReason === 'completed') return 'review_ready';
     if (reviewReason === 'qa_rejected' || reviewReason === 'errors') return 'blocked';
+    // zeenha fork: an account pause can be resumed, so it is not reported as failed.
+    if (reviewReason === 'account_required') return 'account_required';
   }
   if (status === 'pr_created') return 'pr_opened';
   return null;
@@ -30,6 +32,8 @@ const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
   review_ready: 'reviewReady',
   failed: 'failed',
   blocked: 'blocked',
+  // zeenha fork: an account pause needs attention, so it shares the blocked toggle (no new setting).
+  account_required: 'blocked',
   pr_opened: 'prOpened'
 };
 

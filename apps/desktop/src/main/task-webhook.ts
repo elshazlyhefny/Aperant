@@ -69,6 +69,8 @@ const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
   review_ready: 'reviewReady',
   failed: 'failed',
   blocked: 'blocked',
+  // zeenha fork: an account pause needs attention, so it shares the blocked toggle (no new setting).
+  account_required: 'blocked',
   pr_opened: 'prOpened'
 };
 

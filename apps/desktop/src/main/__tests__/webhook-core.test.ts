@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebhookSettings } from '../../shared/types/settings';
-import { dispatchTaskOutcomeWebhookWith } from '../webhook-core';
+import { dispatchTaskOutcomeWebhookWith, mapOutcomeToWebhookEvent } from '../webhook-core';
 
 const URL_OK = 'https://hooks.example.com/services/X/Y';
 
@@ -48,6 +48,28 @@ describe('dispatchTaskOutcomeWebhookWith', () => {
 
   it('ignores statuses that map to no event', () => {
     dispatchTaskOutcomeWebhookWith(settings(), { ...input, status: 'in_progress' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('account pause (human_review + account_required)', () => {
+  it('maps to account_required, not failed or null', () => {
+    expect(mapOutcomeToWebhookEvent('human_review', 'account_required')).toBe('account_required');
+    expect(mapOutcomeToWebhookEvent('error', null)).toBe('failed');
+  });
+
+  it('sends a Paused message gated by the blocked toggle', () => {
+    const pause = { ...input, status: 'human_review', reviewReason: 'account_required' };
+    dispatchTaskOutcomeWebhookWith(settings(), pause);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.text).toContain('paused');
+    expect(JSON.stringify(body)).not.toContain('Failed');
+
+    fetchMock.mockClear();
+    const s = settings();
+    s.events = { ...s.events, blocked: false };
+    dispatchTaskOutcomeWebhookWith(s, pause);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

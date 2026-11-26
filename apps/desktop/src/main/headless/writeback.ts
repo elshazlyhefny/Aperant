@@ -47,6 +47,8 @@ export function resolveHeadlessWritebackSettings(config: HeadlessConfig): Headle
 
 /** Mirrors eventsForOutcome in webhook.ts; pr_opened is never written back. */
 export function writebackEventForOutcome(outcome: RunOutcome): WebhookEvent {
+  // zeenha fork: an account pause is resumable, so it is not written back as failed.
+  if (outcome.accountPaused) return 'account_required';
   if (outcome.kind === 'success') return 'review_ready';
   if (outcome.kind === 'qa_failed') return 'blocked';
   return 'failed';

@@ -11,6 +11,8 @@ import { AUTO_BUILD_PATHS } from '../../../shared/constants';
 import type { TaskMetadata } from '../../../shared/types';
 import { sanitizeText, sanitizeUrl, sanitizeStringArray } from '../shared/sanitize';
 import { allocateSpecDir } from '../../utils/spec-number-lock';
+import { applyDefaultTaskAgent } from '../../utils/default-task-agent';
+import { readSettingsFile } from '../../settings-utils';
 import { htmlToMarkdown, type AzureBoardsWorkItemData } from './boards-client';
 import type { AzureDevOpsConfig } from './types';
 
@@ -111,14 +113,14 @@ export async function createSpecFromWorkItem(
     'utf-8'
   );
 
-  const metadata: TaskMetadata = {
+  const metadata: TaskMetadata = applyDefaultTaskAgent({
     sourceType: 'azure_boards',
     azureBoardsWorkItemId: id,
     azureBoardsUrl: itemUrl,
     azureBoardsOrganization: organization,
     azureBoardsProject: azureProject,
     category,
-  };
+  }, readSettingsFile());
   writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
 
   return { specId, specDir, description, metadata };

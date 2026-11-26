@@ -276,6 +276,20 @@ export class BuildOrchestrator extends EventEmitter {
 
       // Check if build is already complete
       if (await this.isBuildComplete()) {
+        // zeenha fork: a pending QA_FIX_REQUEST.md is a change request the
+        // fixer has not applied yet. A human-feedback QA run that paused (e.g. no
+        // account for the QA phase) resumes through this orchestrator, and the
+        // old "Status: PASSED" report used to make it return "already complete",
+        // dropping the user's request. Apply it, then re-review.
+        if (await this.hasPendingFixRequest()) {
+          this.markPhaseCompleted('coding');
+          const fix = await this.runPendingFixRequest();
+          if (!fix.success) {
+            return this.buildOutcome(false, Date.now() - startTime, fix.error);
+          }
+          const qa = await this.runQAPhase();
+          return this.buildOutcome(qa.success, Date.now() - startTime, qa.error);
+        }
         if (this.config.requireQAVerdict && await this.readQAStatus() !== 'passed') {
           this.markPhaseCompleted('coding');
           const qa = await this.runQAPhase();
@@ -555,6 +569,10 @@ export class BuildOrchestrator extends EventEmitter {
       const qaStatus = await this.readQAStatus();
 
       if (qaStatus === 'passed') {
+        // zeenha fork: a rejecting reviewer writes QA_FIX_REQUEST.md
+        // (prompts/qa_reviewer.md). Once QA passes it describes fixed issues;
+        // left in place, the next resume would read it as a pending request.
+        await this.clearFixRequest();
         this.markPhaseCompleted('qa_review');
         this.transitionPhase('complete', 'Build complete - QA passed');
         return { success: true };
@@ -805,6 +823,71 @@ export class BuildOrchestrator extends EventEmitter {
     } catch {
       // File may not exist — that's fine
     }
+  }
+
+  /** zeenha fork: whether a QA_FIX_REQUEST.md is waiting for the fixer. */
+  private async hasPendingFixRequest(): Promise<boolean> {
+    try {
+      await readFile(join(this.config.specDir, 'QA_FIX_REQUEST.md'), 'utf-8');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async clearFixRequest(): Promise<void> {
+    try {
+      await unlink(join(this.config.specDir, 'QA_FIX_REQUEST.md'));
+    } catch {
+      // Absent or not removable — nothing to clear
+    }
+  }
+
+  /**
+   * zeenha fork: run the fixer on a pending QA_FIX_REQUEST.md for a build whose
+   * subtasks are all complete, as QALoop.processHumanFeedback does. The request
+   * is removed only once the fixer completed it, so a failed or paused fix
+   * keeps it for the next resume. The old qa_report.md is removed too, so the
+   * re-review cannot be read as the earlier PASSED verdict.
+   */
+  private async runPendingFixRequest(): Promise<{ success: boolean; error?: string }> {
+    this.transitionPhase('qa_fixing', 'Applying requested changes');
+    this.emitTyped('log', 'Pending QA fix request found — running QA Fixer before re-review');
+
+    this.iteration++;
+    this.emitTyped('iteration-start', this.iteration, 'qa_fixing');
+
+    const fixPrompt = await this.config.generatePrompt('qa_fixer', 'qa_fixing', {
+      iteration: this.iteration,
+      attemptCount: 0,
+    });
+
+    const fixResult = await this.config.runSession({
+      agentType: 'qa_fixer',
+      phase: 'qa',
+      systemPrompt: fixPrompt,
+      specDir: this.config.specDir,
+      projectDir: this.config.projectDir,
+      sessionNumber: this.iteration,
+      abortSignal: this.config.abortSignal,
+      cliModel: this.config.cliModel,
+      cliThinking: this.config.cliThinking,
+    });
+
+    this.emitTyped('session-complete', fixResult, 'qa_fixing');
+
+    if (fixResult.outcome === 'cancelled') {
+      return { success: false, error: 'Build cancelled' };
+    }
+    if (fixResult.outcome !== 'completed') {
+      const detail = fixResult.error?.message ? `: ${fixResult.error.message}` : '';
+      return { success: false, error: `QA Fixer did not complete the requested changes (${fixResult.outcome})${detail}` };
+    }
+
+    this.markPhaseCompleted('qa_fixing');
+    await this.clearFixRequest();
+    await this.resetQAReport();
+    return { success: true };
   }
 
   // ===========================================================================
