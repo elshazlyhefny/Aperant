@@ -443,7 +443,7 @@ export class AgentQueueManager {
         (event: RoadmapStreamEvent) => {
           switch (event.type) {
             case 'phase-start': {
-              progressPhase = event.phase;
+              progressPhase = event.phase === 'discovery' ? 'discovering' : 'generating';
               progressPercent = Math.min(progressPercent + 20, 90);
               const msg = `Running ${event.phase} phase...`;
               this.emitter.emit('roadmap-log', projectId, msg);
