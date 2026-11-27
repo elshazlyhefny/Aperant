@@ -16,10 +16,13 @@ import { cn } from '../lib/utils';
 import { useScheduleStore } from '../stores/schedule-store';
 import { validateCadence } from '../../shared/utils/schedule-time';
 import {
+  DEFAULT_MISSED_RUN_POLICY,
   DEFAULT_SCHEDULE_TOKEN_BUDGET,
   MIN_INTERVAL_MINUTES,
+  type MissedRunPolicy,
   type RecurringSchedule,
-  type ScheduleCadence
+  type ScheduleCadence,
+  type ScheduleInput
 } from '../../shared/types/schedule';
 
 interface ScheduleDialogProps {
@@ -53,6 +56,7 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
   const [time, setTime] = useState(DEFAULT_TIME);
   const [days, setDays] = useState<number[]>([1]);
   const [everyMinutes, setEveryMinutes] = useState('60');
+  const [missedRunPolicy, setMissedRunPolicy] = useState<MissedRunPolicy>(DEFAULT_MISSED_RUN_POLICY);
   const [tokenBudget, setTokenBudget] = useState(String(DEFAULT_SCHEDULE_TOKEN_BUDGET));
   const [error, setError] = useState<FormError | null>(null);
   const [saving, setSaving] = useState(false);
@@ -69,6 +73,7 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
     if (!open) return;
     setError(null);
     setSaving(false);
+    setMissedRunPolicy(schedule?.missedRunPolicy === 'skip' ? 'skip' : DEFAULT_MISSED_RUN_POLICY);
     if (schedule) {
       setName(schedule.name);
       setTaskTitle(schedule.template.title);
@@ -153,10 +158,11 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
       return;
     }
     setSaving(true);
-    const input = {
+    const input: ScheduleInput = {
       projectId,
       name: name.trim(),
       cadence,
+      missedRunPolicy,
       template: {
         ...(schedule?.template ?? {}),
         title: taskTitle.trim(),
@@ -189,9 +195,14 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
     { value: 'interval', label: t('schedules:form.cadenceCustom') }
   ];
 
+  const missedRunPolicies: { value: MissedRunPolicy; label: string }[] = [
+    { value: DEFAULT_MISSED_RUN_POLICY, label: t('schedules:form.missedRunsCatchUp') },
+    { value: 'skip', label: t('schedules:form.missedRunsSkip') }
+  ];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {schedule ? t('schedules:form.editTitle') : t('schedules:form.createTitle')}
@@ -315,6 +326,32 @@ export function ScheduleDialog({ open, onOpenChange, projectId, schedule }: Sche
               </p>
             </div>
           )}
+
+          {/* zeenha fork: let time-sensitive schedules wait for the next normal run. */}
+          <div className="space-y-2">
+            <Label id="schedule-missed-policy-label">{t('schedules:form.missedRuns')}</Label>
+            <fieldset
+              aria-labelledby="schedule-missed-policy-label"
+              aria-describedby="schedule-missed-policy-hint"
+              className="flex flex-wrap gap-2"
+            >
+              {missedRunPolicies.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  size="sm"
+                  variant={missedRunPolicy === option.value ? 'default' : 'outline'}
+                  aria-pressed={missedRunPolicy === option.value}
+                  onClick={() => { setMissedRunPolicy(option.value); setError(null); }}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </fieldset>
+            <p id="schedule-missed-policy-hint" className="text-sm text-muted-foreground">
+              {t('schedules:form.missedRunsHint')}
+            </p>
+          </div>
 
           <div className="space-y-2">
             <Label htmlFor="schedule-token-budget">{t('schedules:form.tokenBudget')}</Label>

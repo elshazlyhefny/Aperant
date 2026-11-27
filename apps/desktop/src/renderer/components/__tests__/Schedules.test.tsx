@@ -20,7 +20,7 @@ vi.mock('react-i18next', () => ({
 vi.mock('../ScheduleDialog', () => ({ ScheduleDialog: () => null }));
 
 import { Schedules } from '../Schedules';
-import { useScheduleStore } from '../../stores/schedule-store';
+import { countUnacknowledgedReports, useScheduleStore } from '../../stores/schedule-store';
 import { useTaskStore } from '../../stores/task-store';
 
 function makeSchedule(overrides: Partial<RecurringSchedule> = {}): RecurringSchedule {
@@ -71,6 +71,32 @@ describe('Schedules', () => {
     expect(await screen.findByText('Nightly audit')).toBeTruthy();
     expect(screen.getByText('schedules:status.paused')).toBeTruthy();
     expect(screen.getByText('schedules:buttons.resume')).toBeTruthy();
+  });
+
+  it('shows catch-up as the missed-run policy for a legacy schedule', async () => {
+    api.listSchedules.mockResolvedValue({ success: true, data: [makeSchedule()] });
+    render(<Schedules projectId="p1" />);
+    expect(await screen.findByText('schedules:missedPolicySummary.catch_up')).toBeTruthy();
+  });
+
+  it('shows intentional skips in history without an attention banner or sidebar report', async () => {
+    api.listSchedules.mockResolvedValue({
+      success: true,
+      data: [
+        makeSchedule({
+          missedRunPolicy: 'skip',
+          history: [{ id: 'r1', at: 5, kind: 'skipped_missed', missedCount: 3, acknowledged: false }]
+        })
+      ]
+    });
+    render(<Schedules projectId="p1" />);
+    expect(await screen.findByText('schedules:missedPolicySummary.skip')).toBeTruthy();
+    const historyHeading = screen.getByRole('heading', { name: 'schedules:history.title' });
+    const skipped = screen.getByText(/schedules:history\.skipped_missed:3/, { selector: 'li' });
+    expect(historyHeading.nextElementSibling).toBe(skipped.parentElement);
+    expect(screen.queryByText(/schedules:history\.(missed|skipped_unfinished):/)).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(countUnacknowledgedReports(useScheduleStore.getState().schedules)).toBe(0);
   });
 
   it('runs a schedule now and shows the started notice', async () => {
