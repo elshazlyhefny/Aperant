@@ -186,9 +186,9 @@ The project also needs an `autoBuildPath` and an existing `.auto-claude/.env`. R
 | `AZURE_DEVOPS_ORGANIZATION` | Organization name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
 | `AZURE_DEVOPS_PROJECT` | Project name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
 | `AZURE_DEVOPS_REPOSITORY` | Repository name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
-| `AZURE_DEVOPS_PAT` | Personal access token. A secret, see [Secrets](#secrets). It needs the scopes Code (Read & write) and Build (Read). | Yes |
+| `AZURE_DEVOPS_PAT` | Personal access token. A secret, see [Secrets](#secrets). For pull requests, it needs the scopes Code (Read & write) and Build (Read). | Yes |
 
-These same keys are used for Azure Boards work item write-back, which is off by default and controlled in the app settings. The PAT then also needs the Work Items (Read & write) scope. See [issue-writeback.md](issue-writeback.md).
+Azure Boards import and write-back use these same keys, with separate PAT scopes for work items.
 
 Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visualstudio.com` remotes. Azure DevOps Server (on premises) is not.
 
@@ -197,8 +197,68 @@ What works:
 - **Detect** reads the `origin` remote and matches the five remote formats of Azure DevOps Services.
 - **Create PR** opens a pull request on Azure DevOps. Drafts are real drafts. The description is capped at 4000 characters. Issue lines are worded without `#`, because Azure DevOps links `#123` to work items. See [Creating pull requests](creating-pull-requests.md).
 - **PR feedback** sends failed build validations and active threads to the task's agent. See [PR Follow-ups](pr-follow-ups.md).
+- [Import work items](#import-work-items-from-azure-boards) from Azure Boards as tasks.
+
+#### Import work items from Azure Boards
+
+Import reads work items, so the PAT needs the Work Items (Read) scope. Write-back is off by default and needs Work Items (Read & write) instead. See [issue-writeback.md](issue-writeback.md). The connection check only reads the repository, so the PAT also needs Code (Read) for that check. A token that can read the repository but lacks the Work Items scope can still show **Connected to** the repository. The import window then shows an authorization error.
+
+1. Open the project's **Settings > Azure DevOps**. Once connected, click **Import from Azure Boards**. The **Import Azure Boards work items** window opens.
+2. Choose a query mode:
+   - **Filter** (default): **Area path** matches the specified area and its child areas, for example `MyProject\Team`. The **States** and **Work item types** checkboxes are loaded from the project's work item types. Leaving all filters empty queries every work item in the project, most recently changed first.
+   - **Saved query**: Select one of the project's saved queries. The list includes queries in folders up to two levels deep. The saved query's conditions and order apply, and the filter fields are ignored. Use a flat list query. Tree and direct-links queries return no items in this window.
+3. Click **Run query**. Each row shows `#id`, title, state, type, assignee and tags. Items that match an existing task show an **Already imported** badge.
+4. Select the work items and click **Import N work items** (**Import 1 work item** for a single selection). In the results list, arrow keys move, Space toggles selection, Ctrl+A selects all and Enter imports. The app fetches the current work item content from Azure DevOps at import time. Each imported work item becomes a task and spec creation starts right away.
+
+A query lists at most 200 work items. The warning **Showing 200 of 200 work items. Narrow the query to see the rest.** uses a capped total, not the total number of matches. In **Filter** mode the warning appears whenever the query returns 200 items, even if exactly 200 match. In **Saved query** mode it appears when more than 200 match. The first 200 in the saved query's order are shown.
+
+One import accepts at most 100 work items. Trying to import more fails with `Too many work items selected (max 100)`. On a full 200-row result, narrow the query or select a smaller batch instead of using **Select all**.
+
+For example, in **Filter** mode set **Area path** to `Fabrikam\Payments`, select `New` and `Active` under **States** (or use `To Do`, depending on the process), and select `Bug` under **Work item types**. This limits the list to bugs in that area and its child areas in the selected states. If the list still has more than 100 items, use a more specific area path or fewer states to get a list you can import in one batch.
+
+**Importing the same work item again**
+
+A work item is **Already imported** if a task in the project's specs directory has a `task_metadata.json` with `sourceType` set to `azure_boards`, the same `azureBoardsWorkItemId`, and matching `azureBoardsOrganization` and `azureBoardsProject`. The organization and project are compared case-insensitively after trimming whitespace. Archived tasks count, but deleted tasks and tasks imported from a different organization or project do not.
+
+If you click the import button with any **Already imported** items selected, the window shows **Some work items were already imported**:
+
+- **Skip duplicates** imports only the other items. If every selected item is a duplicate, nothing is imported and the prompt closes.
+- **Import anyway** creates a separate task for each selected work item, including a new task for each duplicate.
+
+The import checks for duplicates again and skips them by default, even if no prompt appeared. The result shows **N work items imported** and, if the import itself found and skipped duplicates, **N duplicates skipped**. Items omitted at the prompt are not included in that count. Per-item errors appear as `Failed to import AB#<id>: ...`.
+
+**Links to the original work item**
+
+An imported task's description looks like this:
+
+```markdown
+# Fix duplicate payment entries
+
+**Azure Boards Work Item:** [AB#123](https://dev.azure.com/fabrikam/Fabrikam/_workitems/edit/123)
+**Type:** Bug
+**State:** Active
+**Area Path:** Fabrikam\Payments
+**Tags:** payments, checkout
+
+## Description
+
+Retrying checkout can create a second payment entry.
+
+## Acceptance Criteria
+
+Retrying checkout leaves only one payment entry.
+```
+
+For a `Bug` without a description, the app uses the reproduction steps under `## Description` if they are available. `## Acceptance Criteria` is included when the work item has acceptance criteria.
+
+The task's `task_metadata.json` records `sourceType` (`azure_boards`), `azureBoardsWorkItemId`, `azureBoardsUrl`, `azureBoardsOrganization` and `azureBoardsProject`. It sets `category` to `bug_fix` for `Bug` work items and `feature` otherwise. Click **AB#123** in the task detail to open the work item in Azure DevOps. Kanban search matches `AB#123`.
+
+To post the task's outcome back to the work item, see [issue-writeback.md](issue-writeback.md).
 
 #### Troubleshooting
+
+- If the import window shows an authorization error while the connection says **Connected**, check that the PAT has the Work Items (Read) scope.
+- If **Import from Azure Boards** is missing, make sure **Enable Azure DevOps Integration** is on and wait for the repository connection check to succeed.
 
 If Azure DevOps is reported as not configured, `getAzureDevOpsConfig()` returned `null`. This happens when:
 

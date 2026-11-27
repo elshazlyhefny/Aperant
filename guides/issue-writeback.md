@@ -30,6 +30,8 @@ Each provider also has guards. All of them must hold, or nothing is posted:
 | Jira | `jiraIssueKey`, a valid issue key, and `jiraSiteUrl` | The site must equal the project's configured Jira site. |
 | Azure Boards | `azureBoardsWorkItemId`, a positive integer, `azureBoardsOrganization` and `azureBoardsProject` | The organization and project must equal `AZURE_DEVOPS_ORGANIZATION` and `AZURE_DEVOPS_PROJECT` (compared case-insensitively). |
 
+Azure Boards tasks get these fields when imported with **Import from Azure Boards** (see [Import work items from Azure Boards](project-configuration.md#import-work-items-from-azure-boards)).
+
 A task imported while the project pointed at a different repository, instance or site than it does now is skipped.
 
 ## When it fires
@@ -145,7 +147,7 @@ Write-back reuses the credentials the project already uses to import issues, fro
 
 See [Per-Project Configuration](project-configuration.md), in particular the [Jira](project-configuration.md#jira) section and [Secrets](project-configuration.md#secrets). No extra credentials are requested.
 
-The token must be allowed to comment on issues. For Jira, moving an issue also needs permission to transition it. The Azure DevOps PAT needs the Work Items (Read & write) scope, which is more than the scopes needed for pull requests. The comment appears under the account that owns the token, so teammates see it as posted by that user.
+The token must be allowed to comment on issues. For Jira, moving an issue also needs permission to transition it. The Azure DevOps PAT needs the Work Items (Read & write) scope for write-back, which is more than the scopes needed for pull requests. Import alone needs only Work Items (Read). The comment appears under the account that owns the token, so teammates see it as posted by that user.
 
 Logging:
 
