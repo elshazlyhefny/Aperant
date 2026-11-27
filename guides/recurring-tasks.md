@@ -38,7 +38,7 @@ Examples:
 
 ## When does a schedule run?
 
-- **The app or the daemon must be running.** The scheduler runs in the app's main process, so the Kanban view does not need to be open. A closed app runs nothing, unless you run the queue as a daemon instead; see [Running the queue and schedules as a daemon](CLI-USAGE.md#running-the-queue-and-schedules-as-a-daemon). The app and the daemon cannot run the same project at once.
+- **The app or the daemon must be running.** The scheduler runs in the app's main process, so the Kanban view does not need to be open. A closed app runs nothing, unless you run the queue as a daemon instead; see [Running the queue and schedules as a daemon](CLI-USAGE.md#running-the-queue-and-schedules-as-a-daemon). The app and the daemon cannot run the same project at once. See [Using the desktop app while serve runs](CLI-USAGE.md#using-the-desktop-app-while-serve-runs).
 - **When it checks.** The first check happens 10 seconds after launch, then one every 30 seconds.
 - **One task per run.** Each run creates one task and adds it to the Queue.
 - **Starting.** Scheduled tasks start only while the project is under its parallel limit (the project setting `maxParallelTasks`, default 3). Otherwise they wait in the Queue.
@@ -84,6 +84,8 @@ Schedules are stored in `schedules.json` in the app's user data folder. They bel
 **A run was skipped.** The previous task was still not Done, PR Created or failed. Look for the "Skipped because the previous task is unfinished" entry. Finish the previous task, or archive it.
 
 **Nothing starts although tasks are queued.** The project may be at its parallel limit (`maxParallelTasks`, default 3). Scheduled tasks start when a running task finishes. Also check that the app or the daemon is running.
+
+**Schedules do not run in the app and the Kanban banner names a daemon as the queue owner.** A `serve` daemon holds the project's queue lock, so the app pauses its queue and schedules for that project. The daemon runs schedules from its own schedules file. Due runs in the app stay due until the lock is released. See [Using the desktop app while serve runs](CLI-USAGE.md#using-the-desktop-app-while-serve-runs).
 
 ## Keeping the code and this guide in sync
 
