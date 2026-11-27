@@ -182,6 +182,8 @@ The command never reads the desktop app's settings. Credentials come from the en
 }
 ```
 
+Setting `linear` to `true` enables comments only; moving a Linear issue to another workflow state is desktop-only.
+
 See [notifications-and-webhooks.md](notifications-and-webhooks.md#reporting-back-to-the-issue-tracker-write-back) for the credentials, CI fallbacks and rules.
 
 ### Token budget
