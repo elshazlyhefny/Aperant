@@ -4,9 +4,11 @@ const mocks = vi.hoisted(() => ({
   warn: vi.fn(),
   settings: undefined as Record<string, unknown> | undefined,
   projectConfig: vi.fn(),
-  approvals: vi.fn()
+  approvals: vi.fn(),
+  signingRecord: vi.fn()
 }));
 vi.mock('../webhook-approval-store', () => ({ getWebhookApprovals: mocks.approvals }));
+vi.mock('../webhook-secret-store', () => ({ getProjectWebhookSigningRecord: mocks.signingRecord }));
 vi.mock('../project-webhook-config', () => ({ getProjectWebhookConfig: mocks.projectConfig }));
 vi.mock('../app-logger', () => ({ appLog: { warn: mocks.warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('../settings-utils', () => ({ readSettingsFile: () => mocks.settings }));
@@ -19,6 +21,8 @@ import {
   sendWebhook,
   validateWebhookUrl
 } from '../task-webhook';
+import { hashWebhookUrl } from '../project-webhook-approval';
+import { verifyWebhookSignature } from '../task-webhook-core';
 
 const URL_OK = 'https://hooks.example.com/services/SECRET/PATH';
 const noDelay = () => Promise.resolve();
@@ -32,6 +36,7 @@ beforeEach(() => {
   mocks.projectConfig.mockReturnValue(null);
   mocks.approvals.mockReset();
   mocks.approvals.mockReturnValue({ urls: [] });
+  mocks.signingRecord.mockReset().mockReturnValue(null);
   fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -359,15 +364,30 @@ describe('sendTestWebhook', () => {
 
 describe('webhook signing secret', () => {
   const PROJECT_URL = 'https://hooks.example.com/project/PROJSECRET/PATH';
+  const APP_KEY = 'app-key';
+  const PROJECT_KEY = 'proj-key';
   const project = { path: '/proj', autoBuildPath: '.auto-claude' };
   const input = { status: 'error', projectName: 'P', taskTitle: 'T', project };
   const events = { reviewReady: true, failed: true, blocked: true, prOpened: false };
   const withSecret = (secret?: string) => ({ webhook: { enabled: true, url: URL_OK, events, secret } });
-  const approved = { url: PROJECT_URL, hash: 'h', status: 'approved', events };
+  const approved = { url: PROJECT_URL, hash: hashWebhookUrl(PROJECT_URL), status: 'approved', events };
+  const signedRecord = {
+    urlHash: approved.hash,
+    mode: 'signed',
+    secret: PROJECT_KEY,
+    createdAt: '2026-11-27T00:00:00.000Z'
+  };
+
+  function verifiesWith(init: { headers: Record<string, string>; body: string }, key: string): boolean {
+    return verifyWebhookSignature(key, init.headers['X-Aperant-Timestamp'], init.body, init.headers['X-Aperant-Signature']);
+  }
+
+  beforeEach(() => {
+    fetchMock.mockResolvedValue(res(200));
+  });
 
   it('signs app-wide sends with the saved secret', async () => {
     mocks.settings = withSecret('s3cret');
-    fetchMock.mockResolvedValue(res(200));
     dispatchTaskOutcomeWebhook(input);
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const h = fetchMock.mock.calls[0][1].headers;
@@ -375,19 +395,59 @@ describe('webhook signing secret', () => {
     expect(h['X-Aperant-Timestamp']).toMatch(/^\d+$/);
   });
 
-  it('signs approved project sends with the app-wide secret', async () => {
-    mocks.settings = withSecret('s3cret');
+  it.each([
+    ['no project signing record', APP_KEY, null, 'signing_choice_required'],
+    ['an unreadable project key', APP_KEY, { ...signedRecord, secret: '' }, 'secret_unavailable'],
+    [
+      'a signed record for an old URL',
+      '',
+      { ...signedRecord, urlHash: hashWebhookUrl(`${PROJECT_URL}/old`) },
+      'signing_choice_required'
+    ]
+  ] as const)('withholds approved project sends without falling back when there is %s', (_case, appKey, record, reason) => {
+    mocks.settings = withSecret(appKey);
     mocks.projectConfig.mockReturnValue(approved);
-    fetchMock.mockResolvedValue(res(200));
+    mocks.signingRecord.mockReturnValue(record);
+    dispatchTaskOutcomeWebhook(input);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.warn).toHaveBeenCalledExactlyOnceWith(`[Webhook] project webhook delivery withheld reason=${reason}`);
+  });
+
+  it.each([
+    ['no record and no app-wide secret', '', null],
+    ['explicit unsigned mode and an app-wide secret', APP_KEY, { ...signedRecord, mode: 'unsigned', secret: '' }]
+  ] as const)('sends to the approved project without signature headers with %s', async (_case, appKey, record) => {
+    mocks.settings = withSecret(appKey);
+    mocks.projectConfig.mockReturnValue(approved);
+    mocks.signingRecord.mockReturnValue(record);
     dispatchTaskOutcomeWebhook(input);
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(fetchMock.mock.calls[0][0]).toBe(PROJECT_URL);
-    expect(fetchMock.mock.calls[0][1].headers['X-Aperant-Signature']).toMatch(/^sha256=/);
+    const [url, { headers }] = fetchMock.mock.calls[0];
+    expect(url).toBe(PROJECT_URL);
+    expect(headers['X-Aperant-Signature']).toBeUndefined();
+    expect(headers['X-Aperant-Timestamp']).toBeUndefined();
+  });
+
+  it('signs project and app-wide deliveries so each verifies only with its own key', async () => {
+    mocks.settings = withSecret(APP_KEY);
+    mocks.projectConfig.mockReturnValueOnce(approved);
+    mocks.signingRecord.mockReturnValue(signedRecord);
+    dispatchTaskOutcomeWebhook(input);
+    dispatchTaskOutcomeWebhook({ ...input, project: { path: '/other-proj', autoBuildPath: '.auto-claude' } });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    const [[projectUrl, projectRequest], [appUrl, appRequest]] = fetchMock.mock.calls;
+    expect(mocks.signingRecord).toHaveBeenCalledExactlyOnceWith(project.path);
+    expect(projectUrl).toBe(PROJECT_URL);
+    expect(verifiesWith(projectRequest, PROJECT_KEY)).toBe(true);
+    expect(verifiesWith(projectRequest, APP_KEY)).toBe(false);
+    expect(appUrl).toBe(URL_OK);
+    expect(verifiesWith(appRequest, APP_KEY)).toBe(true);
+    expect(verifiesWith(appRequest, PROJECT_KEY)).toBe(false);
   });
 
   it('adds no signature headers without a secret', async () => {
     mocks.settings = withSecret(undefined);
-    fetchMock.mockResolvedValue(res(200));
     dispatchTaskOutcomeWebhook(input);
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const h = fetchMock.mock.calls[0][1].headers;
@@ -398,14 +458,12 @@ describe('webhook signing secret', () => {
   it('ignores a WEBHOOK_SECRET supplied by the project .env', async () => {
     mocks.settings = withSecret(undefined);
     mocks.projectConfig.mockReturnValue({ ...approved, secret: 'env-secret', WEBHOOK_SECRET: 'env-secret' });
-    fetchMock.mockResolvedValue(res(200));
     dispatchTaskOutcomeWebhook(input);
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock.mock.calls[0][1].headers['X-Aperant-Signature']).toBeUndefined();
   });
 
   it('signs the test message', async () => {
-    fetchMock.mockResolvedValue(res(200));
     await sendTestWebhook(URL_OK, { delay: noDelay, secret: 'k' });
     expect(fetchMock.mock.calls[0][1].headers['X-Aperant-Signature']).toMatch(/^sha256=/);
   });

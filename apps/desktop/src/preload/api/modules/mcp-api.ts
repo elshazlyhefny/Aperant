@@ -20,6 +20,10 @@ export interface McpAPI {
   approveChromeExecutable: (projectId: string, exePath: string) => Promise<IPCResult>;
   /** Approve the project-declared webhook URL; `hash` is the one the page showed */
   approveProjectWebhook: (projectId: string, expectedHash: string) => Promise<IPCResult>;
+  /** Generate or rotate the secret for the currently approved destination, revealing it once. */
+  generateProjectWebhookSecret: (projectId: string, expectedHash: string) => Promise<IPCResult<{ secret: string; createdAt: string }>>;
+  setProjectWebhookUnsigned: (projectId: string, expectedHash: string) => Promise<IPCResult>;
+  sendProjectTestWebhook: (projectId: string, expectedHash: string, format?: string) => Promise<IPCResult<{ success: boolean }>>;
 }
 
 export function createMcpAPI(): McpAPI {
@@ -37,5 +41,11 @@ export function createMcpAPI(): McpAPI {
       ipcRenderer.invoke(IPC_CHANNELS.MCP_APPROVE_CHROME_EXECUTABLE, projectId, exePath),
     approveProjectWebhook: (projectId: string, expectedHash: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.WEBHOOK_APPROVE_PROJECT, projectId, expectedHash),
+    generateProjectWebhookSecret: (projectId: string, expectedHash: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WEBHOOK_PROJECT_SECRET_GENERATE, projectId, expectedHash),
+    setProjectWebhookUnsigned: (projectId: string, expectedHash: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WEBHOOK_PROJECT_SIGNING_UNSIGNED, projectId, expectedHash),
+    sendProjectTestWebhook: (projectId: string, expectedHash: string, format?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WEBHOOK_PROJECT_SEND_TEST, projectId, expectedHash, format),
   };
 }

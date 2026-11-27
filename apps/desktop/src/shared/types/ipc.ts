@@ -1086,6 +1086,9 @@ export interface ElectronAPI extends ScheduleAPI {
   approveMcpServer: (projectId: string, serverId: string, hash: string) => Promise<IPCResult>;
   approveChromeExecutable: (projectId: string, exePath: string) => Promise<IPCResult>;
   approveProjectWebhook: (projectId: string, expectedHash: string) => Promise<IPCResult>;
+  generateProjectWebhookSecret: (projectId: string, expectedHash: string) => Promise<IPCResult<{ secret: string; createdAt: string }>>;
+  setProjectWebhookUnsigned: (projectId: string, expectedHash: string) => Promise<IPCResult>;
+  sendProjectTestWebhook: (projectId: string, expectedHash: string, format?: string) => Promise<IPCResult<{ success: boolean }>>;
 
   // Screenshot capture operations
   getSources: () => Promise<IPCResult<ScreenshotSource[]> & { devMode?: boolean }>;

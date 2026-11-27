@@ -433,6 +433,9 @@ const browserMockAPI: ElectronAPI = {
   }),
   approveMcpServer: async () => ({ success: false, error: 'Not available in browser mode' }),
   approveProjectWebhook: async () => ({ success: false, error: 'Not available in browser mode' }),
+  generateProjectWebhookSecret: async () => ({ success: false, error: 'Not available in browser mode' }),
+  setProjectWebhookUnsigned: async () => ({ success: false, error: 'Not available in browser mode' }),
+  sendProjectTestWebhook: async () => ({ success: false, error: 'Not available in browser mode' }),
   approveChromeExecutable: async () => ({ success: false, error: 'Not available in browser mode' }),
   testMcpConnection: async (server) => ({
     success: true,

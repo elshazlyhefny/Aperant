@@ -11,7 +11,9 @@ import { DEFAULT_APP_SETTINGS } from '../shared/constants/config';
 import { appLog } from './app-logger';
 import { readSettingsFile } from './settings-utils';
 import { getProjectWebhookConfig } from './project-webhook-config';
+import { resolveProjectWebhookSigning } from './project-webhook-signing';
 import { getWebhookApprovals } from './webhook-approval-store';
+import { getProjectWebhookSigningRecord } from './webhook-secret-store';
 import {
   sendWebhook as sendWebhookCore,
   validateWebhookUrl,
@@ -87,14 +89,23 @@ export function dispatchTaskOutcomeWebhook(input: {
     if (!event) return;
     // An APPROVED project webhook overrides the app-wide one exclusively. An
     // unapproved or refused one is untrusted: it never receives task data.
-    const projectConfig = input.project
-      ? getProjectWebhookConfig(input.project, getWebhookApprovals(input.project.path))
+    const project = input.project;
+    const projectConfig = project
+      ? getProjectWebhookConfig(project, getWebhookApprovals(project.path))
       : null;
     if (projectConfig && projectConfig.status !== 'approved') {
       safeWarn('[Webhook] project webhook not approved, using app-wide webhook');
     }
-    if (projectConfig?.status === 'approved') {
+    if (project && projectConfig?.status === 'approved') {
       if (!projectConfig.events[EVENT_TOGGLE[event]]) return;
+      // zeenha fork: reserve the app-wide key for the app-wide destination.
+      const appSecretSet = Boolean(loadWebhookSettings().secret);
+      const record = getProjectWebhookSigningRecord(project.path);
+      const signing = resolveProjectWebhookSigning({ record, urlHash: projectConfig.hash, appSecretSet });
+      if (signing.action === 'withhold') {
+        safeWarn(`[Webhook] project webhook delivery withheld reason=${signing.reason}`);
+        return;
+      }
       const projectDelivery = prepareWebhookDelivery({
         url: projectConfig.url,
         format: projectConfig.format,
@@ -105,7 +116,7 @@ export function dispatchTaskOutcomeWebhook(input: {
       });
       void sendWebhook(projectDelivery.url, projectDelivery.payload, {
         eventName: event,
-        secret: loadWebhookSettings().secret
+        secret: signing.secret
       }).catch(() => undefined);
       return;
     }
