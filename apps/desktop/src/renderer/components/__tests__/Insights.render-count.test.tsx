@@ -112,7 +112,7 @@ describe('Insights render counts', () => {
 
   it.each([0, 50])('renders only the live markdown on stream updates with %i completed replies', (replyCount) => {
     const session = makeSession(replyCount);
-    useInsightsStore.setState({ session, status: { phase: 'streaming' } });
+    useInsightsStore.setState({ session, status: { phase: 'thinking' } });
     let commits = 0;
     let duration = 0;
     const onRender: ProfilerOnRenderCallback = (_id, _phase, actualDuration) => {
@@ -131,10 +131,17 @@ describe('Insights render counts', () => {
     const chunks = ['A', ' live', ' **markdown**', ' response', '.'];
     const liveRenders: string[] = [];
     let liveContent = '';
-    for (const chunk of chunks) {
+    let modelSelectorRendersAfterFirstChunk = 0;
+    for (const [index, chunk] of chunks.entries()) {
       liveContent += chunk;
       liveRenders.push(liveContent);
-      act(() => useInsightsStore.getState().appendStreamingContent(chunk));
+      act(() => {
+        const store = useInsightsStore.getState();
+        store.appendStreamingContent(chunk);
+        // After the first chunk, a new status object with the same phase and error should not render the parent.
+        store.setStatus({ phase: 'streaming', message: index === 0 ? 'Receiving response...' : 'Still streaming' });
+      });
+      if (index === 0) modelSelectorRendersAfterFirstChunk = mocks.modelSelectorRenders;
     }
 
     // Opt-in diagnostics for before/after measurements; timings are too noisy to assert.
@@ -151,8 +158,42 @@ describe('Insights render counts', () => {
     }
 
     expect(commits).toBe(chunks.length);
+    expect(modelSelectorRendersAfterFirstChunk).toBe(1);
+    expect(mocks.modelSelectorRenders).toBe(modelSelectorRendersAfterFirstChunk);
     expect(mocks.markdownRenders).toEqual(liveRenders);
     expect(screen.getByText(liveContent)).toBeTruthy();
+  });
+
+  it('shows thinking and tool activity before there are any messages', () => {
+    useInsightsStore.setState({ session: makeSession(0), status: { phase: 'thinking' } });
+    render(<Insights projectId={projectId} />);
+
+    expect(screen.getByText('insights.thinking')).toBeTruthy();
+
+    act(() => {
+      const store = useInsightsStore.getState();
+      store.setCurrentTool({ name: 'Read', input: 'file.txt' });
+      store.setStatus({ phase: 'streaming' });
+    });
+
+    expect(screen.getByText('insights.tools.reading')).toBeTruthy();
+    expect(screen.queryByText('insights.thinking')).toBeNull();
+  });
+
+  it('renders the finalized reply markdown once without re-rendering history', () => {
+    const content = 'Live reply to finalize';
+    useInsightsStore.setState({ status: { phase: 'streaming' }, streamingContent: content });
+    renderTranscript(makeSession(50));
+    expect(screen.getByText(content)).toBeTruthy();
+
+    act(() => {
+      const store = useInsightsStore.getState();
+      store.finalizeStreamingMessage();
+      store.setStatus({ phase: 'complete' });
+    });
+
+    expect(mocks.markdownRenders).toEqual([content]);
+    expect(screen.getAllByText(content)).toHaveLength(1);
   });
 
   it('renders only the appended message markdown', () => {
