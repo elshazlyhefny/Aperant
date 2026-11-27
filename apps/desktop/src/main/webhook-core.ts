@@ -13,6 +13,7 @@ import type { DeliveryOperation, DeliveryResult } from '../shared/types/delivery
 import type { WebhookSettings } from '../shared/types/settings';
 import type { DeliveryReceiptRecorder } from './delivery-receipts';
 import { appLogPort } from './log-port';
+import type { ProjectWebhookSigningDecision } from './project-webhook-signing';
 import { prepareWebhookDelivery, sendWebhookDetailed, validateWebhookUrl, type WebhookEvent } from './task-webhook-core';
 
 export function mapOutcomeToWebhookEvent(
@@ -51,7 +52,12 @@ export interface TaskOutcomeWebhookInput {
 export async function dispatchTaskOutcomeWebhookWith(
   settings: WebhookSettings,
   input: TaskOutcomeWebhookInput,
-  options: { recorder?: DeliveryReceiptRecorder; warn?: (message: string) => void } = {}
+  options: {
+    recorder?: DeliveryReceiptRecorder;
+    warn?: (message: string) => void;
+    /** zeenha fork: per-destination signing; called only once the route would send. */
+    resolveSigning?: () => ProjectWebhookSigningDecision;
+  } = {}
 ): Promise<DeliveryResult | undefined> {
   try {
     const event = mapOutcomeToWebhookEvent(input.status, input.reviewReason);
@@ -63,6 +69,16 @@ export async function dispatchTaskOutcomeWebhookWith(
     };
     if (!settings.events[EVENT_TOGGLE[event]]) return await skip('event_disabled');
     if (!validateWebhookUrl(settings.url).ok) return await skip(settings.url ? 'invalid_target' : 'missing_target');
+    const warn = options.warn ?? ((message: string) => appLogPort.warn(message));
+    const signing = options.resolveSigning?.();
+    if (signing?.action === 'withhold') {
+      try {
+        warn(`[Webhook] project webhook delivery withheld reason=${signing.reason}`);
+      } catch {
+        // never throw from logging
+      }
+      return await skip('missing_configuration');
+    }
 
     const delivery = prepareWebhookDelivery({
       url: settings.url,
@@ -74,8 +90,8 @@ export async function dispatchTaskOutcomeWebhookWith(
     });
     const sendOptions = {
       eventName: event,
-      secret: settings.secret,
-      warn: options.warn ?? ((message: string) => appLogPort.warn(message))
+      secret: signing ? signing.secret : settings.secret,
+      warn
     };
     let result: DeliveryResult | undefined;
     const send = async () => {

@@ -640,6 +640,9 @@ export const IPC_CHANNELS = {
   MCP_TEST_CONNECTION: 'mcp:testConnection',     // Full MCP protocol test
   MCP_APPROVE_SERVER: 'mcp:approveServer',       // Approve a project-declared custom server
   WEBHOOK_APPROVE_PROJECT: 'webhook:approveProject', // Approve the project-declared webhook URL
+  WEBHOOK_PROJECT_SECRET_GENERATE: 'webhook:projectSecretGenerate',
+  WEBHOOK_PROJECT_SIGNING_UNSIGNED: 'webhook:projectSigningUnsigned',
+  WEBHOOK_PROJECT_SEND_TEST: 'webhook:projectSendTest',
   MCP_APPROVE_CHROME_EXECUTABLE: 'mcp:approveChromeExecutable', // Approve CHROME_DEVTOOLS_EXECUTABLE
 
   // Sentry error reporting

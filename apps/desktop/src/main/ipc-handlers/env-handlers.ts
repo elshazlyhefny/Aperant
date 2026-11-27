@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron';
-import type { BrowserWindow } from 'electron';
+import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, DEFAULT_APP_SETTINGS } from '../../shared/constants';
 import type { IPCResult, ProjectEnvConfig, AppSettings } from '../../shared/types';
 import path from 'path';
@@ -10,13 +10,15 @@ import { parseEnvFile } from './utils';
 import { describeProjectMcpTrust, parseSecureOrigins } from '../ai/mcp/project-settings';
 import { approveChromeExecutable, approveServer, getApprovals } from '../mcp-approval-store';
 import { isAutoBuildEnvTrackedByGit } from '../project-initializer';
-import { WEBHOOK_ENV_KEYS, parseWebhookEvents, parseWebhookFormat } from '../project-webhook-config';
+import { WEBHOOK_ENV_KEYS, getProjectWebhookConfig, parseWebhookEvents, parseWebhookFormat } from '../project-webhook-config';
 import { isWebhookFormat } from '../../shared/utils/webhook-format';
-import { validateWebhookUrl } from '../task-webhook';
+import { sendTestWebhook, validateWebhookUrl } from '../task-webhook';
 import { validateProjectWebhookUrl } from '../task-webhook-core';
 import { hashWebhookUrl } from '../project-webhook-approval';
-import { getProjectWebhookConfig } from '../project-webhook-config';
+import { describeProjectWebhookSigning, resolveProjectWebhookSigning } from '../project-webhook-signing';
 import { approveWebhookUrlHash, getWebhookApprovals } from '../webhook-approval-store';
+import { createProjectWebhookSecret, getProjectWebhookSigningRecord, setProjectWebhookUnsigned } from '../webhook-secret-store';
+import { readSettingsFile } from '../settings-utils';
 
 const WEBHOOK_CHANGED_MESSAGE = 'The webhook URL changed since it was shown. Review it again before approving.';
 
@@ -49,6 +51,67 @@ export function approveProjectWebhookIfUnchanged(projectId: string, expectedHash
   }
   approveWebhookUrlHash(project.path, current.hash);
   return { success: true };
+}
+
+// zeenha fork: signing actions and test sends only apply to the exact approved destination.
+function getApprovedProjectWebhook(projectId: string, expectedHash: string) {
+  const project = projectStore.getProject(projectId);
+  if (!project) return { error: 'Project not found' } as const;
+  const current = getProjectWebhookConfig(project, getWebhookApprovals(project.path));
+  if (!current || current.status !== 'approved' || current.hash !== expectedHash) {
+    return { error: WEBHOOK_CHANGED_MESSAGE } as const;
+  }
+  return { project, current };
+}
+
+function getProjectWebhookSigningInput(projectPath: string, urlHash: string) {
+  const appSecret = readSettingsFile()?.webhook?.secret;
+  return {
+    record: getProjectWebhookSigningRecord(projectPath),
+    urlHash,
+    appSecretSet: typeof appSecret === 'string' && appSecret.length > 0
+  };
+}
+
+export function generateProjectWebhookSecretIfUnchanged(
+  projectId: string,
+  expectedHash: string
+): IPCResult<{ secret: string; createdAt: string }> {
+  const target = getApprovedProjectWebhook(projectId, expectedHash);
+  if ('error' in target) return { success: false, error: target.error };
+  const { project, current } = target;
+  const secret = createProjectWebhookSecret(project.path, current.hash);
+  const record = getProjectWebhookSigningRecord(project.path);
+  if (!record || record.mode !== 'signed' || record.urlHash !== current.hash || record.secret !== secret) {
+    return { success: false, error: 'secret_unavailable' };
+  }
+  return { success: true, data: { secret, createdAt: record.createdAt } };
+}
+
+export function setProjectWebhookUnsignedIfUnchanged(projectId: string, expectedHash: string): IPCResult {
+  const target = getApprovedProjectWebhook(projectId, expectedHash);
+  if ('error' in target) return { success: false, error: target.error };
+  const { project, current } = target;
+  setProjectWebhookUnsigned(project.path, current.hash);
+  return { success: true };
+}
+
+export async function sendProjectTestWebhookIfUnchanged(
+  projectId: string,
+  expectedHash: string,
+  format?: unknown
+): Promise<IPCResult<{ success: boolean }>> {
+  const target = getApprovedProjectWebhook(projectId, expectedHash);
+  if ('error' in target) return { success: false, error: target.error };
+  const { project, current } = target;
+  const signing = resolveProjectWebhookSigning(getProjectWebhookSigningInput(project.path, current.hash));
+  if (signing.action === 'withhold') return { success: false, error: signing.reason };
+  const result = await sendTestWebhook(current.url, {
+    format: isWebhookFormat(format) ? format : current.format,
+    secret: signing.secret
+  });
+  if (!result.success) return { success: false, error: 'delivery_failed' };
+  return { success: true, data: { success: true } };
 }
 
 // Bitbucket environment variable keys
@@ -108,6 +171,48 @@ export function registerEnvHandlers(
         return { success: false, error: error instanceof Error ? error.message : 'Approval failed' };
       }
     }
+  );
+
+  // Load sender validation only when invoking these privileged signing operations.
+  // Returns the listener only: each channel is registered below with a literal
+  // IPC_CHANNELS constant so the preload/main IPC contract test can resolve it.
+  function projectWebhookListener<T>(
+    channel: 'WEBHOOK_PROJECT_SECRET_GENERATE' | 'WEBHOOK_PROJECT_SIGNING_UNSIGNED' | 'WEBHOOK_PROJECT_SEND_TEST',
+    handle: (projectId: string, expectedHash: string, format?: unknown) => IPCResult<T> | Promise<IPCResult<T>>,
+    failure: string
+  ) {
+    return async (
+      event: IpcMainInvokeEvent,
+      projectId: string,
+      expectedHash: string,
+      format?: unknown
+    ): Promise<IPCResult<T>> => {
+      try {
+        // Capture the sender URL before awaiting, since the frame can navigate.
+        const senderUrl = event.senderFrame?.url;
+        const { assertTrustedSender } = await import('../ipc-sender-validation');
+        if (!assertTrustedSender(senderUrl ? { senderFrame: { url: senderUrl } } : null, channel)) {
+          return { success: false, error: 'untrusted_sender' };
+        }
+        return await handle(projectId, expectedHash, format);
+      } catch {
+        // Never include raw errors that might contain credentials or destination details.
+        return { success: false, error: failure };
+      }
+    };
+  }
+
+  ipcMain.handle(
+    IPC_CHANNELS.WEBHOOK_PROJECT_SECRET_GENERATE,
+    projectWebhookListener('WEBHOOK_PROJECT_SECRET_GENERATE', generateProjectWebhookSecretIfUnchanged, 'secret_unavailable')
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.WEBHOOK_PROJECT_SIGNING_UNSIGNED,
+    projectWebhookListener('WEBHOOK_PROJECT_SIGNING_UNSIGNED', setProjectWebhookUnsignedIfUnchanged, 'Failed to update webhook signing')
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.WEBHOOK_PROJECT_SEND_TEST,
+    projectWebhookListener('WEBHOOK_PROJECT_SEND_TEST', sendProjectTestWebhookIfUnchanged, 'delivery_failed')
   );
 
   // ============================================
@@ -655,6 +760,9 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         config.webhookApproval = descriptor
           ? { status: descriptor.status, hash: descriptor.hash, url: descriptor.url }
           : { status: 'refused', hash: '', url: declared };
+        if (descriptor) {
+          config.webhookSigning = describeProjectWebhookSigning(getProjectWebhookSigningInput(project.path, descriptor.hash));
+        }
       }
 
       // Git/Worktree config

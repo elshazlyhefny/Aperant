@@ -9,6 +9,7 @@ import {
   sendWebhookDetailed,
   signWebhookBody,
   validateWebhookUrl,
+  verifyWebhookSignature,
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_TIMESTAMP_HEADER,
   type WebhookEvent
@@ -177,6 +178,38 @@ describe('multi-format payloads', () => {
     });
     expect(prepareTestWebhookDelivery('https://x.webhook.office.com/a').format).toBe('teams');
     expect(prepareTestWebhookDelivery('https://discord.com/api/webhooks/1/a/github').url).toBe('https://discord.com/api/webhooks/1/a');
+  });
+});
+
+describe('verifyWebhookSignature', () => {
+  const secret = 'project-test-key';
+  const timestamp = '1700000000';
+  const body = '{"a":1}';
+  const signature = signWebhookBody(secret, timestamp, body);
+
+  it('accepts a valid signature', () => {
+    expect(verifyWebhookSignature(secret, timestamp, body, signature)).toBe(true);
+  });
+
+  it('rejects the wrong key', () => {
+    expect(verifyWebhookSignature('other-test-key', timestamp, body, signature)).toBe(false);
+  });
+
+  it('rejects a tampered body', () => {
+    expect(verifyWebhookSignature(secret, timestamp, '{"a":2}', signature)).toBe(false);
+  });
+
+  it('rejects the wrong timestamp', () => {
+    expect(verifyWebhookSignature(secret, '1700000001', body, signature)).toBe(false);
+  });
+
+  it('rejects a different-length signature', () => {
+    expect(verifyWebhookSignature(secret, timestamp, body, signature.slice(0, -1))).toBe(false);
+  });
+
+  it('rejects an empty secret even if the signature matches it', () => {
+    const emptyKeySignature = signWebhookBody('', timestamp, body);
+    expect(verifyWebhookSignature('', timestamp, body, emptyKeySignature)).toBe(false);
   });
 });
 

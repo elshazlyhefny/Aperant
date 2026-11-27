@@ -349,7 +349,8 @@ A `WEBHOOK_URL` in a committed `.env` could send your task data to an address th
 
 **Rules**
 
-- Approval matches the exact URL. Any change to it needs a new approval.
+- Approval is for the destination only. It matches the exact URL. Any change to it needs a new approval.
+- The optional [project signing secret](notifications-and-webhooks.md#project-webhook-secret) is a separate local credential tied to this project and its approved URL. The old secret does not apply to a changed URL. Generate a new one after approval if you want to sign for the new URL.
 - A URL you type on that page is approved when you save. A URL that is already in the file is not approved until you press **Approve**.
 - Project URLs must use `https`. Loopback addresses and `http` are refused for project URLs.
 - Approvals are stored in `<userData>/webhook-approvals.json`, outside the repo, because a hostile repo could pre-approve itself.

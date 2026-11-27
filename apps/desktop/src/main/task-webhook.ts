@@ -13,7 +13,9 @@ import { appLog } from './app-logger';
 import type { DeliveryReceiptRecorder } from './delivery-receipts';
 import { readSettingsFile } from './settings-utils';
 import { getProjectWebhookConfig } from './project-webhook-config';
+import { resolveProjectWebhookSigning } from './project-webhook-signing';
 import { getWebhookApprovals } from './webhook-approval-store';
+import { getProjectWebhookSigningRecord } from './webhook-secret-store';
 import {
   sendWebhook as sendWebhookCore,
   validateWebhookUrl,
@@ -68,23 +70,31 @@ export async function dispatchTaskOutcomeWebhook(
     if (!event) return;
     // An APPROVED project webhook overrides the app-wide one exclusively. An
     // unapproved or refused one is untrusted: it never receives task data.
-    const projectConfig = input.project
-      ? getProjectWebhookConfig(input.project, getWebhookApprovals(input.project.path))
+    const project = input.project;
+    const projectConfig = project
+      ? getProjectWebhookConfig(project, getWebhookApprovals(project.path))
       : null;
     if (projectConfig && projectConfig.status !== 'approved') {
       safeWarn('[Webhook] project webhook not approved, using app-wide webhook');
     }
-    const settings: WebhookSettings = projectConfig?.status === 'approved'
-      ? {
-          enabled: true,
-          url: projectConfig.url,
-          format: projectConfig.format,
-          events: projectConfig.events,
-          // As before, only load the signing secret if the project route will send.
-          get secret() { return loadWebhookSettings().secret; }
-        }
-      : loadWebhookSettings();
-    return await dispatchTaskOutcomeWebhookWith(settings, input, { recorder, warn: safeWarn });
+    if (project && projectConfig?.status === 'approved') {
+      const settings: WebhookSettings = {
+        enabled: true,
+        url: projectConfig.url,
+        format: projectConfig.format,
+        events: projectConfig.events,
+        secret: ''
+      };
+      // zeenha fork: reserve the app-wide key for the app-wide destination.
+      const resolveSigning = () =>
+        resolveProjectWebhookSigning({
+          record: getProjectWebhookSigningRecord(project.path),
+          urlHash: projectConfig.hash,
+          appSecretSet: Boolean(loadWebhookSettings().secret)
+        });
+      return await dispatchTaskOutcomeWebhookWith(settings, input, { recorder, warn: safeWarn, resolveSigning });
+    }
+    return await dispatchTaskOutcomeWebhookWith(loadWebhookSettings(), input, { recorder, warn: safeWarn });
   } catch {
     // never let webhook problems affect task flow
   }

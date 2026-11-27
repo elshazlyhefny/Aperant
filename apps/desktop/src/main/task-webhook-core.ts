@@ -6,7 +6,7 @@
  * Keep this module free of Electron and desktop settings/logging dependencies.
  */
 
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { DeliveryResult } from '../shared/types/delivery-receipt';
 import { sanitizeUrl } from './ipc-handlers/shared/sanitize';
 import {
@@ -328,6 +328,18 @@ export const WEBHOOK_SIGNATURE_HEADER = 'X-Aperant-Signature';
 /** HMAC-SHA256 over `${timestamp}.${body}`, returned as `sha256=<hex>`. */
 export function signWebhookBody(secret: string, timestamp: string, body: string): string {
   return `sha256=${createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')}`;
+}
+
+/** zeenha fork: check HMAC authenticity; callers must check timestamp freshness separately. */
+export function verifyWebhookSignature(secret: string, timestamp: string, body: string, signature: string): boolean {
+  if (!secret) return false;
+  try {
+    const expected = Buffer.from(signWebhookBody(secret, timestamp, body));
+    const received = Buffer.from(signature);
+    return expected.length === received.length && timingSafeEqual(expected, received);
+  } catch {
+    return false;
+  }
 }
 
 function defaultDelay(ms: number): Promise<void> {
