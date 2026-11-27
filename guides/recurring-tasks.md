@@ -1,6 +1,6 @@
 # Recurring Tasks
 
-A schedule adds one queued task from a template on a cadence. Each time the schedule is due, the app creates a task from the template, puts it in the Queue, and starts it when the project has room. You open schedules from the sidebar item **Schedules** (shortcut **S**).
+A schedule creates tasks from a template on a cadence. New tasks go into the Queue and start when the project has room. You open schedules from the sidebar item **Schedules** (shortcut **S**).
 
 ## Creating, pausing, editing and deleting a schedule
 
@@ -12,13 +12,14 @@ Click **New schedule** and fill in the form:
 | **Task title** | The title of every task the schedule creates. Required. |
 | **Task instructions** | What the agent should do on each run. Required. |
 | **Cadence** | Daily, Weekly or Custom. See [Cadence types](#cadence-types). |
+| **Missed runs** | Run one catch-up task (default), or skip and wait for the next run. See [Missed runs](#missed-runs). |
 | **Token budget per run** | The most tokens one run may use. See [Token budget per run](#token-budget-per-run). |
 
 A new schedule is Active. Each schedule in the list shows its status (**Active** or **Paused**), its next run, its last run and its **Run history**.
 
 - **Pause.** A paused schedule creates no tasks and has no next run.
 - **Resume.** The next run is counted from the moment you resume. The time the schedule was paused is never reported as missed.
-- **Edit.** Changes the name, task template, cadence and budget. The next run is recalculated from the moment you save. Saving an edit does not change whether the schedule is Active or Paused.
+- **Edit.** Changes the name, task template, cadence, missed-run policy and budget. The next run is recalculated from the moment you save. Saving an edit does not change whether the schedule is Active or Paused.
 - **Delete.** Removes the schedule after you confirm. Tasks it already created are kept.
 
 ## Cadence types
@@ -40,18 +41,19 @@ Examples:
 
 - **The app or the daemon must be running.** The scheduler runs in the app's main process, so the Kanban view does not need to be open. A closed app runs nothing, unless you run the queue as a daemon instead; see [Running the queue and schedules as a daemon](CLI-USAGE.md#running-the-queue-and-schedules-as-a-daemon). The app and the daemon cannot run the same project at once.
 - **When it checks.** The first check happens 10 seconds after launch, then one every 30 seconds.
-- **One task per run.** Each run creates one task and adds it to the Queue.
+- **No backlog of tasks.** Each check creates at most one task per schedule, even if several runs are due. The rules below determine whether to create a task or skip the run.
 - **Starting.** Scheduled tasks start only while the project is under its parallel limit (the project setting `maxParallelTasks`, default 3). Otherwise they wait in the Queue.
 
 ## Missed runs
 
-A run is recorded as **missed** when it is more than 5 minutes late, or when more than one run has become due since the last check. This happens, for example, when the app was closed over the time of a run. A daemon (`cli.js serve`) records missed runs the same way, for example after the machine was off.
+A run counts as missed when it is more than 5 minutes late, or when several runs are due at once. This can happen when the app is closed or the machine is off. The app and daemon (`cli.js serve`) use the same rule.
 
-Only one catch-up task is created, and the history entry records how many runs were missed.
+Choose how each schedule handles missed runs:
 
-Why one task instead of seven? A task from the same template does the same work each time. If the app was closed for a week, seven identical tasks would repeat the same work and use seven budgets, while one task brings things up to date. The record tells you how many runs you missed, so you can decide whether to start more.
+- **Run one catch-up task.** This is the default. Existing schedules keep this behaviour unless you change it. The scheduler creates one task, even if several runs were missed. The `missed` history entry shows how many runs were missed and appears in **Needs your attention** until you click **Dismiss**.
+- **Skip and wait for the next run.** When the same rule marks a run as missed, the scheduler creates no task. A `skipped_missed` history entry shows how many runs were skipped, and the next run stays on the original cadence. Choose this for work that's only useful at its scheduled time.
 
-The missed entry is also shown in the **Needs your attention** banner on the Schedules page until you click **Dismiss**.
+With either choice, an unfinished task from the previous run takes precedence. The scheduler records `skipped_unfinished` instead of applying the missed-run policy. On-time runs, token budgets and **Run now** are unaffected by this setting.
 
 ## History entries explained
 
@@ -61,11 +63,12 @@ Each schedule keeps its latest 50 entries under **Run history**.
 |-------|---------|------------|
 | **started** ("Started a task") | The run created a task and put it in the Queue. | Nothing. |
 | **missed** ("Missed N runs, one catch-up run was started") | More than 5 minutes late, or several runs were due at once. One catch-up task was created. | Read the count, then click **Dismiss**. |
+| **skipped_missed** ("Missed N runs, skipped as set for this schedule") | The schedule was set to skip missed runs, so no task was created. | Nothing. This is informational and does not appear in **Needs your attention**. |
 | **skipped_unfinished** ("Skipped because the previous task is unfinished") | The task from the previous run was not yet Done, PR Created or failed, so the due run was dropped. It is not queued later. The next run is rescheduled. Archived tasks count as finished. | Finish or stop the previous task, or give the schedule a longer cadence. Then click **Dismiss**. |
 | **budget_exceeded** ("Token budget exceeded") | The task was stopped after it reached the token budget. The detail shows tokens used against the budget. | Review the task. Raise the budget or narrow the instructions if needed. |
 | **failed** ("Failed to start") | The task could not be created. The error is stored as the entry's detail. | Check the project and the task template, then wait for the next run. |
 
-The entries other than "started" appear in the **Needs your attention** banner until dismissed.
+The `missed`, `skipped_unfinished`, `budget_exceeded` and `failed` entries appear in the **Needs your attention** banner until dismissed.
 
 ## Token budget per run
 
@@ -77,14 +80,14 @@ Schedules are stored in `schedules.json` in the app's user data folder. They bel
 
 ## Troubleshooting
 
-**It did not run overnight.** The app (or the daemon) must be running. If it was stopped, the next check after launch records a missed run and creates one catch-up task. If it was open, check that the schedule is **Active** and look at its **Run history**.
+**It did not run overnight.** The app (or the daemon) must be running. After a restart, check **Run history** to see whether the schedule caught up, skipped missed runs, or skipped because the previous task was unfinished. If there is no new entry, check that the schedule is **Active**.
 
-**One task appeared instead of several.** That is the catch-up behaviour. Look for a "Missed N runs" entry in the history.
+**One task appeared instead of several.** With **Run one catch-up task**, the scheduler creates just one task for all missed runs. Look for "Missed N runs, one catch-up run was started" in the history.
 
-**A run was skipped.** The previous task was still not Done, PR Created or failed. Look for the "Skipped because the previous task is unfinished" entry. Finish the previous task, or archive it.
+**A run was skipped.** Check **Run history**. "Missed N runs, skipped as set for this schedule" means the skip policy worked as intended. "Skipped because the previous task is unfinished" means you should finish or archive the previous task.
 
 **Nothing starts although tasks are queued.** The project may be at its parallel limit (`maxParallelTasks`, default 3). Scheduled tasks start when a running task finishes. Also check that the app or the daemon is running.
 
 ## Keeping the code and this guide in sync
 
-The scheduler is implemented in `apps/desktop/src/main/schedule-service.ts`, and the time rules (cadence, next run, due counting) in `apps/desktop/src/shared/utils/schedule-time.ts`. If you change the check timing, the missed-run rules, what counts as finished, or the history entries, update this guide too.
+The scheduler is implemented in `apps/desktop/src/main/schedule-service.ts`, and the time rules (cadence, next run, due counting) in `apps/desktop/src/shared/utils/schedule-time.ts`. If you change the check timing, the missed-run rules or `missedRunPolicy`, what counts as finished, or the history entries, update this guide too.
