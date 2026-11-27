@@ -60,18 +60,43 @@ Then either:
 | **AI-Powered Merge** | Automatic conflict resolution when integrating back to main |
 | **Memory Layer** | Agents retain insights across sessions for smarter builds |
 | **Recurring Schedules** | Run a task on a daily, weekly or interval cadence while the app or the `cli.js serve` daemon is running; see [guides/recurring-tasks.md](guides/recurring-tasks.md) and [running as a daemon](guides/CLI-USAGE.md#running-the-queue-and-schedules-as-a-daemon) |
-| **GitHub Integration** | Import issues, investigate with AI, create pull requests, review them with AI and follow up on review feedback |
-| **GitLab Integration** | Import issues, investigate with AI, create merge requests, review them with AI and follow up on review feedback |
-| **Bitbucket Cloud** | List pull requests, view diffs and post comments, create pull requests, review them with AI and follow up on feedback. No issue import. Keys are set in the project's `.auto-claude/.env`, see [Bitbucket configuration](guides/project-configuration.md#bitbucket); [AI review](guides/project-configuration.md#ai-review) explains what is stored and what gets posted |
-| **Azure DevOps Services** | Create pull requests (including drafts) and follow up on review feedback. No AI review. See [Azure DevOps configuration](guides/project-configuration.md#azure-devops) |
-| **Linear Integration** | Sync tasks with Linear for team progress tracking and report task outcomes back to the Linear issue |
-| **Jira Integration** | Import Jira issues as tasks and report task outcomes back to the Jira issue. Keys are set in the project's `.auto-claude/.env`, see [Jira configuration](guides/project-configuration.md#jira) |
-| **Issue Write-back** | Opt-in, off by default: post an outcome comment on the issue a task was imported from (GitHub, GitLab, Linear, Jira). Turn it on in Settings |
+| **Integrations** | See [Integration capabilities](#integration-capabilities) for AI review, issue import and outcome write-back by provider and edition |
+| **Linear Sync** | Sync tasks with Linear for team progress tracking; see [Linear configuration](guides/project-configuration.md#linear) |
+| **PR Creation** | Open a pull or merge request from a task; see [Creating pull requests](guides/creating-pull-requests.md) |
 | **PR Follow-ups** | Load review feedback on a pull or merge request and send selected items to an agent; see [guides/pr-follow-ups.md](guides/pr-follow-ups.md) |
 | **Token Budgets** | Cap how many tokens a task may use, as a project default or per task; see [guides/token-budgets.md](guides/token-budgets.md) |
 | **Outcome Webhook** | Post a Slack-compatible message to a webhook URL when a task fails, is ready for review, is blocked or has a PR opened; see [guides/notifications-and-webhooks.md](guides/notifications-and-webhooks.md) |
 | **Cross-Platform** | Native desktop apps for Windows, macOS, and Linux |
 | **Controlled Updates** | In-app updates are disabled. An update is a deliberate pull of the `zeenha` branch plus a rebuild with `scripts/zeenha-release.sh`; `--rollback` restores the previous install |
+
+---
+
+## Integration capabilities
+
+This table covers AI review, issue import and outcome write-back. For separate workflows, see [Creating pull requests](guides/creating-pull-requests.md) and [PR follow-ups](guides/pr-follow-ups.md). For setup, see [Project configuration](guides/project-configuration.md) and [Issue write-back](guides/issue-writeback.md).
+
+<!-- INTEGRATION_CAPABILITIES_START -->
+
+| Provider / edition | AI PR/MR review | Issue / work-item import | Desktop outcome write-back | Headless run/serve outcome write-back | Optional move on `review_ready` | Setup / limits |
+| --- | --- | --- | --- | --- | --- | --- |
+| GitHub (github.com) | Desktop | Desktop | Comment | Comment | None | [Project setup](guides/project-configuration.md#github) · [Write-back](guides/issue-writeback.md#turn-it-on) |
+| GitLab (GitLab.com or a configured self-managed instance) | Desktop | Desktop | Note | Note | None | [Project setup](guides/project-configuration.md#gitlab) · [Write-back](guides/issue-writeback.md#turn-it-on) |
+| Linear | Unsupported | Desktop | Comment | Comment | State — Desktop | [Project setup](guides/project-configuration.md#linear) · [Write-back](guides/issue-writeback.md#turn-it-on) |
+| Jira (Cloud only) | Unsupported | Desktop | Comment | Comment | Status — Desktop, Headless run/serve | [Project setup](guides/project-configuration.md#jira) · [Write-back](guides/issue-writeback.md#turn-it-on) |
+| Bitbucket Cloud | Desktop | Unsupported | Unsupported | Unsupported | None | [Project setup](guides/project-configuration.md#bitbucket) · [AI review](guides/project-configuration.md#ai-review) |
+| Bitbucket Server | Unsupported | Unsupported | Unsupported | Unsupported | None | [Edition limits](guides/project-configuration.md#bitbucket) |
+| Bitbucket Data Center | Unsupported | Unsupported | Unsupported | Unsupported | None | [Edition limits](guides/project-configuration.md#bitbucket) |
+| Azure DevOps Services | Desktop | Unsupported | Unsupported | Unsupported | None | [Project setup](guides/project-configuration.md#azure-devops) |
+| Azure Boards (Services) | Unsupported | Desktop | Comment | Comment | State — Desktop, Headless run/serve | [Project setup](guides/project-configuration.md#azure-devops) · [Write-back](guides/issue-writeback.md#turn-it-on) |
+| Azure DevOps Server | Unsupported | Unsupported | Unsupported | Unsupported | None | [Edition limits](guides/project-configuration.md#azure-devops) |
+
+**Legend:** Desktop means the desktop app only. Unsupported means the feature is not available on the listed edition or surface.
+Outcome write-back is opt-in and targets the imported issue or work item, not the PR/MR. Headless `run`/`serve` uses existing import metadata; it does not import issues.
+Status/state moves are optional and only available on the surfaces listed.
+
+<!-- INTEGRATION_CAPABILITIES_END -->
+
+**Contributors:** [integration-capabilities.json](guides/integration-capabilities.json) is the source of truth for both indexes. After editing it, run `node scripts/update-integration-capabilities.mjs --write` from the repo root. Update the capability test fixtures when verified support changes.
 
 ---
 
