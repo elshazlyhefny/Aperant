@@ -2,7 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import integrationCapabilities from '../../../../../../guides/integration-capabilities.json';
 import type { Project } from '../../../shared/types';
+import { loadHeadlessConfig } from '../config';
 import type { RunOutcome } from '../outcome';
 import {
   isWritebackEnabled,
@@ -42,19 +44,28 @@ describe('resolveHeadlessWritebackSettings', () => {
     expect(isWritebackEnabled(off)).toBe(false);
   });
 
-  it('applies configured values', () => {
-    const s = resolveHeadlessWritebackSettings({
-      writeback: { linear: true, jira: { enabled: true, transitionOnReview: true, transitionStatusName: 'QA' } }
-    });
+  it('wires the Jira status move and independent comment toggle, but only the Linear comment toggle', () => {
+    const configPath = path.join(dir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      writeback: {
+        linear: true,
+        linearTransitionOnReview: true, // Desktop setting; not part of the headless config.
+        jira: { enabled: true, comment: false, transitionOnReview: true, transitionStatusName: 'QA' }
+      }
+    }));
+    const s = resolveHeadlessWritebackSettings(loadHeadlessConfig(configPath));
     expect(s.issue.linear).toBe(true);
-    expect(s.jira).toEqual({ enabled: true, comment: true, transitionOnReview: true, transitionStatusName: 'QA' });
+    expect(s.issue.linearTransitionOnReview).toBe(false);
+    expect(s.jira).toEqual({ enabled: true, comment: false, transitionOnReview: true, transitionStatusName: 'QA' });
     expect(isWritebackEnabled(s)).toBe(true);
   });
 
   it('maps the Azure Boards block and enables write-back on its own', () => {
-    const s = resolveHeadlessWritebackSettings({
+    const configPath = path.join(dir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
       writeback: { azureBoards: { enabled: true, transitionOnReview: true, transitionStateName: ' Done ' } }
-    });
+    }));
+    const s = resolveHeadlessWritebackSettings(loadHeadlessConfig(configPath));
     expect(s.issue.azureboards).toBe(true);
     expect(s.issue.azureBoardsTransitionOnReview).toBe(true);
     expect(s.issue.azureBoardsTransitionStateName).toBe('Done');
@@ -82,13 +93,14 @@ describe('reportOutcomeToSource', () => {
     expect(dispatchIssue).not.toHaveBeenCalled();
   });
 
-  it('dispatches once with metadata from the first spec dir that has it, Jira included in the writers', async () => {
+  it('dispatches once with the first available metadata and the published headless writers', async () => {
     const a = path.join(dir, 'a');
     const b = path.join(dir, 'b');
     mkdirSync(a);
     mkdirSync(b);
     writeFileSync(path.join(b, 'task_metadata.json'), JSON.stringify({ sourceType: 'github', n: 'b' }));
-    const dispatchIssue = vi.fn().mockResolvedValue(undefined);
+    const dispatchIssue = vi.fn<NonNullable<Parameters<typeof reportOutcomeToSource>[0]['dispatchIssue']>>()
+      .mockResolvedValue(undefined);
     await reportOutcomeToSource({
       settings: on, project, specDirs: [a, b], event: 'blocked', title: 'T', prUrl: 'u',
       env: {}, dispatchIssue
@@ -99,7 +111,14 @@ describe('reportOutcomeToSource', () => {
     expect(arg.event).toBe('blocked');
     expect(arg.title).toBe('T');
     expect(arg.raw).toEqual({ issueWriteback: on.issue, jiraWriteback: on.jira });
-    expect(arg.writers.map((w: { sourceType: string }) => w.sourceType)).toEqual(['github', 'gitlab', 'linear', 'jira', 'azure_boards']);
+    const actualSourceTypes = arg.writers.map((writer) => writer.sourceType);
+    const publishedSourceTypes = integrationCapabilities
+      .filter((row) => row.outcomeComments.headless !== 'unsupported')
+      .map((row) => row.sourceType)
+      .sort();
+    expect(actualSourceTypes).not.toContain('bitbucket');
+    expect(actualSourceTypes).not.toContain('azuredevops');
+    expect(actualSourceTypes.sort()).toEqual(publishedSourceTypes);
   });
 
   it('dispatches when only Azure Boards is on, with the settings in raw', async () => {

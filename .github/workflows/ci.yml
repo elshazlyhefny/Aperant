@@ -4,7 +4,7 @@
 # platform-specific bugs before they merge. Linux gates CI Complete; macOS and
 # Windows are advisory (see test-frontend-macos and test-frontend-windows).
 #
-# Optimized: Frontend-only matrix, path filters to skip on docs-only changes.
+# Path filters include published docs so capability changes run the Linux fixtures.
 
 name: CI
 
@@ -16,6 +16,10 @@ on:
       - 'package*.json'
       - 'tsconfig*.json'
       - 'biome.jsonc'
+      - 'README.md'
+      - 'guides/**'
+      - 'scripts/update-integration-capabilities.mjs'
+      - 'scripts/update-integration-capabilities.test.mjs'
       - '.github/workflows/ci.yml'
       - '.github/actions/**'
   pull_request:
@@ -25,6 +29,10 @@ on:
       - 'package*.json'
       - 'tsconfig*.json'
       - 'biome.jsonc'
+      - 'README.md'
+      - 'guides/**'
+      - 'scripts/update-integration-capabilities.mjs'
+      - 'scripts/update-integration-capabilities.test.mjs'
       - '.github/workflows/ci.yml'
       - '.github/actions/**'
 
@@ -43,6 +51,29 @@ permissions:
   pull-requests: write
 
 jobs:
+  # zeenha fork: check published capability tables without installing desktop dependencies.
+  docs-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Test documentation generators
+        run: node --test scripts/update-integration-capabilities.test.mjs scripts/update-readme.test.mjs
+
+      - name: Check published integration capabilities
+        run: node scripts/update-integration-capabilities.mjs --check
+
   # --------------------------------------------------------------------------
   # Frontend Tests - All Platforms
   # --------------------------------------------------------------------------
@@ -218,7 +249,7 @@ jobs:
   ci-complete:
     name: CI Complete
     runs-on: ubuntu-latest
-    needs: [test-frontend, dependency-audit]
+    needs: [test-frontend, dependency-audit, docs-check]
     if: always()
     steps:
       - name: Check all CI jobs passed
@@ -226,9 +257,12 @@ jobs:
           echo "CI Job Results:"
           echo "  test-frontend: ${{ needs.test-frontend.result }}"
           echo "  dependency-audit: ${{ needs.dependency-audit.result }}"
+          echo "  docs-check: ${{ needs.docs-check.result }}"
           echo ""
 
-          if [[ "${{ needs.test-frontend.result }}" != "success" || "${{ needs.dependency-audit.result }}" != "success" ]]; then
+          if [[ "${{ needs.test-frontend.result }}" != "success" ||
+                "${{ needs.dependency-audit.result }}" != "success" ||
+                "${{ needs.docs-check.result }}" != "success" ]]; then
             echo "❌ One or more CI jobs failed"
             exit 1
           fi
