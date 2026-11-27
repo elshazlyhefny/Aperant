@@ -214,7 +214,7 @@ describe('UsageIndicator', () => {
       name: 'Google API',
     };
     const monitoredAccount = crossProviderMonitoredAccounts[0];
-    const limitedAccount = crossProviderAccounts[1];
+    const limitedAccount: ProviderAccount = { ...crossProviderAccounts[1], name: 'Limited Anthropic Account' };
     const expiredAccount: ProviderAccount = {
       ...limitedAccount,
       id: 'account-anthropic-expired',
