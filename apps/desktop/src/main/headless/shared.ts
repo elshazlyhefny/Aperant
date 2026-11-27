@@ -8,6 +8,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import { getSpecsDir } from '../../shared/constants';
+import { LEGACY_WORKTREE_DIR, TASK_WORKTREE_DIR } from '../worktree-paths';
 import type { HeadlessConfig } from './config';
 import type { HeadlessProject } from './task-store';
 
@@ -24,6 +25,44 @@ export function findGitRoot(start: string): string {
     }).trim();
   } catch {
     throw new HeadlessSetupError(`${start} is not inside a git repository`);
+  }
+}
+
+/** zeenha fork: share receipt storage with desktop without changing the build checkout. */
+export function resolveDeliveryReceiptRoot(checkoutRoot: string): string | undefined {
+  const worktreeDirs = [TASK_WORKTREE_DIR, LEGACY_WORKTREE_DIR];
+  try {
+    let root = realpathSync(checkoutRoot);
+    if (!worktreeDirs.some((dir) => path.dirname(root).endsWith(path.sep + path.normalize(dir)))) {
+      return root;
+    }
+
+    // Require Git to recognize the enclosing project as a checkout of the same
+    // repo. A standalone repository under a similarly named folder stays separate.
+    const worktrees = execFileSync('git', ['worktree', 'list', '--porcelain', '-z'], {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    }).split('\0\0').flatMap((record) => {
+      const [entry, ...fields] = record.split('\0');
+      return entry.startsWith('worktree ') && !fields.includes('bare')
+        ? [path.normalize(entry.slice('worktree '.length))]
+        : [];
+    });
+    if (!worktrees.includes(root)) return undefined;
+
+    // A run in a task worktree can itself create a nested task worktree.
+    for (;;) {
+      const parent = worktrees.find((candidate) =>
+        worktreeDirs.some((dir) => path.dirname(root) === path.join(candidate, dir)),
+      );
+      if (!parent) return root;
+      root = parent;
+    }
+  } catch {
+    // Do not fall back to a worktree-local file when Git metadata is unavailable.
+    return undefined;
   }
 }
 

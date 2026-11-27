@@ -1,4 +1,58 @@
 {
+  "deliveryHistory": {
+    "title": "Delivery history",
+    "refresh": "Refresh",
+    "loading": "Loading delivery history…",
+    "empty": "No delivery history recorded for this task.",
+    "error": "Could not read delivery history.",
+    "unknownHint": "An unconfirmed delivery may still be underway or may have been interrupted.",
+    "operations": {
+      "webhook": "Webhook notification",
+      "issue_comment": "Issue comment",
+      "issue_transition": "Issue state change"
+    },
+    "providers": {
+      "slack": "Slack",
+      "teams": "Microsoft Teams",
+      "discord": "Discord",
+      "github": "GitHub",
+      "gitlab": "GitLab",
+      "linear": "Linear",
+      "jira": "Jira",
+      "azureboards": "Azure Boards"
+    },
+    "events": {
+      "review_ready": "Ready for review",
+      "failed": "Task failed",
+      "blocked": "Task blocked",
+      "account_required": "Account required",
+      "pr_opened": "Pull request opened"
+    },
+    "statuses": {
+      "delivered": "Delivered",
+      "skipped": "Skipped",
+      "failed": "Failed",
+      "unknown": "Not confirmed"
+    },
+    "reasons": {
+      "event_disabled": "Delivery is disabled for this event.",
+      "missing_target": "No destination was configured.",
+      "invalid_target": "The configured destination is not valid.",
+      "not_linked": "No linked issue was found.",
+      "unsupported_source": "The linked issue source is not supported.",
+      "invalid_reference": "The issue reference is not valid.",
+      "missing_configuration": "Required integration settings are missing.",
+      "target_mismatch": "The linked issue does not match the configured destination.",
+      "state_unavailable": "The requested state change is not available.",
+      "rejected": "The destination rejected the request.",
+      "rate_limited": "The destination rate-limited the request.",
+      "lookup_failed": "Required information could not be retrieved before sending.",
+      "unconfirmed": "No confirmation was recorded.",
+      "timeout": "The request timed out without confirmation.",
+      "transport_error": "A connection error prevented confirmation.",
+      "ambiguous_response": "The response did not confirm delivery."
+    }
+  },
   "dependencies": {
     "title": "Depends on",
     "add": "Add dependency: {{title}}",

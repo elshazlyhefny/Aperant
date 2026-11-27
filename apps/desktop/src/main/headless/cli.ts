@@ -10,11 +10,14 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { readDeliveryReceipts } from '../delivery-receipts';
+import { isValidTaskId } from '../utils/spec-path-helpers';
 import { createHeadlessSpec } from './new-spec';
 import { renderPreflightJson, renderPreflightText, runPreflight } from './preflight';
+import { createProgressReporter } from './progress';
 import { runHeadlessTask } from './run-task';
 import { runServe } from './serve';
-import { HeadlessSetupError, resolveHeadlessProject } from './shared';
+import { HeadlessSetupError, resolveDeliveryReceiptRoot, resolveHeadlessProject } from './shared';
 import { findLiveDaemon, writeStopRequest } from './stop-request';
 import { listHeadlessTasks, queueHeadlessTask, resolveSpecId } from './task-store';
 
@@ -29,6 +32,7 @@ Commands:
   serve           Run the project's task queue and recurring schedules until stopped
   list            List the project's tasks (id, status, title)
   queue <spec>    Move a backlog task to the queue for a running serve daemon
+  receipts <spec> Read the task's local delivery history (supports --project and --json)
   stop <spec>     Ask a running serve daemon to stop one task
   help            Show this help
 
@@ -37,7 +41,7 @@ Options for run (they also apply to new --run):
   --config <file>       JSON config file
   --base-branch <name>  Branch the task worktree is created from
   --no-push             Do not push the task branch
-  --json                Print machine-readable events (also for list, queue and stop)
+  --json                Print machine-readable events (also for list, queue, stop and receipts)
   --verbose             Print detailed progress
   --run                 With new: run the build after the spec is created
   --queue               With new: queue the spec for a running serve daemon
@@ -72,7 +76,7 @@ Exit codes for serve:
   1  error
   3  the project queue is held by another process
 
-Exit codes for list, queue and stop:
+Exit codes for list, queue, stop and receipts:
   0  ok
   1  error, such as an unknown spec, a task that is not in the backlog (queue),
      a task that is not running or no running serve daemon (stop)
@@ -191,6 +195,59 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
     }
     out(values.json ? `${JSON.stringify({ specId: queued.specId, status: 'queue' })}\n` : `Queued ${queued.specId}\n`);
     return 0;
+  }
+  if (command === 'receipts') {
+    if (!arg || extra.length > 0 || values.run) {
+      err(`${values.run ? '--run only applies to the new command' : arg ? 'Too many arguments' : 'Missing <spec> argument'}\n\n${USAGE}`);
+      return 1;
+    }
+    let project: ReturnType<typeof resolveHeadlessProject>;
+    try {
+      project = resolveHeadlessProject(values.project);
+    } catch (error) {
+      if (error instanceof HeadlessSetupError) {
+        err(`${error.message}\n`);
+        return 1;
+      }
+      throw error;
+    }
+    const receiptRoot = resolveDeliveryReceiptRoot(project.path);
+    if (!receiptRoot) {
+      err('Could not read delivery history\n');
+      return 1;
+    }
+    if (!isValidTaskId(arg)) {
+      err('Invalid spec ID for delivery history\n');
+      return 1;
+    }
+    try {
+      // An exact ID can have durable history even after its only spec copy was removed.
+      // Try it verbatim, as `run` hashes the exact ID and the store can't resolve prefixes.
+      let specId = arg;
+      let receipts = await readDeliveryReceipts(receiptRoot, specId);
+      if (receipts.length === 0) {
+        const tasks = listHeadlessTasks({ ...project, path: receiptRoot });
+        if (project.path !== receiptRoot) {
+          for (const task of listHeadlessTasks(project)) {
+            if (!tasks.some((known) => known.specId === task.specId)) tasks.push(task);
+          }
+        }
+        if (!tasks.some((task) => task.specId === arg)) {
+          const resolved = resolveSpecId(tasks.filter((task) => isValidTaskId(task.specId)), arg);
+          if ('error' in resolved) {
+            err(`${resolved.error}\n`);
+            return 1;
+          }
+          specId = resolved.specId;
+          receipts = await readDeliveryReceipts(receiptRoot, specId);
+        }
+      }
+      createProgressReporter({ json: values.json, out }).deliveryReceipts(specId, receipts);
+      return 0;
+    } catch {
+      err('Could not read delivery history\n');
+      return 1;
+    }
   }
   if (command === 'stop') {
     if (!arg || extra.length > 0) {

@@ -1,8 +1,10 @@
 /** zeenha fork: desktop and headless share a project-local, observational delivery history. */
+import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
 import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 // @ts-expect-error - no types available for proper-lockfile
 import * as lockfile from 'proper-lockfile';
 import { z } from 'zod';
@@ -150,11 +152,43 @@ async function replaceRows(file: string, rows: StoredRow[], directory: Stats, ch
   }
 }
 
+const execFileAsync = promisify(execFile);
+
+/** zeenha fork: headless projects may not have desktop's .auto-claude ignore rule. */
+async function excludeLocalHistory(root: string): Promise<void> {
+  try {
+    if (!await statIfPresent(path.join(root, '.git'))) return;
+    const options = { cwd: root, timeout: 2000 };
+    const relativeFile = `.auto-claude/${FILE_NAME}`;
+    try {
+      await execFileAsync('git', ['check-ignore', '-q', '--no-index', '--', relativeFile], options);
+      return;
+    } catch (error) {
+      if ((error as { code?: number }).code !== 1) return; // Exit 1 means not ignored.
+    }
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--git-path', 'info/exclude'], options);
+    const exclude = path.resolve(root, stdout.replace(/\r?\n$/, ''));
+    await mkdir(path.dirname(exclude), { recursive: true });
+    const handle = await open(exclude, constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND |
+      (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0), 0o644);
+    try {
+      if ((await handle.stat()).isFile()) {
+        await handle.writeFile(`\n/${relativeFile}\n/${relativeFile}.lock/\n/.auto-claude/.${FILE_NAME}.*.tmp\n`);
+      }
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    // Best effort: do not block receipt persistence or delivery if Git metadata is unavailable.
+  }
+}
+
 // Queue per canonical path so aliases share a queue and unrelated projects don't block each other.
 const queues = new Map<string, Promise<void>>();
 
 async function saveReceipt(projectRoot: string, row: StoredRow, replace: boolean): Promise<void> {
-  const dir = path.join(await realpath(projectRoot), '.auto-claude');
+  const root = await realpath(projectRoot);
+  const dir = path.join(root, '.auto-claude');
   const file = path.join(dir, FILE_NAME);
   const lockPath = `${file}.lock`;
   const previous = queues.get(file) ?? Promise.resolve();
@@ -183,6 +217,7 @@ async function saveReceipt(projectRoot: string, row: StoredRow, replace: boolean
         if (index === -1) return; // The marker was pruned or could not be saved.
         rows[index] = row;
       } else {
+        await excludeLocalHistory(root);
         rows.push(row);
       }
       rows.sort((a, b) => newestFirst(a.receipt, b.receipt));
@@ -211,8 +246,8 @@ export interface DeliveryReceiptRecorder {
   snapshot(): DeliveryReceipt[];
 }
 
-/** One recorder per outcome. Only safe projections survive even when disk is unavailable. */
-export function createDeliveryReceiptRecorder(projectRoot: string, specId: string): DeliveryReceiptRecorder {
+/** One recorder per outcome. An unresolved project root keeps receipts in memory only. */
+export function createDeliveryReceiptRecorder(projectRoot: string | undefined, specId: string): DeliveryReceiptRecorder {
   const specHash = scope(specId);
   const receipts = new Map<string, DeliveryReceipt>();
 
@@ -225,7 +260,7 @@ export function createDeliveryReceiptRecorder(projectRoot: string, specId: strin
   async function remember(receipt: DeliveryReceipt, replace = false): Promise<void> {
     receipts.set(receipt.id, receipt);
     try {
-      if (!specHash) throw new Error(STORE_UNAVAILABLE);
+      if (!projectRoot || !specHash) throw new Error(STORE_UNAVAILABLE);
       await saveReceipt(projectRoot, { specHash, receipt }, replace);
     } catch {
       console.warn(WRITE_WARNING);

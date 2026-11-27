@@ -100,6 +100,12 @@ export const taskMock = {
     data: null
   }),
 
+  // zeenha fork: browser previews have no persisted delivery history.
+  getTaskDeliveryReceipts: async (_projectId: string, _specId: string) => ({
+    success: true,
+    data: []
+  }),
+
   getTaskRunMetrics: async () => ({
     success: true,
     data: null

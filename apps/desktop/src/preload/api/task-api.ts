@@ -18,6 +18,7 @@ import type {
   WorktreeCreatePRResult,
   ImageAttachment
 } from '../../shared/types';
+import type { DeliveryReceipt } from '../../shared/types/delivery-receipt';
 import type { TaskRunMetrics, ProjectRunMetrics } from '../../shared/types/run-metrics';
 import type { TaskQueueState, DaemonStopResultEvent } from '../../shared/types/task-queue';
 
@@ -102,6 +103,7 @@ export interface TaskAPI {
   // Task Phase Logs
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
   getTaskRunMetrics: (projectId: string, specId: string) => Promise<IPCResult<TaskRunMetrics | null>>;
+  getTaskDeliveryReceipts: (projectId: string, specId: string) => Promise<IPCResult<DeliveryReceipt[]>>;
   // zeenha fork: project-wide delivery and token metrics
   getProjectRunMetrics: (projectId: string, periodDays: number | null) => Promise<IPCResult<ProjectRunMetrics | null>>;
   watchTaskLogs: (projectId: string, specId: string) => Promise<IPCResult>;
@@ -359,6 +361,10 @@ export const createTaskAPI = (): TaskAPI => ({
 
   getTaskRunMetrics: (projectId: string, specId: string): Promise<IPCResult<TaskRunMetrics | null>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_RUN_METRICS_GET, projectId, specId),
+
+  // zeenha fork: history is scoped by the displayed task's project and spec.
+  getTaskDeliveryReceipts: (projectId, specId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_DELIVERY_RECEIPTS_GET, projectId, specId),
 
   // zeenha fork: project-wide delivery and token metrics
   getProjectRunMetrics: (projectId: string, periodDays: number | null): Promise<IPCResult<ProjectRunMetrics | null>> =>

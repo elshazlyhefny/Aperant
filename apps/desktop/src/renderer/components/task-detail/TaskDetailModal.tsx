@@ -47,6 +47,7 @@ import { TaskSubtasks } from './TaskSubtasks';
 import { TaskLogs } from './TaskLogs';
 import { TaskFiles } from './TaskFiles';
 import { TaskUsage } from './TaskUsage';
+import { TaskDeliveryReceipts } from './TaskDeliveryReceipts';
 import { TokenBudgetBanner } from './TokenBudgetBanner';
 import { TaskReview } from './TaskReview';
 import { FailedTaskPanel } from './FailedTaskPanel';
@@ -654,6 +655,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                           />
                         </>
                       )}
+                      <Separator />
+                      <TaskDeliveryReceipts task={task} open={open} />
                     </div>
                   </ScrollArea>
                 </TabsContent>

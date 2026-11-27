@@ -12,6 +12,7 @@ const runServe = vi.hoisted(() => vi.fn());
 const createHeadlessSpec = vi.hoisted(() => vi.fn());
 vi.mock('../new-spec', () => ({ createHeadlessSpec }));
 
+import { createDeliveryReceiptRecorder } from '../../delivery-receipts';
 import { acquireProjectQueueLock } from '../../utils/project-queue-lock';
 import { runCli } from '../cli';
 import type { PreflightReport } from '../preflight';
@@ -398,6 +399,57 @@ describe('headless cli', () => {
       createHeadlessSpec.mockResolvedValue({ exitCode: 1 });
       expect(await runCli(['new', 'x', '--queue', '--project', root], harness().deps)).toBe(1);
       expect(existsSync(path.join(root, '.auto-claude', 'specs', '007-new', 'implementation_plan.json'))).toBe(false);
+    });
+
+    describe('receipts', () => {
+      it('reads only the resolved task and never sends, loads config or starts a worker', async () => {
+        const root = makeProject({ '001-a': 'human_review', '002-b': 'backlog' });
+        const recorder = createDeliveryReceiptRecorder(root, '001-a');
+        const send = vi.fn(async () => ({ status: 'delivered' as const }));
+        await recorder.track({ operation: 'webhook', event: 'review_ready' }, send);
+        const filename = path.join(root, '.auto-claude', 'delivery-receipts.json');
+        const before = readFileSync(filename, 'utf8');
+        const h = harness();
+        expect(await runCli(['receipts', '001', '--project', root, '--json', '--config', '/missing'], h.deps)).toBe(0);
+        expect(JSON.parse(h.out.join(''))).toEqual({ type: 'delivery-receipts', spec: '001-a', receipts: recorder.snapshot() });
+        const empty = harness();
+        expect(await runCli(['receipts', '002-b', '--project', root], empty.deps)).toBe(0);
+        expect(empty.out.join('')).toContain('No delivery history');
+        expect(readFileSync(filename, 'utf8')).toBe(before);
+        expect(send).toHaveBeenCalledOnce();
+        expect(runHeadlessTask).not.toHaveBeenCalled();
+      });
+
+      it('prefers exact history over a different task with the same prefix', async () => {
+        const root = makeProject({ '001-a-other': 'backlog' });
+        const recorder = createDeliveryReceiptRecorder(root, '001-a');
+        await recorder.skip({ operation: 'webhook', event: 'failed' }, 'invalid_target');
+        const h = harness();
+        expect(await runCli(['receipts', '001-a', '--project', root, '--json'], h.deps)).toBe(0);
+        expect(JSON.parse(h.out.join(''))).toEqual({ type: 'delivery-receipts', spec: '001-a', receipts: recorder.snapshot() });
+      });
+
+      it('rejects unknown and invalid IDs rather than returning another task’s history', async () => {
+        const root = makeProject({ '001-a': 'backlog' });
+        for (const [spec, message] of [
+          ['002-missing', 'Task not found: 002-missing\n'],
+          ['../001-a', 'Invalid spec ID for delivery history\n'],
+        ]) {
+          const h = harness();
+          expect(await runCli(['receipts', spec, '--project', root], h.deps)).toBe(1);
+          expect(h.out).toEqual([]);
+          expect(h.err).toEqual([message]);
+        }
+      });
+
+      it('reports unreadable history without reflecting file contents', async () => {
+        const root = makeProject({ '001-a': 'backlog' });
+        writeFileSync(path.join(root, '.auto-claude', 'delivery-receipts.json'), 'private body');
+        const h = harness();
+        expect(await runCli(['receipts', '001', '--project', root], h.deps)).toBe(1);
+        expect(h.out).toEqual([]);
+        expect(h.err).toEqual(['Could not read delivery history\n']);
+      });
     });
 
     describe('stop', () => {

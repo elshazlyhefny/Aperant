@@ -23,6 +23,7 @@ import { WorkerBridgeCore } from '../../ai/agent/worker-bridge-core';
 import type { AgentExecutorConfig } from '../../ai/agent/types';
 import { registerTaskDeliveryReceiptsHandlers } from '../../ipc-handlers/task/delivery-receipts-handlers';
 import { projectStore } from '../../project-store';
+import { LEGACY_WORKTREE_DIR, TASK_WORKTREE_DIR } from '../../worktree-paths';
 import { runCli } from '../cli';
 import { type HeadlessBridge, type HeadlessRunOptions, runHeadlessTask } from '../run-task';
 import { runServe } from '../serve';
@@ -176,10 +177,10 @@ const specFile = (name: string) => path.join(projectDir, '.auto-claude', 'specs'
 const receiptFile = () => path.join(projectDir, '.auto-claude', 'delivery-receipts.json');
 const readNdjson = (text: string) => text.trim().split('\n').map((line) => JSON.parse(line));
 
-async function cliHistory(json = false) {
+async function cliHistory(json = false, projectPath = projectDir, spec = SPEC) {
   const output: string[] = [];
   const errors: string[] = [];
-  const args = ['receipts', SPEC, '--project', projectDir, ...(json ? ['--json'] : [])];
+  const args = ['receipts', spec, '--project', projectPath, ...(json ? ['--json'] : [])];
   expect(await runCli(args, { out: (t) => void output.push(t), err: (t) => void errors.push(t) })).toBe(0);
   expect(errors).toEqual([]);
   return output.join('');
@@ -201,6 +202,83 @@ function desktopReader() {
 }
 
 describe('headless delivery receipt history', () => {
+  it.each([TASK_WORKTREE_DIR, LEGACY_WORKTREE_DIR])('shares history for a linked checkout under %s', async (worktreeDir) => {
+    const worktree = path.join(projectDir, worktreeDir, SPEC);
+    git('worktree', 'add', '--quiet', '--detach', worktree, 'HEAD');
+    const worktreeSpec = path.join(worktree, '.auto-claude', 'specs', SPEC);
+    mkdirSync(worktreeSpec, { recursive: true });
+    writeFileSync(path.join(worktreeSpec, 'spec.md'), '# Demo\n');
+
+    expect(await run('pass', {
+      projectPath: worktreeSpec,
+      baseBranch: 'missing-fixture-branch',
+      json: true,
+      config: { webhook: { url: 'http://example.com/rejected-hook' } },
+    })).toBe(1);
+    expect(spawned).toEqual([]);
+    expect(err.join('')).toContain('Could not create the task');
+    const events = readNdjson(out.join(''));
+    expect(events.at(-1)).toMatchObject({ type: 'result', kind: 'error', exitCode: 1 });
+    const history = events.at(-2);
+    expect(history).toMatchObject({ type: 'delivery-receipts', spec: SPEC, receipts: [
+      { operation: 'webhook', event: 'failed', status: 'skipped', reason: 'invalid_target' },
+    ] });
+
+    expect(JSON.parse(await cliHistory(true))).toEqual(history);
+    // History resolves the registered task even without a worktree-local spec copy.
+    rmSync(worktreeSpec, { recursive: true });
+    expect(JSON.parse(await cliHistory(true, worktree))).toEqual(history);
+    await expect(desktopReader()()).resolves.toEqual({ success: true, data: history.receipts });
+    expect(existsSync(path.join(worktree, '.auto-claude', 'delivery-receipts.json'))).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  }, 30000);
+
+  it('reads exact worktree-only history after the linked checkout is removed', async () => {
+    const spec = '002-worktree-only';
+    const worktree = path.join(projectDir, TASK_WORKTREE_DIR, spec);
+    git('worktree', 'add', '--quiet', '--detach', worktree, 'HEAD');
+    const worktreeSpec = path.join(worktree, '.auto-claude', 'specs', spec);
+    mkdirSync(worktreeSpec, { recursive: true });
+    writeFileSync(path.join(worktreeSpec, 'spec.md'), '# Worktree-only fixture\n');
+    expect(existsSync(path.join(projectDir, '.auto-claude', 'specs', spec))).toBe(false);
+    const exclude = path.resolve(projectDir, git('rev-parse', '--git-path', 'info/exclude'));
+    const before = readFileSync(exclude, 'utf8');
+    expect(JSON.parse(await cliHistory(true, worktree, spec))).toEqual({
+      type: 'delivery-receipts', spec, receipts: [],
+    });
+    expect(existsSync(receiptFile())).toBe(false);
+    expect(readFileSync(exclude, 'utf8')).toBe(before);
+
+    expect(await run('pass', {
+      projectPath: worktree,
+      spec,
+      baseBranch: 'missing-fixture-branch',
+      json: true,
+      config: { webhook: { url: 'http://example.com/rejected-hook' } },
+    })).toBe(1);
+    const events = readNdjson(out.join(''));
+    expect(events.at(-1)).toMatchObject({ type: 'result', kind: 'error', exitCode: 1 });
+    const history = events.at(-2);
+    expect(history).toMatchObject({ type: 'delivery-receipts', spec, receipts: [
+      { operation: 'webhook', event: 'failed', status: 'skipped', reason: 'invalid_target' },
+    ] });
+    const localFile = '.auto-claude/delivery-receipts.json';
+    expect(existsSync(receiptFile())).toBe(true);
+    expect(existsSync(path.join(worktree, localFile))).toBe(false);
+    expect(git('check-ignore', '--', localFile)).toBe(localFile);
+    expect(git('status', '--short', '--untracked-files=all', '--', localFile)).toBe('');
+    expect(existsSync(path.join(projectDir, '.gitignore'))).toBe(false);
+
+    const after = readFileSync(exclude, 'utf8');
+    expect(JSON.parse(await cliHistory(true, worktree, spec))).toEqual(history);
+    expect(JSON.parse(await cliHistory(true, projectDir, spec))).toEqual(history);
+    git('worktree', 'remove', '--force', worktree);
+    expect(JSON.parse(await cliHistory(true, projectDir, spec))).toEqual(history);
+    expect(readFileSync(exclude, 'utf8')).toBe(after);
+    expect(spawned).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  }, 30000);
+
   it('shares mixed delivery results with desktop and CLI without changing a successful build', async () => {
     const jira = 'https://fixture.atlassian.net';
     const token = 'fixture-private-tracker-token';
@@ -290,8 +368,15 @@ describe('headless delivery receipt history', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   }, 30000);
 
-  it('keeps a settled build and unconfirmed receipt after daemon interruption, with no replay', async () => {
-    const plan = specFile('implementation_plan.json');
+  it.each(['project root', 'linked task worktree'])('keeps a settled build and unconfirmed receipt after daemon interruption from %s, with no replay', async (checkout) => {
+    const serveProjectDir = checkout === 'project root' ? projectDir : path.join(projectDir, TASK_WORKTREE_DIR, SPEC);
+    const serveSpecDir = path.join(serveProjectDir, '.auto-claude', 'specs', SPEC);
+    if (serveProjectDir !== projectDir) {
+      git('worktree', 'add', '--quiet', '--detach', serveProjectDir, 'HEAD');
+      mkdirSync(serveSpecDir, { recursive: true });
+      writeFileSync(path.join(serveSpecDir, 'spec.md'), '# Demo\n');
+    }
+    const plan = path.join(serveSpecDir, 'implementation_plan.json');
     writeFileSync(plan, JSON.stringify({ feature: 'Demo', status: 'queue', phases: [] }));
     // Simulate process exit with a request that never returns an acknowledgment.
     const fetchMock = vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
@@ -300,7 +385,7 @@ describe('headless delivery receipt history', () => {
     );
     let signal: ((name: string) => void) | undefined;
     const serve = () => runServe({
-      projectPath: projectDir, workerPath: writeStub('pass'), createBridge,
+      projectPath: serveProjectDir, workerPath: writeStub('pass'), createBridge,
       noPush: true, baseBranch: 'main', json: true, shutdownTimeoutMs: 0,
       config: { webhook: { enabled: true, url: hook } },
       out: (t) => void out.push(t), err: (t) => void err.push(t),
@@ -332,6 +417,10 @@ describe('headless delivery receipt history', () => {
     expect(history).toMatchObject({ type: 'delivery-receipts', spec: SPEC, receipts: [
       { operation: 'webhook', status: 'unknown', reason: 'unconfirmed' },
     ] });
+    if (serveProjectDir !== projectDir) {
+      expect(JSON.parse(await cliHistory(true, serveProjectDir))).toEqual(history);
+      expect(existsSync(path.join(serveProjectDir, '.auto-claude', 'delivery-receipts.json'))).toBe(false);
+    }
     expect(await cliHistory()).toContain('unknown provider=slack reason=unconfirmed');
     const read = desktopReader();
     // Same preload call used by Task Detail on open and Refresh.
