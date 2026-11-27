@@ -27,6 +27,7 @@ import { useSettingsStore, saveSettings } from '../stores/settings-store';
 import { useActiveProvider } from '../hooks/useActiveProvider';
 import { PROVIDER_REGISTRY } from '@shared/constants/providers';
 import type { ProviderAccount, BuiltinProvider } from '../../shared/types/provider-account';
+import { getQueuedRowVariant, selectUsageView, type QueuedRowVariant } from './usage-indicator-view';
 
 /**
  * Usage threshold constants for color coding
@@ -120,6 +121,240 @@ const accountHasUsageMonitoring = (account: { provider: string; authType?: strin
   return false;
 };
 
+/**
+ * Helper function to get initials from a profile name
+ */
+const getInitials = (name: string): string => {
+  if (!name || name.trim().length === 0) {
+    return 'UN'; // Unknown
+  }
+  const words = name.trim().split(/\s+/);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+};
+
+type SwapHandler = (event: React.MouseEvent<HTMLButtonElement>, id: string) => void;
+
+// zeenha fork: share the same mini meters across queue, legacy and cross-provider rows.
+function MiniUsageBars({ sessionPercent, weeklyPercent }: { sessionPercent: number; weeklyPercent: number }) {
+  return (
+    <div className="flex items-center gap-2 mt-0.5">
+      <div className="flex items-center gap-1">
+        <Clock className="h-2.5 w-2.5 text-muted-foreground/70" />
+        <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full ${getBarColorClass(sessionPercent)}`}
+            style={{ width: `${Math.min(sessionPercent, 100)}%` }}
+          />
+        </div>
+        <span className={`text-[9px] tabular-nums w-6 ${getColorClass(sessionPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
+          {Math.round(sessionPercent)}%
+        </span>
+      </div>
+      <div className="flex items-center gap-1">
+        <TrendingUp className="h-2.5 w-2.5 text-muted-foreground/70" />
+        <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full ${getBarColorClass(weeklyPercent)}`}
+            style={{ width: `${Math.min(weeklyPercent, 100)}%` }}
+          />
+        </div>
+        <span className={`text-[9px] tabular-nums w-6 ${getColorClass(weeklyPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
+          {Math.round(weeklyPercent)}%
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function QueuedAccountRow({ account, profileData, variant, onSwap }: {
+  account: ProviderAccount;
+  profileData: ProfileUsageSummary | undefined;
+  variant: QueuedRowVariant;
+  onSwap: SwapHandler;
+}) {
+  const { t } = useTranslation(['common']);
+  const showStatusAvatar = variant.avatar === 'status';
+  const hasWarning = showStatusAvatar && (profileData?.isRateLimited || profileData?.needsReauthentication);
+  const monitoredProfile = accountHasUsageMonitoring(account) ? profileData : undefined;
+  const avatar = (
+    <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${hasWarning ? 'bg-red-500/10' : 'bg-muted/80'}`}>
+      <span className={`text-[10px] font-semibold ${hasWarning ? 'text-red-500' : 'text-foreground/70'}`}>
+        {getInitials(account.name)}
+      </span>
+    </div>
+  );
+
+  let status: React.ReactNode;
+  if (variant.showLimitStatus && monitoredProfile?.isRateLimited) {
+    status = (
+      <span className="text-[9px] text-red-500">
+        {monitoredProfile.rateLimitType === 'weekly'
+          ? t('common:usage.weeklyLimitReached')
+          : t('common:usage.sessionLimitReached')}
+      </span>
+    );
+  } else if (variant.showLimitStatus && monitoredProfile?.needsReauthentication) {
+    status = <span className="text-[9px] text-destructive">{t('common:usage.needsReauth')}</span>;
+  } else if (monitoredProfile) {
+    status = <MiniUsageBars sessionPercent={monitoredProfile.sessionPercent} weeklyPercent={monitoredProfile.weeklyPercent} />;
+  } else if (variant.subscriptionFallback && account.billingModel === 'subscription') {
+    status = <span className="text-[9px] text-muted-foreground">{t('common:usage.subscriptionBadge')}</span>;
+  } else {
+    status = <span className="text-[9px] text-green-500">{t('common:usage.unlimited')}</span>;
+  }
+
+  return (
+    <div className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-muted/30 transition-colors">
+      {showStatusAvatar ? (
+        <div className="relative">
+          {avatar}
+          {hasWarning && (
+            <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-background" />
+          )}
+        </div>
+      ) : avatar}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-medium truncate">{account.name}</span>
+          <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold border ${
+            PROVIDER_BADGE_COLORS[account.provider] ?? PROVIDER_BADGE_COLORS['openai-compatible']
+          }`}>
+            {getProviderName(account.provider)}
+          </span>
+          <button
+            onClick={(e) => onSwap(e, account.id)}
+            className="text-[9px] px-1.5 py-0.5 bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground rounded transition-colors ml-auto"
+          >
+            {t('common:usage.swap')}
+          </button>
+        </div>
+        {status}
+      </div>
+    </div>
+  );
+}
+
+function QueuedAccounts({ accounts, otherProfiles, variant, onSwap }: {
+  accounts: ProviderAccount[];
+  otherProfiles: ProfileUsageSummary[];
+  variant: QueuedRowVariant;
+  onSwap: SwapHandler;
+}) {
+  const { t } = useTranslation(['common']);
+  if (accounts.length === 0) return null;
+
+  const findProfile = (account: ProviderAccount) => (
+    otherProfiles.find(p => p.profileId === account.claudeProfileId)
+      ?? otherProfiles.find(p => p.profileId === account.id)
+      ?? (accountHasUsageMonitoring(account)
+        ? otherProfiles.find(p => p.profileName === account.name || p.profileEmail === account.name)
+        : undefined)
+  );
+
+  return (
+    <div className="pt-2 -mx-3 px-3 -mb-3 pb-3 space-y-1">
+      <div className="text-[10px] text-muted-foreground font-medium mb-1.5">
+        {t('common:usage.otherAccounts')}
+      </div>
+      {accounts.map((account) => (
+        <QueuedAccountRow
+          key={account.id}
+          account={account}
+          profileData={findProfile(account)}
+          variant={variant}
+          onSwap={onSwap}
+        />
+      ))}
+    </div>
+  );
+}
+
+function LegacyProfileRows({ profiles, onSwap }: { profiles: ProfileUsageSummary[]; onSwap: SwapHandler }) {
+  const { t } = useTranslation(['common']);
+  return (
+    <div className="pt-2 -mx-3 px-3 -mb-3 pb-3 space-y-1">
+      <div className="text-[10px] text-muted-foreground font-medium mb-1.5">
+        {t('common:usage.otherAccounts')}
+      </div>
+      {profiles.map((profile, index) => (
+        <div
+          key={profile.profileId}
+          className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-muted/30 transition-colors"
+        >
+          {/* Initials Avatar with status indicator */}
+          <div className="relative">
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
+              profile.isRateLimited || profile.needsReauthentication
+                ? 'bg-red-500/10'
+                : !profile.isAuthenticated
+                  ? 'bg-muted'
+                  : 'bg-muted/80'
+            }`}>
+              <span className={`text-[10px] font-semibold ${
+                profile.isRateLimited || profile.needsReauthentication
+                  ? 'text-red-500'
+                  : !profile.isAuthenticated
+                    ? 'text-muted-foreground'
+                    : 'text-foreground/70'
+              }`}>
+                {getInitials(profile.profileName)}
+              </span>
+            </div>
+            {/* Status dot */}
+            {(profile.isRateLimited || profile.needsReauthentication) && (
+              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-background" />
+            )}
+          </div>
+
+          {/* Profile Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-medium truncate">
+                {profile.profileEmail || profile.profileName}
+              </span>
+              {index === 0 && !profile.isRateLimited && profile.isAuthenticated && (
+                <span className="text-[9px] px-1.5 py-0.5 bg-primary/10 text-primary rounded font-semibold">
+                  {t('common:usage.next')}
+                </span>
+              )}
+              {/* Swap button - only show for authenticated profiles */}
+              {profile.isAuthenticated && (
+                <button
+                  onClick={(e) => onSwap(e, profile.profileId)}
+                  className="text-[9px] px-1.5 py-0.5 bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground rounded transition-colors ml-auto"
+                >
+                  {t('common:usage.swap')}
+                </button>
+              )}
+            </div>
+            {/* Usage bars or status - show both session and weekly */}
+            {profile.isRateLimited ? (
+              <span className="text-[9px] text-red-500">
+                {profile.rateLimitType === 'weekly'
+                  ? t('common:usage.weeklyLimitReached')
+                  : t('common:usage.sessionLimitReached')}
+              </span>
+            ) : profile.needsReauthentication ? (
+              <span className="text-[9px] text-destructive">
+                {t('common:usage.needsReauth')}
+              </span>
+            ) : !profile.isAuthenticated ? (
+              <span className="text-[9px] text-muted-foreground">
+                {t('common:usage.notAuthenticated')}
+              </span>
+            ) : (
+              <MiniUsageBars sessionPercent={profile.sessionPercent} weeklyPercent={profile.weeklyPercent} />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function UsageIndicator() {
   const { t, i18n } = useTranslation(['common']);
   const [usage, setUsage] = useState<ClaudeUsageSnapshot | null>(null);
@@ -161,20 +396,6 @@ export function UsageIndicator() {
   // Show cross-provider section whenever a config exists with 2+ providers,
   // regardless of whether the mode is currently active (so it persists after account swaps)
   const isCrossProviderConfigured = !!crossProviderConfig && crossProviderOrder.length > 1;
-
-  /**
-   * Helper function to get initials from a profile name
-   */
-  const getInitials = (name: string): string => {
-    if (!name || name.trim().length === 0) {
-      return 'UN'; // Unknown
-    }
-    const words = name.trim().split(/\s+/);
-    if (words.length >= 2) {
-      return (words[0][0] + words[1][0]).toUpperCase();
-    }
-    return name.substring(0, 2).toUpperCase();
-  };
 
   /**
    * Render the active account footer section.
@@ -538,32 +759,7 @@ export function UsageIndicator() {
                           : t('common:usage.sessionLimitReached')}
                       </span>
                     ) : (
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-2.5 w-2.5 text-muted-foreground/70" />
-                          <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${getBarColorClass(summary.sessionPercent)}`}
-                              style={{ width: `${Math.min(summary.sessionPercent, 100)}%` }}
-                            />
-                          </div>
-                          <span className={`text-[9px] tabular-nums w-6 ${getColorClass(summary.sessionPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                            {Math.round(summary.sessionPercent)}%
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <TrendingUp className="h-2.5 w-2.5 text-muted-foreground/70" />
-                          <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${getBarColorClass(summary.weeklyPercent)}`}
-                              style={{ width: `${Math.min(summary.weeklyPercent, 100)}%` }}
-                            />
-                          </div>
-                          <span className={`text-[9px] tabular-nums w-6 ${getColorClass(summary.weeklyPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                            {Math.round(summary.weeklyPercent)}%
-                          </span>
-                        </div>
-                      </div>
+                      <MiniUsageBars sessionPercent={summary.sessionPercent} weeklyPercent={summary.weeklyPercent} />
                     )
                   ) : (
                     <span className="text-[9px] text-muted-foreground">
@@ -802,8 +998,16 @@ export function UsageIndicator() {
     };
   }, []);
 
-  // Show loading state - only for Anthropic OAuth accounts awaiting usage data
-  if (isLoading && hasUsageMonitoring) {
+  const view = selectUsageView({
+    isLoading,
+    hasUsageMonitoring,
+    hasSubscriptionLimits,
+    isAvailable,
+    usage,
+    activeProfileNeedsReauth,
+  });
+
+  if (view.kind === 'loading') {
     return (
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border bg-muted/50 text-muted-foreground">
         <Activity className="h-3.5 w-3.5 motion-safe:animate-pulse" />
@@ -813,7 +1017,7 @@ export function UsageIndicator() {
   }
 
   // For subscription accounts without monitoring (e.g. OpenAI Codex OAuth), show "Subscription" badge
-  if (!hasUsageMonitoring && hasSubscriptionLimits) {
+  if (view.kind === 'subscription-only') {
     const providerBadgeColor = PROVIDER_BADGE_COLORS[activeAccount?.provider ?? ''] ?? PROVIDER_BADGE_COLORS['openai-compatible'];
     return (
       <Popover open={isOpen} onOpenChange={handleOpenChange}>
@@ -855,87 +1059,12 @@ export function UsageIndicator() {
             {renderActiveAccountFooter({ hasOtherItems: otherAccounts.length > 0 })}
 
             {/* Other accounts from the queue */}
-            {otherAccounts.length > 0 && (
-              <div className="pt-2 -mx-3 px-3 -mb-3 pb-3 space-y-1">
-                <div className="text-[10px] text-muted-foreground font-medium mb-1.5">
-                  {t('common:usage.otherAccounts')}
-                </div>
-                {otherAccounts.map((account) => {
-                  const hasOAuthMonitoring = accountHasUsageMonitoring(account);
-                  const isAccountSubscription = account.billingModel === 'subscription';
-                  const profileData = otherProfiles.find(p => p.profileId === account.claudeProfileId)
-                    ?? otherProfiles.find(p => p.profileId === account.id)
-                    ?? (hasOAuthMonitoring
-                      ? otherProfiles.find(p => p.profileName === account.name || p.profileEmail === account.name)
-                      : undefined);
-
-                  return (
-                    <div
-                      key={account.id}
-                      className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-muted/30 transition-colors"
-                    >
-                      <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-muted/80">
-                        <span className="text-[10px] font-semibold text-foreground/70">
-                          {getInitials(account.name)}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] font-medium truncate">{account.name}</span>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold border ${
-                            PROVIDER_BADGE_COLORS[account.provider] ?? PROVIDER_BADGE_COLORS['openai-compatible']
-                          }`}>
-                            {getProviderName(account.provider)}
-                          </span>
-                          <button
-                            onClick={(e) => handleSwapAccount(e, account.id)}
-                            className="text-[9px] px-1.5 py-0.5 bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground rounded transition-colors ml-auto"
-                          >
-                            {t('common:usage.swap')}
-                          </button>
-                        </div>
-                        {hasOAuthMonitoring && profileData ? (
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-2.5 w-2.5 text-muted-foreground/70" />
-                              <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${getBarColorClass(profileData.sessionPercent)}`}
-                                  style={{ width: `${Math.min(profileData.sessionPercent, 100)}%` }}
-                                />
-                              </div>
-                              <span className={`text-[9px] tabular-nums w-6 ${getColorClass(profileData.sessionPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                                {Math.round(profileData.sessionPercent)}%
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <TrendingUp className="h-2.5 w-2.5 text-muted-foreground/70" />
-                              <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${getBarColorClass(profileData.weeklyPercent)}`}
-                                  style={{ width: `${Math.min(profileData.weeklyPercent, 100)}%` }}
-                                />
-                              </div>
-                              <span className={`text-[9px] tabular-nums w-6 ${getColorClass(profileData.weeklyPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                                {Math.round(profileData.weeklyPercent)}%
-                              </span>
-                            </div>
-                          </div>
-                        ) : isAccountSubscription ? (
-                          <span className="text-[9px] text-muted-foreground">
-                            {t('common:usage.subscriptionBadge')}
-                          </span>
-                        ) : (
-                          <span className="text-[9px] text-green-500">
-                            {t('common:usage.unlimited')}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <QueuedAccounts
+              accounts={otherAccounts}
+              otherProfiles={otherProfiles}
+              variant={getQueuedRowVariant(view)}
+              onSwap={handleSwapAccount}
+            />
 
             {renderCrossProviderUsageSection()}
           </div>
@@ -945,7 +1074,7 @@ export function UsageIndicator() {
   }
 
   // For pay-per-use / API key providers (no rate limits), show "Unlimited" badge
-  if (!hasUsageMonitoring && !hasSubscriptionLimits) {
+  if (view.kind === 'unmetered') {
     return (
       <Popover open={isOpen} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
@@ -985,82 +1114,12 @@ export function UsageIndicator() {
             {renderActiveAccountFooter({ hasOtherItems: otherAccounts.length > 0 })}
 
             {/* Other accounts from the queue */}
-            {otherAccounts.length > 0 && (
-              <div className="pt-2 -mx-3 px-3 -mb-3 pb-3 space-y-1">
-                <div className="text-[10px] text-muted-foreground font-medium mb-1.5">
-                  {t('common:usage.otherAccounts')}
-                </div>
-                {otherAccounts.map((account) => {
-                  const hasOAuthMonitoring = accountHasUsageMonitoring(account);
-                  const profileData = otherProfiles.find(p => p.profileId === account.claudeProfileId)
-                    ?? otherProfiles.find(p => p.profileId === account.id)
-                    ?? (hasOAuthMonitoring
-                      ? otherProfiles.find(p => p.profileName === account.name || p.profileEmail === account.name)
-                      : undefined);
-
-                  return (
-                    <div
-                      key={account.id}
-                      className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-muted/30 transition-colors"
-                    >
-                      <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-muted/80">
-                        <span className="text-[10px] font-semibold text-foreground/70">
-                          {getInitials(account.name)}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] font-medium truncate">{account.name}</span>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold border ${
-                            PROVIDER_BADGE_COLORS[account.provider] ?? PROVIDER_BADGE_COLORS['openai-compatible']
-                          }`}>
-                            {getProviderName(account.provider)}
-                          </span>
-                          <button
-                            onClick={(e) => handleSwapAccount(e, account.id)}
-                            className="text-[9px] px-1.5 py-0.5 bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground rounded transition-colors ml-auto"
-                          >
-                            {t('common:usage.swap')}
-                          </button>
-                        </div>
-                        {hasOAuthMonitoring && profileData ? (
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-2.5 w-2.5 text-muted-foreground/70" />
-                              <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${getBarColorClass(profileData.sessionPercent)}`}
-                                  style={{ width: `${Math.min(profileData.sessionPercent, 100)}%` }}
-                                />
-                              </div>
-                              <span className={`text-[9px] tabular-nums w-6 ${getColorClass(profileData.sessionPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                                {Math.round(profileData.sessionPercent)}%
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <TrendingUp className="h-2.5 w-2.5 text-muted-foreground/70" />
-                              <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${getBarColorClass(profileData.weeklyPercent)}`}
-                                  style={{ width: `${Math.min(profileData.weeklyPercent, 100)}%` }}
-                                />
-                              </div>
-                              <span className={`text-[9px] tabular-nums w-6 ${getColorClass(profileData.weeklyPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                                {Math.round(profileData.weeklyPercent)}%
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-[9px] text-green-500">
-                            {t('common:usage.unlimited')}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <QueuedAccounts
+              accounts={otherAccounts}
+              otherProfiles={otherProfiles}
+              variant={getQueuedRowVariant(view)}
+              onSwap={handleSwapAccount}
+            />
 
             {renderCrossProviderUsageSection()}
           </div>
@@ -1070,8 +1129,8 @@ export function UsageIndicator() {
   }
 
   // Show unavailable state — but still allow account swapping via popover
-  if (!isAvailable || !usage) {
-    const needsReauth = activeProfileNeedsReauth;
+  if (view.kind === 'unavailable') {
+    const { needsReauth } = view;
 
     return (
       <Popover open={isOpen} onOpenChange={handleOpenChange}>
@@ -1142,112 +1201,12 @@ export function UsageIndicator() {
             {renderActiveAccountFooter({ hasOtherItems: otherAccounts.length > 0, needsReauth })}
 
             {/* Other accounts with swap buttons */}
-            {otherAccounts.length > 0 && (
-              <div className="pt-2 -mx-3 px-3 -mb-3 pb-3 space-y-1">
-                <div className="text-[10px] text-muted-foreground font-medium mb-1.5">
-                  {t('common:usage.otherAccounts')}
-                </div>
-                {otherAccounts.map((account) => {
-                  const hasOAuthMonitoring = accountHasUsageMonitoring(account);
-                  const isAccountSubscription = account.billingModel === 'subscription';
-                  const profileData = otherProfiles.find(p => p.profileId === account.claudeProfileId)
-                    ?? otherProfiles.find(p => p.profileId === account.id)
-                    ?? (hasOAuthMonitoring
-                      ? otherProfiles.find(p => p.profileName === account.name || p.profileEmail === account.name)
-                      : undefined);
-
-                  return (
-                    <div
-                      key={account.id}
-                      className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-muted/30 transition-colors"
-                    >
-                      <div className={`relative`}>
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
-                          profileData?.isRateLimited || profileData?.needsReauthentication
-                            ? 'bg-red-500/10'
-                            : 'bg-muted/80'
-                        }`}>
-                          <span className={`text-[10px] font-semibold ${
-                            profileData?.isRateLimited || profileData?.needsReauthentication
-                              ? 'text-red-500'
-                              : 'text-foreground/70'
-                          }`}>
-                            {getInitials(account.name)}
-                          </span>
-                        </div>
-                        {(profileData?.isRateLimited || profileData?.needsReauthentication) && (
-                          <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-background" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] font-medium truncate">{account.name}</span>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold border ${
-                            PROVIDER_BADGE_COLORS[account.provider] ?? PROVIDER_BADGE_COLORS['openai-compatible']
-                          }`}>
-                            {getProviderName(account.provider)}
-                          </span>
-                          <button
-                            onClick={(e) => handleSwapAccount(e, account.id)}
-                            className="text-[9px] px-1.5 py-0.5 bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground rounded transition-colors ml-auto"
-                          >
-                            {t('common:usage.swap')}
-                          </button>
-                        </div>
-                        {hasOAuthMonitoring && profileData ? (
-                          profileData.isRateLimited ? (
-                            <span className="text-[9px] text-red-500">
-                              {profileData.rateLimitType === 'weekly'
-                                ? t('common:usage.weeklyLimitReached')
-                                : t('common:usage.sessionLimitReached')}
-                            </span>
-                          ) : profileData.needsReauthentication ? (
-                            <span className="text-[9px] text-destructive">
-                              {t('common:usage.needsReauth')}
-                            </span>
-                          ) : (
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <div className="flex items-center gap-1">
-                                <Clock className="h-2.5 w-2.5 text-muted-foreground/70" />
-                                <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full ${getBarColorClass(profileData.sessionPercent)}`}
-                                    style={{ width: `${Math.min(profileData.sessionPercent, 100)}%` }}
-                                  />
-                                </div>
-                                <span className={`text-[9px] tabular-nums w-6 ${getColorClass(profileData.sessionPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                                  {Math.round(profileData.sessionPercent)}%
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <TrendingUp className="h-2.5 w-2.5 text-muted-foreground/70" />
-                                <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full ${getBarColorClass(profileData.weeklyPercent)}`}
-                                    style={{ width: `${Math.min(profileData.weeklyPercent, 100)}%` }}
-                                  />
-                                </div>
-                                <span className={`text-[9px] tabular-nums w-6 ${getColorClass(profileData.weeklyPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                                  {Math.round(profileData.weeklyPercent)}%
-                                </span>
-                              </div>
-                            </div>
-                          )
-                        ) : isAccountSubscription ? (
-                          <span className="text-[9px] text-muted-foreground">
-                            {t('common:usage.subscriptionBadge')}
-                          </span>
-                        ) : (
-                          <span className="text-[9px] text-green-500">
-                            {t('common:usage.unlimited')}
-                          </span>
-                        )}
-                      </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            <QueuedAccounts
+              accounts={otherAccounts}
+              otherProfiles={otherProfiles}
+              variant={getQueuedRowVariant(view)}
+              onSwap={handleSwapAccount}
+            />
 
             {renderCrossProviderUsageSection()}
         </div>
@@ -1256,42 +1215,29 @@ export function UsageIndicator() {
     );
   }
 
-  // Determine colors and labels based on the LIMITING factor (higher of session/weekly)
-  const sessionPercent = usage.sessionPercent;
-  const weeklyPercent = usage.weeklyPercent;
-  const limitingPercent = Math.max(sessionPercent, weeklyPercent);
-
-  const creditUsage = usage.creditUsage;
-  const creditLimit = creditUsage?.limit ?? null;
-  const creditPercent = creditUsage && creditLimit != null && creditLimit > 0
-    ? Math.min(100, (creditUsage.used / creditLimit) * 100)
-    : 0;
-  // Badge color based on the limiting (higher) percentage
-  // Override to red/destructive when re-auth is needed
-  const badgeColorClasses = usage.needsReauthentication
+  const { usage: monitoredUsage, needsReauth, sessionPercent, weeklyPercent, creditUsage, creditLimit, creditPercent, maxUsage } = view;
+  // Badge color based on the limiting usage percentage unless re-auth is needed
+  const badgeColorClasses = needsReauth
     ? 'text-red-500 bg-red-500/10 border-red-500/20'
-    : getBadgeColorClasses(creditUsage ? (creditLimit != null ? creditPercent : 0) : limitingPercent);
+    : getBadgeColorClasses(maxUsage);
 
   // Individual colors for session and weekly in the badge
   const sessionColorClass = getColorClass(sessionPercent);
   const weeklyColorClass = getColorClass(weeklyPercent);
 
   const sessionLabel = localizeUsageWindowLabel(
-    usage?.usageWindows?.sessionWindowLabel,
+    monitoredUsage.usageWindows?.sessionWindowLabel,
     t,
     'common:usage.sessionDefault'
   );
   const weeklyLabel = localizeUsageWindowLabel(
-    usage?.usageWindows?.weeklyWindowLabel,
+    monitoredUsage.usageWindows?.weeklyWindowLabel,
     t,
     'common:usage.weeklyDefault'
   );
 
-  const maxUsage = creditUsage
-    ? (creditLimit != null ? creditPercent : 0)
-    : Math.max(usage.sessionPercent, usage.weeklyPercent);
   // Show AlertCircle when re-auth needed or high usage
-  const Icon = usage.needsReauthentication ? AlertCircle :
+  const Icon = needsReauth ? AlertCircle :
     maxUsage >= THRESHOLD_WARNING ? AlertCircle :
     maxUsage >= THRESHOLD_ELEVATED ? TrendingUp :
     Activity;
@@ -1308,7 +1254,7 @@ export function UsageIndicator() {
         >
           <Icon className="h-3.5 w-3.5 flex-shrink-0" />
           {/* Show "!" when re-auth needed, otherwise dual usage display */}
-          {usage.needsReauthentication ? (
+          {needsReauth ? (
             <span className="text-xs font-semibold text-red-500" title={t('common:usage.needsReauth')}>
               !
             </span>
@@ -1346,7 +1292,7 @@ export function UsageIndicator() {
           </div>
 
           {/* Re-auth required prompt - shown when active profile needs re-authentication */}
-          {usage.needsReauthentication ? (
+          {needsReauth ? (
             <div className="py-2 space-y-3">
               <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-destructive/10 border border-destructive/20">
                 <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
@@ -1427,8 +1373,8 @@ export function UsageIndicator() {
                     <Clock className="h-3 w-3" />
                     {sessionLabel}
                   </span>
-                  <span className={`font-semibold tabular-nums text-xs ${getColorClass(usage.sessionPercent).replace('500', '600')}`}>
-                    {Math.round(usage.sessionPercent)}%
+                  <span className={`font-semibold tabular-nums text-xs ${getColorClass(sessionPercent).replace('500', '600')}`}>
+                    {Math.round(sessionPercent)}%
                   </span>
                 </div>
                 {sessionResetTime && (
@@ -1439,17 +1385,17 @@ export function UsageIndicator() {
                 )}
                 <div className="h-2 bg-muted rounded-full overflow-hidden shadow-inner">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ease-out relative overflow-hidden ${getGradientClass(usage.sessionPercent)}`}
-                    style={{ width: `${Math.min(usage.sessionPercent, 100)}%` }}
+                    className={`h-full rounded-full transition-all duration-500 ease-out relative overflow-hidden ${getGradientClass(sessionPercent)}`}
+                    style={{ width: `${Math.min(sessionPercent, 100)}%` }}
                   >
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent motion-safe:animate-pulse" />
                   </div>
                 </div>
-                {usage.sessionUsageValue != null && usage.sessionUsageLimit != null && (
+                {monitoredUsage.sessionUsageValue != null && monitoredUsage.sessionUsageLimit != null && (
                   <div className="flex items-center justify-between text-[10px]">
                     <span className="text-muted-foreground">{t('common:usage.used')}</span>
                     <span className="font-medium tabular-nums">
-                      {formatUsageValue(usage.sessionUsageValue)} <span className="text-muted-foreground mx-1">/</span> {formatUsageValue(usage.sessionUsageLimit)}
+                      {formatUsageValue(monitoredUsage.sessionUsageValue)} <span className="text-muted-foreground mx-1">/</span> {formatUsageValue(monitoredUsage.sessionUsageLimit)}
                     </span>
                   </div>
                 )}
@@ -1462,8 +1408,8 @@ export function UsageIndicator() {
                     <TrendingUp className="h-3 w-3" />
                     {weeklyLabel}
                   </span>
-                  <span className={`font-semibold tabular-nums text-xs ${getColorClass(usage.weeklyPercent).replace('500', '600')}`}>
-                    {Math.round(usage.weeklyPercent)}%
+                  <span className={`font-semibold tabular-nums text-xs ${getColorClass(weeklyPercent).replace('500', '600')}`}>
+                    {Math.round(weeklyPercent)}%
                   </span>
                 </div>
                 {weeklyResetTime && (
@@ -1474,17 +1420,17 @@ export function UsageIndicator() {
                 )}
                 <div className="h-2 bg-muted rounded-full overflow-hidden shadow-inner">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ease-out relative overflow-hidden ${getGradientClass(usage.weeklyPercent)}`}
-                    style={{ width: `${Math.min(usage.weeklyPercent, 100)}%` }}
+                    className={`h-full rounded-full transition-all duration-500 ease-out relative overflow-hidden ${getGradientClass(weeklyPercent)}`}
+                    style={{ width: `${Math.min(weeklyPercent, 100)}%` }}
                   >
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent motion-safe:animate-pulse" />
                   </div>
                 </div>
-                {usage.weeklyUsageValue != null && usage.weeklyUsageLimit != null && (
+                {monitoredUsage.weeklyUsageValue != null && monitoredUsage.weeklyUsageLimit != null && (
                   <div className="flex items-center justify-between text-[10px]">
                     <span className="text-muted-foreground">{t('common:usage.used')}</span>
                     <span className="font-medium tabular-nums">
-                      {formatUsageValue(usage.weeklyUsageValue)} <span className="text-muted-foreground mx-1">/</span> {formatUsageValue(usage.weeklyUsageLimit)}
+                      {formatUsageValue(monitoredUsage.weeklyUsageValue)} <span className="text-muted-foreground mx-1">/</span> {formatUsageValue(monitoredUsage.weeklyUsageLimit)}
                     </span>
                   </div>
                 )}
@@ -1495,227 +1441,20 @@ export function UsageIndicator() {
           {/* Active account footer - clickable to go to settings */}
           {renderActiveAccountFooter({
             hasOtherItems: otherAccounts.length > 0,
-            usageProfile: usage,
+            usageProfile: monitoredUsage,
           })}
 
           {/* Other accounts from priority queue (non-Anthropic or non-OAuth) */}
-          {otherAccounts.length > 0 && (
-            <div className="pt-2 -mx-3 px-3 -mb-3 pb-3 space-y-1">
-              <div className="text-[10px] text-muted-foreground font-medium mb-1.5">
-                {t('common:usage.otherAccounts')}
-              </div>
-              {otherAccounts.map((account) => {
-                // Check if this account has usage data from otherProfiles
-                const hasOAuthMonitoring = accountHasUsageMonitoring(account);
-                const isAccountSubscription = account.billingModel === 'subscription';
-                // Match by claudeProfileId, then account.id, then name/email for unlinked accounts
-                const profileData = otherProfiles.find(p => p.profileId === account.claudeProfileId)
-                  ?? otherProfiles.find(p => p.profileId === account.id)
-                  ?? (hasOAuthMonitoring
-                    ? otherProfiles.find(p => p.profileName === account.name || p.profileEmail === account.name)
-                    : undefined);
-
-                return (
-                  <div
-                    key={account.id}
-                    className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-muted/30 transition-colors"
-                  >
-                    <div className={`relative`}>
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
-                        profileData?.isRateLimited || profileData?.needsReauthentication
-                          ? 'bg-red-500/10'
-                          : 'bg-muted/80'
-                      }`}>
-                        <span className={`text-[10px] font-semibold ${
-                          profileData?.isRateLimited || profileData?.needsReauthentication
-                            ? 'text-red-500'
-                            : 'text-foreground/70'
-                        }`}>
-                          {getInitials(account.name)}
-                        </span>
-                      </div>
-                      {(profileData?.isRateLimited || profileData?.needsReauthentication) && (
-                        <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-background" />
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-medium truncate">{account.name}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold border ${
-                          PROVIDER_BADGE_COLORS[account.provider] ?? PROVIDER_BADGE_COLORS['openai-compatible']
-                        }`}>
-                          {getProviderName(account.provider)}
-                        </span>
-                        <button
-                          onClick={(e) => handleSwapAccount(e, account.id)}
-                          className="text-[9px] px-1.5 py-0.5 bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground rounded transition-colors ml-auto"
-                        >
-                          {t('common:usage.swap')}
-                        </button>
-                      </div>
-                      {/* Show usage bars for OAuth accounts with monitoring data, Subscription badge for subscription accounts, otherwise Unlimited */}
-                      {hasOAuthMonitoring && profileData ? (
-                        profileData.isRateLimited ? (
-                          <span className="text-[9px] text-red-500">
-                            {profileData.rateLimitType === 'weekly'
-                              ? t('common:usage.weeklyLimitReached')
-                              : t('common:usage.sessionLimitReached')}
-                          </span>
-                        ) : profileData.needsReauthentication ? (
-                          <span className="text-[9px] text-destructive">
-                            {t('common:usage.needsReauth')}
-                          </span>
-                        ) : (
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-2.5 w-2.5 text-muted-foreground/70" />
-                              <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${getBarColorClass(profileData.sessionPercent)}`}
-                                  style={{ width: `${Math.min(profileData.sessionPercent, 100)}%` }}
-                                />
-                              </div>
-                              <span className={`text-[9px] tabular-nums w-6 ${getColorClass(profileData.sessionPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                                {Math.round(profileData.sessionPercent)}%
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <TrendingUp className="h-2.5 w-2.5 text-muted-foreground/70" />
-                              <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${getBarColorClass(profileData.weeklyPercent)}`}
-                                  style={{ width: `${Math.min(profileData.weeklyPercent, 100)}%` }}
-                                />
-                              </div>
-                              <span className={`text-[9px] tabular-nums w-6 ${getColorClass(profileData.weeklyPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                                {Math.round(profileData.weeklyPercent)}%
-                              </span>
-                            </div>
-                          </div>
-                        )
-                      ) : isAccountSubscription ? (
-                        <span className="text-[9px] text-muted-foreground">
-                          {t('common:usage.subscriptionBadge')}
-                        </span>
-                      ) : (
-                        <span className="text-[9px] text-green-500">
-                          {t('common:usage.unlimited')}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <QueuedAccounts
+            accounts={otherAccounts}
+            otherProfiles={otherProfiles}
+            variant={getQueuedRowVariant(view)}
+            onSwap={handleSwapAccount}
+          />
 
           {/* Legacy: other Anthropic profiles not in the provider accounts queue */}
           {otherAccounts.length === 0 && otherProfiles.length > 0 && (
-            <div className="pt-2 -mx-3 px-3 -mb-3 pb-3 space-y-1">
-              <div className="text-[10px] text-muted-foreground font-medium mb-1.5">
-                {t('common:usage.otherAccounts')}
-              </div>
-              {otherProfiles.map((profile, index) => (
-                <div
-                  key={profile.profileId}
-                  className="flex items-center gap-2 py-1.5 px-1 rounded hover:bg-muted/30 transition-colors"
-                >
-                  {/* Initials Avatar with status indicator */}
-                  <div className="relative">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
-                      profile.isRateLimited || profile.needsReauthentication
-                        ? 'bg-red-500/10'
-                        : !profile.isAuthenticated
-                          ? 'bg-muted'
-                          : 'bg-muted/80'
-                    }`}>
-                      <span className={`text-[10px] font-semibold ${
-                        profile.isRateLimited || profile.needsReauthentication
-                          ? 'text-red-500'
-                          : !profile.isAuthenticated
-                            ? 'text-muted-foreground'
-                            : 'text-foreground/70'
-                      }`}>
-                        {getInitials(profile.profileName)}
-                      </span>
-                    </div>
-                    {/* Status dot */}
-                    {(profile.isRateLimited || profile.needsReauthentication) && (
-                      <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-background" />
-                    )}
-                  </div>
-
-                  {/* Profile Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-medium truncate">
-                        {profile.profileEmail || profile.profileName}
-                      </span>
-                      {index === 0 && !profile.isRateLimited && profile.isAuthenticated && (
-                        <span className="text-[9px] px-1.5 py-0.5 bg-primary/10 text-primary rounded font-semibold">
-                          {t('common:usage.next')}
-                        </span>
-                      )}
-                      {/* Swap button - only show for authenticated profiles */}
-                      {profile.isAuthenticated && (
-                        <button
-                          onClick={(e) => handleSwapProfile(e, profile.profileId)}
-                          className="text-[9px] px-1.5 py-0.5 bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground rounded transition-colors ml-auto"
-                        >
-                          {t('common:usage.swap')}
-                        </button>
-                      )}
-                    </div>
-                    {/* Usage bars or status - show both session and weekly */}
-                    {profile.isRateLimited ? (
-                      <span className="text-[9px] text-red-500">
-                        {profile.rateLimitType === 'weekly'
-                          ? t('common:usage.weeklyLimitReached')
-                          : t('common:usage.sessionLimitReached')}
-                      </span>
-                    ) : profile.needsReauthentication ? (
-                      <span className="text-[9px] text-destructive">
-                        {t('common:usage.needsReauth')}
-                      </span>
-                    ) : !profile.isAuthenticated ? (
-                      <span className="text-[9px] text-muted-foreground">
-                        {t('common:usage.notAuthenticated')}
-                      </span>
-                    ) : (
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {/* Session usage (short-term) */}
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-2.5 w-2.5 text-muted-foreground/70" />
-                          <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${getBarColorClass(profile.sessionPercent)}`}
-                              style={{ width: `${Math.min(profile.sessionPercent, 100)}%` }}
-                            />
-                          </div>
-                          <span className={`text-[9px] tabular-nums w-6 ${getColorClass(profile.sessionPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                            {Math.round(profile.sessionPercent)}%
-                          </span>
-                        </div>
-                        {/* Weekly usage (long-term) */}
-                        <div className="flex items-center gap-1">
-                          <TrendingUp className="h-2.5 w-2.5 text-muted-foreground/70" />
-                          <div className="w-10 h-1 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${getBarColorClass(profile.weeklyPercent)}`}
-                              style={{ width: `${Math.min(profile.weeklyPercent, 100)}%` }}
-                            />
-                          </div>
-                          <span className={`text-[9px] tabular-nums w-6 ${getColorClass(profile.weeklyPercent).replace('text-green-500', 'text-muted-foreground').replace('500', '600')}`}>
-                            {Math.round(profile.weeklyPercent)}%
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <LegacyProfileRows profiles={otherProfiles} onSwap={handleSwapProfile} />
           )}
 
           {renderCrossProviderUsageSection()}
