@@ -14,6 +14,7 @@ vi.mock('../new-spec', () => ({ createHeadlessSpec }));
 
 import { acquireProjectQueueLock } from '../../utils/project-queue-lock';
 import { runCli } from '../cli';
+import type { PreflightReport } from '../preflight';
 
 function harness() {
   const out: string[] = [];
@@ -178,6 +179,112 @@ describe('headless cli', () => {
     expect(text).toContain('serve');
     expect(text).toContain('--shutdown-timeout');
     expect(text).toContain('held by another process');
+  });
+
+  describe('check', () => {
+    const report = (ok: boolean): PreflightReport => ({
+      version: 1,
+      ok,
+      mode: 'run',
+      project: '/p',
+      spec: null,
+      checks: [
+        ok
+          ? { code: 'git.repository', status: 'valid', blocking: false, message: 'Git repository at /p' }
+          : { code: 'git.repository', status: 'unavailable', blocking: true, message: 'not a repo', guidance: 'pass --project' },
+      ],
+    });
+    const runPreflight = vi.fn();
+
+    beforeEach(() => {
+      runPreflight.mockReset().mockResolvedValue(report(true));
+    });
+
+    function expectNothingRan() {
+      expect(runHeadlessTask).not.toHaveBeenCalled();
+      expect(runServe).not.toHaveBeenCalled();
+      expect(createHeadlessSpec).not.toHaveBeenCalled();
+    }
+
+    it('passes the flags to runPreflight and exits by ok', async () => {
+      for (const ok of [true, false]) {
+        runPreflight.mockReset().mockResolvedValue(report(ok));
+        const h = harness();
+        const code = await runCli(
+          ['check', '001-x', '--project', '/p', '--config', 'c.json', '--base-branch', 'dev', '--daemon'],
+          { ...h.deps, runPreflight, runServe },
+        );
+        expect(code).toBe(ok ? 0 : 1);
+        expect(runPreflight).toHaveBeenCalledWith({
+          projectPath: '/p', spec: '001-x', configPath: 'c.json', baseBranch: 'dev', daemon: true,
+        });
+        expect(h.out.join('')).toContain(ok ? 'READY' : 'NOT READY');
+        expect(h.err).toEqual([]);
+      }
+      expectNothingRan();
+    });
+
+    it('runs without a spec', async () => {
+      const h = harness();
+      expect(await runCli(['check'], { ...h.deps, runPreflight })).toBe(0);
+      expect(runPreflight).toHaveBeenCalledWith(expect.objectContaining({ spec: undefined }));
+      expectNothingRan();
+    });
+
+    it('--json prints exactly one parseable line', async () => {
+      for (const ok of [true, false]) {
+        runPreflight.mockReset().mockResolvedValue(report(ok));
+        const h = harness();
+        expect(await runCli(['check', '--json'], { ...h.deps, runPreflight })).toBe(ok ? 0 : 1);
+        const output = h.out.join('');
+        expect(output.endsWith('\n')).toBe(true);
+        expect(output.trimEnd().split('\n')).toHaveLength(1);
+        expect(JSON.parse(output)).toEqual(report(ok));
+      }
+      expectNothingRan();
+    });
+
+    it('rejects extra arguments, --run and --queue with exit 1 and usage', async () => {
+      for (const [argv, message] of [
+        [['check', 'a', 'b'], 'Too many arguments'],
+        [['check', '--run'], '--run only applies'],
+        [['check', 'a', '--queue'], '--queue only applies'],
+      ] as const) {
+        const h = harness();
+        expect(await runCli([...argv], { ...h.deps, runPreflight, runServe })).toBe(1);
+        expect(h.err.join('')).toContain(message);
+        expect(h.err.join('')).toContain('Usage:');
+      }
+      expect(runPreflight).not.toHaveBeenCalled();
+      expectNothingRan();
+    });
+
+    it('rejects --daemon on every other command', async () => {
+      for (const argv of [['run', 'x', '--daemon'], ['serve', '--daemon'], ['new', 'x', '--daemon'], ['list', '--daemon']]) {
+        const h = harness();
+        expect(await runCli(argv, { ...h.deps, runPreflight, runServe })).toBe(1);
+        expect(h.err.join('')).toContain('--daemon only applies to the check command');
+        expect(h.err.join('')).toContain('Usage:');
+      }
+      expect(runPreflight).not.toHaveBeenCalled();
+      expectNothingRan();
+    });
+
+    it('exits 1 with the message when runPreflight throws', async () => {
+      runPreflight.mockReset().mockRejectedValue(new Error('boom'));
+      const h = harness();
+      expect(await runCli(['check'], { ...h.deps, runPreflight })).toBe(1);
+      expect(h.err.join('')).toBe('boom\n');
+      expectNothingRan();
+    });
+
+    it('documents check and --daemon in the usage text', async () => {
+      const h = harness();
+      await runCli(['help'], h.deps);
+      const text = h.out.join('');
+      expect(text).toContain('check [<spec>]');
+      expect(text).toContain('--daemon');
+    });
   });
 
   it('defaults the project to the current directory', async () => {

@@ -97,6 +97,8 @@ function fallbackEnvVars(provider: string | null, pinned: boolean): string[] {
 export async function checkPhaseCredentials({ phase, specDir, config, env, fileExists = isFile }: CredentialOptions): Promise<PreflightCheck> {
   const metadata = phase !== 'default' && specDir ? readTaskMetadata(specDir) : null;
   const pinned = Boolean(metadata?.phaseProviders && Object.keys(metadata.phaseProviders).length);
+  // A pinned phase reads its model straight from the metadata instead of resolveTaskModelId.
+  // This only affects details.model; the status depends on the pinned provider alone.
   const rawModel = pinned ? metadata?.phaseModels?.[phase] ?? metadata?.model : undefined;
   const modelId = pinned || !specDir || phase === 'default'
     ? resolveModelId(hasValue(rawModel) ? rawModel : 'sonnet')
