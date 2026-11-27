@@ -177,7 +177,8 @@
       "commitFailed": "Could not commit the task's changes",
       "pushFailed": "Failed to push the branch",
       "ghTimeout": "Creating the PR timed out",
-      "retriesExhausted": "PR creation failed after several attempts"
+      "retriesExhausted": "PR creation failed after several attempts",
+      "baseConflict": "The target branch has new changes that conflict with this task in: {{files}}. Nothing was pushed. Merge the target branch into the task branch and resolve the conflicts, then create the PR again."
     },
     "resultsDescriptionWithSkipped": "{{success}} succeeded, {{skipped}} skipped, {{failed}} failed"
   }

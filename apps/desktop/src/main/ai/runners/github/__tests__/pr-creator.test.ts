@@ -528,6 +528,24 @@ describe('createMR', () => {
     expect(gitlab.create).not.toHaveBeenCalled();
   });
 
+  // zeenha fork: GitLab prepares through the same base refresh as GitHub.
+  it('stops on BASE_CONFLICT without pushing or reaching the API', async () => {
+    state.respond = (call) =>
+      call.args[0] === 'merge-base'
+        ? { error: { message: 'not an ancestor' } }
+        : call.args[0] === 'merge' && call.args[1] === '--no-edit'
+          ? { error: { message: 'conflict' } }
+          : call.args[0] === 'diff' && call.args.includes('--diff-filter=U')
+            ? { stdout: 'src/a.ts\n' }
+            : { stdout: '' };
+    const result = await createMR(mrConfig());
+    expect(result.errorCode).toBe('BASE_CONFLICT');
+    expect(result.conflictFiles).toEqual(['src/a.ts']);
+    expect(state.calls.some((c) => c.args[0] === 'merge' && c.args[1] === '--abort')).toBe(true);
+    expect(pushCalls()).toHaveLength(0);
+    expect(gitlab.create).not.toHaveBeenCalled();
+  });
+
   it('short-circuits on PUSH_FAILED without reaching the API', async () => {
     state.respond = (call) =>
       call.args[0] === 'push' ? { error: { message: 'Command failed' }, stderr: 'rejected' } : { stdout: '' };

@@ -131,7 +131,12 @@ export function CreatePRDialog({
         if (prResult.success) {
           setResult(prResult);
         } else {
-          setError(prResult.error || t('taskReview:pr.errors.unknown'));
+          // zeenha fork: the latest base conflicts with the task branch.
+          setError(
+            prResult.errorCode === 'BASE_CONFLICT'
+              ? t('taskReview:bulkPR.errors.baseConflict', { files: (prResult.conflictFiles ?? []).join(', ') })
+              : prResult.error || t('taskReview:pr.errors.unknown')
+          );
         }
       } else {
         setError(t('taskReview:pr.errors.unknown'));

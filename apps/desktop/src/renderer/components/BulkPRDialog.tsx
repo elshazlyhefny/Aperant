@@ -101,10 +101,11 @@ export function BulkPRDialog({
 
   const resolveErrorMessage = useCallback((
     code: WorktreeCreatePRErrorCode | undefined,
-    serverMessage?: string
+    serverMessage?: string,
+    conflictFiles?: string[]
   ): string => {
     const key = getBulkPRErrorMessageKey(code);
-    if (key) return t(key);
+    if (key) return t(key, { files: (conflictFiles ?? []).join(', ') });
     return serverMessage || t('taskReview:pr.errors.unknown');
   }, [t]);
 
@@ -152,7 +153,7 @@ export function BulkPRDialog({
               result: data,
               alreadyExists: data.alreadyExists,
               errorCode: data.success ? undefined : data.errorCode,
-              error: data.success ? undefined : resolveErrorMessage(data.errorCode, data.error)
+              error: data.success ? undefined : resolveErrorMessage(data.errorCode, data.error, data.conflictFiles)
             } : r
           ));
 
@@ -171,7 +172,7 @@ export function BulkPRDialog({
               ...r,
               status: isSkippedErrorCode(errorCode) ? 'skipped' as const : 'error' as const,
               errorCode,
-              error: resolveErrorMessage(errorCode, prResult?.error || prResult?.data?.error)
+              error: resolveErrorMessage(errorCode, prResult?.error || prResult?.data?.error, prResult?.data?.conflictFiles)
             } : r
           ));
         }
