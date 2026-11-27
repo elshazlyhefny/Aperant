@@ -800,6 +800,52 @@ export async function pushBranch(
   }
 }
 
+export type FastForwardPushResult = { ok: true } | { ok: false; stale: boolean; error: string };
+
+/**
+ * zeenha fork: publish a follow-up only from the exact reviewed revision.
+ * The caller checks that branchName is checked out; ancestry makes the push a
+ * fast-forward, and the exact lease refuses to overwrite a moved remote ref.
+ */
+export async function pushBranchFastForward(
+  worktreePath: string,
+  gitPath: string,
+  branchName: string,
+  expectedRemoteSha: string,
+): Promise<FastForwardPushResult> {
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(expectedRemoteSha)) {
+    return { ok: false, stale: true, error: 'The reviewed revision is not a full commit SHA.' };
+  }
+
+  try {
+    await run(gitPath, ['merge-base', '--is-ancestor', expectedRemoteSha, 'HEAD'], worktreePath, GIT_READ_TIMEOUT_MS);
+  } catch {
+    return {
+      ok: false,
+      stale: true,
+      error: `The branch does not descend from the reviewed revision ${expectedRemoteSha}.`,
+    };
+  }
+
+  const ref = `refs/heads/${branchName}`;
+  try {
+    await run(
+      gitPath,
+      ['push', '--porcelain', `--force-with-lease=${ref}:${expectedRemoteSha}`, 'origin', `${ref}:${ref}`],
+      worktreePath,
+      PUSH_TIMEOUT_MS,
+    );
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof CommandError) {
+      const stale = !err.timedOut &&
+        /stale info|fetch first|non-fast-forward|\[rejected\]/i.test(`${err.stderr}\n${err.stdout}`);
+      return { ok: false, stale, error: err.stderr || err.message };
+    }
+    return { ok: false, stale: false, error: String(err) };
+  }
+}
+
 // =============================================================================
 // Get Existing PR URL
 // =============================================================================

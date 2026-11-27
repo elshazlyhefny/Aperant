@@ -6,7 +6,11 @@ import fs from 'fs';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 
-const FILES = ['../../task/pr-feedback-source.ts', '../../issue-writeback/issue-writeback.ts'];
+const FILES = [
+  '../../task/pr-feedback-source.ts',
+  '../../task/pr-revision-guard.ts',
+  '../../issue-writeback/issue-writeback.ts',
+];
 
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');

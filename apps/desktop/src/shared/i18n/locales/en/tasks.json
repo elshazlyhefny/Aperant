@@ -605,6 +605,7 @@
   "prFeedback": {
     "title": "PR feedback",
     "refresh": "Refresh",
+    "revision": "Feedback for revision {{sha}}",
     "failedChecks": "Failed checks",
     "unresolvedComments": "Unresolved review comments",
     "changeRequests": "Change requests",
@@ -614,6 +615,11 @@
     "started": "Follow-up started. The agent will push to the pull request only after QA approves.",
     "sendFailed": "Could not start the follow-up",
     "loadFailed": "Could not load PR feedback: {{error}}",
+    "stale": {
+      "head_changed": "The pull request changed since you loaded this feedback. Your selection was cleared and nothing was started. Refresh and select again.",
+      "head_unverified": "The pull request revision could not be verified. Your selection was cleared and nothing was started. Refresh and try again."
+    },
+    "staleOutcome": "Not pushed because the pull request changed during QA. Your local commits are kept in the worktree. Refresh, review the new revision, then send feedback again or push by hand.",
     "blocked": {
       "worktree_missing": "This task's worktree no longer exists (for example it was removed after the PR merged, or by cleanup), so no follow-up can run here. Create a new task from the PR instead.",
       "pr_not_open": "The pull request is no longer open, so feedback cannot be sent to the agent.",
@@ -624,7 +630,9 @@
       "no_gitlab_config": "GitLab is not configured for this project.",
       "no_bitbucket_config": "Bitbucket is not configured for this project.",
       "no_azuredevops_config": "Azure DevOps is not configured for this project.",
-      "branch_mismatch": "The task's worktree is not on the pull request's branch, so no follow-up can run here."
+      "branch_mismatch": "The task's worktree is not on the pull request's branch, so no follow-up can run here.",
+      "head_changed": "The pull request changed since you loaded the feedback (a new commit was pushed). Refresh, review the new revision and select again. Nothing was started.",
+      "head_unverified": "The pull request revision could not be verified, so the follow-up was not started. Refresh and try again. Nothing was started."
     }
   },
   "tokenBudgetBanner": {

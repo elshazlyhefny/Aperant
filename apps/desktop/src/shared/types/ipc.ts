@@ -240,7 +240,7 @@ export interface ElectronAPI extends ScheduleAPI {
   submitReview: (taskId: string, approved: boolean, feedback?: string, images?: ImageAttachment[]) => Promise<IPCResult>;
   updateTaskStatus: (taskId: string, status: TaskStatus, options?: { forceCleanup?: boolean }) => Promise<IPCResult & { worktreeExists?: boolean; worktreePath?: string }>;
   getPRFeedback: (taskId: string) => Promise<IPCResult<PRFeedbackResult>>;
-  startPRFollowUp: (taskId: string, itemIds: string[]) => Promise<IPCResult<StartPRFollowUpResult>>;
+  startPRFollowUp: (taskId: string, itemIds: string[], expectedHeadSha: string) => Promise<IPCResult<StartPRFollowUpResult>>;
   recoverStuckTask: (taskId: string, options?: TaskRecoveryOptions) => Promise<IPCResult<TaskRecoveryResult>>;
   checkTaskRunning: (taskId: string) => Promise<IPCResult<boolean>>;
   resumePausedTask: (taskId: string) => Promise<IPCResult>;

@@ -605,6 +605,7 @@
   "prFeedback": {
     "title": "Retours de la PR",
     "refresh": "Actualiser",
+    "revision": "Retours pour la révision {{sha}}",
     "failedChecks": "Vérifications en échec",
     "unresolvedComments": "Commentaires de revue non résolus",
     "changeRequests": "Demandes de modifications",
@@ -614,6 +615,11 @@
     "started": "Suivi démarré. L'agent ne poussera vers la pull request qu'après l'approbation de la QA.",
     "sendFailed": "Impossible de démarrer le suivi",
     "loadFailed": "Impossible de charger les retours de la PR : {{error}}",
+    "stale": {
+      "head_changed": "La pull request a changé depuis le chargement de ces retours. Votre sélection a été effacée et rien n’a été démarré. Actualisez les retours et refaites votre sélection.",
+      "head_unverified": "Impossible de vérifier la révision de la pull request. Votre sélection a été effacée et rien n’a été démarré. Actualisez les retours, puis réessayez."
+    },
+    "staleOutcome": "Les commits n’ont pas été poussés, car la pull request a changé pendant la QA. Vos commits locaux sont conservés dans le worktree. Actualisez les retours, examinez la nouvelle révision, puis renvoyez les retours ou poussez les commits manuellement.",
     "blocked": {
       "worktree_missing": "Le worktree de cette tâche n'existe plus (par exemple supprimé après la fusion de la PR, ou par un nettoyage) : aucun suivi ne peut s'exécuter ici. Créez plutôt une nouvelle tâche à partir de la PR.",
       "pr_not_open": "La pull request n'est plus ouverte : les retours ne peuvent pas être envoyés à l'agent.",
@@ -624,7 +630,9 @@
       "no_gitlab_config": "GitLab n'est pas configuré pour ce projet.",
       "no_bitbucket_config": "Bitbucket n'est pas configuré pour ce projet.",
       "no_azuredevops_config": "Azure DevOps n'est pas configuré pour ce projet.",
-      "branch_mismatch": "Le worktree de la tâche n'est pas sur la branche de la pull request : aucun suivi ne peut s'exécuter ici."
+      "branch_mismatch": "Le worktree de la tâche n'est pas sur la branche de la pull request : aucun suivi ne peut s'exécuter ici.",
+      "head_changed": "La pull request a changé depuis le chargement des retours (un nouveau commit a été poussé). Actualisez les retours, vérifiez la nouvelle révision et refaites votre sélection. Rien n’a été démarré.",
+      "head_unverified": "Impossible de vérifier la révision de la pull request. Actualisez les retours, puis réessayez. Aucun suivi n’a été démarré."
     }
   },
   "tokenBudgetBanner": {
