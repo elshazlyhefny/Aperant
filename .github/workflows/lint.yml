@@ -8,6 +8,10 @@ on:
       - '.github/workflows/lint.yml'
       - '.github/actions/**'
       - 'apps/desktop/biome.jsonc'
+      - 'scripts/release-signing-gate*'
+      - 'scripts/verify-windows-signatures.ps1'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/beta-release.yml'
   pull_request:
     branches: [main, develop, zeenha]
     paths:
@@ -15,6 +19,10 @@ on:
       - '.github/workflows/lint.yml'
       - '.github/actions/**'
       - 'apps/desktop/biome.jsonc'
+      - 'scripts/release-signing-gate*'
+      - 'scripts/verify-windows-signatures.ps1'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/beta-release.yml'
 
 concurrency:
   group: lint-${{ github.event.pull_request.number || github.ref }}
@@ -31,6 +39,10 @@ jobs:
 
       - name: Test owner comment workflow safeguards
         run: python3 -B -m unittest discover -s .github/actions/comment-agent
+
+      # zeenha fork: Guard the release signing checks without installing dependencies.
+      - name: Test release signing gate
+        run: node --test scripts/release-signing-gate.test.mjs
 
       # Pin version to match package.json for consistent behavior
       - name: Setup Biome

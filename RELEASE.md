@@ -227,6 +227,10 @@ git commit -m "docs: add changelog for vX.Y.Z"
 git push origin main
 ```
 
+### Windows signing preflight failed
+
+Check the `signing-preflight` job log. It lists the names of missing or blank settings, not their values. Set the listed secrets and repository variable in GitHub under **Settings → Secrets and variables → Actions**, then rerun the workflow. See [Windows code signing](#windows-code-signing) for the required settings.
+
 ### Build failed after tag was created
 
 - The release won't be published if builds fail
@@ -257,6 +261,26 @@ git push origin v2.8.0
 
 - All macOS binaries are code signed with Apple Developer certificate
 - All macOS binaries are notarized by Apple
-- Windows binaries are code signed
+- Official stable releases (tag pushes) and beta releases (non-dry-run) refuse to publish unless every Windows installer has a valid, timestamped Authenticode signature from the configured publisher.
 - All binaries are scanned with VirusTotal
 - SHA256 checksums are generated for all artifacts
+
+### Windows code signing
+
+Set these GitHub Actions secrets:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `AZURE_SIGNING_ACCOUNT`
+- `AZURE_CERTIFICATE_PROFILE`
+
+Set the repository variable `WINDOWS_SIGNING_PUBLISHER` to the signer certificate's common name (CN).
+
+If any setting is missing or blank, `signing-preflight` stops an official run before any build starts and, for beta, before the tag is created.
+
+When signing is configured, `build-windows` verifies the signature, publisher, and timestamp on every `.exe` it uploads. It records the results and SHA-256 hashes in `windows-signature-attestation.json`. Before publishing, `create-release` recalculates the SHA-256 hash of each Windows installer and requires it to match the signed attestation for the configured publisher.
+
+Manual runs of `release.yml` (`workflow_dispatch`) and beta runs with `dry_run` enabled are build-only. If signing settings are missing, these runs produce unsigned Windows installers and emit a warning. These runs do not publish a release, and the unsigned artifacts cannot pass the official release gate.
+
+The `windows-signing-gate.yml` workflow tests signing failures without publishing a release.

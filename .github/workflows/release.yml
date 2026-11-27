@@ -19,9 +19,31 @@ on:
         type: boolean
 
 jobs:
+  # zeenha fork: Require all Windows signing settings before starting an official release build.
+  signing-preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      signing_configured: ${{ steps.preflight.outputs.signing_configured }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Windows signing configuration
+        id: preflight
+        run: node scripts/release-signing-gate.mjs preflight --official ${{ github.event_name == 'push' }}
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_CERTIFICATE_PROFILE: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+          WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+
   # Intel build on Intel runner for native compilation
   # Note: macos-15-intel is the last Intel runner, supported until Fall 2027
   build-macos-intel:
+    needs: signing-preflight
     runs-on: macos-15-intel
     outputs:
       notarization_id: ${{ steps.notarize.outputs.notarization-id }}
@@ -69,6 +91,7 @@ jobs:
 
   # Apple Silicon build on ARM64 runner for native compilation
   build-macos-arm64:
+    needs: signing-preflight
     runs-on: macos-15
     outputs:
       notarization_id: ${{ steps.notarize.outputs.notarization-id }}
@@ -115,13 +138,11 @@ jobs:
             apps/desktop/dist/*.blockmap
 
   build-windows:
+    needs: signing-preflight
     runs-on: windows-latest
     permissions:
       id-token: write  # Required for OIDC authentication with Azure
       contents: read
-    env:
-      # Job-level env so AZURE_CLIENT_ID is available for step-level if conditions
-      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -145,8 +166,9 @@ jobs:
           SENTRY_TRACES_SAMPLE_RATE: ${{ secrets.SENTRY_TRACES_SAMPLE_RATE }}
           SENTRY_PROFILES_SAMPLE_RATE: ${{ secrets.SENTRY_PROFILES_SAMPLE_RATE }}
 
+      # zeenha fork: Use the full signing configuration check, not just the client ID.
       - name: Azure Login (OIDC)
-        if: env.AZURE_CLIENT_ID != ''
+        if: needs.signing-preflight.outputs.signing_configured == 'true'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -154,7 +176,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Sign Windows executable with Azure Trusted Signing
-        if: env.AZURE_CLIENT_ID != ''
+        if: needs.signing-preflight.outputs.signing_configured == 'true'
         uses: azure/trusted-signing-action@v0.5.11
         with:
           endpoint: https://neu.codesigning.azure.net/
@@ -166,31 +188,8 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
-      - name: Verify Windows executable is signed
-        if: env.AZURE_CLIENT_ID != ''
-        shell: pwsh
-        run: |
-          cd apps/desktop/dist
-          $exeFile = Get-ChildItem -Filter "*.exe" | Select-Object -First 1
-          if ($exeFile) {
-            Write-Host "Verifying signature on $($exeFile.Name)..."
-            $sig = Get-AuthenticodeSignature -FilePath $exeFile.FullName
-            if ($sig.Status -ne 'Valid') {
-              Write-Host "::error::Signature verification failed: $($sig.Status)"
-              Write-Host "::error::Status Message: $($sig.StatusMessage)"
-              exit 1
-            }
-            Write-Host "✅ Signature verified successfully"
-            Write-Host "  Subject: $($sig.SignerCertificate.Subject)"
-            Write-Host "  Issuer: $($sig.SignerCertificate.Issuer)"
-            Write-Host "  Thumbprint: $($sig.SignerCertificate.Thumbprint)"
-          } else {
-            Write-Host "::error::No .exe file found to verify"
-            exit 1
-          }
-
       - name: Regenerate checksums after signing
-        if: env.AZURE_CLIENT_ID != ''
+        if: needs.signing-preflight.outputs.signing_configured == 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -252,9 +251,18 @@ jobs:
           Set-Content -Path $ymlFile -Value $content -NoNewline
           Write-Host "✅ Updated $ymlFile with new base64 hash and size for $($primaryExe.Name)"
 
-      - name: Skip signing notice
-        if: env.AZURE_CLIENT_ID == ''
-        run: echo "::warning::Windows signing skipped - AZURE_CLIENT_ID not configured. The .exe will be unsigned."
+      # zeenha fork: Attest to every installer after signing and checksum regeneration.
+      - name: Verify Windows executable is signed
+        if: needs.signing-preflight.outputs.signing_configured == 'true'
+        shell: pwsh
+        run: pwsh ./scripts/verify-windows-signatures.ps1 -Directory apps/desktop/dist -ExpectedPublisher "$env:WINDOWS_SIGNING_PUBLISHER"
+        env:
+          WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+
+      - name: Record unsigned Windows installers
+        if: needs.signing-preflight.outputs.signing_configured != 'true'
+        shell: pwsh
+        run: pwsh ./scripts/verify-windows-signatures.ps1 -Directory apps/desktop/dist -RecordUnsigned
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -264,8 +272,10 @@ jobs:
             apps/desktop/dist/*.exe
             apps/desktop/dist/*.yml
             apps/desktop/dist/*.blockmap
+            apps/desktop/dist/windows-signature-attestation.json
 
   build-linux:
+    needs: signing-preflight
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -353,7 +363,7 @@ jobs:
           path: arm64/*.dmg
 
   create-release:
-    needs: [build-macos-intel, build-macos-arm64, finalize-notarization, build-windows, build-linux]
+    needs: [signing-preflight, build-macos-intel, build-macos-arm64, finalize-notarization, build-windows, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -438,6 +448,16 @@ jobs:
           echo ""
           echo "All release assets:"
           ls -la release-assets/
+
+      # zeenha fork: Match the final installer bytes to the Windows attestation before publishing.
+      - name: Verify Windows installers are signed
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
+        run: >-
+          node scripts/release-signing-gate.mjs verify-attestation --assets release-assets
+          --attestation dist/windows-builds/windows-signature-attestation.json
+          ${{ github.event_name == 'push' && '--require-signed' || '' }}
+        env:
+          WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
 
       - name: Generate checksums
         run: |
