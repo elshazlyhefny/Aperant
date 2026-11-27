@@ -7,7 +7,7 @@ import '@testing-library/jest-dom';
 import '../../../shared/i18n';
 import { WebhookSettings } from './WebhookSettings';
 import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
-import type { AppSettings } from '../../../shared/types';
+import type { RendererAppSettings } from '../../../shared/types';
 import en from '../../../shared/i18n/locales/en/settings.json';
 import fr from '../../../shared/i18n/locales/fr/settings.json';
 
@@ -30,8 +30,8 @@ vi.mock('../ui/select', () => ({
 
 const TEAMS_URL = 'https://prod-1.westus.logic.azure.com/workflows/abc/triggers/manual/paths/invoke?sig=x';
 
-function makeSettings(webhook?: AppSettings['webhook']): AppSettings {
-  return { ...(DEFAULT_APP_SETTINGS as unknown as AppSettings), webhook };
+function makeSettings(webhook?: RendererAppSettings['webhook']): RendererAppSettings {
+  return { ...(DEFAULT_APP_SETTINGS as unknown as RendererAppSettings), webhook };
 }
 
 function flatKeys(obj: Record<string, unknown>, prefix = ''): string[] {
@@ -58,7 +58,7 @@ describe('WebhookSettings', () => {
   it('toggling an event calls onSettingsChange with the right shape', () => {
     render(<WebhookSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />);
     fireEvent.click(screen.getByRole('switch', { name: /task failed/i }));
-    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
     expect(next.webhook).toEqual({
       enabled: false,
       url: '',
@@ -72,7 +72,7 @@ describe('WebhookSettings', () => {
     const toggle = screen.getByRole('switch', { name: /pr opened/i });
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
-    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
     expect(next.webhook?.events).toEqual({ reviewReady: true, failed: true, blocked: true, prOpened: true });
   });
 
@@ -116,9 +116,9 @@ describe('WebhookSettings', () => {
   it('choosing Teams and Discord updates settings.webhook.format', () => {
     render(<WebhookSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />);
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'teams' } });
-    expect((onSettingsChange.mock.calls[0][0] as AppSettings).webhook?.format).toBe('teams');
+    expect((onSettingsChange.mock.calls[0][0] as RendererAppSettings).webhook?.format).toBe('teams');
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'discord' } });
-    expect((onSettingsChange.mock.calls[1][0] as AppSettings).webhook?.format).toBe('discord');
+    expect((onSettingsChange.mock.calls[1][0] as RendererAppSettings).webhook?.format).toBe('discord');
   });
 
   it('sends the chosen format with the test message', async () => {
@@ -180,7 +180,7 @@ describe('WebhookSettings', () => {
     it('typing calls onSettingsChange with webhook.secret', () => {
       render(<WebhookSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />);
       fireEvent.change(screen.getByLabelText(/signing secret/i), { target: { value: 'abc' } });
-      const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+      const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
       expect(next.webhook?.secret).toBe('abc');
     });
 

@@ -5,11 +5,11 @@ import { Label } from '../ui/label';
 import { SettingsSection } from './SettingsSection';
 import { useSettingsStore } from '../../stores/settings-store';
 import { AVAILABLE_LANGUAGES, type SupportedLanguage } from '../../../shared/constants/i18n';
-import type { AppSettings } from '../../../shared/types';
+import type { RendererAppSettings } from '../../../shared/types';
 
 interface LanguageSettingsProps {
-  settings: AppSettings;
-  onSettingsChange: (settings: AppSettings) => void;
+  settings: RendererAppSettings;
+  onSettingsChange: (settings: RendererAppSettings) => void;
 }
 
 /**

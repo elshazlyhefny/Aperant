@@ -3,11 +3,11 @@ import { cn } from '../../lib/utils';
 import { Label } from '../ui/label';
 import { COLOR_THEMES } from '../../../shared/constants';
 import { useSettingsStore } from '../../stores/settings-store';
-import type { ColorTheme, AppSettings } from '../../../shared/types';
+import type { ColorTheme, RendererAppSettings } from '../../../shared/types';
 
 interface ThemeSelectorProps {
-  settings: AppSettings;
-  onSettingsChange: (settings: AppSettings) => void;
+  settings: RendererAppSettings;
+  onSettingsChange: (settings: RendererAppSettings) => void;
 }
 
 /**
