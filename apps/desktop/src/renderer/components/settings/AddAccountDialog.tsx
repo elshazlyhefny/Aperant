@@ -25,7 +25,7 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useToast } from '../../hooks/use-toast';
-import type { BillingModel, BuiltinProvider, CustomModel, ProviderAccount } from '@shared/types/provider-account';
+import type { BillingModel, BuiltinProvider, CustomModel, ProviderAccount, ProviderAccountView } from '@shared/types/provider-account';
 
 const AWS_REGIONS = [
   'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2',
@@ -48,7 +48,7 @@ interface AddAccountDialogProps {
   authType: 'oauth' | 'api-key';
   /** Override billing model (e.g., Z.AI Coding Plan vs usage-based API key) */
   billingModel?: BillingModel;
-  editAccount?: ProviderAccount;
+  editAccount?: ProviderAccountView;
 }
 
 export function AddAccountDialog({
@@ -97,15 +97,14 @@ export function AddAccountDialog({
   useEffect(() => {
     setPendingSessionSave(null);
     if (open) {
+      setApiKey('');
       if (editAccount) {
         setName(editAccount.name);
-        setApiKey(editAccount.apiKey ?? '');
         setBaseUrl(editAccount.baseUrl ?? '');
         setRegion(editAccount.region ?? 'us-east-1');
         setCustomModels(editAccount.customModels ?? []);
       } else {
         setName('');
-        setApiKey('');
         setBaseUrl(
           provider === 'ollama' ? 'http://localhost:11434'
           : provider === 'zai' && billingModelOverride === 'subscription' ? 'https://api.z.ai/api/anthropic'
@@ -182,6 +181,7 @@ export function AddAccountDialog({
   }, [open, oauthStatus, isCodexOAuth]);
 
   const needsApiKey = provider !== 'ollama' && authType === 'api-key';
+  const hasSavedApiKey = needsApiKey && editAccount?.hasApiKey === true;
   const needsBaseUrl = provider === 'ollama' || provider === 'azure' || provider === 'openai-compatible' || provider === 'zai' || (provider === 'anthropic' && authType === 'api-key');
   const needsRegion = provider === 'amazon-bedrock';
   const isBaseUrlRequired = provider === 'ollama' || provider === 'azure' || provider === 'openai-compatible';
@@ -193,7 +193,7 @@ export function AddAccountDialog({
     const autoSave = async () => {
       let result: {
         success: boolean;
-        data?: ProviderAccount;
+        data?: ProviderAccountView;
         error?: string;
       };
       if (isEditing && editAccount) {
@@ -237,7 +237,7 @@ export function AddAccountDialog({
   const canSave = () => {
     if (!name.trim()) return false;
     if (isOAuthOnly) return isEditing || oauthStatus === 'success';
-    if (needsApiKey && !apiKey.trim()) return false;
+    if (needsApiKey && !hasSavedApiKey && !apiKey.trim()) return false;
     if (isBaseUrlRequired && !baseUrl.trim()) return false;
     return true;
   };
@@ -276,7 +276,7 @@ export function AddAccountDialog({
           setTimeout(async () => {
             let saveResult: {
               success: boolean;
-              data?: ProviderAccount;
+              data?: ProviderAccountView;
               error?: string;
             };
             if (isEditing && editAccount) {
@@ -422,10 +422,12 @@ export function AddAccountDialog({
     setIsSaving(true);
     try {
       const sessionFields = sessionOnly ? { apiKeySessionOnly: true } : {};
+      // zeenha fork: omit the write-only field when no replacement was entered.
+      const keyUpdate = payload.apiKey ? { apiKey: payload.apiKey } : {};
       const result = accountId !== undefined
         ? await updateProviderAccount(accountId, {
           name: payload.name,
-          apiKey: payload.apiKey,
+          ...keyUpdate,
           baseUrl: payload.baseUrl,
           region: payload.region,
           customModels: payload.customModels,
@@ -471,7 +473,7 @@ export function AddAccountDialog({
         name: name.trim(),
         authType,
         billingModel: billingModelOverride ?? (authType === 'oauth' ? 'subscription' : 'pay-per-use'),
-        apiKey: needsApiKey ? apiKey.trim() : undefined,
+        ...(needsApiKey && apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         baseUrl: needsBaseUrl && baseUrl.trim() ? baseUrl.trim() : undefined,
         region: needsRegion ? region : undefined,
         claudeProfileId: isOAuthOnly && !isCodexOAuth ? oauthProfileId ?? undefined : undefined,
@@ -614,14 +616,23 @@ export function AddAccountDialog({
             {/* API Key */}
             {needsApiKey && (
               <div className="space-y-2">
-                <Label htmlFor="account-apikey">{t('providers.dialog.fields.apiKey')}</Label>
+                <Label htmlFor="account-apikey">
+                  {t(hasSavedApiKey ? 'providers.dialog.fields.replaceApiKey' : 'providers.dialog.fields.apiKey')}
+                </Label>
                 <Input
                   id="account-apikey"
                   type="password"
+                  autoComplete="off"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={t('providers.dialog.placeholders.apiKey')}
+                  placeholder={t(hasSavedApiKey ? 'providers.dialog.placeholders.keepSavedKey' : 'providers.dialog.placeholders.apiKey')}
+                  aria-describedby={hasSavedApiKey ? 'account-apikey-hint' : undefined}
                 />
+                {hasSavedApiKey && (
+                  <p id="account-apikey-hint" className="text-xs text-muted-foreground">
+                    {t('providers.dialog.replaceKeyHint')}
+                  </p>
+                )}
               </div>
             )}
 

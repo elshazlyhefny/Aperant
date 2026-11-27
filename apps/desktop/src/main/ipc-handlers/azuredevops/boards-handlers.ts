@@ -182,28 +182,18 @@ export function registerAzureBoardsHandlers(agentManager: AgentManager): void {
         // Always refetch from Azure; renderer-supplied content is never trusted
         const fetched = new Map((await getWorkItemsByIds(config, ids)).map(item => [item.id, item]));
 
-        const specsDir = path.join(project.path, getSpecsDir(project.autoBuildPath));
-        const existing = findExistingBoardsSpecs(specsDir, config.organization, config.project);
-
         let imported = 0;
         let failed = 0;
         const skipped: AzureBoardsImportResult['skipped'] = [];
         const errors: string[] = [];
 
         for (const id of ids) {
-          const existingSpecId = existing.get(id);
-          if (existingSpecId && !allowDuplicates) {
-            skipped.push({ id, specId: existingSpecId });
-            continue;
-          }
-          const item = fetched.get(id);
-          if (!item) {
-            failed++;
-            errors.push(`Failed to import AB#${id}: work item not found in Azure DevOps`);
-            continue;
-          }
           try {
-            const spec = await createSpecFromWorkItem(project, config, item);
+            const spec = await createSpecFromWorkItem(project, config, id, fetched.get(id), allowDuplicates);
+            if (spec.kind === 'existing') {
+              skipped.push({ id, specId: spec.specId });
+              continue;
+            }
             agentManager.startSpecCreation(spec.specId, project.path, spec.description, spec.specDir, spec.metadata);
             imported++;
           } catch (err) {

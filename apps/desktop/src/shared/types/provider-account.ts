@@ -45,6 +45,10 @@ export interface ProviderAccount {
   keyStatusAt?: number;
 }
 
+// zeenha fork: keep saved credentials in the main process.
+/** The only provider account shape sent to the renderer (CWE-201). */
+export type ProviderAccountView = Omit<ProviderAccount, 'apiKey'> & { hasApiKey: boolean };
+
 export type ProviderCategory = 'popular' | 'infrastructure' | 'local';
 
 /** Provider display metadata for UI rendering */

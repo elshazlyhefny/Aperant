@@ -1,6 +1,7 @@
 /**
  * zeenha fork: project-wide delivery and token metrics, aggregated from every
  * task's `run_metrics.json`.
+ * Update the user guide at guides/delivery-metrics.md when these rules change.
  *
  * Reading is async, bounded and yields to the event loop between batches so a
  * project with hundreds of specs never starves the main process. The
@@ -177,6 +178,8 @@ export function buildProjectRunMetrics(
     const taskTime = newest > 0 ? newest : toMs(input.updatedAt);
     if (taskTime < cutoff) continue;
 
+    // "Failed before any work" counts every error task in the period, even with recorded sessions.
+    // Those sessions' tokens count toward totals, not per-completed-task averages.
     const failedTask = status === 'error';
     if (metrics.state === 'missing' && (failedTask || isNeverStarted(status))) {
       // Expected to have no metrics: not an exclusion.

@@ -1,8 +1,8 @@
 import { debugLog } from '@shared/utils/debug-logger';
 import { create } from 'zustand';
-import type { AppSettings, PerProviderAgentConfig } from '../../shared/types';
+import type { PerProviderAgentConfig, RendererAppSettings } from '../../shared/types';
 import type { APIProfile, ProfileFormData, TestConnectionResult, ModelInfo } from '@shared/types/profile';
-import type { BuiltinProvider, ProviderAccount } from '@shared/types/provider-account';
+import type { BuiltinProvider, ProviderAccount, ProviderAccountView } from '@shared/types/provider-account';
 import type { IPCResult } from '@shared/types/common';
 import { DEFAULT_APP_SETTINGS } from '../../shared/constants';
 import i18n from '../../shared/i18n';
@@ -10,7 +10,7 @@ import { toast } from '../hooks/use-toast';
 import { markSettingsLoaded } from '../lib/sentry';
 
 interface SettingsState {
-  settings: AppSettings;
+  settings: RendererAppSettings;
   isLoading: boolean;
   error: string | null;
 
@@ -30,12 +30,12 @@ interface SettingsState {
   discoveredModels: Map<string, ModelInfo[]>; // Cache key -> models mapping
 
   // Provider accounts state (unified multi-provider credentials)
-  providerAccounts: ProviderAccount[];
+  providerAccounts: ProviderAccountView[];
   envCredentials: Record<string, boolean>;
 
   // Actions
-  setSettings: (settings: AppSettings) => void;
-  updateSettings: (updates: Partial<AppSettings>) => void;
+  setSettings: (settings: RendererAppSettings) => void;
+  updateSettings: (updates: Partial<RendererAppSettings>) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
 
@@ -51,19 +51,19 @@ interface SettingsState {
   discoverModels: (baseUrl: string, apiKey: string, signal?: AbortSignal) => Promise<ModelInfo[] | null>;
 
   // Provider account actions
-  addProviderAccount: (account: Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>) => Promise<IPCResult<ProviderAccount>>;
-  updateProviderAccount: (id: string, updates: Partial<ProviderAccount>) => Promise<IPCResult<ProviderAccount>>;
+  addProviderAccount: (account: Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>) => Promise<IPCResult<ProviderAccountView>>;
+  updateProviderAccount: (id: string, updates: Partial<Omit<ProviderAccount, 'id'>>) => Promise<IPCResult<ProviderAccountView>>;
   deleteProviderAccount: (id: string) => Promise<IPCResult>;
   setQueueOrder: (order: string[]) => Promise<IPCResult>;
   setCrossProviderQueueOrder: (order: string[]) => Promise<IPCResult>;
   saveModelOverrides: (overrides: Record<string, unknown>) => Promise<IPCResult>;
-  getProviderAccounts: (provider?: BuiltinProvider) => ProviderAccount[];
+  getProviderAccounts: (provider?: BuiltinProvider) => ProviderAccountView[];
   checkEnvCredentials: () => Promise<IPCResult<Record<string, boolean>>>;
   loadProviderAccounts: () => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  settings: DEFAULT_APP_SETTINGS as AppSettings,
+  settings: DEFAULT_APP_SETTINGS as RendererAppSettings,
   isLoading: true,  // Start as true since we load settings on app init
   error: null,
 
@@ -325,13 +325,13 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     }
   },
 
-  getProviderAccounts: (provider?: BuiltinProvider): ProviderAccount[] => {
+  getProviderAccounts: (provider?: BuiltinProvider): ProviderAccountView[] => {
     const accounts = useSettingsStore.getState().providerAccounts;
     if (!provider) return accounts;
     return accounts.filter(a => a.provider === provider);
   },
 
-  addProviderAccount: async (account: Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>): Promise<IPCResult<ProviderAccount>> => {
+  addProviderAccount: async (account: Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>): Promise<IPCResult<ProviderAccountView>> => {
     const result = await window.electronAPI.saveProviderAccount(account);
     if (result.success && result.data) {
       const newAccount = result.data!;
@@ -350,7 +350,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     return result;
   },
 
-  updateProviderAccount: async (id: string, updates: Partial<ProviderAccount>): Promise<IPCResult<ProviderAccount>> => {
+  updateProviderAccount: async (id: string, updates: Partial<Omit<ProviderAccount, 'id'>>): Promise<IPCResult<ProviderAccountView>> => {
     const result = await window.electronAPI.updateProviderAccount(id, updates);
     if (result.success && result.data) {
       set(state => ({
@@ -423,7 +423,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
  * This function now also checks Claude Code's ~/.claude.json for
  * hasCompletedOnboarding to respect Claude Code's onboarding status.
  */
-async function migrateOnboardingCompleted(settings: AppSettings): Promise<AppSettings> {
+async function migrateOnboardingCompleted(settings: RendererAppSettings): Promise<RendererAppSettings> {
   // Only migrate if onboardingCompleted is undefined (not explicitly set)
   if (settings.onboardingCompleted !== undefined) {
     return settings;
@@ -503,7 +503,7 @@ export async function loadSettings(): Promise<void> {
 /**
  * Save settings to main process
  */
-export async function saveSettings(updates: Partial<AppSettings>): Promise<boolean> {
+export async function saveSettings(updates: Partial<RendererAppSettings>): Promise<boolean> {
   const store = useSettingsStore.getState();
 
   try {

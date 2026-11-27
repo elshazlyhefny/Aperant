@@ -2,20 +2,21 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProviderAccount } from '@shared/types/provider-account';
+import type { ProviderAccountView } from '@shared/types/provider-account';
 import { AddAccountDialog } from './AddAccountDialog';
 
 const { toast } = vi.hoisted(() => ({ toast: vi.fn() }));
 vi.mock('../../hooks/use-toast', () => ({ toast, useToast: () => ({ toast }) }));
 
 const storageUnavailable = { success: false, error: 'SECURE_STORAGE_UNAVAILABLE' };
-const account: ProviderAccount = {
+const apiKey = 'test-key';
+const account: ProviderAccountView = {
   id: 'provider-account',
   name: 'Test account',
   provider: 'openai',
   authType: 'api-key',
   billingModel: 'pay-per-use',
-  apiKey: 'test-key',
+  hasApiKey: true,
   createdAt: 1,
   updatedAt: 1,
 };
@@ -28,7 +29,7 @@ function openAddDialog() {
   const onOpenChange = vi.fn();
   render(<AddAccountDialog open onOpenChange={onOpenChange} provider="openai" authType="api-key" />);
   fireEvent.change(screen.getByLabelText('Account Name'), { target: { value: account.name } });
-  fireEvent.change(screen.getByLabelText('API Key'), { target: { value: account.apiKey } });
+  fireEvent.change(screen.getByLabelText('API Key'), { target: { value: apiKey } });
   fireEvent.click(screen.getByRole('button', { name: 'Add Account' }));
   return onOpenChange;
 }
@@ -53,7 +54,7 @@ describe('AddAccountDialog session-only API keys', () => {
 
     expect(saveProviderAccount).toHaveBeenCalledTimes(1);
     const [initialPayload] = saveProviderAccount.mock.calls[0];
-    expect(initialPayload).toMatchObject({ name: account.name, apiKey: account.apiKey });
+    expect(initialPayload).toMatchObject({ name: account.name, apiKey });
     expect(initialPayload).not.toHaveProperty('apiKeySessionOnly');
     expect(toast).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();
@@ -69,7 +70,7 @@ describe('AddAccountDialog session-only API keys', () => {
     updateProviderAccount.mockResolvedValueOnce(storageUnavailable).mockResolvedValueOnce({ success: true });
     const onOpenChange = vi.fn();
     render(<AddAccountDialog open onOpenChange={onOpenChange} provider="openai" authType="api-key" editAccount={account} />);
-    fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'replacement-key' } });
+    fireEvent.change(screen.getByLabelText('Replace API Key'), { target: { value: 'replacement-key' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
     const prompt = await getStoragePrompt();
 
@@ -95,7 +96,7 @@ describe('AddAccountDialog session-only API keys', () => {
     fireEvent.click(prompt.getByRole('button', { name: 'Cancel' }));
 
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('API Key')).toHaveValue(account.apiKey);
+    expect(screen.getByLabelText('API Key')).toHaveValue(apiKey);
     expect(saveProviderAccount).toHaveBeenCalledTimes(1);
     expect(onOpenChange).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add Account' })).toHaveFocus());

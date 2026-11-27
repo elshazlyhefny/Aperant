@@ -26,14 +26,29 @@ import {
   discoverModels
 } from '../services/profile';
 
-import { appLog } from '../app-logger';
 import { SecureStorageUnavailableError } from '../secure-storage/secret-storage';
 import { recordApiKeyOutcome, outcomeFromConnectionError } from '../services/api-key-status-recorder';
+import { resolveSavedProviderKey } from '../services/profile/provider-account-key-resolver';
+
 // Track active test connection requests for cancellation
 const activeTestConnections = new Map<number, AbortController>();
 
 // Track active discover models requests for cancellation
 const activeDiscoverModelsRequests = new Map<number, AbortController>();
+
+function resolveProfileCredentials(baseUrl: string, apiKey: string, accountId?: string) {
+  const hasSuppliedKey = typeof apiKey === 'string' && apiKey.trim() !== '';
+  if (!hasSuppliedKey && accountId) {
+    const saved = resolveSavedProviderKey(accountId, baseUrl);
+    return saved.ok ? { ...saved, savedKey: saved.apiKey } : saved;
+  }
+
+  if (typeof baseUrl !== 'string' || baseUrl.trim() === '') {
+    return { ok: false, error: 'Base URL is required' } as const;
+  }
+  if (!hasSuppliedKey) return { ok: false, error: 'API key is required' } as const;
+  return { ok: true, baseUrl, apiKey, savedKey: undefined } as const;
+}
 
 /**
  * Register all profile-related IPC handlers
@@ -199,32 +214,13 @@ export function registerProfileHandlers(): void {
         controller.abort();
       }, timeoutMs);
 
+      let savedKey: string | undefined;
       try {
-        // Validate inputs (null/empty checks)
-        if (!baseUrl || baseUrl.trim() === '') {
-          clearTimeout(timeoutId);
-          activeTestConnections.delete(requestId);
-          return {
-            success: false,
-            error: 'Base URL is required'
-          };
-        }
+        const credentials = resolveProfileCredentials(baseUrl, apiKey, profileId);
+        if (!credentials.ok) return { success: false, error: credentials.error };
+        savedKey = credentials.savedKey;
 
-        if (!apiKey || apiKey.trim() === '') {
-          clearTimeout(timeoutId);
-          activeTestConnections.delete(requestId);
-          return {
-            success: false,
-            error: 'API key is required'
-          };
-        }
-
-        // Call testConnection from service layer with abort signal
-        const result = await testConnection(baseUrl, apiKey, controller.signal);
-
-        // Clear timeout on success
-        clearTimeout(timeoutId);
-        activeTestConnections.delete(requestId);
+        const result = await testConnection(credentials.baseUrl, credentials.apiKey, controller.signal);
 
         // Record the outcome for a saved profile (only an auth failure rejects a key)
         if (profileId) {
@@ -235,12 +231,12 @@ export function registerProfileHandlers(): void {
           }
         }
 
-        return { success: true, data: result };
+        const data = credentials.savedKey ? {
+          ...result,
+          message: result.message.replaceAll(credentials.savedKey, '[redacted]')
+        } : result;
+        return { success: true, data };
       } catch (error) {
-        // Clear timeout on error
-        clearTimeout(timeoutId);
-        activeTestConnections.delete(requestId);
-
         // Handle abort errors (timeout or explicit cancellation)
         if (error instanceof Error && error.name === 'AbortError') {
           return {
@@ -249,10 +245,11 @@ export function registerProfileHandlers(): void {
           };
         }
 
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Failed to test connection'
-        };
+        const message = error instanceof Error ? error.message : 'Failed to test connection';
+        return { success: false, error: savedKey ? message.replaceAll(savedKey, '[redacted]') : message };
+      } finally {
+        clearTimeout(timeoutId);
+        if (activeTestConnections.get(requestId) === controller) activeTestConnections.delete(requestId);
       }
     }
   );
@@ -279,9 +276,7 @@ export function registerProfileHandlers(): void {
    */
   ipcMain.handle(
     IPC_CHANNELS.PROFILES_DISCOVER_MODELS,
-    async (_event, baseUrl: string, apiKey: string, requestId: number): Promise<IPCResult<DiscoverModelsResult>> => {
-      appLog.debug('[discoverModels] Called with:', { baseUrl, requestId });
-
+    async (_event, baseUrl: string, apiKey: string, requestId: number, accountId?: string): Promise<IPCResult<DiscoverModelsResult>> => {
       // Create AbortController for timeout and cancellation
       const controller = new AbortController();
       const timeoutMs = 15000; // 15 seconds
@@ -294,39 +289,21 @@ export function registerProfileHandlers(): void {
         controller.abort();
       }, timeoutMs);
 
+      let savedKey: string | undefined;
       try {
-        // Validate inputs (null/empty checks)
-        if (!baseUrl || baseUrl.trim() === '') {
-          clearTimeout(timeoutId);
-          activeDiscoverModelsRequests.delete(requestId);
-          return {
-            success: false,
-            error: 'Base URL is required'
-          };
-        }
+        const credentials = resolveProfileCredentials(baseUrl, apiKey, accountId);
+        if (!credentials.ok) return { success: false, error: credentials.error };
+        savedKey = credentials.savedKey;
 
-        if (!apiKey || apiKey.trim() === '') {
-          clearTimeout(timeoutId);
-          activeDiscoverModelsRequests.delete(requestId);
-          return {
-            success: false,
-            error: 'API key is required'
-          };
-        }
+        const result = await discoverModels(credentials.baseUrl, credentials.apiKey, controller.signal);
 
-        // Call discoverModels from service layer with abort signal
-        const result = await discoverModels(baseUrl, apiKey, controller.signal);
-
-        // Clear timeout on success
-        clearTimeout(timeoutId);
-        activeDiscoverModelsRequests.delete(requestId);
-
-        return { success: true, data: result };
+        // zeenha fork: do not return model metadata that echoes the stored credential.
+        const key = credentials.savedKey;
+        const data = key ? {
+          models: result.models.filter(({ id, display_name }) => !id.includes(key) && !display_name.includes(key))
+        } : result;
+        return { success: true, data };
       } catch (error) {
-        // Clear timeout on error
-        clearTimeout(timeoutId);
-        activeDiscoverModelsRequests.delete(requestId);
-
         // Handle abort errors (timeout or explicit cancellation)
         if (error instanceof Error && error.name === 'AbortError') {
           return {
@@ -335,23 +312,11 @@ export function registerProfileHandlers(): void {
           };
         }
 
-        // Extract error type if available
-        const errorType = (error as any).errorType;
-        const errorMessage = error instanceof Error ? error.message : 'Failed to discover models';
-
-        // Log for debugging
-        console.error('[discoverModels] Error:', {
-          name: error instanceof Error ? error.name : 'unknown',
-          message: errorMessage,
-          errorType,
-          originalError: error
-        });
-
-        // Include error type in error message for UI to handle appropriately
-        return {
-          success: false,
-          error: errorMessage
-        };
+        const message = error instanceof Error ? error.message : 'Failed to discover models';
+        return { success: false, error: savedKey ? message.replaceAll(savedKey, '[redacted]') : message };
+      } finally {
+        clearTimeout(timeoutId);
+        if (activeDiscoverModelsRequests.get(requestId) === controller) activeDiscoverModelsRequests.delete(requestId);
       }
     }
   );

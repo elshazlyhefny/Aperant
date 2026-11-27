@@ -11,7 +11,7 @@
  * - tool-call: Model has assembled a complete tool call (fields: `toolCallId`, `toolName`, `input`)
  * - tool-result: Tool execution completed (fields: `toolCallId`, `toolName`, `output`)
  * - tool-error: Tool execution failed (fields: `toolCallId`, `toolName`, `error`)
- * - finish-step: An agentic step completed (field: `usage` with `promptTokens`/`completionTokens`)
+ * - finish-step: An agentic step completed (field: `usage` with `inputTokens`/`outputTokens`)
  * - error: Stream-level error (field: `error`)
  */
 
@@ -36,7 +36,7 @@ import { classifyError, classifyToolError } from './error-classifier';
  * - tool-call has `toolCallId`, `toolName`, `input`
  * - tool-result has `toolCallId`, `toolName`, `input`, `output`
  * - tool-error has `toolCallId`, `toolName`, `error`
- * - finish-step usage uses `promptTokens`/`completionTokens`
+ * - finish-step usage uses `inputTokens`/`outputTokens`, with the cache split in `inputTokenDetails`
  * - error uses `error` field (not `errorText`)
  */
 export interface TextDeltaPart {
@@ -75,8 +75,18 @@ export interface FinishStepPart {
   type: 'finish-step';
   finishReason?: string;
   usage?: {
-    promptTokens: number;
-    completionTokens: number;
+    /** AI SDK v6 names (LanguageModelUsage). */
+    inputTokens?: number;
+    outputTokens?: number;
+    inputTokenDetails?: {
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+    };
+    /** Names the Claude Code engine also sends (claude-code/cli-events.ts CliUsage). */
+    promptTokens?: number;
+    completionTokens?: number;
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
   };
 }
 
@@ -237,20 +247,35 @@ export function createStreamHandler(onEvent: SessionEventCallback) {
   function handleFinishStep(part: FinishStepPart): void {
     state.stepNumber++;
 
-    // AI SDK v6 finish-step usage: promptTokens/completionTokens
-    const promptTokens = part.usage?.promptTokens ?? 0;
-    const completionTokens = part.usage?.completionTokens ?? 0;
+    // zeenha fork: AI SDK v6 reports inputTokens/outputTokens. Reading only the
+    // older promptTokens/completionTokens names counted every step as 0, so a
+    // session whose result.totalUsage timed out (often with Codex) recorded
+    // zero tokens, and the context-window guard never saw the prompt size. The
+    // older names are still read because the Claude Code engine sends them.
+    const usage = part.usage;
+    const promptTokens = usage?.inputTokens ?? usage?.promptTokens ?? 0;
+    const completionTokens = usage?.outputTokens ?? usage?.completionTokens ?? 0;
     const totalTokens = promptTokens + completionTokens;
+    const cacheReadTokens = usage?.inputTokenDetails?.cacheReadTokens ?? usage?.cacheReadTokens ?? 0;
+    const cacheCreationTokens = usage?.inputTokenDetails?.cacheWriteTokens ?? usage?.cacheCreationTokens ?? 0;
 
     // Accumulate usage
     state.cumulativeUsage.promptTokens += promptTokens;
     state.cumulativeUsage.completionTokens += completionTokens;
     state.cumulativeUsage.totalTokens += totalTokens;
+    if (cacheReadTokens) {
+      state.cumulativeUsage.cacheReadTokens = (state.cumulativeUsage.cacheReadTokens ?? 0) + cacheReadTokens;
+    }
+    if (cacheCreationTokens) {
+      state.cumulativeUsage.cacheCreationTokens = (state.cumulativeUsage.cacheCreationTokens ?? 0) + cacheCreationTokens;
+    }
 
     const stepUsage: TokenUsage = {
       promptTokens,
       completionTokens,
       totalTokens,
+      ...(cacheReadTokens ? { cacheReadTokens } : {}),
+      ...(cacheCreationTokens ? { cacheCreationTokens } : {}),
     };
 
     emit({

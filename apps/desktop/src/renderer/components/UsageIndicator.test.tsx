@@ -10,7 +10,7 @@ import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { UsageIndicator } from './UsageIndicator';
 import { useSettingsStore, saveSettings } from '../stores/settings-store';
-import type { ProviderAccount } from '../../shared/types/provider-account';
+import type { ProviderAccountView } from '../../shared/types/provider-account';
 
 vi.mock('../stores/settings-store', () => ({
   useSettingsStore: vi.fn(),
@@ -61,14 +61,14 @@ vi.mock('react-i18next', () => ({
   })),
 }));
 
-const crossProviderAccounts: ProviderAccount[] = [
+const crossProviderAccounts: ProviderAccountView[] = [
   {
     id: 'account-openai',
     provider: 'openai',
     name: 'OpenAI API',
     authType: 'api-key',
     billingModel: 'pay-per-use',
-    apiKey: 'openai-key',
+    hasApiKey: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -77,6 +77,7 @@ const crossProviderAccounts: ProviderAccount[] = [
     provider: 'anthropic',
     name: 'Anthropic OAuth',
     authType: 'oauth',
+    hasApiKey: false,
     billingModel: 'subscription',
     claudeProfileId: 'account-anthropic',
     createdAt: Date.now(),
@@ -84,12 +85,13 @@ const crossProviderAccounts: ProviderAccount[] = [
   },
 ];
 
-const crossProviderMonitoredAccounts: ProviderAccount[] = [
+const crossProviderMonitoredAccounts: ProviderAccountView[] = [
   {
     id: 'account-anthropic-active',
     provider: 'anthropic',
     name: 'Anthropic OAuth',
     authType: 'oauth',
+    hasApiKey: false,
     billingModel: 'subscription',
     claudeProfileId: 'account-anthropic-active',
     createdAt: Date.now(),
@@ -100,6 +102,7 @@ const crossProviderMonitoredAccounts: ProviderAccount[] = [
     provider: 'openai',
     name: 'OpenAI OAuth',
     authType: 'oauth',
+    hasApiKey: false,
     billingModel: 'pay-per-use',
     claudeProfileId: 'account-openai-other',
     createdAt: Date.now(),
@@ -119,7 +122,7 @@ function createStoreMock(overrides?: {
   customMixedProfileActive?: boolean;
   customMixedPhaseConfig?: Record<string, { provider: 'anthropic' | 'openai' }>;
   globalPriorityOrder?: string[];
-  providerAccounts?: ProviderAccount[];
+  providerAccounts?: ProviderAccountView[];
 }) {
   return {
     providerAccounts: overrides?.providerAccounts ?? crossProviderAccounts,
@@ -329,14 +332,14 @@ describe('UsageIndicator', () => {
   });
 
   describe('OpenRouter credit usage', () => {
-    const openRouterAccounts: ProviderAccount[] = [
+    const openRouterAccounts: ProviderAccountView[] = [
       {
         id: 'account-openrouter',
         provider: 'openrouter',
         name: 'OpenRouter Key',
         authType: 'api-key',
         billingModel: 'pay-per-use',
-        apiKey: 'or-key',
+        hasApiKey: true,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },

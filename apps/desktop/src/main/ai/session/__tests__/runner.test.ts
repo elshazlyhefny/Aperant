@@ -93,6 +93,64 @@ describe('runAgentSession', () => {
   });
 
   // ===========================================================================
+  // Usage when result.totalUsage is unavailable (zeenha fork)
+  // ===========================================================================
+
+  describe('usage fallback', () => {
+    const v6Steps = [
+      { type: 'finish-step', usage: { inputTokens: 1000, outputTokens: 40, inputTokenDetails: { cacheReadTokens: 900 } } },
+      { type: 'finish-step', usage: { inputTokens: 1100, outputTokens: 60, inputTokenDetails: { cacheReadTokens: 1000 } } },
+    ];
+
+    it('uses the per-step tally when result.totalUsage rejects', async () => {
+      const rejecting = Promise.reject(new Error('stream closed without a finish event'));
+      rejecting.catch(() => {}); // the runner awaits it later; avoid an unhandled-rejection warning first
+      mockStreamText.mockReturnValue({ ...createMockStreamResult(v6Steps, { text: 'done' }), totalUsage: rejecting });
+
+      const result = await runAgentSession(createMockConfig());
+
+      expect(result.usage).toEqual({
+        promptTokens: 2100,
+        completionTokens: 100,
+        totalTokens: 2200,
+        cacheReadTokens: 1900,
+      });
+    });
+
+    it('uses the per-step tally when result.totalUsage is empty', async () => {
+      mockStreamText.mockReturnValue(
+        createMockStreamResult(v6Steps, { text: 'done', totalUsage: { inputTokens: 0, outputTokens: 0 } }),
+      );
+
+      const result = await runAgentSession(createMockConfig());
+
+      expect(result.usage.promptTokens).toBe(2100);
+      expect(result.usage.completionTokens).toBe(100);
+    });
+
+    it('reads the cache split from the AI SDK v6 total', async () => {
+      mockStreamText.mockReturnValue({
+        ...createMockStreamResult(v6Steps, { text: 'done' }),
+        totalUsage: Promise.resolve({
+          inputTokens: 2100,
+          outputTokens: 100,
+          inputTokenDetails: { cacheReadTokens: 1900, cacheWriteTokens: 50 },
+        }),
+      });
+
+      const result = await runAgentSession(createMockConfig());
+
+      expect(result.usage).toEqual({
+        promptTokens: 2100,
+        completionTokens: 100,
+        totalTokens: 2200,
+        cacheReadTokens: 1900,
+        cacheCreationTokens: 50,
+      });
+    });
+  });
+
+  // ===========================================================================
   // Max steps outcome
   // ===========================================================================
 

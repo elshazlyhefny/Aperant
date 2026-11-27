@@ -1024,8 +1024,8 @@
       "edit": "Modifier le compte",
       "reauth": "Ré-authentifier",
       "delete": "Supprimer le compte",
-      "showKey": "Afficher la clé API",
-      "hideKey": "Masquer la clé API",
+      "keySaved": "Clé API enregistrée",
+      "noKeySaved": "Aucune clé API enregistrée",
       "oauthAccount": "Compte OAuth",
       "oauthLinked": "Compte lié",
       "noEndpoint": "Pas de point de terminaison",
@@ -1084,9 +1084,11 @@
         "useSessionOnly": "Utiliser pour cette session uniquement",
         "cancel": "Annuler"
       },
+      "replaceKeyHint": "Saisissez une nouvelle clé API uniquement si vous souhaitez remplacer la clé enregistrée.",
       "fields": {
         "name": "Nom du compte",
         "apiKey": "Clé API",
+        "replaceApiKey": "Remplacer la clé API",
         "baseUrl": "URL de base",
         "region": "Région AWS",
         "models": "Modèles"
@@ -1094,6 +1096,7 @@
       "placeholders": {
         "name": "Mon compte",
         "apiKey": "sk-...",
+        "keepSavedKey": "Laissez vide pour conserver la clé enregistrée",
         "baseUrl": "https://...",
         "modelId": "ID du modèle (ex. llama-3.1-70b)",
         "modelLabel": "Nom d'affichage"

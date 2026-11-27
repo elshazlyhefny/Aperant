@@ -6,16 +6,16 @@ import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { ProviderAccountCard } from './ProviderAccountCard';
 import { OllamaConnectionPanel } from './OllamaConnectionPanel';
-import type { BillingModel, BuiltinProvider, ProviderAccount, ProviderInfo } from '@shared/types/provider-account';
+import type { BillingModel, BuiltinProvider, ProviderAccountView, ProviderInfo } from '@shared/types/provider-account';
 
 interface ProviderSectionProps {
   provider: ProviderInfo;
-  accounts: ProviderAccount[];
+  accounts: ProviderAccountView[];
   envDetected: boolean;
   onAddAccount: (provider: BuiltinProvider, authType: 'oauth' | 'api-key', billingModel?: BillingModel) => void;
-  onEditAccount: (account: ProviderAccount) => void;
+  onEditAccount: (account: ProviderAccountView) => void;
   onDeleteAccount: (id: string) => void;
-  onReauthAccount?: (account: ProviderAccount) => void;
+  onReauthAccount?: (account: ProviderAccountView) => void;
 }
 
 export function ProviderSection({
