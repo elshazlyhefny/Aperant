@@ -249,6 +249,8 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     } catch {
       return;
     }
+    const stops: { projectId: string; report?: { scheduleId: string; entry: ScheduleRunRecord } }[] = [];
+    // Decide stops without yielding so task statuses and usage are checked in the same turn.
     for (const projectId of projectIds) {
       try {
         if (!allowed(projectId)) continue;
@@ -273,16 +275,26 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
           } catch {
             // Still record below; the task is not retried
           }
-          // Task metadata can point to a schedule outside the daemon's filtered list.
-          if (schedule) {
-            await appendRunRecords(schedule.id, [
-              record('budget_exceeded', deps.now(), { taskId: task.id, detail: `${used}/${budget}` }),
-            ]);
-          }
-          deps.notifyChanged(projectId);
+          stops.push({
+            projectId,
+            // Only report to schedules in the daemon's filtered list.
+            report: schedule && {
+              scheduleId: schedule.id,
+              entry: record('budget_exceeded', deps.now(), { taskId: task.id, detail: `${used}/${budget}` }),
+            },
+          });
         }
       } catch {
         // One project failing must not stop the others
+      }
+    }
+
+    for (const { projectId, report } of stops) {
+      try {
+        if (report) await appendRunRecords(report.scheduleId, [report.entry]);
+        deps.notifyChanged(projectId);
+      } catch {
+        // One failed report or notification must not block the others
       }
     }
   }

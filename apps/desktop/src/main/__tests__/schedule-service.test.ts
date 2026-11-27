@@ -391,6 +391,54 @@ describe('schedule service', () => {
       expect(ctx.schedules[0].history.at(-1)?.detail).toBe('1000/1000');
     });
 
+    it('does not stop a task that finishes while another budget report is being written', async () => {
+      const { deps, schedules, service, tasks } = setup({
+        schedules: ['s1', 's2'].map((id) => makeSchedule({ id, enabled: false, nextRunAt: null })),
+      });
+      for (const [id, scheduleId] of [['a', 's1'], ['b', 's2']]) {
+        tasks.push({
+          id,
+          specId: id,
+          projectId: 'p1',
+          title: id,
+          description: '',
+          status: 'in_progress',
+          metadata: { sourceType: 'schedule', scheduleId, tokenBudget: 100 },
+          subtasks: [],
+          logs: [],
+          createdAt: new Date(T0),
+          updatedAt: new Date(T0),
+        });
+      }
+      deps.listTasks = () => [...tasks];
+      let taskBTokens = 99;
+      vi.mocked(deps.readTaskTokens).mockImplementation((_projectId, specId) => (specId === 'a' ? 140 : taskBTokens));
+      const entered = deferred();
+      const release = deferred();
+      const updateSchedule = deps.updateSchedule;
+      deps.updateSchedule = vi.fn<ScheduleServiceDeps['updateSchedule']>(async (id, mutate) => {
+        if (id === 's1') {
+          entered.resolve();
+          await release.promise;
+        }
+        return updateSchedule(id, mutate);
+      });
+
+      const tick = service.tick();
+      await entered.promise;
+      tasks[1] = { ...tasks[1], status: 'done' };
+      taskBTokens = 140;
+      release.resolve();
+      await tick;
+
+      expect(deps.stopTask).toHaveBeenCalledExactlyOnceWith('a');
+      expect(deps.updateSchedule).toHaveBeenCalledExactlyOnceWith('s1', expect.any(Function));
+      expect(schedules[0].history.map(({ kind, taskId, detail }) => [kind, taskId, detail])).toEqual([
+        ['budget_exceeded', 'a', '140/100'],
+      ]);
+      expect(schedules[1].history).toEqual([]);
+    });
+
     it('still stops and notifies if the schedule is deleted before the budget append', async () => {
       const { deps, schedules, service, tokens } = await runOne();
       vi.mocked(deps.notifyChanged).mockClear();
