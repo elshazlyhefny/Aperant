@@ -655,6 +655,7 @@
     "hint": "Drag a file, or press Enter, to add it as a reference"
   },
   "logs": {
+    "jumpToLatest": "Jump to latest",
     "empty": {
       "title": "No logs yet",
       "hint": "Logs will appear here when the task runs"

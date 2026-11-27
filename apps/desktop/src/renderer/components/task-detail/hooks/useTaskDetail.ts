@@ -204,6 +204,15 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
     setIsUserScrolledUp(!isAtAnchor);
   };
 
+  const jumpToLatestLogs = useCallback(() => {
+    const container = logsContainerRef.current;
+    if (container) {
+      // zeenha fork: Jump instantly so the 100px scroll-away check can't pause following mid-animation.
+      container.scrollTop = logOrder === 'reverse-chronological' ? 0 : container.scrollHeight;
+    }
+    setIsUserScrolledUp(false);
+  }, [logOrder]);
+
   // Auto-scroll logs to anchor (top for reverse, bottom for chronological) only if user hasn't scrolled away
   useEffect(() => {
     const isReverseOrder = logOrder === 'reverse-chronological';
@@ -629,6 +638,7 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
 
     // Handlers
     handleLogsScroll,
+    jumpToLatestLogs,
     togglePhase,
     loadMergePreview,
     retryWorktreeStatus,

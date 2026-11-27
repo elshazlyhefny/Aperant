@@ -8,6 +8,7 @@ const resolve = (tree: unknown, path: string): unknown =>
 // Keys used by TaskLogs.tsx (without the "tasks:" namespace prefix).
 // entryCount is pluralised, so it is checked through its _one/_other forms.
 const KEYS = [
+  'logs.jumpToLatest',
   'logs.empty.title',
   'logs.empty.hint',
   'logs.entryCount_one',
