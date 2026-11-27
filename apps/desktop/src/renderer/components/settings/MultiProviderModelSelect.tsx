@@ -134,7 +134,7 @@ export function MultiProviderModelSelect({ value, onChange, className, filterPro
     if (provider === 'anthropic') return true;
     // Ollama doesn't need API keys — just an account entry means it's connected
     if (provider === 'ollama') return providerAccounts.some(a => a.provider === 'ollama');
-    return providerAccounts.some(a => a.provider === provider && (a.apiKey || a.claudeProfileId || a.authType === 'oauth'));
+    return providerAccounts.some(a => a.provider === provider && (a.hasApiKey || a.claudeProfileId || a.authType === 'oauth'));
   };
 
   // Filter models by search

@@ -181,8 +181,8 @@ function readJsonFile(filePath: string): ClaudeCodeSettings | undefined {
 
     debugLog(`${LOG_PREFIX} Read settings from:`, filePath);
     return parsed;
-  } catch (error) {
-    debugError(`${LOG_PREFIX} Failed to parse settings file:`, filePath, error);
+  } catch {
+    debugError(`${LOG_PREFIX} Failed to parse settings file:`, filePath);
     return undefined;
   }
 }
@@ -325,6 +325,6 @@ export function readAllSettings(projectPath?: string): ClaudeCodeSettingsHierarc
   hierarchy.merged = settings;
   hierarchy.droppedEnv = droppedEnv;
 
-  debugLog(`${LOG_PREFIX} Merged settings result:`, hierarchy.merged);
+  debugLog(`${LOG_PREFIX} Merged settings fields:`, Object.keys(hierarchy.merged));
   return hierarchy;
 }

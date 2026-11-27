@@ -6,6 +6,8 @@ import { useTaskQueueStore } from '../stores/task-queue-store';
 /**
  * zeenha fork: stop state for a task card. lockedTaskIds is only set while the
  * daemon holds the project lock, so a desktop-run task is never a daemon run.
+ *
+ * User docs: guides/CLI-USAGE.md, "Using the desktop app while serve runs". Update it when this behaviour changes.
  */
 export function useDaemonStop(task: Pick<Task, 'id' | 'projectId' | 'status'>) {
   const inProgress = task.status === 'in_progress';

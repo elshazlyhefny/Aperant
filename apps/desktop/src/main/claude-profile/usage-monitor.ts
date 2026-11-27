@@ -23,6 +23,7 @@ import { ClaudeUsageSnapshot, ProfileUsageSummary, AllProfilesUsage } from '../.
 import { loadProfilesFile } from '../services/profile/api-profile-store';
 import type { APIProfile } from '../../shared/types/profile';
 import { getKeyStatus, failoverTier } from '../../shared/utils/api-key-status';
+import { isSecretEnvelope } from '../../shared/utils/secret-envelope';
 import type { ApiProvider } from '../../shared/utils/provider-detection';
 import { getCredentialsFromKeychain, clearKeychainCache } from './credential-utils';
 import { reactiveTokenRefresh } from './token-refresh';
@@ -1292,7 +1293,8 @@ export class UsageMonitor extends EventEmitter {
         const profilesFile = await loadProfilesFile();
         apiProfile = profilesFile.profiles.find(p => p.id === profileId);
 
-        if (apiProfile?.apiKey) {
+        // zeenha fork: an undecryptable envelope is not a usable key.
+        if (apiProfile?.apiKey && !isSecretEnvelope(apiProfile.apiKey)) {
           // API profile found
           baseUrl = apiProfile.baseUrl;
           provider = detectProvider(baseUrl);
@@ -1472,7 +1474,13 @@ export class UsageMonitor extends EventEmitter {
     try {
       const profilesFile = await loadProfilesFile();
       for (const apiProfile of profilesFile.profiles) {
-        if (!excludeIds.has(apiProfile.id) && apiProfile.apiKey && getKeyStatus(apiProfile) !== 'rejected') {
+        // zeenha fork: a profile whose key could not be decrypted is not available for swap.
+        if (
+          !excludeIds.has(apiProfile.id) &&
+          apiProfile.apiKey &&
+          !isSecretEnvelope(apiProfile.apiKey) &&
+          getKeyStatus(apiProfile) !== 'rejected'
+        ) {
           const unifiedId = `api-${apiProfile.id}`;
           const priorityIndex = priorityOrder.indexOf(unifiedId);
           unifiedAccounts.push({

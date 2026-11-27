@@ -6,11 +6,11 @@
  */
 import { useMemo } from 'react';
 import { useSettingsStore } from '../stores/settings-store';
-import type { ProviderAccount, BuiltinProvider } from '../../shared/types/provider-account';
+import type { ProviderAccountView, BuiltinProvider } from '../../shared/types/provider-account';
 
 export interface ActiveProviderInfo {
   /** The highest-priority account (first in globalPriorityOrder), or null */
-  account: ProviderAccount | null;
+  account: ProviderAccountView | null;
   /** Shorthand for account.provider */
   provider: BuiltinProvider | null;
   /** True when the active account is Anthropic (useful for Fast Mode gating) */
@@ -18,17 +18,17 @@ export interface ActiveProviderInfo {
   /** Unique set of providers across all connected accounts */
   connectedProviders: BuiltinProvider[];
   /** All accounts sorted by priority order */
-  orderedAccounts: ProviderAccount[];
+  orderedAccounts: ProviderAccountView[];
   /** Accounts ordered by cross-provider priority (falls back to global order) */
-  crossProviderOrderedAccounts: ProviderAccount[];
+  crossProviderOrderedAccounts: ProviderAccountView[];
 }
 
 /**
  * Build an ordered account list from a priority order array,
  * appending any accounts not in the order at the end.
  */
-function buildOrderedAccounts(accounts: ProviderAccount[], order: string[]): ProviderAccount[] {
-  const ordered: ProviderAccount[] = [];
+function buildOrderedAccounts(accounts: ProviderAccountView[], order: string[]): ProviderAccountView[] {
+  const ordered: ProviderAccountView[] = [];
   for (const id of order) {
     const account = accounts.find(a => a.id === id);
     if (account) ordered.push(account);

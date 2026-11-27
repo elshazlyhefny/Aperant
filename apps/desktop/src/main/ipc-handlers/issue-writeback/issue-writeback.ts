@@ -12,6 +12,7 @@
 import type { Project, Task } from '../../../shared/types';
 import type { AppSettings } from '../../../shared/types/settings';
 import { getSpecsDir } from '../../../shared/constants';
+import type { DeliveryReceiptRecorder } from '../../delivery-receipts';
 import { readSettingsFile } from '../../settings-utils';
 import { taskSpecDirs } from '../../task-failure-facts';
 import type { WebhookEvent } from '../../task-webhook-core';
@@ -19,7 +20,10 @@ import { OUTCOME_WRITERS } from '../forge/registry';
 import { isIssueOutcomeEvent, readMetadata } from './common';
 import { anyWriterEnabled, dispatchIssueOutcomeWith } from './issue-writeback-core';
 
-export function dispatchIssueOutcome(input: { task: Task; project: Project; event: WebhookEvent }): void {
+export async function dispatchIssueOutcome(
+  input: { task: Task; project: Project; event: WebhookEvent },
+  recorder?: DeliveryReceiptRecorder
+): Promise<void> {
   try {
     const { task, project, event } = input;
     // zeenha fork: pr_opened and account pauses are webhook-only (see OutcomeEvent).
@@ -28,14 +32,15 @@ export function dispatchIssueOutcome(input: { task: Task; project: Project; even
     if (!anyWriterEnabled(OUTCOME_WRITERS, raw)) return;
 
     const meta = readMetadata(taskSpecDirs(project.path, getSpecsDir(project.autoBuildPath), task.specId));
-    void dispatchIssueOutcomeWith({
+    await dispatchIssueOutcomeWith({
       title: task.title,
       prUrl: task.metadata?.prUrl,
       project,
       event,
       meta,
       raw,
-      writers: OUTCOME_WRITERS
+      writers: OUTCOME_WRITERS,
+      recorder
     });
   } catch {
     // never let write-back problems affect task flow

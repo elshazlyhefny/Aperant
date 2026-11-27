@@ -28,6 +28,11 @@ export interface HeadlessProjectConfig {
   webFetchProvider?: unknown;
   /** Daemon only: how many queued tasks may run at once. */
   maxParallelTasks?: number;
+  /**
+   * zeenha fork: headless-only fallback when task_metadata.json has no tokenBudget.
+   * Never read from desktop settings.
+   */
+  defaultTokenBudget?: number;
 }
 
 export interface HeadlessWebhookConfig {
@@ -131,8 +136,15 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
     if (!isRecord(raw.project)) {
       throw new Error(`Config file ${configPath}: project must be an object`);
     }
-    const { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider, maxParallelTasks } =
-      raw.project;
+    const {
+      mainBranch,
+      pushNewBranches,
+      envPassthrough,
+      bashSandbox,
+      webFetchProvider,
+      maxParallelTasks,
+      defaultTokenBudget,
+    } = raw.project;
     if (mainBranch !== undefined && typeof mainBranch !== 'string') {
       throw new Error(`Config file ${configPath}: project.mainBranch must be a string`);
     }
@@ -145,7 +157,16 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
     ) {
       throw new Error(`Config file ${configPath}: project.maxParallelTasks must be a positive integer`);
     }
+    if (
+      defaultTokenBudget !== undefined &&
+      (typeof defaultTokenBudget !== 'number' || !Number.isInteger(defaultTokenBudget) || defaultTokenBudget < 1)
+    ) {
+      throw new Error(
+        `Config file ${configPath}: project.defaultTokenBudget must be a positive integer (omit it for no default)`,
+      );
+    }
     config.project = { mainBranch, pushNewBranches, envPassthrough, bashSandbox, webFetchProvider, maxParallelTasks };
+    if (defaultTokenBudget !== undefined) config.project.defaultTokenBudget = defaultTokenBudget;
   }
   if (raw.webhook !== undefined) {
     if (!isRecord(raw.webhook)) {

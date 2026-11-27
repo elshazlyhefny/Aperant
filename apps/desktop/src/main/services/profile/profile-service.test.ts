@@ -604,6 +604,31 @@ describe('profile-service', () => {
       });
     });
 
+    it('should not send an undecryptable key envelope as ANTHROPIC_AUTH_TOKEN', async () => {
+      const mockFile: ProfilesFile = {
+        profiles: [
+          {
+            id: 'profile-1',
+            name: 'Locked Keyring Profile',
+            baseUrl: 'https://api.custom.com',
+            apiKey: 'aperant-secret:v1:Y2lwaGVydGV4dA==',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          }
+        ],
+        activeProfileId: 'profile-1',
+        version: 1
+      };
+
+      const { loadProfilesFile } = await import('./api-profile-store');
+      vi.mocked(loadProfilesFile).mockResolvedValue(mockFile);
+
+      const result = await getAPIProfileEnv();
+
+      expect(result).not.toHaveProperty('ANTHROPIC_AUTH_TOKEN');
+      expect(result).toEqual({ ANTHROPIC_BASE_URL: 'https://api.custom.com' });
+    });
+
     it('should filter out empty string values', async () => {
       const mockFile: ProfilesFile = {
         profiles: [

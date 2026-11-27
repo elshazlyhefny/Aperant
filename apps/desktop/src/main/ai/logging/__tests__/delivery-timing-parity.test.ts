@@ -44,7 +44,7 @@ async function replayDaemon(project: HeadlessProject, steps: readonly DeliveryTi
     vi.setSystemTime(FIXTURE_QUEUE_ENTRY + afterMs);
     // Use the recovery flag without changing the recorder's instance so that
     // the test also detects a dropped interruption marker at this write path.
-    await setTaskStatus(project, SPEC_ID, status, reviewReason, { pause, interrupted });
+    await setTaskStatus(project, SPEC_ID, status, reviewReason, undefined, { pause, interrupted });
   }
 }
 

@@ -169,6 +169,20 @@
     "deleteSuccess": "Worktree '{{branch}}' deleted successfully",
     "bulkDeleteSuccess": "{{count}} worktree deleted successfully",
     "bulkDeleteSuccess_plural": "{{count}} worktrees deleted successfully",
+    "bulkDeleteSuccess_one": "{{count}} worktree deleted successfully",
+    "bulkDeleteSuccess_other": "{{count}} worktrees deleted successfully",
+    "bulkDeleteResult": {
+      "title": "Bulk delete finished with problems",
+      "summary": "{{deleted}} deleted, {{failed}} not deleted",
+      "failedItem": "{{name}}: {{reason}}",
+      "unknownReason": "Unknown error",
+      "notFound": "It is no longer in the list",
+      "retryFailed": "Retry failed",
+      "retryHint": "The worktrees that were not deleted are still selected. Fix the problem, then retry.",
+      "refreshFailed": "The worktree list could not be refreshed, so the failed worktrees were not selected again. Refresh the list before retrying.",
+      "refreshFailedDetail": "Refresh error: {{error}}",
+      "dismiss": "Dismiss"
+    },
     "autoCleanup": {
       "button": "Clean up merged",
       "running": "Cleaning up…",

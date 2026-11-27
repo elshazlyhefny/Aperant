@@ -1,11 +1,27 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { AppSettings, IPCResult } from '../../shared/types';
-import type { ProviderAccount } from '../../shared/types/provider-account';
+import type { ProviderAccount, ProviderAccountView } from '../../shared/types/provider-account';
 import { withKeyStatusReset } from '../../shared/utils/api-key-status';
+import { toProviderAccountView, toProviderAccountViews } from '../../shared/utils/provider-account-view';
+import { isSecretEnvelope } from '../../shared/utils/secret-envelope';
+import { SecureStorageUnavailableError } from '../secure-storage/secret-storage';
+import { deleteSessionApiKey } from '../secure-storage/session-credentials';
 import { readSettingsFile, updateSettingsFile } from '../settings-utils';
 
+type ProviderAccountInput = ProviderAccount & { hasApiKey?: unknown };
+
 const genAccountId = () => `pa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+// zeenha fork: opt in to memory-only storage only for usable credentials.
+function normalizeSessionOnlyFlag(account: ProviderAccount): void {
+  if (
+    account.apiKeySessionOnly !== true || typeof account.apiKey !== 'string' ||
+    !account.apiKey.trim() || isSecretEnvelope(account.apiKey)
+  ) {
+    delete account.apiKeySessionOnly;
+  }
+}
 
 /** Read providerAccounts array from settings.json (read-only; [] when unreadable) */
 function readProviderAccounts(): ProviderAccount[] {
@@ -23,9 +39,9 @@ export function registerProviderAccountHandlers(): void {
   // GET all provider accounts
   ipcMain.handle(
     IPC_CHANNELS.PROVIDER_ACCOUNTS_GET,
-    async (): Promise<IPCResult<{ accounts: ProviderAccount[] }>> => {
+    async (): Promise<IPCResult<{ accounts: ProviderAccountView[] }>> => {
       try {
-        const accounts = readProviderAccounts();
+        const accounts = toProviderAccountViews(readProviderAccounts());
         return { success: true, data: { accounts } };
       } catch (error) {
         console.error('[PROVIDER_ACCOUNTS_GET] Error:', error);
@@ -37,7 +53,7 @@ export function registerProviderAccountHandlers(): void {
   // SAVE (create) a new provider account
   ipcMain.handle(
     IPC_CHANNELS.PROVIDER_ACCOUNTS_SAVE,
-    async (_event, account: Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>): Promise<IPCResult<ProviderAccount>> => {
+    async (_event, account: Omit<ProviderAccountInput, 'id' | 'createdAt' | 'updatedAt'>): Promise<IPCResult<ProviderAccountView>> => {
       try {
         const result = await updateSettingsFile(
           (settings): { kind: 'duplicate'; name: string } | { kind: 'created'; account: ProviderAccount; queueLength: number } => {
@@ -54,14 +70,15 @@ export function registerProviderAccountHandlers(): void {
             }
 
             const now = Date.now();
-            // New accounts always start unverified: ignore client-supplied key status
-            const { keyStatus: _ks, keyStatusAt: _ksAt, ...accountFields } = account as typeof account & Partial<ProviderAccount>;
+            // New accounts start unverified; credential metadata is derived in main.
+            const { keyStatus: _ks, keyStatusAt: _ksAt, hasApiKey: _hasApiKey, ...accountFields } = account;
             const newAccount: ProviderAccount = {
               ...accountFields,
               id: genAccountId(),
               createdAt: now,
               updatedAt: now,
             };
+            normalizeSessionOnlyFlag(newAccount);
             accounts.push(newAccount);
             settings.providerAccounts = accounts;
 
@@ -79,8 +96,9 @@ export function registerProviderAccountHandlers(): void {
         }
         const newAccount = result.account;
         console.warn('[PROVIDER_ACCOUNTS_SAVE] Created account:', newAccount.id, newAccount.name, newAccount.provider, '| Queue position: #1 of', result.queueLength);
-        return { success: true, data: newAccount };
+        return { success: true, data: toProviderAccountView(newAccount) };
       } catch (error) {
+        if (error instanceof SecureStorageUnavailableError) return { success: false, error: error.code };
         console.error('[PROVIDER_ACCOUNTS_SAVE] Error:', error);
         return { success: false, error: error instanceof Error ? error.message : 'Failed to save provider account' };
       }
@@ -90,7 +108,7 @@ export function registerProviderAccountHandlers(): void {
   // UPDATE an existing provider account
   ipcMain.handle(
     IPC_CHANNELS.PROVIDER_ACCOUNTS_UPDATE,
-    async (_event, id: string, updates: Partial<ProviderAccount>): Promise<IPCResult<ProviderAccount>> => {
+    async (_event, id: string, updates: Partial<ProviderAccountInput>): Promise<IPCResult<ProviderAccountView>> => {
       try {
         const result = await updateSettingsFile(
           (settings): { kind: 'not_found' } | { kind: 'updated'; account: ProviderAccount } => {
@@ -101,16 +119,23 @@ export function registerProviderAccountHandlers(): void {
             }
             const existing = accounts[index];
             // zeenha fork: a changed key or endpoint starts unverified; status is never client-set
-            const { keyStatus: _ks, keyStatusAt: _ksAt, ...safeUpdates } = updates;
+            const { keyStatus: _ks, keyStatusAt: _ksAt, hasApiKey: _hasApiKey, apiKey, ...safeUpdates } = updates;
+            // zeenha fork: saved keys are write-only; only a nonblank replacement overwrites the stored key.
+            const replacementKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+            const apiKeyChanged = replacementKey !== '' && replacementKey !== existing.apiKey;
             const credentialsChanged =
-              (safeUpdates.apiKey !== undefined && safeUpdates.apiKey !== existing.apiKey) ||
-              (safeUpdates.baseUrl !== undefined && safeUpdates.baseUrl !== existing.baseUrl);
+              apiKeyChanged ||
+              ('baseUrl' in safeUpdates && safeUpdates.baseUrl !== existing.baseUrl);
             const updated: ProviderAccount = {
               ...(credentialsChanged ? withKeyStatusReset(existing) : existing),
               ...safeUpdates,
+              ...(replacementKey !== '' ? { apiKey: replacementKey } : {}),
               id, // prevent id override
               updatedAt: Date.now(),
             };
+            // A replacement key is persisted unless the client explicitly opts out again.
+            if (apiKeyChanged && safeUpdates.apiKeySessionOnly !== true) delete updated.apiKeySessionOnly;
+            normalizeSessionOnlyFlag(updated);
             accounts[index] = updated;
             settings.providerAccounts = accounts;
             return { kind: 'updated', account: updated };
@@ -121,8 +146,9 @@ export function registerProviderAccountHandlers(): void {
           return { success: false, error: `Account not found: ${id}` };
         }
         console.warn('[PROVIDER_ACCOUNTS_UPDATE] Updated account:', id);
-        return { success: true, data: result.account };
+        return { success: true, data: toProviderAccountView(result.account) };
       } catch (error) {
+        if (error instanceof SecureStorageUnavailableError) return { success: false, error: error.code };
         console.error('[PROVIDER_ACCOUNTS_UPDATE] Error:', error);
         return { success: false, error: error instanceof Error ? error.message : 'Failed to update provider account' };
       }
@@ -157,6 +183,7 @@ export function registerProviderAccountHandlers(): void {
         if (result.kind === 'not_found') {
           return { success: false, error: `Account not found: ${id}` };
         }
+        deleteSessionApiKey(id);
         console.warn('[PROVIDER_ACCOUNTS_DELETE] Deleted account:', id);
         return { success: true };
       } catch (error) {

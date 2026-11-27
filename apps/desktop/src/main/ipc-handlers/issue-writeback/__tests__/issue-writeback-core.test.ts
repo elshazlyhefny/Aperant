@@ -46,6 +46,45 @@ describe('dispatchIssueOutcomeWith', () => {
     expect(w.postOutcome).not.toHaveBeenCalled();
   });
 
+  it('passes the optional recorder only to the enabled matching writer', async () => {
+    const recorder = { skip: vi.fn(), track: vi.fn(), snapshot: vi.fn() };
+    const w = makeWriter('alpha', { settingKey: 'github' });
+    const other = makeWriter('beta', { settingKey: 'gitlab' });
+    await dispatchIssueOutcomeWith({ project, event: 'failed', meta, raw: on, writers: [other, w], recorder });
+    expect(w.postOutcome).toHaveBeenCalledOnce();
+    expect(w.postOutcome).toHaveBeenCalledWith(expect.objectContaining({ recorder }));
+    expect(other.postOutcome).not.toHaveBeenCalled();
+    expect(recorder.skip).not.toHaveBeenCalled();
+  });
+
+  it('reports missing and unsupported links without attributing a provider', async () => {
+    const recorder = { skip: vi.fn(), track: vi.fn(), snapshot: vi.fn() };
+    const w = makeWriter('alpha', { settingKey: 'github' });
+    const input = { project, event: 'failed' as const, raw: on, writers: [w], recorder };
+    await dispatchIssueOutcomeWith({ ...input, meta: null });
+    await dispatchIssueOutcomeWith({ ...input, meta: { sourceType: 'private-source' } });
+    expect(recorder.skip.mock.calls).toEqual([
+      [{ operation: 'issue_comment', event: 'failed' }, 'not_linked'],
+      [{ operation: 'issue_comment', event: 'failed' }, 'unsupported_source']
+    ]);
+    expect(w.postOutcome).not.toHaveBeenCalled();
+  });
+
+  it('records nothing for opted-out providers or excluded events', async () => {
+    const recorder = { skip: vi.fn(), track: vi.fn(), snapshot: vi.fn() };
+    const w = makeWriter('alpha', { settingKey: 'github' });
+    const other = makeWriter('beta', { settingKey: 'gitlab' });
+    const input = { project, event: 'failed' as const, meta, writers: [other, w], recorder };
+    await dispatchIssueOutcomeWith({ ...input, meta: null, raw: off });
+    await dispatchIssueOutcomeWith({ ...input, raw: { issueWriteback: { github: false, gitlab: true } } as never });
+    await dispatchIssueOutcomeWith({ ...input, event: 'account_required', meta: null, raw: on });
+    await dispatchIssueOutcomeWith({ ...input, event: 'pr_opened', raw: on });
+    expect(recorder.skip).not.toHaveBeenCalled();
+    expect(recorder.track).not.toHaveBeenCalled();
+    expect(w.postOutcome).not.toHaveBeenCalled();
+    expect(other.postOutcome).not.toHaveBeenCalled();
+  });
+
   it('uses isEnabled on the raw settings when a writer defines it', async () => {
     const w = makeWriter('alpha', { isEnabled: (raw) => raw.jiraWriteback?.enabled === true });
     await dispatchIssueOutcomeWith({ project, event: 'failed', meta, raw: on, writers: [w] });

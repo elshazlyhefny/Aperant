@@ -5,6 +5,7 @@
 
 import type { ClaudeUsageSnapshot, ProfileUsageSummary } from '../../../shared/types/agent';
 import type { ProviderAccount } from '../../../shared/types/provider-account';
+import { isSecretEnvelope } from '../../../shared/utils/secret-envelope';
 import { readSettingsFileAsync } from '../../settings-utils';
 import { ensureValidCodexToken } from '../../ai/auth/codex-oauth';
 import { fetchCodexUsage, normalizeCodexResponse } from '../codex-usage-fetcher';
@@ -40,18 +41,23 @@ export const codexUsageSource: ProviderAccountUsageSource = {
   },
 };
 
+/** zeenha fork: skip usage requests when a saved key could not be decrypted. */
+function usableApiKey({ apiKey }: ProviderAccount): string | undefined {
+  return typeof apiKey === 'string' && apiKey.length > 0 && !isSecretEnvelope(apiKey) ? apiKey : undefined;
+}
+
 export const zaiUsageSource: ProviderAccountUsageSource = {
   provider: 'zai',
   label: 'Z.AI',
-  accountFilter: (account) => account.provider === 'zai' && !!account.apiKey,
+  accountFilter: (account) => account.provider === 'zai' && !!usableApiKey(account),
   currentUsageNeedsReauth: 'false',
   async fetchInactiveUsage(account) {
-    // CodeQL: file data in outbound request - validate API key is a non-empty string before use
-    const safeApiKey = typeof account.apiKey === 'string' && account.apiKey.length > 0 ? account.apiKey : '';
+    const apiKey = usableApiKey(account);
+    if (!apiKey) return null;
     // Quirk preserved: raw Authorization header (no Bearer prefix)
     const response = await fetch('https://api.z.ai/api/monitor/usage/quota/limit', {
       headers: {
-        'Authorization': safeApiKey,
+        'Authorization': apiKey,
       },
     });
     if (!response.ok) return null;
@@ -65,14 +71,14 @@ export const zaiUsageSource: ProviderAccountUsageSource = {
 export const openrouterUsageSource: ProviderAccountUsageSource = {
   provider: 'openrouter',
   label: 'OpenRouter',
-  accountFilter: (account) => account.provider === 'openrouter' && !!account.apiKey,
+  accountFilter: (account) => account.provider === 'openrouter' && !!usableApiKey(account),
   currentUsageNeedsReauth: 'false',
   async fetchInactiveUsage(account) {
-    // CodeQL: file data in outbound request - validate API key is a non-empty string before use
-    const safeApiKey = typeof account.apiKey === 'string' && account.apiKey.length > 0 ? account.apiKey : '';
+    const apiKey = usableApiKey(account);
+    if (!apiKey) return null;
     const response = await fetch('https://openrouter.ai/api/v1/key', {
       headers: {
-        'Authorization': `Bearer ${safeApiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
       },
     });
     if (!response.ok) return null;
