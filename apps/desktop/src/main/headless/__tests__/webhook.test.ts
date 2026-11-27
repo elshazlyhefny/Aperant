@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
-import { buildWebhookPayload, type sendWebhook } from '../../task-webhook-core';
+import { buildWebhookPayload, type sendWebhookDetailed } from '../../task-webhook-core';
 import { sendWebhook as desktopSendWebhook } from '../../task-webhook';
 import type { RunOutcome } from '../outcome';
 import {
@@ -98,7 +98,7 @@ describe('webhook secret', () => {
   });
 
   it('notifyHeadlessOutcome passes the secret to send', async () => {
-    const send = vi.fn().mockResolvedValue(true);
+    const send = vi.fn().mockResolvedValue({ status: 'delivered' });
     await notifyHeadlessOutcome({
       webhook: { url: URL_OK, secret: 'abc', events: allOn },
       outcome: success,
@@ -111,7 +111,7 @@ describe('webhook secret', () => {
   });
 
   it('sends the formatted body with the secret when both are set', async () => {
-    const send = vi.fn().mockResolvedValue(true);
+    const send = vi.fn().mockResolvedValue({ status: 'delivered' });
     await notifyHeadlessOutcome({
       webhook: { url: URL_OK, format: 'discord', secret: 'abc', events: allOn },
       outcome: success,
@@ -226,13 +226,15 @@ describe('eventsForOutcome', () => {
 describe('notifyHeadlessOutcome', () => {
   const webhook: ResolvedHeadlessWebhook = { url: URL_OK, events: allOn };
   const task = { projectName: 'proj', taskTitle: 'My task' };
+  const DELIVERED = { status: 'delivered', attempts: 1, httpStatus: 204 } as const;
 
   it('awaits both sends in order and includes the HTTPS link only in the PR payload', async () => {
-    let finishFirst!: (delivered: boolean) => void;
-    let finishPr!: (delivered: boolean) => void;
-    const first = new Promise<boolean>((resolve) => { finishFirst = resolve; });
-    const pr = new Promise<boolean>((resolve) => { finishPr = resolve; });
-    const send = vi.fn<typeof sendWebhook>().mockReturnValueOnce(first).mockReturnValueOnce(pr);
+    type SendResult = Awaited<ReturnType<typeof sendWebhookDetailed>>;
+    let finishFirst!: (result: SendResult) => void;
+    let finishPr!: (result: SendResult) => void;
+    const first = new Promise<SendResult>((resolve) => { finishFirst = resolve; });
+    const pr = new Promise<SendResult>((resolve) => { finishPr = resolve; });
+    const send = vi.fn<typeof sendWebhookDetailed>().mockReturnValueOnce(first).mockReturnValueOnce(pr);
     const warn = vi.fn();
     const completed = vi.fn();
     const pending = notifyHeadlessOutcome({ webhook, outcome: successWithPr, ...task, warn, send }).then(completed);
@@ -241,12 +243,12 @@ describe('notifyHeadlessOutcome', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(completed).not.toHaveBeenCalled();
 
-    finishFirst(true);
+    finishFirst(DELIVERED);
     await setImmediate();
     expect(send.mock.calls.map(([, , options]) => options?.eventName)).toEqual(['review_ready', 'pr_opened']);
     expect(completed).not.toHaveBeenCalled();
 
-    finishPr(true);
+    finishPr(DELIVERED);
     await pending;
     const [primaryPayload, prPayload] = send.mock.calls.map(([, payload]) => payload);
     expect(primaryPayload).toEqual(buildWebhookPayload({ ...task, event: 'review_ready' }));
@@ -263,7 +265,7 @@ describe('notifyHeadlessOutcome', () => {
     { outcome: paused, overrides: { blocked: false }, sent: [] },
     { outcome: paused, overrides: { failed: false }, sent: ['account_required'] }
   ])('silently filters events with toggles $overrides', async ({ outcome, overrides, sent }) => {
-    const send = vi.fn<typeof sendWebhook>().mockResolvedValue(true);
+    const send = vi.fn<typeof sendWebhookDetailed>().mockResolvedValue(DELIVERED);
     const warn = vi.fn();
     await notifyHeadlessOutcome({
       webhook: { ...webhook, events: { ...allOn, ...overrides } },
@@ -276,9 +278,11 @@ describe('notifyHeadlessOutcome', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('warns for a false send and continues to the PR event', async () => {
+  it('warns for a failed send and continues to the PR event', async () => {
     const warn = vi.fn();
-    const send = vi.fn<typeof sendWebhook>().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const send = vi.fn<typeof sendWebhookDetailed>()
+      .mockResolvedValueOnce({ status: 'failed', reason: 'rejected', httpStatus: 400 })
+      .mockResolvedValueOnce(DELIVERED);
     await notifyHeadlessOutcome({ webhook, outcome: successWithPr, ...task, warn, send });
     expect(send.mock.calls.map(([, , options]) => options?.eventName)).toEqual(['review_ready', 'pr_opened']);
     expect(warn.mock.calls).toEqual([['webhook delivery failed for event review_ready; the run result is unchanged']]);
@@ -286,7 +290,7 @@ describe('notifyHeadlessOutcome', () => {
 
   it('warns generically and stops when the sender rejects', async () => {
     const warn = vi.fn();
-    const send = vi.fn<typeof sendWebhook>().mockRejectedValueOnce(new Error(`sensitive transport error: ${URL_OK}`));
+    const send = vi.fn<typeof sendWebhookDetailed>().mockRejectedValueOnce(new Error(`sensitive transport error: ${URL_OK}`));
     await expect(notifyHeadlessOutcome({ webhook, outcome: successWithPr, ...task, warn, send })).resolves.toBeUndefined();
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][2]?.eventName).toBe('review_ready');
@@ -295,7 +299,7 @@ describe('notifyHeadlessOutcome', () => {
 
   it('builds the body for the configured format and sends it through the injected send', async () => {
     const run = async (hook: ResolvedHeadlessWebhook) => {
-      const send = vi.fn().mockResolvedValue(true);
+      const send = vi.fn().mockResolvedValue({ status: 'delivered' });
       await notifyHeadlessOutcome({
         webhook: hook,
         outcome: success,
@@ -322,7 +326,7 @@ describe('notifyHeadlessOutcome', () => {
   });
 
   it('auto-detects a Teams url when no format is set', async () => {
-    const send = vi.fn().mockResolvedValue(true);
+    const send = vi.fn().mockResolvedValue({ status: 'delivered' });
     await notifyHeadlessOutcome({
       webhook: { url: 'https://prod-1.westus.logic.azure.com/workflows/abc', events: allOn },
       outcome: success,

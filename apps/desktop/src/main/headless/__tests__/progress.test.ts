@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { DeliveryReceipt } from '../../../shared/types/delivery-receipt';
 import { createProgressReporter } from '../progress';
 
 function setup(opts: { json?: boolean; verbose?: boolean; redact?: string[] } = {}) {
@@ -44,6 +45,18 @@ describe('progress reporter', () => {
     expect(objs.map((o) => o.type)).toEqual(['log', 'progress', 'task-event', 'result']);
     expect(objs[3]).toMatchObject({ kind: 'success', exitCode: 0, spec: '050', branch: 'b', worktree: '/w' });
     expect(out.every((l) => l.endsWith('\n') && l.trim().split('\n').length === 1)).toBe(true);
+  });
+  it('formats delivery receipts independently of the result', () => {
+    const receipt: DeliveryReceipt = { id: 'r', createdAt: '2026-06-10T09:00:00.000Z',
+      operation: 'issue_transition', event: 'review_ready', provider: 'jira', status: 'unknown', reason: 'unconfirmed' };
+    const json = setup({ json: true });
+    const text = setup();
+    json.r.deliveryReceipts('001-demo', [receipt]);
+    text.r.deliveryReceipts('001-demo', [receipt]);
+    expect(json.out.map((line) => JSON.parse(line))).toEqual([{ type: 'delivery-receipts', spec: '001-demo', receipts: [receipt] }]);
+    expect(text.out).toEqual([
+      'DELIVERY spec=001-demo 2026-06-10T09:00:00.000Z issue_transition review_ready unknown provider=jira reason=unconfirmed\n',
+    ]);
   });
   it('writes errors to stderr and summary line to stdout', () => {
     const { r, out, err } = setup();

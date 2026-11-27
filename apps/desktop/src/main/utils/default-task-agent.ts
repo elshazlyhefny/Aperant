@@ -15,15 +15,20 @@ import { taskPhaseMetadata } from '../../shared/utils/task-agent';
  * The default applies only when `defaultTaskAgent` is set and the metadata
  * carries no explicit agent choice (taskAgentMode, provider, model,
  * phaseProviders or phaseModels), so an explicit or custom per-task setup is
- * never overridden. With no default set the metadata is returned unchanged,
- * so existing installs keep their configured profile.
+ * never overridden.
+ *
+ * Without a default task agent, an active cross-provider (mixed) agent profile
+ * applies instead, as the task dialog does. Otherwise tasks from these sources
+ * ignored the mixed profile and every phase ran on whichever account came first
+ * in the priority queue. With neither set the metadata is returned unchanged.
  */
 export function applyDefaultTaskAgent<T extends TaskMetadata>(
   metadata: T,
   settings: Partial<AppSettings> | undefined
 ): T {
   const selection = settings?.defaultTaskAgent;
-  if (!selection) return metadata;
+  const mixed = settings?.customMixedProfileActive ? settings.customMixedPhaseConfig : undefined;
+  if (!selection && !mixed) return metadata;
   if (
     metadata.taskAgentMode ||
     metadata.provider ||
@@ -33,5 +38,8 @@ export function applyDefaultTaskAgent<T extends TaskMetadata>(
   ) {
     return metadata;
   }
-  return { ...metadata, ...taskPhaseMetadata(selection.phases), taskAgentMode: selection.mode };
+  if (selection) {
+    return { ...metadata, ...taskPhaseMetadata(selection.phases), taskAgentMode: selection.mode };
+  }
+  return { ...metadata, ...taskPhaseMetadata(mixed as NonNullable<typeof mixed>) };
 }

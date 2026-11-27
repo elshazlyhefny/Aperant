@@ -6,7 +6,8 @@
 
 import type { Project } from '../../../shared/types';
 import type { AppSettings, IssueWritebackProviderKey, IssueWritebackSettings } from '../../../shared/types/settings';
-import type { WebhookEvent } from '../../task-webhook';
+import type { DeliveryReceiptRecorder } from '../../delivery-receipts';
+import type { WebhookEvent } from '../../task-webhook-core';
 import type { PRFeedbackFetchResult } from '../github/pr/task-feedback';
 
 /** Provider-neutral names for the shared feedback error and result shape. */
@@ -40,6 +41,7 @@ export interface OutcomeWriter {
     event: WebhookEvent;
     text: string;
     settings: IssueWritebackSettings;
+    recorder?: DeliveryReceiptRecorder;
   }): void | Promise<void>;
 }
 

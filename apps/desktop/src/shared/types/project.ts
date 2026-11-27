@@ -392,6 +392,8 @@ export interface ProjectEnvConfig {
   webhookEvents?: WebhookSettings['events'];
   /** Approval state of the URL the file declares (hash only, safe for the renderer) */
   webhookApproval?: { status: 'approved' | 'unapproved' | 'refused'; hash: string; url: string };
+  /** zeenha fork: local signing status only; the credential never travels with env config. */
+  webhookSigning?: { status: 'signed' | 'unsigned' | 'choice_required' | 'secret_unavailable'; createdAt?: string };
 
   // GitHub Integration
   githubEnabled: boolean;

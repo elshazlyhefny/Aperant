@@ -3,6 +3,8 @@
  * The desktop process does not own the run, so it writes the same stop request
  * file that `cli.js stop` writes and the daemon applies it on its next poll.
  *
+ * User docs: guides/CLI-USAGE.md, "Using the desktop app while serve runs". Update it when this behaviour changes.
+ *
  * Electron-free on purpose. Do not use process.platform here.
  */
 

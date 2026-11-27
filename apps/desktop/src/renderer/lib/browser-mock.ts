@@ -6,7 +6,8 @@
  * for better code organization and maintainability.
  */
 
-import type { ElectronAPI } from '../../shared/types';
+import type { ElectronAPI, ProviderAccountView } from '../../shared/types';
+import { toProviderAccountView } from '../../shared/utils/provider-account-view';
 import {
   projectMock,
   taskMock,
@@ -23,6 +24,9 @@ import {
 
 // Check if we're in a browser (not Electron)
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
+
+// zeenha fork: browser mocks keep only the same credential-free views as renderer IPC.
+const mockProviderAccounts = new Map<string, ProviderAccountView>();
 
 /**
  * Create mock electronAPI for browser
@@ -155,7 +159,7 @@ const browserMockAPI: ElectronAPI = {
     success: true
   }),
 
-  testConnection: async (_baseUrl: string, _apiKey: string, _signal?: AbortSignal, _profileId?: string) => ({
+  testConnection: async (_baseUrl: string, _apiKey: string, _signal?: AbortSignal, _profileOrAccountId?: string) => ({
     success: true,
     data: {
       success: true,
@@ -163,7 +167,7 @@ const browserMockAPI: ElectronAPI = {
     }
   }),
 
-  discoverModels: async (_baseUrl: string, _apiKey: string, _signal?: AbortSignal) => ({
+  discoverModels: async (_baseUrl: string, _apiKey: string, _signal?: AbortSignal, _accountId?: string) => ({
     success: true,
     data: {
       models: []
@@ -173,36 +177,35 @@ const browserMockAPI: ElectronAPI = {
   // Provider Account management (unified multi-provider credentials)
   getProviderAccounts: async () => ({
     success: true,
-    data: { accounts: [] }
+    data: { accounts: [...mockProviderAccounts.values()] }
   }),
 
-  saveProviderAccount: async (account) => ({
-    success: true,
-    data: {
-      id: `mock-account-${Date.now()}`,
+  saveProviderAccount: async (account) => {
+    const now = Date.now();
+    const data = toProviderAccountView({
       ...account,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    }
-  }),
+      id: `mock-account-${now}`,
+      createdAt: now,
+      updatedAt: now
+    });
+    mockProviderAccounts.set(data.id, data);
+    return { success: true, data };
+  },
 
-  updateProviderAccount: async (_id, updates) => ({
-    success: true,
-    data: {
-      id: _id,
-      provider: 'anthropic' as const,
-      name: 'Mock Account',
-      authType: 'api-key' as const,
-      billingModel: 'pay-per-use' as const,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      ...updates
-    }
-  }),
+  updateProviderAccount: async (id, updates) => {
+    const existing = mockProviderAccounts.get(id);
+    if (!existing) return { success: false, error: 'Provider account not found (mock)' };
 
-  deleteProviderAccount: async (_id: string) => ({
-    success: true
-  }),
+    const data = toProviderAccountView({ ...existing, ...updates, id, updatedAt: Date.now() });
+    data.hasApiKey ||= existing.hasApiKey;
+    mockProviderAccounts.set(id, data);
+    return { success: true, data };
+  },
+
+  deleteProviderAccount: async (id) => {
+    mockProviderAccounts.delete(id);
+    return { success: true };
+  },
 
   setProviderAccountQueueOrder: async (_order: string[]) => ({
     success: true
@@ -433,6 +436,9 @@ const browserMockAPI: ElectronAPI = {
   }),
   approveMcpServer: async () => ({ success: false, error: 'Not available in browser mode' }),
   approveProjectWebhook: async () => ({ success: false, error: 'Not available in browser mode' }),
+  generateProjectWebhookSecret: async () => ({ success: false, error: 'Not available in browser mode' }),
+  setProjectWebhookUnsigned: async () => ({ success: false, error: 'Not available in browser mode' }),
+  sendProjectTestWebhook: async () => ({ success: false, error: 'Not available in browser mode' }),
   approveChromeExecutable: async () => ({ success: false, error: 'Not available in browser mode' }),
   testMcpConnection: async (server) => ({
     success: true,

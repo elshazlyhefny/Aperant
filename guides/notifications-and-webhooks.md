@@ -23,6 +23,8 @@ The test message uses the selected format. The failure text gives no reason. The
 
 A project can have its own webhook URL, set in the project's **Settings > Webhook** page or suggested in its project `.env`. The page has its own **Format** setting, and `WEBHOOK_FORMAT` in the project `.env` holds the same choice (`auto`, `slack`, `teams` or `discord`). The format is a safe, non-secret value and is not part of the approval. The URL is used only after you approve the exact URL. Until then the app-wide webhook is used. See [Approving a project webhook](project-configuration.md#approving-a-project-webhook).
 
+An approved project webhook can have its own optional [signing secret](#project-webhook-secret), generated on the project's **Settings > Webhook** page.
+
 ## Events
 
 | Task state | Webhook event | Event label | Outcome text | UI toggle |
@@ -257,23 +259,59 @@ The Settings screen shows an inline error for an invalid URL: "Enter a valid htt
 - Delivery runs in the background. It never changes a task's status and never blocks the app.
 - There is no queue. After 3 failed attempts the message is dropped and not sent again.
 
+## Delivery history
+
+Open **Task Detail → Overview → Delivery history** to see the newest receipts for that task. Use **Refresh** to check for late confirmations. The [headless `receipts` command](CLI-USAGE.md#delivery-receipts) reads the same history. An outcome webhook has one receipt for the whole retry sequence, not one per attempt. Settings test sends are not recorded.
+
+| Status | Meaning |
+|---|---|
+| Delivered | The receiver acknowledged the operation (a 2xx response for a webhook). |
+| Skipped | Delivery did not proceed for the reason shown, such as a disabled event or an invalid target. |
+| Failed | Delivery was known to fail, for example because the receiver explicitly rejected all webhook attempts with HTTP 429. |
+| Not confirmed (`unknown` in CLI output) | No confirmation was saved. The operation may still be underway, have been interrupted, or have reached the receiver without a usable acknowledgment. A later rejection does not rule out acceptance of an earlier timed-out attempt. |
+
+Receipts are stored locally at `<project>/.auto-claude/delivery-receipts.json`, outside task worktrees. The newest 200 records are kept **per project**, shared across all tasks, webhooks, issue comments, and issue state changes. Receipts omit endpoint URLs, credentials, request payloads, and response bodies. Missing history is not proof a post failed: delivery may not have been enabled or eligible, an older record may have been pruned, or the local receipt could not be saved. Failure to save a receipt does not prevent a send.
+
+History is read-only. Opening, refreshing, querying from the CLI, or restarting the app or daemon does not resend anything. Receipts do not change opt-in settings, routing, retries, or the build result.
+
 ## Signing requests (optional secret)
 
-A signing secret lets your receiver check that a message came from your Aperant and was not changed on the way. It is optional. Without a secret nothing is added to the request.
+A signing secret lets your receiver check that a message came from your Aperant and was not changed on the way. Signing is optional. Unsigned requests have no signature headers.
 
-Where to set it:
+Set the app-wide secret in **Settings > App Settings > Notifications > Task outcome webhook > Signing secret**. The field is masked, and the secret is stored in the app's `settings.json` with owner-only permissions. This secret signs only the app-wide webhook and its test message, never a project delivery or test.
 
-- In the app: **Settings > App Settings > Notifications > Task outcome webhook > Signing secret**. The field is masked. The secret is stored only in the app's `settings.json`, with owner-only permissions. It is never read from a project's `.auto-claude/.env` or `.aperant.json`.
-- Headless: `webhook.secret` in the `--config` file, and the `APERANT_WEBHOOK_SECRET` environment variable for `cli.js run`. `cli.js serve` reads it from the config file only.
+No signing secret is read from a project's `.auto-claude/.env` or `.aperant.json`.
+Headless runs use `webhook.secret` in the `--config` file. `cli.js run` also accepts the `APERANT_WEBHOOK_SECRET` environment variable; `cli.js serve` reads the secret from the config file only.
 
-When a secret is set, each request carries two extra headers:
+### Project webhook secret
+
+After approving the URL, press **Generate project secret** on the project's **Settings > Webhook** page. Aperant generates a new secret of 64 hexadecimal characters. You do not type it into Aperant. It is shown only once, so copy it now and configure your receiver to verify signatures with it.
+
+The app stores this secret encrypted using the OS credential store (Electron `safeStorage`) in `<userData>/webhook-signing-secrets.json`, with owner-only permissions on systems that support them. The app never reads signing secrets from repository files and ignores `WEBHOOK_SECRET` in the project `.env`.
+
+The secret belongs to this project and its exact approved URL. A changed URL needs approval again and a new secret if you want to sign for it. The old secret is never carried over. A test for the saved, approved URL follows the same signing rules as task deliveries. A test for an edited or unapproved URL is always unsigned.
+
+### Upgrading: project webhooks that were signed with the app-wide secret
+
+If an app-wide secret is set and an approved project webhook has no secret or explicit choice to send unsigned for that URL, project deliveries pause. They are not sent unsigned or signed with the app-wide key, and they do not fall back to the app-wide webhook. A warning is logged, and the project's **Settings > Webhook** page shows a notice.
+
+To resume delivery, choose **Generate project secret** and configure your receiver with the new secret, or choose **Send unsigned**. If no app-wide secret was set and your project webhook was already unsigned, it continues sending unsigned as before.
+
+### Rotating a secret
+
+- **Project webhook:** Press **Rotate secret** on the project's **Settings > Webhook** page, copy the new secret and update the receiver right away. Aperant stops signing with the old key immediately, so the receiver's old key will not verify new deliveries.
+- **App-wide webhook:** Change the **Signing secret** in the app's Notifications settings and update the app-wide receiver. The new key is used only for app-wide deliveries and tests.
+
+### Signature headers and verification
+
+Each signed request carries two extra headers:
 
 | Header | Value |
 |--------|-------|
 | `X-Aperant-Timestamp` | The Unix time in seconds when the attempt was made. |
 | `X-Aperant-Signature` | `sha256=<hex>`, an HMAC-SHA256 of the signed string, keyed with the secret. |
 
-The signed string is `<timestamp>.<raw request body>`: the timestamp, a dot, then the exact body bytes. A fresh timestamp is computed on every retry attempt, so a retry is not stale for the receiver. The same secret signs the test message and the messages for approved project webhooks. Signing works the same for every format: the signature covers the exact body that is sent, whether it has the Slack, Teams or Discord shape. Microsoft Teams and Discord ignore the extra headers; they are useful for a relay or custom receiver that checks them.
+The signed string is `<timestamp>.<raw request body>`: the timestamp, a dot, then the exact body bytes. A fresh timestamp is computed on every retry attempt, so a retry is not stale for the receiver. Signing works the same for every format: the signature covers the exact body that is sent, whether it has the Slack, Teams or Discord shape. Microsoft Teams and Discord ignore the extra headers; they are useful for a relay or custom receiver that checks them.
 
 To verify, compute the signature over the raw body bytes before you parse the JSON, compare it in constant time, and reject a message whose timestamp is more than 300 seconds from your clock. The age check protects against replay.
 
@@ -396,7 +434,7 @@ Behaviour to know:
 
 ## Security: user-level only
 
-The app-wide webhook lives only in the app's own Settings. It is never read from `.aperant.json`, the project `.env` or any other file in a repository. A repository must not be able to send task data to an address it chooses. The signing secret follows the same rule: it is read only from the app's Settings (or, headless, from the `--config` file and the process environment), never from a repository file.
+The app-wide webhook lives only in the app's own Settings. It is never read from `.aperant.json`, the project `.env` or any other file in a repository. A repository must not be able to send task data to an address it chooses. Signing secrets are also kept outside the repository. Each signed destination has its own key. A receiver configured for one destination cannot use that key to forge messages for another.
 
 A repository file can only suggest a per-project URL (`WEBHOOK_URL` in the project `.env`). That suggestion is ignored until you approve the exact URL in the project's Settings, and an unapproved project URL falls back to the app-wide webhook. Project URLs cannot be loopback addresses. See [Approving a project webhook](project-configuration.md#approving-a-project-webhook).
 
@@ -404,7 +442,7 @@ Headless commands still never read repository files. `cli.js run` reads `APERANT
 
 The headless daemon (`cli.js serve`) does not read the app's `settings.json`. Its webhook comes from the `webhook` key of the `--config` file you pass to it (`enabled`, `url`, `format`, `secret`, `events`), which is a file you control on that machine. Unlike `cli.js run`, the daemon sends the webhook only when `enabled` is `true`, does not read `APERANT_WEBHOOK_URL` or `APERANT_WEBHOOK_SECRET`, and stops at startup with exit code 1 when the URL is invalid. It sends one message per finished task. See [Config file keys](CLI-USAGE.md#config-file-keys). The same URL rules and delivery behaviour apply.
 
-The URL and the signing secret are masked in the app and never logged. Treat the URL like a secret: anyone who has it can post messages to the channel.
+The app never logs webhook URLs or signing secrets. Treat the URL like a secret: anyone who has it can post messages to the channel.
 
 ## Receivers other than Slack, Teams and Discord
 

@@ -2,18 +2,19 @@
  * zeenha fork: task-outcome webhook for headless runs.
  *
  * Electron-free on purpose: only the shared webhook core, the default settings
- * constants and node builtins at runtime. Invalid URLs are reported without
- * exposing the configured value.
+ * constants and node builtins at runtime. Never imports ../task-webhook,
+ * app-logger or settings-utils. The URL is never logged and nothing here throws.
  */
 
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { DEFAULT_APP_SETTINGS } from '../../shared/constants/config';
 import type { WebhookFormat, WebhookSettings } from '../../shared/types/settings';
+import type { DeliveryReceiptRecorder } from '../delivery-receipts';
 import {
   deliverWebhookEvent,
   validateWebhookUrl,
-  type sendWebhook,
+  type sendWebhookDetailed,
   type WebhookEvent
 } from '../task-webhook-core';
 import type { HeadlessConfig } from './config';
@@ -28,35 +29,42 @@ export interface ResolvedHeadlessWebhook {
   events: WebhookSettings['events'];
 }
 
+interface RejectedHeadlessWebhook {
+  warning: string;
+  events: WebhookSettings['events'];
+}
+
 export function resolveHeadlessWebhook(
   config: HeadlessConfig,
   env: NodeJS.ProcessEnv
-): ResolvedHeadlessWebhook | { warning: string } | undefined {
+): ResolvedHeadlessWebhook | RejectedHeadlessWebhook | undefined {
   const fromEnv = env.APERANT_WEBHOOK_URL?.trim();
   const url = fromEnv ? fromEnv : config.webhook?.url?.trim();
   if (!url) return undefined;
 
+  const defaults = DEFAULT_APP_SETTINGS.webhook.events;
+  const overrides = config.webhook?.events ?? {};
+  const events = {
+    reviewReady: overrides.reviewReady ?? defaults.reviewReady,
+    failed: overrides.failed ?? defaults.failed,
+    blocked: overrides.blocked ?? defaults.blocked,
+    prOpened: overrides.prOpened ?? defaults.prOpened
+  };
   const validation = validateWebhookUrl(url);
   if (!validation.ok) {
     return {
+      events,
       warning: `webhook disabled: the configured webhook URL was rejected (${validation.error ?? 'invalid_url'})`
     };
   }
 
-  const defaults = DEFAULT_APP_SETTINGS.webhook.events;
-  const overrides = config.webhook?.events ?? {};
   const secretFromEnv = env.APERANT_WEBHOOK_SECRET?.trim();
   const secret = secretFromEnv ? secretFromEnv : config.webhook?.secret?.trim();
   return {
     url,
     ...(secret ? { secret } : {}),
     format: config.webhook?.format,
-    events: {
-      reviewReady: overrides.reviewReady ?? defaults.reviewReady,
-      failed: overrides.failed ?? defaults.failed,
-      blocked: overrides.blocked ?? defaults.blocked,
-      prOpened: overrides.prOpened ?? defaults.prOpened
-    }
+    events
   };
 }
 
@@ -99,18 +107,19 @@ export function eventsForOutcome(outcome: RunOutcome): WebhookEvent[] {
 }
 
 export interface NotifyHeadlessOutcomeInput {
-  webhook: ResolvedHeadlessWebhook;
+  webhook: ResolvedHeadlessWebhook | RejectedHeadlessWebhook;
   outcome: RunOutcome;
   projectName: string;
   taskTitle: string;
   warn: (message: string) => void;
   delay?: (ms: number) => Promise<void>;
-  send?: typeof sendWebhook;
+  send?: typeof sendWebhookDetailed;
+  recorder?: DeliveryReceiptRecorder;
 }
 
 /** Deliver every enabled event for the outcome. Never throws; never changes the run result. */
 export async function notifyHeadlessOutcome(input: NotifyHeadlessOutcomeInput): Promise<void> {
-  const { webhook, outcome, projectName, taskTitle, delay, send } = input;
+  const { webhook, outcome, projectName, taskTitle, delay, recorder, send } = input;
   const warn = (message: string): void => {
     try {
       input.warn(message);
@@ -119,13 +128,14 @@ export async function notifyHeadlessOutcome(input: NotifyHeadlessOutcomeInput): 
     }
   };
   try {
+    const destination = 'warning' in webhook ? { url: '', events: webhook.events, targetRejected: true } : webhook;
     for (const event of eventsForOutcome(outcome)) {
       const result = await deliverWebhookEvent(
-        webhook,
+        destination,
         { event, projectName, taskTitle, prUrl: event === 'pr_opened' ? outcome.prUrl : undefined },
-        { send, delay, warn }
+        { send, delay, warn, recorder }
       );
-      if (result === 'failed') {
+      if (result.status !== 'delivered' && result.status !== 'skipped') {
         warn(`webhook delivery failed for event ${event}; the run result is unchanged`);
       }
     }

@@ -3,11 +3,13 @@
  *
  * Security: payloads are built from an allow-list of fields only; the URL,
  * request body and response body are never logged. Keep runtime imports
- * Electron-free so the module can be loaded from both desktop and CLI.
+ * Electron-free (no desktop settings/logging) so desktop and CLI share it.
  */
 
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { DeliveryOperation, DeliveryResult } from '../shared/types/delivery-receipt';
 import type { WebhookSettings } from '../shared/types/settings';
+import type { DeliveryReceiptRecorder } from './delivery-receipts';
 import { sanitizeUrl } from './ipc-handlers/shared/sanitize';
 import {
   detectWebhookFormat,
@@ -23,6 +25,7 @@ const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
   review_ready: 'reviewReady',
   failed: 'failed',
   blocked: 'blocked',
+  // zeenha fork: an account pause needs attention, so it shares the blocked toggle (no new setting).
   account_required: 'blocked',
   pr_opened: 'prOpened'
 };
@@ -294,32 +297,68 @@ export function prepareWebhookDelivery(
   return { url: nativeUrl(input.url, format), payload, format };
 }
 
-type WebhookDestination = Pick<WebhookSettings, 'url' | 'format' | 'events'> & {
-  /** A lazy secret is resolved only when the event is enabled. */
-  secret?: string | (() => string | undefined);
+/** zeenha fork: a per-destination signing decision; 'withhold' sends nothing. */
+export type WebhookSigningDecision = { action: 'send'; secret: string } | { action: 'withhold'; reason: string };
+
+export type WebhookDestination = Pick<WebhookSettings, 'url' | 'format' | 'events'> & {
+  /** A secret, or a signing decision resolved only once the event and target checks pass. */
+  secret?: string | (() => WebhookSigningDecision);
+  /** The caller already rejected the configured URL and kept no copy of it. */
+  targetRejected?: boolean;
 };
 
-type WebhookDeliveryTransport = Pick<NonNullable<Parameters<typeof sendWebhook>[2]>, 'warn' | 'delay'> & {
-  send?: typeof sendWebhook;
-};
+export interface WebhookDeliveryTransport {
+  send?: typeof sendWebhookDetailed;
+  warn?: (message: string) => void;
+  delay?: (ms: number) => Promise<void>;
+  recorder?: DeliveryReceiptRecorder;
+}
 
-/** Deliver one mapped event to a caller-validated destination. Unexpected errors reject. */
+type SkipReason = Extract<DeliveryResult, { status: 'skipped' }>['reason'];
+
+/**
+ * zeenha fork: the one event filter and delivery path shared by the desktop and
+ * headless adapters. Records at most one receipt. Unexpected errors reject.
+ */
 export async function deliverWebhookEvent(
   destination: WebhookDestination,
   input: WebhookBuildInput,
-  { send = sendWebhook, warn, delay }: WebhookDeliveryTransport = {}
-): Promise<'skipped' | 'delivered' | 'failed'> {
-  if (!destination.events[EVENT_TOGGLE[input.event]]) return 'skipped';
+  { send = sendWebhookDetailed, warn, delay, recorder }: WebhookDeliveryTransport = {}
+): Promise<DeliveryResult> {
+  const operation: DeliveryOperation = { operation: 'webhook', event: input.event };
+  const skip = async (reason: SkipReason): Promise<DeliveryResult> => {
+    await recorder?.skip(operation, reason);
+    return { status: 'skipped', reason };
+  };
+  if (!destination.events[EVENT_TOGGLE[input.event]]) return await skip('event_disabled');
+  if (destination.targetRejected) return await skip('invalid_target');
+  if (!validateWebhookUrl(destination.url).ok) return await skip(destination.url ? 'invalid_target' : 'missing_target');
 
-  const { url, format, secret } = destination;
-  const prepared = prepareWebhookDelivery({ ...input, url, format });
-  const delivered = await send(prepared.url, prepared.payload, {
-    eventName: input.event,
-    secret: typeof secret === 'function' ? secret() : secret,
-    warn,
-    delay
-  });
-  return delivered ? 'delivered' : 'failed';
+  let secret: string | undefined;
+  if (typeof destination.secret === 'function') {
+    const signing = destination.secret();
+    if (signing.action === 'withhold') {
+      try {
+        warn?.(`[Webhook] project webhook delivery withheld reason=${signing.reason}`);
+      } catch {
+        // never throw from logging
+      }
+      return await skip('missing_configuration');
+    }
+    secret = signing.secret;
+  } else {
+    secret = destination.secret;
+  }
+
+  const prepared = prepareWebhookDelivery({ ...input, url: destination.url, format: destination.format });
+  let result: DeliveryResult = { status: 'unknown', reason: 'unconfirmed' };
+  const deliver = async (): Promise<DeliveryResult> => {
+    result = await send(prepared.url, prepared.payload, { eventName: input.event, secret, warn, delay });
+    return result;
+  };
+  if (!recorder) return await deliver();
+  await recorder.track({ ...operation, provider: prepared.format }, deliver);
+  return result;
 }
 
 export function prepareTestWebhookDelivery(
@@ -366,25 +405,49 @@ export function signWebhookBody(secret: string, timestamp: string, body: string)
   return `sha256=${createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')}`;
 }
 
+/** zeenha fork: check HMAC authenticity; callers must check timestamp freshness separately. */
+export function verifyWebhookSignature(secret: string, timestamp: string, body: string, signature: string): boolean {
+  if (!secret) return false;
+  try {
+    const expected = Buffer.from(signWebhookBody(secret, timestamp, body));
+    const received = Buffer.from(signature);
+    return expected.length === received.length && timingSafeEqual(expected, received);
+  } catch {
+    return false;
+  }
+}
+
 function defaultDelay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface WebhookSendOptions {
+  delay?: (ms: number) => Promise<void>;
+  eventName?: string;
+  warn?: (message: string) => void;
+  secret?: string;
+  now?: () => number;
+}
+
+type WebhookSendResult = Exclude<DeliveryResult, { status: 'skipped' }>;
+
 export async function sendWebhook(
   url: string,
   payload: WebhookPayload,
-  options: {
-    delay?: (ms: number) => Promise<void>;
-    eventName?: string;
-    warn?: (message: string) => void;
-    secret?: string;
-    now?: () => number;
-  } = {}
+  options: WebhookSendOptions = {}
 ): Promise<boolean> {
+  return (await sendWebhookDetailed(url, payload, options)).status === 'delivered';
+}
+
+/** zeenha fork: classify the existing retry loop without exposing response bodies or errors. */
+export async function sendWebhookDetailed(
+  url: string,
+  payload: WebhookPayload,
+  options: WebhookSendOptions = {}
+): Promise<WebhookSendResult> {
   const delay = options.delay ?? defaultDelay;
   const now = options.now ?? Date.now;
   const secret = typeof options.secret === 'string' && options.secret.length > 0 ? options.secret : '';
-  const body = JSON.stringify(payload);
   const eventName = options.eventName ?? 'unknown';
   const warn = (message: string): void => {
     try {
@@ -393,8 +456,13 @@ export async function sendWebhook(
       // never throw from logging
     }
   };
+  let ambiguous: Extract<WebhookSendResult, { status: 'unknown' }> | undefined;
+  let lastRejection: Extract<WebhookSendResult, { status: 'failed' }> | undefined;
+  let attempts = 0;
   try {
+    const body = JSON.stringify(payload);
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      attempts = attempt;
       let detail: string;
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -411,10 +479,27 @@ export async function sendWebhook(
           signal: AbortSignal.timeout(TIMEOUT_MS),
           redirect: 'error'
         });
-        if (res.status >= 200 && res.status < 300) return true;
-        detail = `HTTP ${res.status}`;
+        const status = res.status;
+        detail = `HTTP ${status}`;
+        const httpStatus = Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined;
+        if (httpStatus !== undefined && httpStatus >= 200 && httpStatus < 300) {
+          return { status: 'delivered', attempts, httpStatus };
+        }
+        if (httpStatus === 408) {
+          ambiguous ??= { status: 'unknown', reason: 'timeout', httpStatus };
+        } else if (httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500) {
+          lastRejection = { status: 'failed', reason: httpStatus === 429 ? 'rate_limited' : 'rejected', httpStatus };
+        } else {
+          // A server/proxy error or unexpected response need not mean the receiver rejected the POST.
+          ambiguous ??= {
+            status: 'unknown',
+            reason: 'ambiguous_response',
+            ...(httpStatus !== undefined && { httpStatus })
+          };
+        }
       } catch (err) {
         detail = err instanceof Error ? err.name : 'UnknownError';
+        ambiguous ??= { status: 'unknown', reason: detail === 'TimeoutError' ? 'timeout' : 'transport_error' };
       }
       warn(`[Webhook] delivery failed event=${eventName} attempt=${attempt}/${MAX_ATTEMPTS} reason=${detail}`);
       if (attempt < MAX_ATTEMPTS) {
@@ -426,7 +511,9 @@ export async function sendWebhook(
       }
     }
   } catch {
-    // never throw
+    ambiguous ??= { status: 'unknown', reason: 'unconfirmed' };
   }
-  return false;
+  // A refusal on a later attempt does not disprove an earlier ambiguous send.
+  const result: WebhookSendResult = ambiguous ?? lastRejection ?? { status: 'unknown', reason: 'unconfirmed' };
+  return attempts > 0 ? { ...result, attempts } : result;
 }

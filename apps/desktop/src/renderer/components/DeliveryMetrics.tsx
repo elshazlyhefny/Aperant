@@ -1,5 +1,6 @@
 /**
  * zeenha fork: project-wide delivery and token metrics view.
+ * See guides/delivery-metrics.md for how to read this view.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
