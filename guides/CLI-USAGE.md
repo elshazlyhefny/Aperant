@@ -447,6 +447,8 @@ npm run cli -- stop <spec> ...
 - **Everything else continues.** Other running tasks and the schedules are not affected.
 - Exit codes: 0 (request sent) and 1 (error, including when no daemon holds the project's lock).
 
+From the desktop app, use **Stop on daemon**; see [Using the desktop app while serve runs](#using-the-desktop-app-while-serve-runs).
+
 ## Running the queue and schedules as a daemon
 
 `serve` runs one project's task queue and its recurring schedules without opening the app, until you stop it. Use it on a server or a machine where the app is not open. It needs a git repository, the same [built CLI and Node runtime](#running-a-built-cli) as `run`, and the same [credentials](#credentials).
@@ -493,6 +495,29 @@ Cannot start: project queue is already run by <holder>
 and exits with code 3. Stop the other process (close the app, or stop the other daemon) and start `serve` again.
 
 Use [`check --daemon`](#checking-readiness-before-a-run) to report a conflicting queue owner in advance (the condition that causes `serve` to exit 3), without taking the lock.
+
+### Using the desktop app while serve runs
+
+- **The banner.** When another process holds a project's queue lock, that project's Kanban board shows "Queue is run by `<holder>`". The holder looks like `daemon (pid 1234 on host build-01, since 2026-11-27T10:00:00.000Z)` or `desktop app (...)` if another app instance holds the lock. The second line reads "The desktop queue and schedules are paused for it until it stops." The app takes the lock at startup. If the app holds it first, `serve` exits with code 3 (see [The lock](#the-lock)). The daemon banner appears when `serve` took the lock first and still holds it.
+- **What is paused in the app.** The app does not start queued tasks for this project. The daemon starts them instead, including tasks you queue from the app or with `queue <spec>`. The app's schedules do not create tasks, and **Run now** is refused. A due run stays due until the lock is released. The next schedule check applies the usual rules, including creating one catch-up task for [missed runs](recurring-tasks.md#missed-runs). The daemon runs schedules from [its own schedules file](#the-schedules-file), not the app's. Other projects are unaffected.
+- **Opening a daemon-run task.** When the daemon holds the lock, the banner shows "Running in the daemon:" if any tasks in `.auto-claude/.locks/serve-running.json` are still **In Progress** on the board. Each listed task has a button. Click its name to open the task's detail dialog. Tasks that have left **In Progress** are not listed.
+- **Stop on daemon.** This replaces **Stop** on the task card and in the detail dialog footer, but only for tasks that are **In Progress** and listed by the daemon. Desktop-run tasks keep the normal **Stop**. The button writes the same request file as [`cli.js stop <spec>`](#stopping-one-task). There is no network port.
+- **Why it stays pending.** The button is disabled and reads "Stopping on daemon..." with the tooltip "Waiting for the daemon to stop this task". The daemon reads requests on its 30-second safety interval, so it can take about 30 seconds to pick up the request. The app checks every 2 seconds, for up to 3 minutes. It treats the task leaving **In Progress** as confirmation.
+- **What it stops.** Only the selected task. It moves to **Human Review** with the reason `stopped` and its stuck subtasks reset. It is not requeued. The daemon keeps running, and other running tasks and schedules continue. To stop the whole daemon with SIGTERM or SIGINT, see [Stopping](#stopping). To put the task back in the **Queue** instead, use [`cli.js stop <spec> --requeue`](#stopping-one-task). The app has no requeue option.
+
+**Troubleshooting**
+
+**No Stop on daemon button.** Check that the task is **In Progress** and the banner names a daemon. If another desktop instance holds the lock, use **Stop** in that instance. The daemon may not have listed the task in `serve-running.json` yet. If the board's queue state is stale, switch to another project and back, or reopen the app to reload it.
+
+**"No daemon is running, so the task cannot be stopped from here."** No live daemon holds this project's lock. Check whether `serve` is still running for this project and reload the board.
+
+**"This task is not running on the daemon."** The daemon's `serve-running.json` does not list the task. Check its current status and reload the board before retrying.
+
+**"The daemon released the task without stopping it. Check its status."** The app could no longer find a live daemon holding the lock while the task was still **In Progress**. The app tries to delete the leftover request so a later daemon does not apply it. Check the task's status. On restart, the daemon recovers tasks it left running by putting them back in the **Queue** (see [Stopping](#stopping)).
+
+**"The daemon did not stop the task in time. Try again."** The app did not see the task leave **In Progress** within 3 minutes. Check that the daemon is still running and review its output (`--verbose` or `--json` if enabled). Then retry or use [`cli.js stop <spec>`](#stopping-one-task).
+
+_Keep this section in sync with `DaemonQueueBanner.tsx`, `useDaemonStop.ts`, `daemon-stop.ts` and `ipc-handlers/daemon-stop-handlers.ts`._
 
 ### The schedules file
 
