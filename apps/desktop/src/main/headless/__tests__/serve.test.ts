@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { execFileSync } from 'child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import {
+  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
+  renameSync, rmSync, symlinkSync, utimesSync, writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
@@ -15,10 +18,18 @@ vi.mock('../auth', () => ({
   resolveHeadlessAuth: async () => ({ auth: { apiKey: 'sk-test' }, provider: 'anthropic', modelId: 'claude-sonnet-4-5' }),
 }));
 vi.mock('../../ai/prompts/prompt-loader', () => ({ tryLoadPrompt: () => 'PLANNER PROMPT' }));
-// zeenha fork: let schedule races defer creation while still writing real task specs.
-vi.mock('../task-store', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../task-store')>();
-  return { ...actual, createScheduledTaskSpec: vi.fn(actual.createScheduledTaskSpec) };
+// zeenha fork: spy on the daemon's cached reader, and let schedule races defer
+// creation while still writing real task specs.
+vi.mock(import('../task-store'), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    createHeadlessTaskReader: vi.fn((project) => {
+      const reader = actual.createHeadlessTaskReader(project);
+      return { ...reader, list: vi.fn(reader.list), snapshotById: vi.fn(reader.snapshotById) };
+    }),
+    createScheduledTaskSpec: vi.fn(actual.createScheduledTaskSpec),
+  };
 });
 
 import { readDeliveryReceipts } from '../../delivery-receipts';
@@ -26,9 +37,10 @@ import { runServe, EXIT_LOCKED } from '../serve';
 import type { ServeOptions } from '../serve';
 import type { HeadlessBridge } from '../run-task';
 import { writeStopRequest } from '../stop-request';
-import { createScheduledTaskSpec } from '../task-store';
+import { createHeadlessTaskReader, createScheduledTaskSpec } from '../task-store';
 import { createScheduleFileStore } from '../../schedule-file-store';
 import { acquireProjectQueueLock, getQueueLockPath } from '../../utils/project-queue-lock';
+import { getServeRunningPath } from '../../utils/serve-running-file';
 import type { RecurringSchedule } from '../../../shared/types/schedule';
 
 class FakeBridge extends EventEmitter implements HeadlessBridge {
@@ -114,6 +126,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.mocked(createHeadlessTaskReader).mockClear();
   vi.unstubAllGlobals();
   rmSync(projectDir, { recursive: true, force: true });
 });
@@ -284,16 +297,60 @@ describe('runServe queue', () => {
     expect(webhook).not.toHaveBeenCalled();
   });
 
-  it('recovers tasks left running by a crashed daemon', async () => {
-    makeSpec('001-a', 'in_progress', {
-      phases: [{ name: 'p', subtasks: [{ id: 's1', status: 'in_progress' }] }],
-    });
-    mkdirSync(path.join(projectDir, '.auto-claude', '.locks'), { recursive: true });
-    writeFileSync(path.join(projectDir, '.auto-claude', '.locks', 'serve-running.json'), JSON.stringify({ taskIds: ['001-a'] }));
+  it('starts an externally queued task on a safety pass after its backlog plan was cached', async () => {
+    const id = '001-a';
+    makeSpec(id, 'backlog');
+    const planPath = path.join(specDir(id), 'implementation_plan.json');
+    const mtime = new Date(Date.now() - 10_000);
+    utimesSync(planPath, mtime, mtime);
+    const p = serve({ safetyIntervalMs: 50 });
+    await vi.waitFor(() => expect(signalHandler).toBeDefined());
+    try {
+      const reader = vi.mocked(createHeadlessTaskReader).mock.results[0].value;
+      expect(reader.snapshotById).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(reader.stats.hits).toBeGreaterThan(0));
+      expect(spawned()).toHaveLength(0);
+
+      // Preserve size and mtime so the reader must notice the new file identity.
+      const queued = JSON.stringify({ ...plan(id), status: 'queue' }).padEnd(readFileSync(planPath).length);
+      const tempPath = `${planPath}.tmp`;
+      writeFileSync(tempPath, queued);
+      utimesSync(tempPath, mtime, mtime);
+      renameSync(tempPath, planPath);
+
+      await vi.waitFor(() => expect(spawned().map((b) => b.taskId)).toEqual([id]));
+      expect(plan(id).status).toBe('in_progress');
+    } finally {
+      expect(await stop(p)).toBe(0);
+    }
+  });
+
+  it('recovers every saved running task from one startup snapshot', async () => {
+    const taskIds = ['001-a', '002-b', '003-c'];
+    for (const id of taskIds) {
+      makeSpec(id, 'in_progress', {
+        phases: [{ name: 'p', subtasks: [{ id: 's1', status: 'in_progress' }] }],
+      });
+    }
+    const runningPath = getServeRunningPath(projectDir);
+    mkdirSync(path.dirname(runningPath), { recursive: true });
+    writeFileSync(runningPath, JSON.stringify({ taskIds }));
+
     const p = serve({}, 0);
-    await vi.waitFor(() => expect(plan('001-a').status).toBe('queue'));
-    expect(plan('001-a').phases[0].subtasks[0].status).toBe('pending');
-    await stop(p);
+    await vi.waitFor(() => expect(signalHandler).toBeDefined());
+    try {
+      expect(createHeadlessTaskReader).toHaveBeenCalledTimes(1);
+      const reader = vi.mocked(createHeadlessTaskReader).mock.results[0].value;
+      expect(reader.snapshotById).toHaveBeenCalledTimes(1);
+      expect(reader.list).toHaveBeenCalledTimes(1); // Initial queue pass, not recovery.
+      for (const id of taskIds) {
+        expect(plan(id).status).toBe('queue');
+        expect(plan(id).phases[0].subtasks[0].status).toBe('pending');
+      }
+      expect(existsSync(runningPath)).toBe(false);
+    } finally {
+      expect(await stop(p)).toBe(0);
+    }
   });
 });
 
@@ -360,7 +417,8 @@ describe('runServe schedules', () => {
       expect.objectContaining({ id: `headless:${projectDir}` }),
       due.template,
       due.id,
-      T0
+      T0,
+      vi.mocked(createHeadlessTaskReader).mock.results[0]?.value.cache
     );
     expect(schedule.projectId).toBe(due.projectId);
     expect(schedule.nextRunAt).toBe(T0 + DAY);

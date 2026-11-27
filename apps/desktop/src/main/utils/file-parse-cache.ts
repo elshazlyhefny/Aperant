@@ -1,12 +1,14 @@
 /**
  * zeenha fork: cache of parsed file contents keyed by absolute path and
- * validated by mtimeMs + size, so repeated scans reuse unchanged spec files
- * instead of re-reading and re-parsing them.
+ * validated by file identity (dev + ino), mtimeMs, and size, so repeated scans
+ * reuse unchanged spec files and detect replacements with the same mtime and size.
  */
 import { closeSync, fstatSync, openSync, readFileSync } from 'fs';
 import path from 'path';
 
 interface CacheEntry {
+  dev: number;
+  ino: number;
   mtimeMs: number;
   size: number;
   value: unknown;
@@ -47,17 +49,23 @@ export class FileParseCache {
     }
 
     try {
-      const st = fstatSync(fd);
+      const { dev, ino, mtimeMs, size } = fstatSync(fd);
       const cached = this.entries.get(filePath);
-      if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+      if (
+        cached &&
+        cached.dev === dev &&
+        cached.ino === ino &&
+        cached.mtimeMs === mtimeMs &&
+        cached.size === size
+      ) {
         this.stats.hits++;
         return cached.value as T;
       }
 
       this.stats.misses++;
       const value = parse(readFileSync(fd, 'utf-8'));
-      if (Date.now() - st.mtimeMs > RACY_WINDOW_MS) {
-        this.entries.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, value });
+      if (Date.now() - mtimeMs > RACY_WINDOW_MS) {
+        this.entries.set(filePath, { dev, ino, mtimeMs, size, value });
       } else {
         this.entries.delete(filePath);
       }

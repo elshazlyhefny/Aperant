@@ -42,8 +42,8 @@ import { runHeadlessTaskDetailed } from './run-task';
 import { consumeStopRequests } from './stop-request';
 import type { HeadlessBridge, HeadlessRunResult } from './run-task';
 import {
+  createHeadlessTaskReader,
   createScheduledTaskSpec,
-  listHeadlessTasks,
   resetStuckSubtasks,
   setTaskStatus,
 } from './task-store';
@@ -165,6 +165,10 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const lock = acquired.lock;
   lock.startHeartbeat();
 
+  // zeenha fork: queue and schedule passes share one cache, but still rediscover
+  // specs and check freshness so an external queue command is seen on the next pass.
+  const taskReader = createHeadlessTaskReader(headlessProject);
+
   const runningFile = getServeRunningPath(projectPath);
   const runs = new Map<string, ActiveRun>();
   const deliveries = new Set<Promise<void>>();
@@ -183,24 +187,27 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const resetPlans = async (specId: string) => {
     for (const specPath of findAllSpecPaths(projectPath, specsBaseDir, specId, '[headless-serve]')) {
       const planPath = path.join(specPath, 'implementation_plan.json');
-      if (existsSync(planPath)) await resetStuckSubtasks(planPath);
+      if (existsSync(planPath)) await resetStuckSubtasks(planPath, taskReader.cache);
     }
   };
   const requeue = async (specId: string) => {
     try {
       await resetPlans(specId);
-      await setTaskStatus(headlessProject, specId, 'queue');
+      await setTaskStatus(headlessProject, specId, 'queue', undefined, taskReader.cache);
     } catch (error) {
       log(`Could not requeue ${specId}: ${error instanceof Error ? error.message : String(error)}`, specId);
     }
   };
 
   // (3) startup recovery
-  for (const taskId of readServeRunningTaskIds(projectPath)) {
-    const task = listHeadlessTasks(headlessProject).find((t) => t.id === taskId);
-    if (task?.status === 'in_progress') {
-      log(`Recovering ${taskId} left running by a previous daemon`, taskId);
-      await requeue(taskId);
+  const runningIds = new Set(readServeRunningTaskIds(projectPath));
+  if (runningIds.size > 0) {
+    const snapshot = taskReader.snapshotById();
+    for (const taskId of runningIds) {
+      if (snapshot.get(taskId)?.status === 'in_progress') {
+        log(`Recovering ${taskId} left running by a previous daemon`, taskId);
+        await requeue(taskId);
+      }
     }
   }
   rmSync(runningFile, { force: true });
@@ -215,7 +222,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const dispatchWriteback = options.dispatchWriteback ?? reportOutcomeToSource;
 
   // (4) queue and schedules
-  const getTasks = (): Task[] => listHeadlessTasks(headlessProject);
+  const getTasks = (): Task[] => taskReader.list();
   let mutex: Promise<unknown> = Promise.resolve();
   const exclusive = <T>(fn: () => Promise<T>): Promise<T> => {
     const next = mutex.then(fn, fn);
@@ -297,7 +304,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
     try {
       if (run.stopReason === 'stop') {
         await resetPlans(taskId);
-        await setTaskStatus(headlessProject, taskId, 'human_review', 'stopped');
+        await setTaskStatus(headlessProject, taskId, 'human_review', 'stopped', taskReader.cache);
         log(`${taskId} stopped by request`, taskId);
       } else if (run.stopReason === 'stop-requeue') {
         await requeue(taskId);
@@ -306,7 +313,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
         await requeue(taskId);
         log(`${taskId} interrupted, back in the queue`, taskId);
       } else {
-        await setTaskStatus(headlessProject, taskId, status, reviewReason);
+        await setTaskStatus(headlessProject, taskId, status, reviewReason, taskReader.cache);
         log(`${taskId} finished: ${status}${reviewReason ? ` (${reviewReason})` : ''}${reason ? ` - ${reason}` : ''}`, taskId);
       }
     } catch (error) {
@@ -350,7 +357,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
       ).length;
       if (active >= limit()) throw new Error(`parallel limit reached (${limit()})`);
 
-      await setTaskStatus(headlessProject, taskId, 'in_progress');
+      await setTaskStatus(headlessProject, taskId, 'in_progress', undefined, taskReader.cache);
       const controller = new AbortController();
       const run = { controller, title: task.title } as ActiveRun;
       runs.set(taskId, run);
@@ -417,8 +424,8 @@ export async function runServe(options: ServeOptions): Promise<number> {
     getProject: (id) => (id === projectId ? project : undefined),
     listTasks: () => getTasks(),
     createTask: async (_projectId, template, scheduleId, scheduledFor) => {
-      const task = await createScheduledTaskSpec(headlessProject, template, scheduleId, scheduledFor);
-      await setTaskStatus(headlessProject, task.id, 'queue');
+      const task = await createScheduledTaskSpec(headlessProject, template, scheduleId, scheduledFor, taskReader.cache);
+      await setTaskStatus(headlessProject, task.id, 'queue', undefined, taskReader.cache);
       return task.id;
     },
     startTask,
