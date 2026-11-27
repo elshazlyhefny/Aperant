@@ -46,6 +46,7 @@ vi.mock('../../linear-client', () => ({
 }));
 
 import { dispatchIssueOutcome } from '../issue-writeback';
+import { createDeliveryReceiptRecorder, readDeliveryReceipts } from '../../../delivery-receipts';
 import { buildOutcomeComment } from '../common';
 import { appLogPort, setLogger } from '../../../log-port';
 
@@ -65,7 +66,8 @@ const lnMeta = { sourceType: 'linear', linearIssueId: 'abc-123' };
 function settings(over: Record<string, unknown> = {}) {
   readSettingsFile.mockReturnValue({ issueWriteback: { github: false, gitlab: false, linear: false, ...over } });
 }
-const task = { specId: '001-x', title: 'My task', metadata: { prUrl: PR } } as never;
+const specId = '001-x';
+const task = { specId, title: 'My task', metadata: { prUrl: PR } } as never;
 const project = { path: '/p', autoBuildPath: '.auto-claude' } as never;
 const flush = () => new Promise((r) => setTimeout(r, 10));
 const expectedText = buildOutcomeComment('review_ready', 'My task', PR);
@@ -98,8 +100,7 @@ afterEach(() => {
 });
 
 async function run(event: 'review_ready' | 'failed' | 'blocked' | 'account_required' | 'pr_opened' = 'review_ready') {
-  dispatchIssueOutcome({ task, project, event });
-  await flush();
+  await dispatchIssueOutcome({ task, project, event });
 }
 function expectNoCalls() {
   expect(githubFetch).not.toHaveBeenCalled();
@@ -129,6 +130,29 @@ describe('dispatchIssueOutcome', () => {
     });
     expect(gitlabFetch).not.toHaveBeenCalled();
     expect(linearGraphQL).not.toHaveBeenCalled();
+  });
+
+  it('passes the recorder through to the enabled writer', async () => {
+    const recorder = createDeliveryReceiptRecorder(dir, specId);
+    await dispatchIssueOutcome({ task, project, event: 'review_ready' }, recorder);
+
+    expect(githubFetch).toHaveBeenCalledTimes(1);
+    const receipts = await readDeliveryReceipts(dir, specId);
+    expect(receipts).toEqual([expect.objectContaining({
+      operation: 'issue_comment', event: 'review_ready', provider: 'github', status: 'delivered'
+    })]);
+    expect(JSON.stringify(receipts)).not.toContain(TOKEN);
+  });
+
+  it('does not record webhook-only events or completely opted-out write-back', async () => {
+    const recorder = createDeliveryReceiptRecorder(dir, specId);
+    await dispatchIssueOutcome({ task, project, event: 'pr_opened' }, recorder);
+    await dispatchIssueOutcome({ task, project, event: 'account_required' }, recorder);
+    settings();
+    await dispatchIssueOutcome({ task, project, event: 'review_ready' }, recorder);
+
+    expectNoCalls();
+    expect(recorder.snapshot()).toEqual([]);
   });
 
   it('ignores pr_opened, which is webhook-only', async () => {

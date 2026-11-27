@@ -20,6 +20,7 @@ import type { SupportedProvider } from '../providers/types';
 import { detectProviderFromModel } from '../providers/factory';
 import type { AuthResolverContext, QueueResolvedAuth, ResolvedAuth } from './types';
 import {
+  NO_AUTH_PROVIDERS,
   PROVIDER_BASE_URL_ENV,
   PROVIDER_ENV_VARS,
   PROVIDER_SETTINGS_KEY,
@@ -269,11 +270,6 @@ function resolveFromEnvironment(ctx: AuthResolverContext): ResolvedAuth | null {
 // ============================================
 // Stage 4: Default Provider Credentials
 // ============================================
-
-/** Providers that work without explicit authentication */
-const NO_AUTH_PROVIDERS = new Set<SupportedProvider>([
-  'ollama',
-]);
 
 /**
  * Attempt to resolve default credentials for providers that don't require auth.

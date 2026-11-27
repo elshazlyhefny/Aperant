@@ -7,12 +7,12 @@ import '@testing-library/jest-dom';
 import '../../../shared/i18n';
 import { JiraWritebackSettings } from './JiraWritebackSettings';
 import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
-import type { AppSettings } from '../../../shared/types';
+import type { RendererAppSettings } from '../../../shared/types';
 import en from '../../../shared/i18n/locales/en/settings.json';
 import fr from '../../../shared/i18n/locales/fr/settings.json';
 
-function makeSettings(jiraWriteback?: AppSettings['jiraWriteback']): AppSettings {
-  return { ...(DEFAULT_APP_SETTINGS as unknown as AppSettings), jiraWriteback };
+function makeSettings(jiraWriteback?: RendererAppSettings['jiraWriteback']): RendererAppSettings {
+  return { ...(DEFAULT_APP_SETTINGS as unknown as RendererAppSettings), jiraWriteback };
 }
 
 function flatKeys(obj: Record<string, unknown>, prefix = ''): string[] {
@@ -37,7 +37,7 @@ describe('JiraWritebackSettings', () => {
   it('toggling enabled calls onSettingsChange with the right patch', () => {
     render(<JiraWritebackSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />);
     fireEvent.click(screen.getByRole('switch', { name: /enable jira write-back/i }));
-    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
     expect(next.jiraWriteback).toEqual({
       enabled: true,
       comment: true,
@@ -59,7 +59,7 @@ describe('JiraWritebackSettings', () => {
     );
     expect(screen.getByRole('textbox')).toBeEnabled();
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'QA' } });
-    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
     expect(next.jiraWriteback?.transitionStatusName).toBe('QA');
   });
 

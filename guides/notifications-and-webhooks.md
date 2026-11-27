@@ -257,6 +257,21 @@ The Settings screen shows an inline error for an invalid URL: "Enter a valid htt
 - Delivery runs in the background. It never changes a task's status and never blocks the app.
 - There is no queue. After 3 failed attempts the message is dropped and not sent again.
 
+## Delivery history
+
+Open **Task Detail → Overview → Delivery history** to see the newest receipts for that task. Use **Refresh** to check for late confirmations. The [headless `receipts` command](CLI-USAGE.md#delivery-receipts) reads the same history. An outcome webhook has one receipt for the whole retry sequence, not one per attempt. Settings test sends are not recorded.
+
+| Status | Meaning |
+|---|---|
+| Delivered | The receiver acknowledged the operation (a 2xx response for a webhook). |
+| Skipped | Delivery did not proceed for the reason shown, such as a disabled event or an invalid target. |
+| Failed | Delivery was known to fail, for example because the receiver explicitly rejected all webhook attempts with HTTP 429. |
+| Not confirmed (`unknown` in CLI output) | No confirmation was saved. The operation may still be underway, have been interrupted, or have reached the receiver without a usable acknowledgment. A later rejection does not rule out acceptance of an earlier timed-out attempt. |
+
+Receipts are stored locally at `<project>/.auto-claude/delivery-receipts.json`, outside task worktrees. The newest 200 records are kept **per project**, shared across all tasks, webhooks, issue comments, and issue state changes. Receipts omit endpoint URLs, credentials, request payloads, and response bodies. Missing history is not proof a post failed: delivery may not have been enabled or eligible, an older record may have been pruned, or the local receipt could not be saved. Failure to save a receipt does not prevent a send.
+
+History is read-only. Opening, refreshing, querying from the CLI, or restarting the app or daemon does not resend anything. Receipts do not change opt-in settings, routing, retries, or the build result.
+
 ## Signing requests (optional secret)
 
 A signing secret lets your receiver check that a message came from your Aperant and was not changed on the way. It is optional. Without a secret nothing is added to the request.

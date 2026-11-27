@@ -25,8 +25,8 @@ const writer = (over: Partial<typeof jira> = {}, cfg: typeof getConfig | (() => 
   createJiraWriter(() => ({ ...jira, ...over }), cfg);
 
 beforeEach(() => {
-  addIssueComment.mockReset().mockResolvedValue(undefined);
-  transitionIssue.mockReset().mockResolvedValue({ transitioned: true });
+  addIssueComment.mockReset().mockResolvedValue({ confirmed: true, httpStatus: 201 });
+  transitionIssue.mockReset().mockResolvedValue({ transitioned: true, httpStatus: 204 });
 });
 
 describe('createJiraWriter', () => {

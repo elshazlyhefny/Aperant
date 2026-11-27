@@ -31,6 +31,57 @@ function replaceSchedule(list: RecurringSchedule[], updated: RecurringSchedule):
     : [...list, updated];
 }
 
+// zeenha fork: activation distinguishes A -> B -> A switches; the load ID
+// also orders overlapping requests within the same activation.
+let activeGeneration = 0;
+let latestLoadId = 0;
+
+function activate(projectId: string, currentProjectId: string | null) {
+  if (currentProjectId === projectId) return;
+  ++activeGeneration;
+  return { schedules: [], activeProjectId: projectId };
+}
+
+function invalidateScheduleLoads(): number {
+  return ++latestLoadId;
+}
+
+type CurrentOwner = () => string | null;
+
+// zeenha fork: a mutation can write only to the project activation that started it.
+function captureOwner(projectId: string | null): CurrentOwner {
+  const activation = activeGeneration;
+  const owner = useScheduleStore.getState().activeProjectId === projectId ? projectId : null;
+  return () =>
+    activation === activeGeneration && useScheduleStore.getState().activeProjectId === owner
+      ? owner
+      : null;
+}
+
+function commitMutation(
+  currentOwner: CurrentOwner,
+  updateSchedules: (list: RecurringSchedule[], projectId: string) => RecurringSchedule[]
+): void {
+  const projectId = currentOwner();
+  if (projectId === null) return;
+
+  useScheduleStore.setState(({ schedules }) => ({
+    schedules: updateSchedules(schedules, projectId),
+    error: null
+  }));
+
+  // A fresh load supersedes any pending pre-mutation snapshot. Recheck ownership
+  // after the write since Zustand notifies subscribers synchronously.
+  const { isLoading, loadSchedules } = useScheduleStore.getState();
+  if (isLoading && currentOwner() !== null) void loadSchedules(projectId);
+}
+
+function commitSchedule(currentOwner: CurrentOwner, schedule: RecurringSchedule): void {
+  commitMutation(currentOwner, (list, projectId) =>
+    schedule.projectId === projectId ? replaceSchedule(list, schedule) : list
+  );
+}
+
 export const useScheduleStore = create<ScheduleState>((set, get) => ({
   schedules: [],
   activeProjectId: null,
@@ -38,13 +89,18 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
   error: null,
   loadError: null,
   loadSchedules: async (projectId) => {
-    if (get().activeProjectId !== projectId) {
-      set({ schedules: [], activeProjectId: projectId, loadError: null });
-    }
-    set({ isLoading: true, error: null, loadError: null });
+    const projectChange = activate(projectId, get().activeProjectId);
+    const activation = activeGeneration;
+    const requestId = invalidateScheduleLoads();
+    const canCommit = () =>
+      requestId === latestLoadId &&
+      activation === activeGeneration &&
+      get().activeProjectId === projectId;
+
+    set({ ...projectChange, isLoading: true, error: null, loadError: null });
     try {
       const result = await window.electronAPI.listSchedules(projectId);
-      if (get().activeProjectId !== projectId) return;
+      if (!canCommit()) return;
       if (result.success && result.data) {
         set({ schedules: result.data, isLoading: false, loadError: null });
       } else {
@@ -53,74 +109,77 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       }
     } catch (error) {
       debugLog('[ScheduleStore] Failed to load schedules:', error);
+      if (!canCommit()) return;
       const message = error instanceof Error ? error.message : String(error);
       set({ error: message, loadError: message, isLoading: false });
     }
   },
 
   createSchedule: async (projectId, input) => {
+    const currentOwner = captureOwner(projectId);
     const result = await window.electronAPI.createSchedule(projectId, input);
     if (result.success && result.data) {
-      const created = result.data;
-      set((s) => ({ schedules: replaceSchedule(s.schedules, created), error: null }));
-      return created;
+      commitSchedule(currentOwner, result.data);
+      return result.data;
     }
-    set({ error: result.error ?? 'Failed to create schedule' });
+    if (currentOwner() !== null) set({ error: result.error ?? 'Failed to create schedule' });
     return null;
   },
 
   updateSchedule: async (id, input) => {
+    const currentOwner = captureOwner(get().activeProjectId);
     const result = await window.electronAPI.updateSchedule(id, input);
     if (result.success && result.data) {
-      const updated = result.data;
-      set((s) => ({ schedules: replaceSchedule(s.schedules, updated), error: null }));
-      return updated;
+      commitSchedule(currentOwner, result.data);
+      return result.data;
     }
-    set({ error: result.error ?? 'Failed to update schedule' });
+    if (currentOwner() !== null) set({ error: result.error ?? 'Failed to update schedule' });
     return null;
   },
 
   deleteSchedule: async (id) => {
+    const currentOwner = captureOwner(get().activeProjectId);
     const result = await window.electronAPI.deleteSchedule(id);
     if (result.success) {
-      set((s) => ({ schedules: s.schedules.filter((x) => x.id !== id), error: null }));
+      commitMutation(currentOwner, (list) => list.filter((schedule) => schedule.id !== id));
       return true;
     }
-    set({ error: result.error ?? 'Failed to delete schedule' });
+    if (currentOwner() !== null) set({ error: result.error ?? 'Failed to delete schedule' });
     return false;
   },
 
   setEnabled: async (id, enabled) => {
+    const currentOwner = captureOwner(get().activeProjectId);
     const result = await window.electronAPI.setScheduleEnabled(id, enabled);
     if (result.success && result.data) {
-      const updated = result.data;
-      set((s) => ({ schedules: replaceSchedule(s.schedules, updated), error: null }));
+      commitSchedule(currentOwner, result.data);
       return true;
     }
-    set({ error: result.error ?? 'Failed to update schedule' });
+    if (currentOwner() !== null) set({ error: result.error ?? 'Failed to update schedule' });
     return false;
   },
 
   acknowledgeReports: async (scheduleId, recordIds) => {
+    const currentOwner = captureOwner(get().activeProjectId);
     const result = await window.electronAPI.acknowledgeScheduleReports(scheduleId, recordIds);
     if (result.success && result.data) {
-      const updated = result.data;
-      set((s) => ({ schedules: replaceSchedule(s.schedules, updated), error: null }));
+      commitSchedule(currentOwner, result.data);
       return true;
     }
-    set({ error: result.error ?? 'Failed to acknowledge reports' });
+    if (currentOwner() !== null) set({ error: result.error ?? 'Failed to acknowledge reports' });
     return false;
   },
 
   runNow: async (id) => {
+    const currentOwner = captureOwner(get().activeProjectId);
     const result = await window.electronAPI.runScheduleNow(id);
+    const projectId = currentOwner();
     if (result.success && result.data) {
-      set({ error: null });
-      const projectId = get().activeProjectId;
-      if (projectId) void get().loadSchedules(projectId);
+      // The reload also clears the current project's action error.
+      if (projectId !== null) void get().loadSchedules(projectId);
       return result.data;
     }
-    set({ error: result.error ?? 'Failed to run schedule' });
+    if (projectId !== null) set({ error: result.error ?? 'Failed to run schedule' });
     return null;
   }
 }));

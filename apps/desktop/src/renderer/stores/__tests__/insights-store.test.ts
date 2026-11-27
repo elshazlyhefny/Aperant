@@ -51,3 +51,45 @@ describe('insights-store stop', () => {
     expect(messages[0].stopped).toBeUndefined();
   });
 });
+
+describe('setStatus', () => {
+  beforeEach(() => {
+    useInsightsStore.setState({ status: { phase: 'idle', message: '' } });
+  });
+
+  it('preserves the status reference and does not notify subscribers for equal values', () => {
+    const { setStatus } = useInsightsStore.getState();
+    const listener = vi.fn();
+    const unsubscribe = useInsightsStore.subscribe(listener);
+
+    try {
+      setStatus({ phase: 'streaming', message: 'Receiving response...', error: undefined });
+      const status = useInsightsStore.getState().status;
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      setStatus({ phase: 'streaming', message: 'Receiving response...' });
+
+      expect(useInsightsStore.getState().status).toBe(status);
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('updates the status when the phase changes', () => {
+    useInsightsStore.getState().setStatus({ phase: 'thinking', message: '' });
+
+    expect(useInsightsStore.getState().status.phase).toBe('thinking');
+  });
+
+  it('updates the status when the message or error changes', () => {
+    const { setStatus } = useInsightsStore.getState();
+    setStatus({ phase: 'error', message: 'Failed', error: 'Timeout' });
+
+    setStatus({ phase: 'error', message: 'Could not respond', error: 'Timeout' });
+    expect(useInsightsStore.getState().status.message).toBe('Could not respond');
+
+    setStatus({ phase: 'error', message: 'Could not respond', error: 'Connection lost' });
+    expect(useInsightsStore.getState().status.error).toBe('Connection lost');
+  });
+});

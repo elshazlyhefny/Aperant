@@ -23,6 +23,64 @@ export function LoadingMessage({ message = 'Loading workspace info...' }: Loadin
   );
 }
 
+interface WorkspaceCheckErrorProps {
+  error?: string | null;
+  isRetrying: boolean;
+  onRetry?: () => void;
+}
+
+// zeenha fork: failed status and diff checks need separate messages and retries.
+function WorkspaceCheckError({
+  kind,
+  error,
+  isRetrying,
+  onRetry
+}: WorkspaceCheckErrorProps & { kind: 'status' | 'diff' }) {
+  const { t } = useTranslation(['taskReview', 'common']);
+  const isDiff = kind === 'diff';
+
+  return (
+    <div className={isDiff
+      ? 'flex flex-wrap items-start justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-2.5'
+      : 'space-y-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4'}
+    >
+      <div role="alert" className="flex min-w-0 items-start gap-2">
+        <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+        <div className="min-w-0">
+          <h3 className="text-sm font-medium text-destructive">
+            {isDiff ? t('taskReview:workspaceCheck.diffFailedTitle') : t('taskReview:workspaceCheck.statusFailedTitle')}
+          </h3>
+          <p className={`mt-0.5 text-muted-foreground ${isDiff ? 'text-xs' : 'text-sm'}`}>
+            {isDiff ? t('taskReview:workspaceCheck.diffFailedDescription') : t('taskReview:workspaceCheck.statusFailedDescription')}
+          </p>
+          {error && <p className="mt-1 break-words text-xs text-muted-foreground">{error}</p>}
+        </div>
+      </div>
+      {onRetry && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={onRetry}
+          disabled={isRetrying}
+          data-testid={`retry-workspace-${kind}`}
+        >
+          {isRetrying && <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />}
+          {isRetrying ? t('taskReview:workspaceCheck.retrying') : t('common:buttons.retry')}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function WorkspaceCheckErrorMessage(props: WorkspaceCheckErrorProps & { onRetry: () => void }) {
+  return <WorkspaceCheckError kind="status" {...props} />;
+}
+
+export function DiffCheckErrorMessage(props: WorkspaceCheckErrorProps) {
+  return <WorkspaceCheckError kind="diff" {...props} />;
+}
+
 interface NoWorkspaceMessageProps {
   task?: Task;
   onClose?: () => void;
@@ -186,6 +244,7 @@ interface StagedInProjectMessageProps {
   task: Task;
   projectPath?: string;
   hasWorktree?: boolean;
+  isWorktreeVerified?: boolean;
   onClose?: () => void;
   onReviewAgain?: () => void;
 }
@@ -193,7 +252,14 @@ interface StagedInProjectMessageProps {
 /**
  * Displays message when changes have already been staged in the main project
  */
-export function StagedInProjectMessage({ task, projectPath, hasWorktree = false, onClose, onReviewAgain }: StagedInProjectMessageProps) {
+export function StagedInProjectMessage({
+  task,
+  hasWorktree = false,
+  isWorktreeVerified = true,
+  onClose,
+  onReviewAgain
+}: StagedInProjectMessageProps) {
+  const { t } = useTranslation(['taskReview']);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isMarkingDone, setIsMarkingDone] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -294,112 +360,116 @@ export function StagedInProjectMessage({ task, projectPath, hasWorktree = false,
         </ol>
       </div>
 
-      {/* Action buttons */}
-      <div className="flex flex-col gap-2">
-        <div className="flex gap-2">
-          {/* Primary action: Mark Done or Delete Worktree & Mark Done */}
-          {hasWorktree ? (
-            <Button
-              onClick={handleDeleteWorktreeAndMarkDone}
-              disabled={isDeleting || isMarkingDone || isResetting}
-              size="sm"
-              variant="default"
-              className="flex-1"
-            >
-              {isDeleting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Cleaning up...
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  Delete Worktree & Mark Done
-                </>
-              )}
-            </Button>
-          ) : (
-            <Button
-              onClick={handleMarkDoneOnly}
-              disabled={isDeleting || isMarkingDone || isResetting}
-              size="sm"
-              variant="default"
-              className="flex-1"
-            >
-              {isMarkingDone ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Marking done...
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  Mark as Done
-                </>
-              )}
-            </Button>
-          )}
-        </div>
+      {/* zeenha fork: keep staged details visible, but don't offer actions based on an unverified workspace. */}
+      {isWorktreeVerified ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            {/* Primary action: Mark Done or Delete Worktree & Mark Done */}
+            {hasWorktree ? (
+              <Button
+                onClick={handleDeleteWorktreeAndMarkDone}
+                disabled={isDeleting || isMarkingDone || isResetting}
+                size="sm"
+                variant="default"
+                className="flex-1"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Cleaning up...
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Delete Worktree & Mark Done
+                  </>
+                )}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleMarkDoneOnly}
+                disabled={isDeleting || isMarkingDone || isResetting}
+                size="sm"
+                variant="default"
+                className="flex-1"
+              >
+                {isMarkingDone ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Marking done...
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Mark as Done
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
 
-        {/* Secondary actions row */}
-        <div className="flex gap-2">
-          {/* Mark Done Only (when worktree exists) - allows keeping worktree */}
+          {/* Secondary actions row */}
+          <div className="flex gap-2">
+            {/* Mark Done Only (when worktree exists) - allows keeping worktree */}
+            {hasWorktree && (
+              <Button
+                onClick={handleMarkDoneOnly}
+                disabled={isDeleting || isMarkingDone || isResetting}
+                size="sm"
+                variant="outline"
+                className="flex-1"
+              >
+                {isMarkingDone ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Marking done...
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Mark Done Only
+                  </>
+                )}
+              </Button>
+            )}
+
+            {/* Review Again button - only show if worktree exists and callback provided */}
+            {hasWorktree && onReviewAgain && (
+              <Button
+                onClick={handleReviewAgain}
+                disabled={isDeleting || isMarkingDone || isResetting}
+                size="sm"
+                variant="outline"
+                className="flex-1"
+              >
+                {isResetting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Resetting...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Review Again
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+
+          {error && (
+            <p className="text-xs text-destructive">{error}</p>
+          )}
+
           {hasWorktree && (
-            <Button
-              onClick={handleMarkDoneOnly}
-              disabled={isDeleting || isMarkingDone || isResetting}
-              size="sm"
-              variant="outline"
-              className="flex-1"
-            >
-              {isMarkingDone ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Marking done...
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  Mark Done Only
-                </>
-              )}
-            </Button>
-          )}
-
-          {/* Review Again button - only show if worktree exists and callback provided */}
-          {hasWorktree && onReviewAgain && (
-            <Button
-              onClick={handleReviewAgain}
-              disabled={isDeleting || isMarkingDone || isResetting}
-              size="sm"
-              variant="outline"
-              className="flex-1"
-            >
-              {isResetting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Resetting...
-                </>
-              ) : (
-                <>
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  Review Again
-                </>
-              )}
-            </Button>
+            <p className="text-xs text-muted-foreground">
+              "Delete Worktree & Mark Done" cleans up the isolated workspace. "Mark Done Only" keeps it for reference.
+            </p>
           )}
         </div>
-
-        {error && (
-          <p className="text-xs text-destructive">{error}</p>
-        )}
-
-        {hasWorktree && (
-          <p className="text-xs text-muted-foreground">
-            "Delete Worktree & Mark Done" cleans up the isolated workspace. "Mark Done Only" keeps it for reference.
-          </p>
-        )}
-      </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">{t('taskReview:workspaceCheck.actionsUnavailable')}</p>
+      )}
     </div>
   );
 }

@@ -56,9 +56,7 @@ export function registerScheduleHandlers(
   const service = createScheduleService({
     now: () => Date.now(),
     listSchedules: () => scheduleStore.listSchedules(),
-    saveSchedule: (schedule) => {
-      scheduleStore.saveSchedule(schedule);
-    },
+    updateSchedule: async (id, mutator) => (await scheduleStore.updateSchedule(id, mutator)) !== undefined,
     getProject: (projectId) => projectStore.getProject(projectId),
     listTasks: (projectId) => projectStore.getTasks(projectId),
     createTask: async (projectId, template, scheduleId, scheduledFor) => {
@@ -128,8 +126,8 @@ export function registerScheduleHandlers(
           nextRunAt: enabled ? computeNextRun(input.cadence, now) : null,
           history: [],
         };
-        const saved = scheduleStore.saveSchedule(schedule);
-        notifyChanged(projectId);
+        const saved = await scheduleStore.insertSchedule(schedule);
+        notifyChanged(saved.projectId);
         return { success: true, data: saved };
       } catch (error) {
         return fail(error);
@@ -141,21 +139,20 @@ export function registerScheduleHandlers(
     IPC_CHANNELS.SCHEDULE_UPDATE,
     async (_event, id: string, input: ScheduleInput): Promise<IPCResult<RecurringSchedule>> => {
       try {
-        const existing = scheduleStore.getSchedule(id);
-        if (!existing) return { success: false, error: 'Schedule not found' };
-        const invalid = validateInput(input);
-        if (invalid) return { success: false, error: invalid };
-        const now = Date.now();
-        const updated: RecurringSchedule = {
-          ...existing,
-          name: input.name.trim(),
-          cadence: input.cadence,
-          template: { ...input.template, title: input.template.title.trim() },
-          updatedAt: now,
-          nextRunAt: existing.enabled ? computeNextRun(input.cadence, now) : null,
-        };
-        const saved = scheduleStore.saveSchedule(updated);
-        notifyChanged(existing.projectId);
+        const saved = await scheduleStore.updateSchedule(id, (current) => {
+          const invalid = validateInput(input);
+          if (invalid) throw new Error(invalid);
+          const now = Date.now();
+          return {
+            name: input.name.trim(),
+            cadence: input.cadence,
+            template: { ...input.template, title: input.template.title.trim() },
+            updatedAt: now,
+            nextRunAt: current.enabled ? computeNextRun(input.cadence, now) : null,
+          };
+        });
+        if (!saved) return { success: false, error: 'Schedule not found' };
+        notifyChanged(saved.projectId);
         return { success: true, data: saved };
       } catch (error) {
         return fail(error);
@@ -165,11 +162,10 @@ export function registerScheduleHandlers(
 
   ipcMain.handle(IPC_CHANNELS.SCHEDULE_DELETE, async (_event, id: string): Promise<IPCResult> => {
     try {
-      const existing = scheduleStore.getSchedule(id);
-      if (!existing) return { success: false, error: 'Schedule not found' };
       // Only the schedule is removed; tasks it already created are untouched
-      scheduleStore.removeSchedule(id);
-      notifyChanged(existing.projectId);
+      const removed = await scheduleStore.deleteSchedule(id);
+      if (!removed) return { success: false, error: 'Schedule not found' };
+      notifyChanged(removed.projectId);
       return { success: true };
     } catch (error) {
       return fail(error);
@@ -180,18 +176,18 @@ export function registerScheduleHandlers(
     IPC_CHANNELS.SCHEDULE_SET_ENABLED,
     async (_event, id: string, enabled: boolean): Promise<IPCResult<RecurringSchedule>> => {
       try {
-        const existing = scheduleStore.getSchedule(id);
-        if (!existing) return { success: false, error: 'Schedule not found' };
-        // Pausing clears nextRunAt; resuming counts from now so the paused
-        // period is never reported as missed.
-        const updated: RecurringSchedule = {
-          ...existing,
-          enabled,
-          updatedAt: Date.now(),
-          nextRunAt: enabled ? computeNextRun(existing.cadence, Date.now()) : null,
-        };
-        const saved = scheduleStore.saveSchedule(updated);
-        notifyChanged(existing.projectId);
+        const saved = await scheduleStore.updateSchedule(id, (current) => {
+          // Pausing clears nextRunAt; resuming counts from now so the paused
+          // period is never reported as missed.
+          const now = Date.now();
+          return {
+            enabled,
+            updatedAt: now,
+            nextRunAt: enabled ? computeNextRun(current.cadence, now) : null,
+          };
+        });
+        if (!saved) return { success: false, error: 'Schedule not found' };
+        notifyChanged(saved.projectId);
         return { success: true, data: saved };
       } catch (error) {
         return fail(error);
@@ -203,15 +199,14 @@ export function registerScheduleHandlers(
     IPC_CHANNELS.SCHEDULE_ACK_REPORTS,
     async (_event, scheduleId: string, recordIds?: string[]): Promise<IPCResult<RecurringSchedule>> => {
       try {
-        const existing = scheduleStore.getSchedule(scheduleId);
-        if (!existing) return { success: false, error: 'Schedule not found' };
-        const ids = recordIds ? new Set(recordIds) : null;
-        const updated: RecurringSchedule = {
-          ...existing,
-          history: existing.history.map((r) => (!ids || ids.has(r.id) ? { ...r, acknowledged: true } : r)),
-        };
-        const saved = scheduleStore.saveSchedule(updated);
-        notifyChanged(existing.projectId);
+        const saved = await scheduleStore.updateSchedule(scheduleId, (current) => {
+          const ids = recordIds ? new Set(recordIds) : null;
+          return {
+            history: current.history.map((r) => (!ids || ids.has(r.id) ? { ...r, acknowledged: true } : r)),
+          };
+        });
+        if (!saved) return { success: false, error: 'Schedule not found' };
+        notifyChanged(saved.projectId);
         return { success: true, data: saved };
       } catch (error) {
         return fail(error);

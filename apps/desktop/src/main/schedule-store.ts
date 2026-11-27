@@ -5,7 +5,7 @@
 import { app } from 'electron';
 import path from 'path';
 import type { RecurringSchedule } from '../shared/types/schedule';
-import { createScheduleFileStore, trimHistory as trimScheduleHistory } from './schedule-file-store';
+import { createScheduleFileStore, type ScheduleMutator, trimHistory as trimScheduleHistory } from './schedule-file-store';
 
 // Resolved lazily so app.getPath is only called when the store is used.
 const store = createScheduleFileStore(() => path.join(app.getPath('userData'), 'schedules.json'));
@@ -23,11 +23,14 @@ export function getSchedule(id: string): RecurringSchedule | undefined {
   return store.getSchedule(id);
 }
 
-/** Insert or replace by id. Returns the stored (history-trimmed) schedule. */
-export function saveSchedule(schedule: RecurringSchedule): RecurringSchedule {
-  return store.saveSchedule(schedule);
+export function insertSchedule(schedule: RecurringSchedule): Promise<RecurringSchedule> {
+  return store.insertSchedule(schedule);
 }
 
-export function removeSchedule(id: string): boolean {
-  return store.removeSchedule(id);
+export function updateSchedule(id: string, mutator: ScheduleMutator): Promise<RecurringSchedule | undefined> {
+  return store.updateSchedule(id, mutator);
+}
+
+export function deleteSchedule(id: string): Promise<RecurringSchedule | undefined> {
+  return store.deleteSchedule(id);
 }
