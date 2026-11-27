@@ -62,6 +62,18 @@ export interface SerializableSessionConfig {
   projectDir: string;
   /** Source spec dir in main project (for worktree → main sync during execution) */
   sourceSpecDir?: string;
+  /**
+   * zeenha fork: the task's base branch, resolved on the main thread by
+   * resolveTaskBaseBranch() (it needs project settings and Electron-only modules
+   * the worker cannot load). Substituted into prompts and used by the QA verify gate.
+   */
+  baseBranch?: string;
+  /**
+   * zeenha fork: the main checkout, which projectDir is not when the task runs in
+   * a worktree. The QA verify gate reads `.aperant.json` from here, never from the
+   * worktree, so an agent's edit cannot change which commands verify its work.
+   */
+  mainProjectDir?: string;
   phase?: SessionConfig['phase'];
   modelShorthand?: SessionConfig['modelShorthand'];
   thinkingLevel?: SessionConfig['thinkingLevel'];

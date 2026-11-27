@@ -34,6 +34,11 @@ import {
 import { safeParseJson } from '../../utils/json-repair';
 import type { SessionResult } from '../session/types';
 import { waitForHostLoad } from './host-load';
+import {
+  describeVerifyGateResult,
+  writeVerifyGateFixRequest,
+  type VerifyGateResult,
+} from './verify-gate';
 import { delay, iterateSubtasks } from './subtask-iterator';
 import type { SubtaskIteratorConfig, SubtaskResult } from './subtask-iterator';
 
@@ -92,6 +97,12 @@ export interface BuildOrchestratorConfig {
   syncSpecToSource?: (specDir: string, sourceSpecDir: string) => Promise<boolean>;
   /** Waits before a QA review that ended with no verdict is retried. Injected by tests. */
   waitBeforeQARetry?: (signal?: AbortSignal) => Promise<unknown>;
+  /**
+   * zeenha fork: runs the project's verify commands after QA approves
+   * (verify-gate.ts). A failure turns the approval into a rejection. Absent
+   * means no gate.
+   */
+  verifyGate?: (signal?: AbortSignal) => Promise<VerifyGateResult>;
   /** Optional callback to get a resolved LanguageModel for lightweight repair calls */
   getModel?: (agentType: AgentType) => Promise<import('ai').LanguageModel | undefined>;
 }
@@ -520,6 +531,7 @@ export class BuildOrchestrator extends EventEmitter {
 
     const maxQACycles = 3;
     let noVerdictRetried = false;
+    let gateWroteFixRequest = false;
     for (let cycle = 0; cycle < maxQACycles; cycle++) {
       if (this.aborted) {
         return { success: false, error: 'Build cancelled' };
@@ -552,9 +564,31 @@ export class BuildOrchestrator extends EventEmitter {
       }
 
       // Check QA result
-      const qaStatus = await this.readQAStatus();
+      let qaStatus = await this.readQAStatus();
+
+      // zeenha fork: an approval only stands if the project's own checks pass
+      // against the latest base. On failure the gate's QA_FIX_REQUEST.md goes to
+      // the fixer like a reviewer rejection.
+      if (qaStatus === 'passed' && this.config.verifyGate) {
+        const gate = await this.config.verifyGate(this.config.abortSignal);
+        if (this.aborted) {
+          return { success: false, error: 'Build cancelled' };
+        }
+        this.emitTyped('log', describeVerifyGateResult(gate));
+        if (gate.status === 'failed') {
+          await writeVerifyGateFixRequest(this.config.specDir, gate);
+          gateWroteFixRequest = true;
+          await this.markQAReportRejected(describeVerifyGateResult(gate));
+          qaStatus = 'failed';
+        }
+      }
 
       if (qaStatus === 'passed') {
+        // zeenha fork: the gate's request is fixed now; left behind, a later QA
+        // run would read it as human feedback and "fix" it again.
+        if (gateWroteFixRequest) {
+          await unlink(join(this.config.specDir, 'QA_FIX_REQUEST.md')).catch(() => undefined);
+        }
         this.markPhaseCompleted('qa_review');
         this.transitionPhase('complete', 'Build complete - QA passed');
         return { success: true };
@@ -790,6 +824,21 @@ export class BuildOrchestrator extends EventEmitter {
       return 'unknown';
     } catch {
       return 'unknown';
+    }
+  }
+
+  /**
+   * zeenha fork: replace an approving qa_report.md after a verify gate failure,
+   * so a resumed build does not read the withdrawn approval as "already complete".
+   */
+  private async markQAReportRejected(reason: string): Promise<void> {
+    const report =
+      `# QA Report\n\nStatus: REJECTED\n\n${reason}\n\n` +
+      `The reviewer's approval was withdrawn. See QA_FIX_REQUEST.md for the failure.\n`;
+    try {
+      await writeFile(join(this.config.specDir, 'qa_report.md'), report, 'utf-8');
+    } catch {
+      // Non-fatal: the fixer still runs and the report is reset before re-review.
     }
   }
 

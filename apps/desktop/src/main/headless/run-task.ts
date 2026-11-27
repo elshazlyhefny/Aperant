@@ -267,6 +267,9 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       specDir: worktreeSpecDir,
       projectDir: worktreePath,
       sourceSpecDir: specDir,
+      // zeenha fork: for the prompt's {{BASE_BRANCH}} and the QA verify gate.
+      baseBranch: settings.baseBranch,
+      mainProjectDir: projectPath,
       // zeenha fork: use task_metadata.json, then --config project.defaultTokenBudget,
       // never desktop settings.
       tokenBudget: tokenBudget.limit,
