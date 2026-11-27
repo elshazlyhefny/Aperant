@@ -3,6 +3,7 @@
  * Runs one task through the planner -> coder -> QA pipeline without Electron.
  * `serve` is long-running: it runs the project's task queue and recurring schedules until stopped.
  * `stop <spec>` asks a running serve daemon to stop one task (it writes a stop request file).
+ * `check [<spec>]` checks readiness without starting an agent.
  * No Sentry, no app-logger and no electron import may appear below this file.
  */
 import { readFileSync, realpathSync } from 'node:fs';
@@ -10,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createHeadlessSpec } from './new-spec';
+import { renderPreflightJson, renderPreflightText, runPreflight } from './preflight';
 import { runHeadlessTask } from './run-task';
 import { runServe } from './serve';
 import { HeadlessSetupError, resolveHeadlessProject } from './shared';
@@ -23,6 +25,7 @@ export const USAGE = `Usage: cli.js <command> [options]
 Commands:
   run <spec>      Run the spec's build (plan, code, QA) and open a pull request
   new "<description>"  Create a spec from a description (add --run to build it too)
+  check [<spec>]   Check that the project (and spec) are ready to run, without starting an agent
   serve           Run the project's task queue and recurring schedules until stopped
   list            List the project's tasks (id, status, title)
   queue <spec>    Move a backlog task to the queue for a running serve daemon
@@ -42,6 +45,13 @@ Options for run (they also apply to new --run):
   --help                Show this help
   --version             Print the version
 
+Options for check:
+  --project <dir>       Project directory (default: current directory)
+  --config <file>       JSON config file
+  --base-branch <name>  Branch the task worktree is created from
+  --daemon              Also check what serve needs: the queue lock and the strict webhook rule
+  --json                Print a machine-readable readiness report
+
 Options for serve:
   --project <dir>            Project directory (default: current directory)
   --config <file>            JSON config file
@@ -52,6 +62,10 @@ Options for serve:
   --shutdown-timeout <sec>   Seconds to wait for running tasks on SIGTERM/SIGINT
   --json                     Print machine-readable events
   --verbose                  Print detailed progress
+
+Exit codes for check:
+  0  ready (warnings and unverified items allowed)
+  1  at least one blocking problem or bad arguments
 
 Exit codes for serve:
   0  stopped cleanly
@@ -73,6 +87,7 @@ export interface CliDeps extends Partial<CliIo> {
   workerPath?: string;
   readVersion?: () => string;
   runServe?: typeof runServe;
+  runPreflight?: typeof runPreflight;
 }
 
 function readPackageVersion(): string {
@@ -127,6 +142,10 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
   }
   if (values.requeue && command !== 'stop') {
     err(`--requeue only applies to the stop command\n\n${USAGE}`);
+    return 1;
+  }
+  if (values.daemon && command !== 'check') {
+    err(`--daemon only applies to the check command\n\n${USAGE}`);
     return 1;
   }
   if (command === 'list' || command === 'queue') {
@@ -255,6 +274,30 @@ export async function runCli(argv: string[], deps: CliDeps = {}): Promise<number
       err,
     });
   }
+  if (command === 'check') {
+    if (extra.length > 0) {
+      err(`Too many arguments\n\n${USAGE}`);
+      return 1;
+    }
+    if (values.run) {
+      err(`--run only applies to the new command\n\n${USAGE}`);
+      return 1;
+    }
+    try {
+      const report = await (deps.runPreflight ?? runPreflight)({
+        projectPath: values.project,
+        spec: arg,
+        configPath: values.config,
+        baseBranch: values['base-branch'],
+        daemon: values.daemon,
+      });
+      out(values.json ? renderPreflightJson(report) : renderPreflightText(report));
+      return report.ok ? 0 : 1;
+    } catch (error) {
+      err(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 1;
+    }
+  }
   if (command !== 'run' && command !== 'new') {
     err(`${command ? `Unknown command: ${command}` : 'Missing command'}\n\n${USAGE}`);
     return 1;
@@ -337,6 +380,7 @@ const OPTIONS = {
   run: { type: 'boolean' },
   queue: { type: 'boolean' },
   requeue: { type: 'boolean' },
+  daemon: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 } as const;

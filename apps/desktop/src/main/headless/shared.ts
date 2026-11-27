@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
+import { getSpecsDir } from '../../shared/constants';
 import type { HeadlessConfig } from './config';
 import type { HeadlessProject } from './task-store';
 
@@ -30,6 +31,21 @@ export function findGitRoot(start: string): string {
 export function resolveHeadlessProject(projectPath?: string): HeadlessProject {
   const root = findGitRoot(path.resolve(projectPath ?? process.cwd()));
   return { id: `headless:${realpathSync(root)}`, path: root, autoBuildPath: AUTO_BUILD_PATH };
+}
+
+/** zeenha fork: resolve a spec in the selected checkout, including task worktrees. */
+export function resolveHeadlessSpec(projectRoot: string, spec: string): { specId: string; specDir: string } {
+  const specsDir = path.join(projectRoot, getSpecsDir(AUTO_BUILD_PATH));
+  const looksLikePath = spec.includes('/') || spec.includes(path.sep);
+  if (!looksLikePath) {
+    return { specId: spec, specDir: path.join(specsDir, spec) };
+  }
+  const specDir = path.resolve(spec);
+  const specId = path.basename(specDir);
+  if (path.resolve(specsDir, specId) !== specDir) {
+    throw new HeadlessSetupError(`Spec directory ${specDir} must be inside ${specsDir}`);
+  }
+  return { specId, specDir };
 }
 
 export function providerPhaseModels(config: HeadlessConfig) {

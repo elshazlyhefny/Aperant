@@ -35,7 +35,7 @@ import type { HeadlessBridge } from './bridge-run';
 import { classifyRun, EXIT_ERROR } from './outcome';
 import type { RunOutcome } from './outcome';
 import { createProgressReporter } from './progress';
-import { AUTO_BUILD_PATH, findGitRoot, HeadlessSetupError, providerPhaseModels } from './shared';
+import { AUTO_BUILD_PATH, findGitRoot, HeadlessSetupError, providerPhaseModels, resolveHeadlessSpec } from './shared';
 import {
   notifyHeadlessOutcome,
   projectNameFromPath,
@@ -87,20 +87,6 @@ export interface HeadlessRunResult {
   branch?: string;
   worktreePath?: string;
   aborted: boolean;
-}
-
-function resolveSpec(projectRoot: string, spec: string): { specId: string; specDir: string } {
-  const specsDir = path.join(projectRoot, getSpecsDir(AUTO_BUILD_PATH));
-  const looksLikePath = spec.includes('/') || spec.includes(path.sep);
-  if (!looksLikePath) {
-    return { specId: spec, specDir: path.join(specsDir, spec) };
-  }
-  const specDir = path.resolve(spec);
-  const specId = path.basename(specDir);
-  if (path.resolve(specsDir, specId) !== specDir) {
-    throw new HeadlessSetupError(`Spec directory ${specDir} must be inside ${specsDir}`);
-  }
-  return { specId, specDir };
 }
 
 export async function runHeadlessTask(options: HeadlessRunOptions): Promise<number> {
@@ -184,7 +170,7 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     // (1) project and spec
     const projectPath = findGitRoot(path.resolve(options.projectPath ?? process.cwd()));
     webhookProject = projectNameFromPath(projectPath);
-    const resolved = resolveSpec(projectPath, options.spec);
+    const resolved = resolveHeadlessSpec(projectPath, options.spec);
     specId = resolved.specId;
     const specDir = resolved.specDir;
     writebackProjectPath = projectPath;
