@@ -4,6 +4,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   warn: vi.fn(),
   settings: undefined as Record<string, unknown> | undefined,
+  readSettingsFile: vi.fn(),
   projectConfig: vi.fn(),
   approvals: vi.fn(),
   signingRecord: vi.fn()
@@ -12,7 +13,7 @@ vi.mock('../webhook-approval-store', () => ({ getWebhookApprovals: mocks.approva
 vi.mock('../webhook-secret-store', () => ({ getProjectWebhookSigningRecord: mocks.signingRecord }));
 vi.mock('../project-webhook-config', () => ({ getProjectWebhookConfig: mocks.projectConfig }));
 vi.mock('../app-logger', () => ({ appLog: { warn: mocks.warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
-vi.mock('../settings-utils', () => ({ readSettingsFile: () => mocks.settings }));
+vi.mock('../settings-utils', () => ({ readSettingsFile: mocks.readSettingsFile }));
 
 import {
   buildWebhookPayload,
@@ -33,6 +34,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   mocks.warn.mockReset();
   mocks.settings = undefined;
+  mocks.readSettingsFile.mockReset().mockImplementation(() => mocks.settings);
   mocks.projectConfig.mockReset();
   mocks.projectConfig.mockReturnValue(null);
   mocks.approvals.mockReset();
@@ -303,12 +305,20 @@ describe('dispatchTaskOutcomeWebhook with a project webhook', () => {
     expect(mocks.projectConfig).toHaveBeenCalledWith(project, { urls: [] });
   });
 
-  it('sends nothing, not even app-wide, when the project event is disabled', async () => {
-    mocks.settings = appWide;
-    mocks.projectConfig.mockReturnValue(cfg(false));
-    dispatchTaskOutcomeWebhook(input);
+  it.each([
+    { outcome: input, events: cfg(false).events },
+    {
+      outcome: { ...input, status: 'human_review', reviewReason: 'account_required' },
+      events: { ...cfg(true).events, blocked: false }
+    }
+  ])('skips $outcome.status without falling back when its project event is disabled', async ({ outcome, events }) => {
+    mocks.settings = { webhook: { ...appWide.webhook, secret: 'saved-secret' } };
+    mocks.projectConfig.mockReturnValue({ ...cfg(true), events });
+    dispatchTaskOutcomeWebhook(outcome);
     await new Promise((r) => setTimeout(r, 10));
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.warn).not.toHaveBeenCalled();
+    expect(mocks.readSettingsFile).not.toHaveBeenCalled();
   });
 
   it('falls back to the app-wide webhook when the project has none', async () => {
@@ -494,6 +504,18 @@ describe('webhook signing secret', () => {
     expect(appUrl).toBe(URL_OK);
     expect(verifiesWith(appRequest, APP_KEY)).toBe(true);
     expect(verifiesWith(appRequest, PROJECT_KEY)).toBe(false);
+  });
+
+  it('signs approved project sends with the project key even when app-wide delivery is disabled', async () => {
+    mocks.settings = { webhook: { ...withSecret(APP_KEY).webhook, enabled: false } };
+    mocks.projectConfig.mockReturnValue(approved);
+    mocks.signingRecord.mockReturnValue(signedRecord);
+    dispatchTaskOutcomeWebhook(input);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, request] = fetchMock.mock.calls[0];
+    expect(url).toBe(PROJECT_URL);
+    expect(verifiesWith(request, PROJECT_KEY)).toBe(true);
+    expect(verifiesWith(request, APP_KEY)).toBe(false);
   });
 
   it('adds no signature headers without a secret', async () => {

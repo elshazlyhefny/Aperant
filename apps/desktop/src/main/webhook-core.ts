@@ -1,20 +1,20 @@
 /**
  * Electron-free task-outcome webhook dispatch with injected settings.
  * zeenha fork: lets the CLI daemon (`cli.js serve`) send outcome webhooks.
- * Validation, payload and delivery come from task-webhook-core.ts; delivery
- * warnings go through log-port, never app-logger.
+ * Event filtering, validation, payload and delivery come from the shared
+ * deliverWebhookEvent in task-webhook-core.ts; delivery warnings go through
+ * log-port, never app-logger.
  *
  * Security: the URL, request body and response body are never logged; nothing
  * here throws.
  */
 
 import type { TaskStatus, ReviewReason } from '../shared/types';
-import type { DeliveryOperation, DeliveryResult } from '../shared/types/delivery-receipt';
+import type { DeliveryResult } from '../shared/types/delivery-receipt';
 import type { WebhookSettings } from '../shared/types/settings';
 import type { DeliveryReceiptRecorder } from './delivery-receipts';
 import { appLogPort } from './log-port';
-import type { ProjectWebhookSigningDecision } from './project-webhook-signing';
-import { prepareWebhookDelivery, sendWebhookDetailed, validateWebhookUrl, type WebhookEvent } from './task-webhook-core';
+import { deliverWebhookEvent, type WebhookDestination, type WebhookEvent } from './task-webhook-core';
 
 export function mapOutcomeToWebhookEvent(
   status: TaskStatus | string,
@@ -31,15 +31,6 @@ export function mapOutcomeToWebhookEvent(
   return null;
 }
 
-const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
-  review_ready: 'reviewReady',
-  failed: 'failed',
-  blocked: 'blocked',
-  // zeenha fork: an account pause needs attention, so it shares the blocked toggle (no new setting).
-  account_required: 'blocked',
-  pr_opened: 'prOpened'
-};
-
 export interface TaskOutcomeWebhookInput {
   status: TaskStatus | string;
   reviewReason?: ReviewReason | string | null;
@@ -48,59 +39,20 @@ export interface TaskOutcomeWebhookInput {
   prUrl?: string;
 }
 
-/** zeenha fork: apply route gates and optionally record one receipt for the whole send. */
+/** zeenha fork: apply the route gate, then the shared filter and delivery (optionally recording one receipt). */
 export async function dispatchTaskOutcomeWebhookWith(
-  settings: WebhookSettings,
+  settings: WebhookDestination & Pick<WebhookSettings, 'enabled'>,
   input: TaskOutcomeWebhookInput,
-  options: {
-    recorder?: DeliveryReceiptRecorder;
-    warn?: (message: string) => void;
-    /** zeenha fork: per-destination signing; called only once the route would send. */
-    resolveSigning?: () => ProjectWebhookSigningDecision;
-  } = {}
+  options: { recorder?: DeliveryReceiptRecorder; warn?: (message: string) => void } = {}
 ): Promise<DeliveryResult | undefined> {
   try {
     const event = mapOutcomeToWebhookEvent(input.status, input.reviewReason);
     if (!event || !settings.enabled) return;
-    const operation: DeliveryOperation = { operation: 'webhook', event };
-    const skip = async (reason: Extract<DeliveryResult, { status: 'skipped' }>['reason']): Promise<DeliveryResult> => {
-      await options.recorder?.skip(operation, reason);
-      return { status: 'skipped', reason };
-    };
-    if (!settings.events[EVENT_TOGGLE[event]]) return await skip('event_disabled');
-    if (!validateWebhookUrl(settings.url).ok) return await skip(settings.url ? 'invalid_target' : 'missing_target');
-    const warn = options.warn ?? ((message: string) => appLogPort.warn(message));
-    const signing = options.resolveSigning?.();
-    if (signing?.action === 'withhold') {
-      try {
-        warn(`[Webhook] project webhook delivery withheld reason=${signing.reason}`);
-      } catch {
-        // never throw from logging
-      }
-      return await skip('missing_configuration');
-    }
-
-    const delivery = prepareWebhookDelivery({
-      url: settings.url,
-      format: settings.format,
-      projectName: input.projectName,
-      taskTitle: input.taskTitle,
-      event,
-      prUrl: input.prUrl
-    });
-    const sendOptions = {
-      eventName: event,
-      secret: signing ? signing.secret : settings.secret,
-      warn
-    };
-    let result: DeliveryResult | undefined;
-    const send = async () => {
-      result = await sendWebhookDetailed(delivery.url, delivery.payload, sendOptions);
-      return result;
-    };
-    if (!options.recorder) return await send();
-    await options.recorder.track({ ...operation, provider: delivery.format }, send);
-    return result;
+    return await deliverWebhookEvent(
+      settings,
+      { event, projectName: input.projectName, taskTitle: input.taskTitle, prUrl: input.prUrl },
+      { recorder: options.recorder, warn: options.warn ?? ((message: string) => appLogPort.warn(message)) }
+    );
   } catch {
     // never let webhook problems affect task flow
   }

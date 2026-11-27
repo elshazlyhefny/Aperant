@@ -1,9 +1,12 @@
+import { createHmac } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebhookSettings } from '../../shared/types/settings';
 import { createDeliveryReceiptRecorder, readDeliveryReceipts } from '../delivery-receipts';
+import { appLogPort } from '../log-port';
+import { WEBHOOK_SIGNATURE_HEADER, WEBHOOK_TIMESTAMP_HEADER } from '../task-webhook-core';
 import { dispatchTaskOutcomeWebhookWith, mapOutcomeToWebhookEvent } from '../webhook-core';
 
 const URL_OK = 'https://hooks.example.com/services/X/Y';
@@ -24,13 +27,60 @@ beforeEach(() => {
   fetchMock = vi.fn().mockResolvedValue({ status: 200 } as Response);
   vi.stubGlobal('fetch', fetchMock);
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 describe('dispatchTaskOutcomeWebhookWith', () => {
-  it('sends with injected settings', () => {
-    dispatchTaskOutcomeWebhookWith(settings(), input);
+  it('starts the request synchronously and signs the exact body with the injected secret', async () => {
+    let resolveFetch!: (response: Pick<Response, 'status'>) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Pick<Response, 'status'>>((resolve) => {
+      resolveFetch = resolve;
+    }));
+    const secret = 'fixture-webhook-signing-key';
+
+    const pending = dispatchTaskOutcomeWebhookWith(settings({ secret }), input);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe(URL_OK);
+    const [url, { body, headers }] = fetchMock.mock.calls[0];
+    expect(url).toBe(URL_OK);
+    const timestamp = headers[WEBHOOK_TIMESTAMP_HEADER];
+    expect(timestamp).toMatch(/^\d+$/);
+    const signature = createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+    expect(headers[WEBHOOK_SIGNATURE_HEADER]).toBe(`sha256=${signature}`);
+    resolveFetch({ status: 200 });
+    await expect(pending).resolves.toEqual({ status: 'delivered', attempts: 1, httpStatus: 200 });
+  });
+
+  it('warns safely through the log port and isolates transport and logging failures', async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(appLogPort, 'warn').mockImplementation(() => {
+      throw new Error('logger unavailable');
+    });
+    fetchMock.mockRejectedValueOnce(new TypeError(`private fetch details: ${URL_OK}`));
+
+    const pending = dispatchTaskOutcomeWebhookWith(settings(), input);
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toEqual({ status: 'delivered', attempts: 2, httpStatus: 200 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls).toEqual([['[Webhook] delivery failed event=failed attempt=1/3 reason=TypeError']]);
+  });
+
+  it('silently handles an unexpected delivery rejection', async () => {
+    const warn = vi.spyOn(appLogPort, 'warn').mockImplementation(() => undefined);
+    const s: WebhookSettings = {
+      ...settings(),
+      get secret(): string {
+        throw new Error('private configuration details');
+      }
+    };
+
+    await expect(dispatchTaskOutcomeWebhookWith(s, input)).resolves.toBeUndefined();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('does nothing when disabled', () => {

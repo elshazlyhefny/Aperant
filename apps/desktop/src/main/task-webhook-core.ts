@@ -2,12 +2,14 @@
  * Electron-free core of the task-outcome webhook (Slack-compatible JSON body).
  *
  * Security: payloads are built from an allow-list of fields only; the URL,
- * request body and response body are never logged; nothing here throws.
- * Keep this module free of Electron and desktop settings/logging dependencies.
+ * request body and response body are never logged. Keep runtime imports
+ * Electron-free (no desktop settings/logging) so desktop and CLI share it.
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { DeliveryResult } from '../shared/types/delivery-receipt';
+import type { DeliveryOperation, DeliveryResult } from '../shared/types/delivery-receipt';
+import type { WebhookSettings } from '../shared/types/settings';
+import type { DeliveryReceiptRecorder } from './delivery-receipts';
 import { sanitizeUrl } from './ipc-handlers/shared/sanitize';
 import {
   detectWebhookFormat,
@@ -18,6 +20,15 @@ import {
 // zeenha fork: account_required is a resumable pause (no usable account for a
 // phase's provider), reported apart from failed so receivers do not see a failure.
 export type WebhookEvent = 'review_ready' | 'failed' | 'blocked' | 'account_required' | 'pr_opened';
+
+const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
+  review_ready: 'reviewReady',
+  failed: 'failed',
+  blocked: 'blocked',
+  // zeenha fork: an account pause needs attention, so it shares the blocked toggle (no new setting).
+  account_required: 'blocked',
+  pr_opened: 'prOpened'
+};
 
 export interface SlackWebhookPayload {
   text: string;
@@ -284,6 +295,70 @@ export function prepareWebhookDelivery(
     format
   });
   return { url: nativeUrl(input.url, format), payload, format };
+}
+
+/** zeenha fork: a per-destination signing decision; 'withhold' sends nothing. */
+export type WebhookSigningDecision = { action: 'send'; secret: string } | { action: 'withhold'; reason: string };
+
+export type WebhookDestination = Pick<WebhookSettings, 'url' | 'format' | 'events'> & {
+  /** A secret, or a signing decision resolved only once the event and target checks pass. */
+  secret?: string | (() => WebhookSigningDecision);
+  /** The caller already rejected the configured URL and kept no copy of it. */
+  targetRejected?: boolean;
+};
+
+export interface WebhookDeliveryTransport {
+  send?: typeof sendWebhookDetailed;
+  warn?: (message: string) => void;
+  delay?: (ms: number) => Promise<void>;
+  recorder?: DeliveryReceiptRecorder;
+}
+
+type SkipReason = Extract<DeliveryResult, { status: 'skipped' }>['reason'];
+
+/**
+ * zeenha fork: the one event filter and delivery path shared by the desktop and
+ * headless adapters. Records at most one receipt. Unexpected errors reject.
+ */
+export async function deliverWebhookEvent(
+  destination: WebhookDestination,
+  input: WebhookBuildInput,
+  { send = sendWebhookDetailed, warn, delay, recorder }: WebhookDeliveryTransport = {}
+): Promise<DeliveryResult> {
+  const operation: DeliveryOperation = { operation: 'webhook', event: input.event };
+  const skip = async (reason: SkipReason): Promise<DeliveryResult> => {
+    await recorder?.skip(operation, reason);
+    return { status: 'skipped', reason };
+  };
+  if (!destination.events[EVENT_TOGGLE[input.event]]) return await skip('event_disabled');
+  if (destination.targetRejected) return await skip('invalid_target');
+  if (!validateWebhookUrl(destination.url).ok) return await skip(destination.url ? 'invalid_target' : 'missing_target');
+
+  let secret: string | undefined;
+  if (typeof destination.secret === 'function') {
+    const signing = destination.secret();
+    if (signing.action === 'withhold') {
+      try {
+        warn?.(`[Webhook] project webhook delivery withheld reason=${signing.reason}`);
+      } catch {
+        // never throw from logging
+      }
+      return await skip('missing_configuration');
+    }
+    secret = signing.secret;
+  } else {
+    secret = destination.secret;
+  }
+
+  const prepared = prepareWebhookDelivery({ ...input, url: destination.url, format: destination.format });
+  let result: DeliveryResult = { status: 'unknown', reason: 'unconfirmed' };
+  const deliver = async (): Promise<DeliveryResult> => {
+    result = await send(prepared.url, prepared.payload, { eventName: input.event, secret, warn, delay });
+    return result;
+  };
+  if (!recorder) return await deliver();
+  await recorder.track({ ...operation, provider: prepared.format }, deliver);
+  return result;
 }
 
 export function prepareTestWebhookDelivery(

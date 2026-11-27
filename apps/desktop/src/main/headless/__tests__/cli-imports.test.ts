@@ -22,14 +22,22 @@ function resolveLocal(fromFile: string, specifier: string): string | null {
   return candidates.find((file) => existsSync(file) && statSync(file).isFile()) ?? null;
 }
 
+function localImports(file: string): string[] {
+  const targets: string[] = [];
+  for (const match of readFileSync(file, 'utf8').matchAll(STATIC_IMPORT)) {
+    const target = resolveLocal(file, match[1]);
+    if (target) targets.push(target);
+  }
+  return targets;
+}
+
 function collectReachable(entry: string): Set<string> {
   const seen = new Set<string>([entry]);
   const queue = [entry];
   while (queue.length > 0) {
     const file = queue.shift() as string;
-    for (const match of readFileSync(file, 'utf8').matchAll(STATIC_IMPORT)) {
-      const target = resolveLocal(file, match[1]);
-      if (target && !seen.has(target)) {
+    for (const target of localImports(file)) {
+      if (!seen.has(target)) {
         seen.add(target);
         queue.push(target);
       }
@@ -71,15 +79,36 @@ describe('headless cli imports', () => {
 
   it('bundles the queue and schedule modules but not their Electron-bound siblings', () => {
     const reached = new Set([...collectReachable(CLI_ENTRY)].map((file) => path.basename(file)));
-    for (const name of ['task-queue-manager.ts', 'schedule-service.ts', 'schedule-file-store.ts', 'webhook-core.ts',
+    for (const name of ['task-queue-manager.ts', 'schedule-service.ts', 'schedule-file-store.ts',
       'task-store.ts', 'shared.ts', 'preflight.ts', 'preflight-credentials.ts',
       'github-writer.ts', 'gitlab-writer.ts', 'linear-writer.ts', 'jira-writer.ts', 'headless-writers.ts',
       'issue-writeback-core.ts', 'issue-writeback-settings.ts', 'github-api.ts', 'gitlab-api.ts', 'writeback.ts',
     ]) {
       expect(reached.has(name), `${name} should be reachable`).toBe(true);
     }
-    for (const name of ['app-logger.ts', 'settings-utils.ts', 'schedule-store.ts', 'task-webhook.ts']) {
-      expect(reached.has(name), `${name} must not be reachable`).toBe(false);
+    expect(reached.has('schedule-store.ts'), 'schedule-store.ts must not be reachable').toBe(false);
+  });
+
+  it('reaches both webhook adapters and they import the same shared core', () => {
+    const reached = collectReachable(CLI_ENTRY);
+    const core = path.join(SRC_ROOT, 'main/task-webhook-core.ts');
+    for (const rel of ['main/headless/webhook.ts', 'main/webhook-core.ts']) {
+      const adapter = path.join(SRC_ROOT, rel);
+      expect(reached.has(adapter), `${rel} should be reachable`).toBe(true);
+      expect(localImports(adapter), `${rel} should import the shared core`).toContain(core);
+    }
+  });
+
+  it('does not reach desktop webhook, logging, settings or approval modules', () => {
+    const reached = collectReachable(CLI_ENTRY);
+    for (const rel of [
+      'main/task-webhook.ts',
+      'main/app-logger.ts',
+      'main/settings-utils.ts',
+      'main/project-webhook-config.ts',
+      'main/webhook-approval-store.ts',
+    ]) {
+      expect(reached.has(path.join(SRC_ROOT, rel)), `${rel} must not be reachable`).toBe(false);
     }
   });
 

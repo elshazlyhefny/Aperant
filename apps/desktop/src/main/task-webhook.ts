@@ -78,21 +78,21 @@ export async function dispatchTaskOutcomeWebhook(
       safeWarn('[Webhook] project webhook not approved, using app-wide webhook');
     }
     if (project && projectConfig?.status === 'approved') {
-      const settings: WebhookSettings = {
+      const destination = {
         enabled: true,
         url: projectConfig.url,
         format: projectConfig.format,
         events: projectConfig.events,
-        secret: ''
+        // zeenha fork: reserve the app-wide key for the app-wide destination;
+        // resolved only once the event is enabled and the target is valid.
+        secret: () =>
+          resolveProjectWebhookSigning({
+            record: getProjectWebhookSigningRecord(project.path),
+            urlHash: projectConfig.hash,
+            appSecretSet: Boolean(loadWebhookSettings().secret)
+          })
       };
-      // zeenha fork: reserve the app-wide key for the app-wide destination.
-      const resolveSigning = () =>
-        resolveProjectWebhookSigning({
-          record: getProjectWebhookSigningRecord(project.path),
-          urlHash: projectConfig.hash,
-          appSecretSet: Boolean(loadWebhookSettings().secret)
-        });
-      return await dispatchTaskOutcomeWebhookWith(settings, input, { recorder, warn: safeWarn, resolveSigning });
+      return await dispatchTaskOutcomeWebhookWith(destination, input, { recorder, warn: safeWarn });
     }
     return await dispatchTaskOutcomeWebhookWith(loadWebhookSettings(), input, { recorder, warn: safeWarn });
   } catch {
