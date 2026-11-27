@@ -25,7 +25,15 @@ on:
       - 'apps/desktop/biome.jsonc'
       - 'scripts/release-signing-gate*'
       - 'scripts/verify-windows-signatures.ps1'
+  # zeenha fork: run the required gate on merge-queue commits, so each PR is
+  # tested on top of the latest trunk and the PRs queued before it. merge_group
+  # takes no path filters, so every queued commit runs the full gate.
+  merge_group:
+    types: [checks_requested]
 
+# zeenha fork: a merge_group run has no PR number, and its github.ref
+# (refs/heads/gh-readonly-queue/<base>/pr-<n>-<sha>) is unique per queued
+# commit, so queue runs never cancel one another or a PR run.
 concurrency:
   group: lint-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
