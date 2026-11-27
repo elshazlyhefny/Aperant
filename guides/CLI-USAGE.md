@@ -39,11 +39,20 @@ The headless command runs one existing spec through the planner, coder and QA pi
 
 ### Prerequisites
 
-- Node 22 or newer.
-- Dependencies installed with `npm run install:all`.
-- A build: `npm run build` in `apps/desktop`. This produces `apps/desktop/out/main/cli.js`.
 - The project is a git repository.
 - A spec at `.auto-claude/specs/<id>/spec.md`, or create one with `new`. `.auto-claude/` is gitignored in this repository, so a CI job must create or restore the spec before it runs `run`.
+
+#### Building from source
+
+Use Node 24 or newer and npm 10 or newer. Run `npm ci --ignore-scripts` at the checkout root, then run `npm run build` in `apps/desktop`. This produces `apps/desktop/out/main/cli.js`. The CLI does not need Electron's install scripts.
+
+#### Running a built CLI
+
+Use Node 24 or newer. Node 22 is not verified for runtime use.
+
+Keep `apps/desktop/out/` in the checkout. The bundle loads dependencies from the installed `node_modules` and prompts from `apps/desktop/prompts`.
+
+The [`cli-build` and `cli-runtime` jobs](../.github/workflows/ci.yml) check the source build and smoke-test that same build. The runtime smoke is required on Node 24 and informational on Node 22.
 
 ### Creating a spec from a description
 
@@ -192,7 +201,7 @@ Differences from the app:
 
 ### GitHub Actions example
 
-This workflow starts when an issue gets the `aperant` label. It assumes the job has written the spec to `.auto-claude/specs/issue-<number>/spec.md`.
+This workflow starts when an issue gets the `aperant` label. It assumes the job has written the spec to `.auto-claude/specs/issue-<number>/spec.md`. The `cli-build` job runs the same install and build steps on every change.
 
 ```yaml
 name: aperant-task
@@ -216,10 +225,12 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: npm run install:all
-      - run: npm run build
+          node-version: 24
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Build application
         working-directory: apps/desktop
+        run: npm run build
       - name: Write the spec
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
@@ -317,7 +328,7 @@ npm run cli -- stop <spec> ...
 
 ## Running the queue and schedules as a daemon
 
-`serve` runs one project's task queue and its recurring schedules without opening the app, until you stop it. Use it on a server or a machine where the app is not open. It needs the same prerequisites as `run` (Node 22 or newer, a build, a git repository) and the same [credentials](#credentials).
+`serve` runs one project's task queue and its recurring schedules without opening the app, until you stop it. Use it on a server or a machine where the app is not open. It needs a git repository, the same [built CLI and Node runtime](#running-a-built-cli) as `run`, and the same [credentials](#credentials).
 
 ### Command
 
