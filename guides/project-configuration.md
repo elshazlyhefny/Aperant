@@ -188,15 +188,25 @@ The project also needs an `autoBuildPath` and an existing `.auto-claude/.env`. R
 | `AZURE_DEVOPS_REPOSITORY` | Repository name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
 | `AZURE_DEVOPS_PAT` | Personal access token. A secret, see [Secrets](#secrets). It needs the scopes Code (Read & write) and Build (Read). | Yes |
 
-These same keys are used for Azure Boards work item write-back, which is off by default and controlled in the app settings. The PAT then also needs the Work Items (Read & write) scope. See [issue-writeback.md](issue-writeback.md).
-
-Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visualstudio.com` remotes. Azure DevOps Server (on premises) is not.
+Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visualstudio.com` remotes. Azure DevOps Server (on premises) is not. See the [integration capabilities table](README.md#integration-capabilities) for review, import and write-back support.
 
 What works:
 
 - **Detect** reads the `origin` remote and matches the five remote formats of Azure DevOps Services.
 - **Create PR** opens a pull request on Azure DevOps. Drafts are real drafts. The description is capped at 4000 characters. Issue lines are worded without `#`, because Azure DevOps links `#123` to work items. See [Creating pull requests](creating-pull-requests.md).
 - **PR feedback** sends failed build validations and active threads to the task's agent. See [PR Follow-ups](pr-follow-ups.md).
+
+#### Azure DevOps AI PR review
+
+In the desktop app, open **Azure DevOps PRs**, select an open pull request, and click **Start AI review**. Running the review does not post anything to the PR.
+
+To publish findings, select the findings you want to share, click **Post selected findings to Azure DevOps**, and confirm. This posts to the pull request, not to an Azure Boards work item.
+
+#### Azure Boards work items
+
+To import work items as tasks, choose **Import from Azure Boards** in the connected Azure DevOps integration in the desktop project settings. This is separate from PR review.
+
+Outcome write-back targets the imported work item and is off by default. It reuses the same project keys; the PAT needs the Work Items (Read & write) scope for write-back. See [Issue write-back](issue-writeback.md#turn-it-on) for desktop and headless setup.
 
 #### Troubleshooting
 
