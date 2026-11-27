@@ -21,7 +21,6 @@ import {
   readTaskMetadata,
   resolveTaskModelId,
   resolveTaskPhaseProvider,
-  resolveTaskTokenBudget,
   serializeSecurityProfile,
 } from '../ai/agent/task-session';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
@@ -37,6 +36,7 @@ import type { HeadlessBridge } from './bridge-run';
 import { classifyRun, EXIT_ERROR } from './outcome';
 import type { RunOutcome } from './outcome';
 import { createProgressReporter } from './progress';
+import type { ResultInfo } from './progress';
 import {
   AUTO_BUILD_PATH,
   findGitRoot,
@@ -45,6 +45,7 @@ import {
   resolveDeliveryReceiptRoot,
   resolveHeadlessSpec,
 } from './shared';
+import { resolveHeadlessTokenBudget } from './token-budget';
 import {
   notifyHeadlessOutcome,
   projectNameFromPath,
@@ -132,6 +133,8 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
   let worktreeSpecDirForWriteback: string | undefined;
   let specId: string | undefined;
   let recorder: DeliveryReceiptRecorder | undefined;
+  // zeenha fork: the effective budget joins the result line once the build ran.
+  let resultTokenBudget: ResultInfo['tokenBudget'];
   const sendOutcome = async (outcome: RunOutcome): Promise<void> => {
     if (webhook) {
       try {
@@ -214,6 +217,9 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       noPush: options.noPush,
     });
 
+    const tokenBudget = resolveHeadlessTokenBudget(specDir, config);
+    reporter.tokenBudget(tokenBudget);
+
     // (3) model and credentials, before anything is created on disk
     const modelId = await resolveTaskModelId(specDir, 'planning', providerPhaseModels(config));
     const preferredProvider = resolveTaskPhaseProvider(specDir, 'planning');
@@ -261,9 +267,9 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       specDir: worktreeSpecDir,
       projectDir: worktreePath,
       sourceSpecDir: specDir,
-      // zeenha fork: the task's token budget from task_metadata.json, as in the app.
-      // The CLI has no project store, so there is no project default.
-      tokenBudget: resolveTaskTokenBudget(specDir),
+      // zeenha fork: use task_metadata.json, then --config project.defaultTokenBudget,
+      // never desktop settings.
+      tokenBudget: tokenBudget.limit,
       provider: resolvedAuth.provider,
       modelId: resolvedAuth.modelId,
       apiKey: resolvedAuth.auth.apiKey,
@@ -323,6 +329,7 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       worktreePath,
       aborted: runInput.abortSignal !== undefined,
     };
+    resultTokenBudget = { limit: tokenBudget.limit ?? null, source: tokenBudget.source };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     reporter.error(message);
@@ -334,6 +341,11 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
   await sendOutcome(result.outcome);
   const receipts = recorder?.snapshot();
   if (specId && receipts?.length) reporter.deliveryReceipts(specId, receipts);
-  reporter.summary(result.outcome, { spec: specId, branch: result.branch, worktree: result.worktreePath });
+  reporter.summary(result.outcome, {
+    spec: specId,
+    branch: result.branch,
+    worktree: result.worktreePath,
+    tokenBudget: resultTokenBudget,
+  });
   return result;
 }

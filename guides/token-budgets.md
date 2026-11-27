@@ -65,7 +65,7 @@ Every schedule has a "Token budget per run" field. It is required: a positive wh
 
 ## Headless runs
 
-The CLI reads only the task's own `task_metadata.json`. It does not use the project default. See [CLI-USAGE.md](CLI-USAGE.md#token-budget).
+The CLI reads the task's `tokenBudget` from `task_metadata.json`. When that has no value, it uses the optional `project.defaultTokenBudget` from its `--config` file. It never uses the desktop project default. See [CLI-USAGE.md](CLI-USAGE.md#token-budget).
 
 ## Keeping the code and this guide in sync
 

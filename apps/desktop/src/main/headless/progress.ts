@@ -6,6 +6,7 @@ import type { ExecutionProgressData } from '../agent/types';
 import type { DeliveryReceipt } from '../../shared/types/delivery-receipt';
 import { stripAnsiCodes } from '../../shared/utils/ansi-sanitizer';
 import type { RunEvent, RunOutcome } from './outcome';
+import type { HeadlessTokenBudget } from './token-budget';
 
 export interface ProgressReporterOptions {
   json?: boolean;
@@ -22,12 +23,14 @@ export interface ResultInfo {
   spec?: string;
   branch?: string;
   worktree?: string;
+  tokenBudget?: { limit: number | null; source: string };
 }
 
 export interface ProgressReporter {
   log(text: string): void;
   progress(data: ExecutionProgressData): void;
   taskEvent(event: RunEvent): void;
+  tokenBudget(budget: HeadlessTokenBudget): void;
   error(message: string): void;
   deliveryReceipts(spec: string, receipts: DeliveryReceipt[]): void;
   summary(outcome: RunOutcome, info?: ResultInfo): void;
@@ -85,6 +88,16 @@ export function createProgressReporter(options: ProgressReporterOptions = {}): P
       }
     },
 
+    // zeenha fork: report the effective budget and its source in both output modes.
+    tokenBudget({ limit, source }) {
+      if (json) {
+        emit({ type: 'token-budget', limit: limit ?? null, source });
+        return;
+      }
+      const label = limit === undefined ? 'unlimited' : `${limit} tokens`;
+      out(`token budget: ${label} (source: ${source})\n`);
+    },
+
     error(message) {
       const line = clean(message).replace(/\s+$/, '');
       if (json) {
@@ -112,12 +125,13 @@ export function createProgressReporter(options: ProgressReporterOptions = {}): P
 
     summary(outcome, info = {}) {
       const reason = outcome.reason ? clean(outcome.reason) : undefined;
-      const { spec, branch, worktree } = info;
+      const { spec, branch, worktree, tokenBudget } = info;
       if (json) {
         emit({ type: 'result', kind: outcome.kind, exitCode: outcome.exitCode, reason,
           spec: spec === undefined ? undefined : clean(spec),
           branch: branch === undefined ? undefined : clean(branch),
-          worktree: worktree === undefined ? undefined : clean(worktree) });
+          worktree: worktree === undefined ? undefined : clean(worktree),
+          tokenBudget: tokenBudget === undefined ? undefined : { limit: tokenBudget.limit, source: clean(tokenBudget.source) } });
         return;
       }
       const parts = [`RESULT ${outcome.kind} exit=${outcome.exitCode}`];

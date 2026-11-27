@@ -33,10 +33,12 @@ vi.mock(import('../task-store'), async (importOriginal) => {
 });
 
 import { readDeliveryReceipts } from '../../delivery-receipts';
+import { EXIT_ERROR } from '../outcome';
 import { runServe, EXIT_LOCKED } from '../serve';
 import type { ServeOptions } from '../serve';
 import type { HeadlessBridge } from '../run-task';
 import { writeStopRequest } from '../stop-request';
+import type { AgentExecutorConfig } from '../../ai/agent/types';
 import { createHeadlessTaskReader, createScheduledTaskSpec } from '../task-store';
 import { createScheduleFileStore } from '../../schedule-file-store';
 import { acquireProjectQueueLock, getQueueLockPath } from '../../utils/project-queue-lock';
@@ -45,7 +47,7 @@ import type { RecurringSchedule } from '../../../shared/types/schedule';
 
 class FakeBridge extends EventEmitter implements HeadlessBridge {
   taskId = '';
-  spawn = vi.fn((config: { taskId: string }) => {
+  spawn = vi.fn((config: AgentExecutorConfig) => {
     this.taskId = config.taskId;
   });
   terminate = vi.fn(async () => {
@@ -137,6 +139,39 @@ async function stop(p: Promise<number>): Promise<number> {
 }
 
 describe('runServe queue', () => {
+  it('reports the configured default and applies it only to tasks without a budget override', async () => {
+    makeSpec('001-inherit');
+    makeSpec('002-unlimited', 'queue', {}, { tokenBudget: 0 });
+    const p = serve({ config: { project: { maxParallelTasks: 2, defaultTokenBudget: 1000 } } });
+    try {
+      await vi.waitFor(() => expect(spawned()).toHaveLength(2));
+      const inherited = spawned().find((b) => b.taskId === '001-inherit');
+      const unlimited = spawned().find((b) => b.taskId === '002-unlimited');
+      expect(inherited?.spawn.mock.calls[0][0].session.tokenBudget).toBe(1000);
+      expect(unlimited).toBeDefined();
+      expect(unlimited?.spawn.mock.calls[0][0].session.tokenBudget).toBeUndefined();
+      expect(out[0]).toContain('up to 2 parallel task(s), default token budget 1000 tokens\n');
+      expect(out).toContain('[001-inherit] token budget: 1000 tokens (source: config)\n');
+      expect(out).toContain('[002-unlimited] token budget: unlimited (source: task)\n');
+    } finally {
+      await stop(p);
+    }
+  });
+
+  it('keeps queued tasks unlimited and the startup line unchanged without a default', async () => {
+    makeSpec('001-a');
+    const p = serve({ now: () => T0 });
+    try {
+      await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+      expect(spawned()[0].spawn.mock.calls[0][0].session.tokenBudget).toBeUndefined();
+      expect(out[0]).toBe(
+        `${new Date(T0).toISOString()} Serving ${path.basename(projectDir)} (${projectDir}), up to 2 parallel task(s)\n`
+      );
+    } finally {
+      await stop(p);
+    }
+  });
+
   it('respects maxParallelTasks and starts the next task when a slot frees', async () => {
     makeSpec('001-a');
     makeSpec('002-b');
@@ -265,6 +300,17 @@ describe('runServe queue', () => {
     expect(err.join('')).not.toContain('example.com');
     expect(bridges).toHaveLength(0);
     expect(existsSync(path.join(projectDir, '.auto-claude', '.locks'))).toBe(false);
+  });
+
+  it('rejects an invalid default from the config file before locking the queue or creating a bridge', async () => {
+    makeSpec('001-a');
+    const configPath = path.join(projectDir, 'headless-config.json');
+    writeFileSync(configPath, JSON.stringify({ project: { defaultTokenBudget: 0 } }));
+
+    await expect(serve({ config: undefined, configPath })).resolves.toBe(EXIT_ERROR);
+    expect(err.join('')).toContain('project.defaultTokenBudget');
+    expect(bridges).toHaveLength(0);
+    expect(existsSync(path.dirname(getQueueLockPath(projectDir)))).toBe(false);
   });
 
   it('exits 3 and starts nothing when a desktop holds the lock', async () => {
@@ -407,26 +453,31 @@ describe('runServe schedules', () => {
     });
   }
 
-  it('fires a due schedule, creates a task and starts it', async () => {
-    const due = makeSchedule();
+  it('fires a due schedule and starts its task with the schedule budget rather than the default', async () => {
+    const due = makeSchedule({ template: { title: 'Nightly check', description: 'do it', tokenBudget: 5000 } });
     const { store } = await seedSchedules([due]);
-    const p = serveSchedules();
-    const schedule = await waitForHistory(store, due.id, ['started']);
-    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
-    expect(createScheduledTaskSpec).toHaveBeenCalledWith(
-      expect.objectContaining({ id: `headless:${projectDir}` }),
-      due.template,
-      due.id,
-      T0,
-      vi.mocked(createHeadlessTaskReader).mock.results[0]?.value.cache
-    );
-    expect(schedule.projectId).toBe(due.projectId);
-    expect(schedule.nextRunAt).toBe(T0 + DAY);
-    const taskId = schedule.lastTaskId as string;
-    expect(plan(taskId).status).toBe('in_progress');
-    expect(spawned()[0].taskId).toBe(taskId);
-    await stop(p);
-    expect(plan(taskId).status).toBe('queue');
+    const p = serveSchedules({ config: { project: { defaultTokenBudget: 1000 } } });
+    try {
+      const schedule = await waitForHistory(store, due.id, ['started']);
+      await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+      expect(createScheduledTaskSpec).toHaveBeenCalledWith(
+        expect.objectContaining({ id: `headless:${projectDir}` }),
+        due.template,
+        due.id,
+        T0,
+        vi.mocked(createHeadlessTaskReader).mock.results[0]?.value.cache
+      );
+      expect(schedule.projectId).toBe(due.projectId);
+      expect(schedule.nextRunAt).toBe(T0 + DAY);
+      const taskId = schedule.lastTaskId as string;
+      expect(plan(taskId).status).toBe('in_progress');
+      expect(spawned()[0].taskId).toBe(taskId);
+      expect(spawned()[0].spawn.mock.calls[0][0].session.tokenBudget).toBe(5000);
+      expect(out).toContain(`[${taskId}] token budget: 5000 tokens (source: schedule)\n`);
+    } finally {
+      await stop(p);
+    }
+    expect(plan(spawned()[0].taskId).status).toBe('queue');
   });
 
   it('filters out other projects when a project ID is configured', async () => {
@@ -500,19 +551,22 @@ describe('runServe schedules', () => {
       makeSchedule({ template: { title: 'Nightly check', description: 'do it', tokenBudget: 100 } }),
     ]);
     const p = serveSchedules();
-    const schedule = await waitForHistory(store, 's1', ['started']);
-    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
-    const taskId = schedule.lastTaskId as string;
-    writeFileSync(
-      path.join(specDir(taskId), 'run_metrics.json'),
-      JSON.stringify({ sessions: [{ tokens: { input: 80, output: 60 } }] })
-    );
-    await vi.waitFor(() => expect(webhook).toHaveBeenCalledTimes(1), { timeout: 3000 });
-    expect(spawned()[0].terminate).toHaveBeenCalled();
-    expect(plan(taskId).status).toBe('error');
-    expect(webhook.mock.calls[0][1].status).toBe('error');
-    await waitForHistory(store, 's1', ['started', 'budget_exceeded']);
-    await stop(p);
+    try {
+      const schedule = await waitForHistory(store, 's1', ['started']);
+      await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+      const taskId = schedule.lastTaskId as string;
+      writeFileSync(
+        path.join(specDir(taskId), 'run_metrics.json'),
+        JSON.stringify({ sessions: [{ tokens: { input: 80, output: 60 } }] })
+      );
+      await vi.waitFor(() => expect(webhook).toHaveBeenCalledTimes(1), { timeout: 3000 });
+      expect(spawned()[0].terminate).toHaveBeenCalled();
+      expect(plan(taskId).status).toBe('error');
+      expect(webhook.mock.calls[0][1].status).toBe('error');
+      await waitForHistory(store, 's1', ['started', 'budget_exceeded']);
+    } finally {
+      await stop(p);
+    }
     expect(webhook).toHaveBeenCalledTimes(1);
   });
 

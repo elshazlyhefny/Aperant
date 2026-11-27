@@ -72,7 +72,7 @@ npm run cli -- new "<description>" ...
 - In text mode it prints `RESULT success exit=0 spec=<id>`. With `--json` the same `progress` and `log` events as `run --json` are printed, followed by a final `{"type":"result",...,"spec":"<id>"}`.
 - Credentials, `--config` and exit codes work as for `run`. Without `--run`, the exit codes are 0 (spec created) and 1 (error).
 - On failure the command exits 1 and removes the half-written spec folder, so nothing is left under `.auto-claude/specs`.
-- Spec creation has no token budget. The budget applies only to the build, through `task_metadata.json` (see [Token budget](#token-budget)).
+- Spec creation has no token budget. The budget applies only to the build (see [Token budget](#token-budget)).
 - With `--run` the command continues into the build in the same process and returns the exit codes of `run` (0, 1 or 2). A single `RESULT` line is printed at the end. `--base-branch` and `--no-push` apply to the build.
 
 Then run the spec with `run <id>`, or pass `--run` to do both in one step.
@@ -112,7 +112,7 @@ npm run cli -- run <spec> ...
 ### Output
 
 - Text mode prints phase lines such as `[coding] subtask: message` on stdout. `--verbose` adds detailed log lines.
-- `--json` prints one JSON object per line on stdout: `{"type":"progress",...}`, `{"type":"log",...}`, `{"type":"task-event",...}` and a final `{"type":"result","kind":...,"exitCode":...}`.
+- `--json` prints one JSON object per line on stdout: `{"type":"progress",...}`, `{"type":"log",...}`, `{"type":"task-event",...}`, `{"type":"token-budget",...}` and a final `{"type":"result","kind":...,"exitCode":...}`.
 - The last line in text mode is `RESULT <kind> exit=<code> spec=<id> branch=<branch> worktree=<path>`, where `kind` is `success`, `qa_failed` or `error`.
 - Errors and the failure reason go to stderr (`error: ...`, `reason: ...`). Output has ANSI codes stripped and known secret values replaced with `[REDACTED]`.
 
@@ -159,12 +159,13 @@ The command never reads the desktop app's settings. Credentials come from the en
     "mainBranch": "main",
     "pushNewBranches": true,
     "envPassthrough": [],
-    "bashSandbox": "off"
+    "bashSandbox": "off",
+    "defaultTokenBudget": 1000000
   }
 }
 ```
 
-`providerAccounts` uses the same account objects as the app. `globalPriorityOrder` lists account ids in the order to try them. When both are set, the account queue is tried first, then the environment. `project` overrides the main branch, whether to push, extra environment variable names passed to Bash, and the sandbox mode. A config file that is missing or invalid stops the run with exit code 1.
+`providerAccounts` uses the same account objects as the app. `globalPriorityOrder` lists account ids in the order to try them. When both are set, the account queue is tried first, then the environment. `project` overrides the main branch, whether to push, extra environment variable names passed to Bash, and the sandbox mode. `project.defaultTokenBudget` sets an optional [token budget](#token-budget) for builds without a task value. A config file that is missing or invalid stops the run with exit code 1.
 
 `webhook` sends a message in Slack, Microsoft Teams or Discord format when the run ends (`format` is `auto`, `slack`, `teams` or `discord`; `auto` is the default and detects it from the URL): `review_ready` on exit 0, `blocked` on exit 2, `failed` on exit 1, except `account_required` (gated by the `blocked` toggle) when the run paused because no account is usable for a phase's provider. The `APERANT_WEBHOOK_URL` environment variable overrides `webhook.url`, and `APERANT_WEBHOOK_SECRET` overrides `webhook.secret`. With a secret, requests are signed, whatever the format (see [Signing requests](notifications-and-webhooks.md#signing-requests-optional-secret)). A webhook problem never changes the exit code. See [notifications-and-webhooks.md](notifications-and-webhooks.md#headless-runs-clijs-run).
 
@@ -188,21 +189,38 @@ See [notifications-and-webhooks.md](notifications-and-webhooks.md#reporting-back
 
 ### Token budget
 
-The budget comes only from the spec's `task_metadata.json`, key `tokenBudget`, at `.auto-claude/specs/<id>/task_metadata.json` in the project directory (`--project`). There is no project default: the CLI never reads the app's project settings, and the `--config` file has no budget key.
+The CLI looks for `tokenBudget` in the spec's `.auto-claude/specs/<id>/task_metadata.json` in the project directory (`--project`). If the task has no value, the CLI uses `project.defaultTokenBudget` from the `--config` file, if set. Otherwise the build is unlimited. The CLI never reads the desktop app's project or user settings.
+
+If set, `project.defaultTokenBudget` must be a positive whole number. Any other value, including `0`, stops the run with exit code 1 before a worker starts. Omit the key for no default.
+
+| Situation | Effective budget |
+|-----------|------------------|
+| Task value is positive | The task value (rounded down; unlimited if it rounds down to `0`). |
+| Task value is `0` | Unlimited, even when a headless default is set. |
+| Task value is invalid or negative | Unlimited, even when a headless default is set. |
+| Task key or file is missing, or the key is `null` | The headless default if set, otherwise unlimited. |
+| Task was created by a schedule | The schedule's per-run budget, regardless of the headless default. |
+
+Example task override:
 
 ```json
 { "tokenBudget": 500000 }
 ```
 
-`.auto-claude/` is gitignored, like `spec.md`, so a CI job must write this file itself.
+`.auto-claude/` is gitignored, like `spec.md`. To set a task override in CI, write or restore this file in the job.
 
-- A positive whole number is the limit. `0` means unlimited.
-- A missing key, a missing file or an invalid value means unlimited, even if the desktop project has a limit.
-- Counting is the same as in the app: input plus output tokens, with cache tokens not added again, cumulative over the task.
+The CLI reports the effective budget before starting the build:
+
+- Text: `token budget: 1000000 tokens (source: config)` or, for example, `token budget: unlimited (source: task)`.
+- JSON: `{"type":"token-budget","limit":1000000,"source":"config"}`. The limit is `null` for unlimited. The final `result` event for the build includes a `tokenBudget` object with the same `limit` and `source`. Setup failures can omit this field.
+
+The source is `task` for a task override (including `0` or an invalid value), `schedule` for a schedule's per-run budget, `config` for the headless default, or `none` when no value is set.
+
+Usage is cumulative across the task: input plus output tokens, with cache tokens not added again. The budget is not a hard real-time cap. Each planning, coding and QA session re-reads the usage recorded in `run_metrics.json` at the start of the session. A running session checks its own usage between model requests and steps. A schedule's per-run budget is also checked between sessions. A run can end above the limit.
 
 When the limit is reached the run stops with exit code 1 (not 0, not 2). It prints `reason: token budget reached: <used> of <limit> tokens used` on stderr and a final `RESULT error exit=1 ...` line. It is never reported as success.
 
-To continue, raise `tokenBudget` (or set it to `0`) in `task_metadata.json` and run the same spec again. The run reuses the existing worktree for that spec.
+Usage carries over on resume. If the task reached the headless default, rerunning without a task override while that default is still in effect pauses it again immediately. To continue, set `tokenBudget` in `task_metadata.json` to a value higher than the recorded usage, or to `0` for unlimited. Run the same spec again to reuse its worktree.
 
 See [token-budgets.md](token-budgets.md) for the app side.
 
@@ -484,7 +502,7 @@ npm run cli -- serve ...
 - **Tasks queued from the command line.** `queue <spec>` and `new --queue` only change the task's status to Queue. They do not talk to the daemon (no IPC). A running daemon picks the change up on its next safety pass, about 30 seconds later (`SAFETY_PROCESS_INTERVAL_MS` in `serve.ts`).
 - **Schedules.** Due schedules create a task from their template and put it in the Queue. The rules are the same as in the app, including the missed-run rule: a run more than 5 minutes late, or several runs due at once, records one `missed` entry and creates one catch-up task. See [recurring-tasks.md](recurring-tasks.md#missed-runs).
 - **Outcomes.** When a task finishes, its status is saved in the project (Human Review for a pass or a QA rejection, Error otherwise) and the [outcome webhook](notifications-and-webhooks.md) is sent if the config file enables it. The Kanban board shows the result when you open the app later.
-- **Token budgets.** A task stops when it reaches its `tokenBudget` (from its `task_metadata.json`, as for `run`). A schedule's budget per run applies to the tasks it creates; the task is stopped, set to Error, and the schedule records `budget_exceeded`.
+- **Token budgets.** Queued tasks without a value in `task_metadata.json` inherit `project.defaultTokenBudget` if set, as for [`run`](#token-budget). Schedule budgets are unchanged: the per-run budget overrides the headless default. When a scheduled task stops at its limit, it is set to Error and the schedule records `budget_exceeded`.
 
 ### The lock
 
@@ -529,7 +547,7 @@ If the file is missing or corrupt, the daemon has no schedules and only runs the
 
 ### Config file keys
 
-In addition to the keys under [Credentials](#credentials):
+`serve` uses the same config file as `run` (see [Credentials](#credentials)). This example sets a webhook, a parallel task limit and a default token budget:
 
 ```json
 {
@@ -540,12 +558,13 @@ In addition to the keys under [Credentials](#credentials):
     "secret": "a-long-random-string",
     "events": { "reviewReady": true, "failed": true, "blocked": true, "prOpened": false }
   },
-  "project": { "maxParallelTasks": 2 }
+  "project": { "maxParallelTasks": 2, "defaultTokenBudget": 1000000 }
 }
 ```
 
 - `webhook`: the outcome webhook for the daemon. It is read only from this file, never from the app's `settings.json`. `format` is optional (`auto`, `slack`, `teams` or `discord`) and is detected from the URL when omitted. See [notifications-and-webhooks.md](notifications-and-webhooks.md). An invalid URL stops the daemon with exit code 1. The daemon sends it only when `enabled` is `true`, and it does not read `APERANT_WEBHOOK_URL` or `APERANT_WEBHOOK_SECRET`. `secret` is optional and signs the requests; for the daemon it comes from this file only. `run` reads the same `url` and `events` but ignores `enabled`: for `run`, a URL is enough.
 - `project.maxParallelTasks`: how many tasks run at once. Default: 3.
+- `project.defaultTokenBudget`: optional [token budget](#token-budget) for queued builds without a task value. Use a positive whole number or omit it for no default.
 
 ### Stopping
 

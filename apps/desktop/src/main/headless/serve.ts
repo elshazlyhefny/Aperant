@@ -441,7 +441,10 @@ export async function runServe(options: ServeOptions): Promise<number> {
   });
 
   // (7) start
-  log(`Serving ${project.name} (${projectPath}), up to ${limit()} parallel task(s)`);
+  // zeenha fork: show operators when queued tasks have a configured fallback budget.
+  const defaultTokenBudget = config.project?.defaultTokenBudget;
+  const budgetSuffix = defaultTokenBudget === undefined ? '' : `, default token budget ${defaultTokenBudget} tokens`;
+  log(`Serving ${project.name} (${projectPath}), up to ${limit()} parallel task(s)${budgetSuffix}`);
   await queue.requestProcess();
   scheduleService.start();
   const timers: Array<ReturnType<typeof setInterval>> = [];
