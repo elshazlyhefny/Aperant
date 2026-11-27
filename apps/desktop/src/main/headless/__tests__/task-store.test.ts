@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TASK_RECORD_FIXTURES } from '../../__tests__/fixtures/task-record-fixtures';
 import {
+  createHeadlessTaskReader,
   createScheduledTaskSpec,
   listHeadlessTasks,
   queueHeadlessTask,
@@ -151,6 +152,191 @@ describe('shared task record fixtures', () => {
     }
     if (expected.createdAt) expect(task.createdAt.toISOString()).toBe(expected.createdAt);
     if (expected.updatedAt) expect(task.updatedAt.toISOString()).toBe(expected.updatedAt);
+  });
+});
+
+// zeenha fork: test the daemon's repeated scans with settled files that can be cached.
+describe('createHeadlessTaskReader', () => {
+  const settledAt = new Date('2020-01-01T00:00:00Z');
+  const timestamps = { created_at: settledAt.toISOString(), updated_at: settledAt.toISOString() };
+  const worktree = () => path.join(root, '.auto-claude', 'worktrees', 'tasks', '001-a');
+
+  function backdate(file: string): void {
+    utimesSync(file, settledAt, settledAt);
+  }
+
+  it('reuses all three unchanged parsed files without new misses', () => {
+    const dir = writeSpec(root, '001-a', { status: 'queue', ...timestamps }, { tokenBudget: 5 }, 'Description');
+    for (const file of ['implementation_plan.json', 'requirements.json', 'task_metadata.json']) {
+      backdate(path.join(dir, file));
+    }
+    const reader = createHeadlessTaskReader(project());
+    const first = reader.list();
+    expect(first).toEqual(listHeadlessTasks(project()));
+    expect(reader.stats).toEqual({ hits: 0, misses: 3 });
+    expect(reader.list()).toEqual(first);
+    expect(reader.stats).toEqual({ hits: 3, misses: 3 });
+  });
+
+  it('drops removed specs and evicts copies that no longer have a main spec', () => {
+    const main = writeSpec(root, '001-a', { status: 'queue' });
+    const wt = writeSpec(worktree(), '001-a', { status: 'in_progress' });
+    backdate(path.join(main, 'implementation_plan.json'));
+    backdate(path.join(wt, 'implementation_plan.json'));
+    const reader = createHeadlessTaskReader(project());
+    expect(reader.list()[0].status).toBe('in_progress');
+    expect(reader.stats.misses).toBe(2);
+
+    // Move it aside so it can be restored with the exact same inode and mtime.
+    const moved = path.join(root, 'moved-spec');
+    renameSync(main, moved);
+    expect(reader.list()).toEqual([]);
+    renameSync(moved, main);
+    expect(reader.list()[0].status).toBe('in_progress');
+    expect(reader.stats).toEqual({ hits: 0, misses: 4 });
+  });
+
+  it('falls back to main and evicts the worktree files when a worktree disappears', () => {
+    const main = writeSpec(root, '001-a', { status: 'queue' });
+    const wt = writeSpec(worktree(), '001-a', { status: 'in_progress' });
+    backdate(path.join(main, 'implementation_plan.json'));
+    backdate(path.join(wt, 'implementation_plan.json'));
+    const reader = createHeadlessTaskReader(project());
+    expect(reader.list()[0].status).toBe('in_progress');
+
+    const moved = path.join(root, 'moved-worktree');
+    renameSync(worktree(), moved);
+    expect(reader.list()[0]).toMatchObject({ status: 'queue', specsPath: main });
+    expect(reader.stats).toEqual({ hits: 1, misses: 2 });
+    renameSync(moved, worktree());
+    expect(reader.list()[0]).toMatchObject({ status: 'in_progress', specsPath: wt });
+    expect(reader.stats).toEqual({ hits: 2, misses: 3 });
+  });
+
+  it('caches a malformed plan, then sees a repair and distinguishes a deleted plan', () => {
+    const plan = path.join(writeSpec(root, '001-a'), 'implementation_plan.json');
+    writeFileSync(plan, 'garbage');
+    backdate(plan);
+    const reader = createHeadlessTaskReader(project());
+    for (let pass = 0; pass < 2; pass++) {
+      expect(reader.list()[0]).toMatchObject({ status: 'human_review', reviewReason: 'errors' });
+    }
+    expect(reader.stats).toEqual({ hits: 1, misses: 1 });
+
+    writeFileSync(plan, JSON.stringify({ status: 'queue' }));
+    const repairedAt = new Date(settledAt.getTime() + 1000);
+    utimesSync(plan, repairedAt, repairedAt);
+    expect(reader.list()[0].status).toBe('queue');
+    rmSync(plan);
+    const [task] = reader.list();
+    expect(task.status).toBe('backlog');
+    expect(task).not.toHaveProperty('reviewReason');
+  });
+
+  it('routes a plan read error to human review instead of backlog', () => {
+    const dir = writeSpec(root, '001-a');
+    mkdirSync(path.join(dir, 'implementation_plan.json'));
+    const reader = createHeadlessTaskReader(project());
+    expect(reader.list()[0]).toMatchObject({ status: 'human_review', reviewReason: 'errors' });
+  });
+
+  it('detects an atomic plan replacement with the same mtime and size', () => {
+    const dir = writeSpec(root, '001-a');
+    const plan = path.join(dir, 'implementation_plan.json');
+    const replacement = path.join(dir, 'replacement.json');
+    writeFileSync(plan, JSON.stringify({ status: 'queue' }).padEnd(40));
+    backdate(plan);
+    const reader = createHeadlessTaskReader(project());
+    expect(reader.list()[0].status).toBe('queue');
+
+    writeFileSync(replacement, JSON.stringify({ status: 'in_progress' }).padEnd(40));
+    backdate(replacement);
+    renameSync(replacement, plan);
+    expect(reader.list()[0].status).toBe('in_progress');
+    expect(reader.stats).toEqual({ hits: 0, misses: 2 });
+  });
+
+  it('invalidates both plan copies after setTaskStatus and sees the new status immediately', async () => {
+    const main = writeSpec(root, '001-a', { status: 'queue' });
+    const wt = writeSpec(worktree(), '001-a', { status: 'queue' });
+    const paths = [main, wt].map((dir) => path.join(dir, 'implementation_plan.json'));
+    paths.forEach(backdate);
+    const reader = createHeadlessTaskReader(project());
+    expect(reader.list()[0].status).toBe('queue');
+    const invalidate = vi.spyOn(reader.cache, 'invalidate');
+
+    await setTaskStatus(project(), '001-a', 'in_progress', undefined, reader.cache);
+    expect(invalidate.mock.calls.flat()).toEqual(paths);
+    expect(reader.list()[0].status).toBe('in_progress');
+  });
+
+  it('invalidates the plan after resetting stuck subtasks', async () => {
+    const dir = writeSpec(root, '001-a', {
+      status: 'in_progress',
+      phases: [{ subtasks: [{ id: 's1', status: 'in_progress' }] }]
+    });
+    const plan = path.join(dir, 'implementation_plan.json');
+    backdate(plan);
+    const reader = createHeadlessTaskReader(project());
+    expect(reader.list()[0].subtasks[0].status).toBe('in_progress');
+    const invalidate = vi.spyOn(reader.cache, 'invalidate');
+
+    expect(await resetStuckSubtasks(plan, reader.cache)).toEqual({ success: true, resetCount: 1 });
+    expect(invalidate.mock.calls).toEqual([[plan]]);
+    expect(reader.list()[0].subtasks[0].status).toBe('pending');
+  });
+
+  it('invalidates scheduled spec files and lists the new task with its metadata', async () => {
+    const reader = createHeadlessTaskReader(project());
+    expect(reader.list()).toEqual([]);
+    const invalidate = vi.spyOn(reader.cache, 'invalidate');
+    const created = await createScheduledTaskSpec(
+      project(),
+      { title: 'Nightly check', description: 'Run the checks', tokenBudget: 1234 },
+      'sched-1',
+      1700000000000,
+      reader.cache
+    );
+    const dir = path.join(root, '.auto-claude', 'specs', created.id);
+    expect(invalidate.mock.calls.flat().sort()).toEqual(
+      ['implementation_plan.json', 'requirements.json', 'spec.md', 'task_metadata.json']
+        .map((file) => path.join(dir, file))
+        .sort()
+    );
+    expect(reader.list()).toEqual([created]);
+    expect(created).toMatchObject({
+      status: 'queue',
+      metadata: { sourceType: 'schedule', scheduleId: 'sched-1', scheduledFor: 1700000000000, tokenBudget: 1234 }
+    });
+  });
+
+  it('does not expose cached metadata to callers', () => {
+    const dir = writeSpec(root, '001-a', { status: 'queue' }, { taskDependencies: ['000-z'], tokenBudget: 5 });
+    backdate(path.join(dir, 'task_metadata.json'));
+    const reader = createHeadlessTaskReader(project());
+    const [task] = reader.list();
+    if (!task.metadata?.taskDependencies) throw new Error('Expected dependencies in task metadata');
+    task.metadata.taskDependencies.push('002-b');
+    task.metadata.tokenBudget = 100;
+
+    expect(reader.list()[0].metadata).toEqual({ taskDependencies: ['000-z'], tokenBudget: 5 });
+    expect(reader.stats.hits).toBe(1);
+  });
+
+  it('builds a by-ID snapshot from one scan, with the worktree copy taking precedence', () => {
+    const main = writeSpec(root, '001-a', { status: 'queue', ...timestamps });
+    const second = writeSpec(root, '002-b', { status: 'queue', ...timestamps });
+    const wt = writeSpec(worktree(), '001-a', { status: 'in_progress', ...timestamps });
+    const orphan = writeSpec(worktree(), '009-orphan', { status: 'in_progress' });
+    for (const dir of [main, second, wt, orphan]) backdate(path.join(dir, 'implementation_plan.json'));
+    const reader = createHeadlessTaskReader(project());
+    const snapshot = reader.snapshotById();
+
+    expect(reader.stats).toEqual({ hits: 0, misses: 3 });
+    expect(Array.from(snapshot.values())).toEqual(reader.list());
+    expect(snapshot.get('001-a')).toMatchObject({ status: 'in_progress', specsPath: wt });
+    expect(snapshot.get('002-b')).toMatchObject({ status: 'queue', specsPath: second });
+    expect(snapshot.has('009-orphan')).toBe(false);
   });
 });
 

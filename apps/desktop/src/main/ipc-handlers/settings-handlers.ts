@@ -7,6 +7,7 @@ import { is } from '@electron-toolkit/utils';
 import { assertTrustedSender } from '../ipc-sender-validation';
 
 import { isWebhookFormat } from '../../shared/utils/webhook-format';
+import { toRendererSettings } from '../../shared/utils/provider-account-view';
 import { sendTestWebhook, validateWebhookUrl } from '../task-webhook';
 import { appLog } from '../app-logger';
 // ESM-compatible __dirname
@@ -16,12 +17,14 @@ import { IPC_CHANNELS, DEFAULT_APP_SETTINGS, DEFAULT_AGENT_PROFILES, SPELL_CHECK
 import { setAppLanguage } from '../app-language';
 import type {
   AppSettings,
-  IPCResult
+  IPCResult,
+  RendererAppSettings
 } from '../../shared/types';
 import { AgentManager } from '../agent';
 import type { BrowserWindow } from 'electron';
 import { setUpdateChannel, setUpdateChannelWithDowngradeCheck } from '../app-updater';
 import { readSettingsFile, updateSettingsFile } from '../settings-utils';
+import { SecureStorageUnavailableError } from '../secure-storage/secret-storage';
 import { resetMemoryService } from './context/memory-service-factory';
 import { configureTools, getToolPath, getToolInfo, isPathFromWrongPlatform, preWarmToolCache } from '../cli-tool-manager';
 import { normalizeIssueWritebackSettings } from '../../shared/utils/issue-writeback-settings';
@@ -294,7 +297,7 @@ export function registerSettingsHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.SETTINGS_GET,
-    async (): Promise<IPCResult<AppSettings>> => {
+    async (): Promise<IPCResult<RendererAppSettings>> => {
       // Load settings using shared helper and merge with defaults
       const savedSettings = readSettingsFile();
       const settings: AppSettings = { ...DEFAULT_APP_SETTINGS, ...savedSettings };
@@ -413,13 +416,31 @@ export function registerSettingsHandlers(
 
       // Persist migration changes
       if (needsSave) {
+        const persistMigrations = (migrated: Partial<AppSettings>) => updateSettingsFile((s) => {
+          for (const field of clearedPathFields) delete s[field];
+          Object.assign(s, migrated);
+        });
         try {
-          await updateSettingsFile((s) => {
-            for (const field of clearedPathFields) delete s[field];
-            Object.assign(s, settings);
+          await persistMigrations(settings).catch(async (error: unknown) => {
+            if (!(error instanceof SecureStorageUnavailableError) || !providerAccountsMigration.changed) throw error;
+
+            // zeenha fork: defer copying credentials into new slots until they can be encrypted.
+            // Keep existing account data and the migration marker untouched on disk.
+            const {
+              providerAccounts: _accounts,
+              globalPriorityOrder: _order,
+              _migratedProviderAccounts: _marker,
+              ...otherMigrations
+            } = settings;
+            appLog.warn('[SETTINGS_GET] Deferring provider account migration: secure storage is unavailable');
+            await persistMigrations(otherMigrations);
           });
         } catch (error) {
-          console.error('[SETTINGS_GET] Failed to persist migration:', error);
+          if (error instanceof SecureStorageUnavailableError) {
+            appLog.warn('[SETTINGS_GET] Could not persist migrations: secure storage is unavailable');
+          } else {
+            console.error('[SETTINGS_GET] Failed to persist migration:', error);
+          }
           // Continue anyway - settings will be migrated in-memory for this session
         }
       }
@@ -438,7 +459,8 @@ export function registerSettingsHandlers(
         console.warn('[SETTINGS_GET] Failed to re-warm CLI cache:', error);
       });
 
-      return { success: true, data: settings as AppSettings };
+      // zeenha fork: sanitize only the IPC reply so migrations keep saved credentials on disk.
+      return { success: true, data: toRendererSettings(settings) };
     }
   );
 
@@ -609,6 +631,7 @@ export function registerSettingsHandlers(
 
         return { success: true };
       } catch (error) {
+        if (error instanceof SecureStorageUnavailableError) return { success: false, error: error.code };
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to save settings'

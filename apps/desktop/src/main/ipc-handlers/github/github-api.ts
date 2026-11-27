@@ -72,9 +72,14 @@ export function normalizeRepoReference(repo: string): string {
   return normalized.trim();
 }
 
-/**
- * Make a request to the GitHub API
- */
+/** zeenha fork: expose HTTP rejection status without parsing the existing error message. */
+export class GitHubAPIError extends Error {
+  constructor(message: string, public readonly statusCode: number) {
+    super(message);
+  }
+}
+
+/** Make a request to the GitHub API. */
 export async function githubFetch(
   token: string,
   endpoint: string,
@@ -98,7 +103,7 @@ export async function githubFetch(
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => 'Request failed');
-    throw new Error(`GitHub API error: ${response.status} - ${errorBody}`);
+    throw new GitHubAPIError(`GitHub API error: ${response.status} - ${errorBody}`, response.status);
   }
 
   return response.json();

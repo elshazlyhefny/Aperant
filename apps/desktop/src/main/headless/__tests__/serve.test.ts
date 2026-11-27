@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { execFileSync } from 'child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import {
+  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
+  renameSync, rmSync, symlinkSync, utimesSync, writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
@@ -15,17 +18,36 @@ vi.mock('../auth', () => ({
   resolveHeadlessAuth: async () => ({ auth: { apiKey: 'sk-test' }, provider: 'anthropic', modelId: 'claude-sonnet-4-5' }),
 }));
 vi.mock('../../ai/prompts/prompt-loader', () => ({ tryLoadPrompt: () => 'PLANNER PROMPT' }));
+// zeenha fork: spy on the daemon's cached reader, and let schedule races defer
+// creation while still writing real task specs.
+vi.mock(import('../task-store'), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    createHeadlessTaskReader: vi.fn((project) => {
+      const reader = actual.createHeadlessTaskReader(project);
+      return { ...reader, list: vi.fn(reader.list), snapshotById: vi.fn(reader.snapshotById) };
+    }),
+    createScheduledTaskSpec: vi.fn(actual.createScheduledTaskSpec),
+  };
+});
 
+import { readDeliveryReceipts } from '../../delivery-receipts';
+import { EXIT_ERROR } from '../outcome';
 import { runServe, EXIT_LOCKED } from '../serve';
 import type { ServeOptions } from '../serve';
 import type { HeadlessBridge } from '../run-task';
 import { writeStopRequest } from '../stop-request';
+import type { AgentExecutorConfig } from '../../ai/agent/types';
+import { createHeadlessTaskReader, createScheduledTaskSpec } from '../task-store';
+import { createScheduleFileStore } from '../../schedule-file-store';
 import { acquireProjectQueueLock, getQueueLockPath } from '../../utils/project-queue-lock';
+import { getServeRunningPath } from '../../utils/serve-running-file';
 import type { RecurringSchedule } from '../../../shared/types/schedule';
 
 class FakeBridge extends EventEmitter implements HeadlessBridge {
   taskId = '';
-  spawn = vi.fn((config: { taskId: string }) => {
+  spawn = vi.fn((config: AgentExecutorConfig) => {
     this.taskId = config.taskId;
   });
   terminate = vi.fn(async () => {
@@ -106,6 +128,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.mocked(createHeadlessTaskReader).mockClear();
+  vi.unstubAllGlobals();
   rmSync(projectDir, { recursive: true, force: true });
 });
 
@@ -115,6 +139,39 @@ async function stop(p: Promise<number>): Promise<number> {
 }
 
 describe('runServe queue', () => {
+  it('reports the configured default and applies it only to tasks without a budget override', async () => {
+    makeSpec('001-inherit');
+    makeSpec('002-unlimited', 'queue', {}, { tokenBudget: 0 });
+    const p = serve({ config: { project: { maxParallelTasks: 2, defaultTokenBudget: 1000 } } });
+    try {
+      await vi.waitFor(() => expect(spawned()).toHaveLength(2));
+      const inherited = spawned().find((b) => b.taskId === '001-inherit');
+      const unlimited = spawned().find((b) => b.taskId === '002-unlimited');
+      expect(inherited?.spawn.mock.calls[0][0].session.tokenBudget).toBe(1000);
+      expect(unlimited).toBeDefined();
+      expect(unlimited?.spawn.mock.calls[0][0].session.tokenBudget).toBeUndefined();
+      expect(out[0]).toContain('up to 2 parallel task(s), default token budget 1000 tokens\n');
+      expect(out).toContain('[001-inherit] token budget: 1000 tokens (source: config)\n');
+      expect(out).toContain('[002-unlimited] token budget: unlimited (source: task)\n');
+    } finally {
+      await stop(p);
+    }
+  });
+
+  it('keeps queued tasks unlimited and the startup line unchanged without a default', async () => {
+    makeSpec('001-a');
+    const p = serve({ now: () => T0 });
+    try {
+      await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+      expect(spawned()[0].spawn.mock.calls[0][0].session.tokenBudget).toBeUndefined();
+      expect(out[0]).toBe(
+        `${new Date(T0).toISOString()} Serving ${path.basename(projectDir)} (${projectDir}), up to 2 parallel task(s)\n`
+      );
+    } finally {
+      await stop(p);
+    }
+  });
+
   it('respects maxParallelTasks and starts the next task when a slot frees', async () => {
     makeSpec('001-a');
     makeSpec('002-b');
@@ -182,6 +239,59 @@ describe('runServe queue', () => {
     vi.unstubAllGlobals();
   });
 
+  it('emits correlated NDJSON and drains delivery without occupying a build slot', async () => {
+    makeSpec('001-a');
+    makeSpec('002-b');
+    let acknowledge!: (response: { status: number }) => void;
+    const pending = new Promise<{ status: number }>((resolve) => { acknowledge = resolve; });
+    const fetchMock = vi.fn(() => pending);
+    vi.stubGlobal('fetch', fetchMock);
+    const p = serve({ json: true, dispatchWebhook: undefined }, 1);
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    spawned()[0].finish([{ type: 'QA_PASSED' }]);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(spawned()).toHaveLength(2));
+    expect(plan('001-a').status).toBe('human_review');
+    expect(await readDeliveryReceipts(projectDir, '001-a')).toMatchObject([{ status: 'unknown', reason: 'unconfirmed' }]);
+
+    const drained = vi.fn();
+    void p.then(drained);
+    signalHandler?.('SIGTERM');
+    await vi.waitFor(() => expect(plan('002-b').status).toBe('queue'));
+    expect(drained).not.toHaveBeenCalled();
+    acknowledge({ status: 200 });
+    expect(await p).toBe(0);
+    const records = out.join('').trim().split('\n').map((line) => JSON.parse(line));
+    expect(records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'daemon-log', taskId: '001-a' }),
+      expect.objectContaining({ type: 'result', taskId: '001-a', exitCode: 0 }),
+    ]));
+    expect(records.filter((record) => record.type === 'delivery-receipts')).toMatchObject([
+      { taskId: '001-a', spec: '001-a', receipts: [{ operation: 'webhook', status: 'delivered' }] },
+    ]);
+    expect(plan('001-a').status).toBe('human_review');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('leaves an unknown after shutdown times out and does not send again on restart', async () => {
+    makeSpec('001-a');
+    const fetchMock = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal('fetch', fetchMock);
+    const p = serve({ dispatchWebhook: undefined, shutdownTimeoutMs: 0 });
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    spawned()[0].finish([{ type: 'QA_PASSED' }]);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(await stop(p)).toBe(0);
+    expect(plan('001-a').status).toBe('human_review');
+    expect(await readDeliveryReceipts(projectDir, '001-a')).toMatchObject([{ status: 'unknown', reason: 'unconfirmed' }]);
+
+    const restart = serve({ dispatchWebhook: undefined });
+    await vi.waitFor(() => expect(signalHandler).toBeDefined());
+    expect(await stop(restart)).toBe(0);
+    expect(spawned()).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it('exits 1 and starts nothing when the webhook url is invalid', async () => {
     makeSpec('001-a');
     const code = await serve({ config: { webhook: { enabled: true, url: 'http://example.com/hook' } } });
@@ -190,6 +300,17 @@ describe('runServe queue', () => {
     expect(err.join('')).not.toContain('example.com');
     expect(bridges).toHaveLength(0);
     expect(existsSync(path.join(projectDir, '.auto-claude', '.locks'))).toBe(false);
+  });
+
+  it('rejects an invalid default from the config file before locking the queue or creating a bridge', async () => {
+    makeSpec('001-a');
+    const configPath = path.join(projectDir, 'headless-config.json');
+    writeFileSync(configPath, JSON.stringify({ project: { defaultTokenBudget: 0 } }));
+
+    await expect(serve({ config: undefined, configPath })).resolves.toBe(EXIT_ERROR);
+    expect(err.join('')).toContain('project.defaultTokenBudget');
+    expect(bridges).toHaveLength(0);
+    expect(existsSync(path.dirname(getQueueLockPath(projectDir)))).toBe(false);
   });
 
   it('exits 3 and starts nothing when a desktop holds the lock', async () => {
@@ -222,25 +343,84 @@ describe('runServe queue', () => {
     expect(webhook).not.toHaveBeenCalled();
   });
 
-  it('recovers tasks left running by a crashed daemon', async () => {
-    makeSpec('001-a', 'in_progress', {
-      phases: [{ name: 'p', subtasks: [{ id: 's1', status: 'in_progress' }] }],
-    });
-    mkdirSync(path.join(projectDir, '.auto-claude', '.locks'), { recursive: true });
-    writeFileSync(path.join(projectDir, '.auto-claude', '.locks', 'serve-running.json'), JSON.stringify({ taskIds: ['001-a'] }));
+  it('starts an externally queued task on a safety pass after its backlog plan was cached', async () => {
+    const id = '001-a';
+    makeSpec(id, 'backlog');
+    const planPath = path.join(specDir(id), 'implementation_plan.json');
+    const mtime = new Date(Date.now() - 10_000);
+    utimesSync(planPath, mtime, mtime);
+    const p = serve({ safetyIntervalMs: 50 });
+    await vi.waitFor(() => expect(signalHandler).toBeDefined());
+    try {
+      const reader = vi.mocked(createHeadlessTaskReader).mock.results[0].value;
+      expect(reader.snapshotById).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(reader.stats.hits).toBeGreaterThan(0));
+      expect(spawned()).toHaveLength(0);
+
+      // Preserve size and mtime so the reader must notice the new file identity.
+      const queued = JSON.stringify({ ...plan(id), status: 'queue' }).padEnd(readFileSync(planPath).length);
+      const tempPath = `${planPath}.tmp`;
+      writeFileSync(tempPath, queued);
+      utimesSync(tempPath, mtime, mtime);
+      renameSync(tempPath, planPath);
+
+      await vi.waitFor(() => expect(spawned().map((b) => b.taskId)).toEqual([id]));
+      expect(plan(id).status).toBe('in_progress');
+    } finally {
+      expect(await stop(p)).toBe(0);
+    }
+  });
+
+  it('recovers every saved running task from one startup snapshot', async () => {
+    const taskIds = ['001-a', '002-b', '003-c'];
+    for (const id of taskIds) {
+      makeSpec(id, 'in_progress', {
+        phases: [{ name: 'p', subtasks: [{ id: 's1', status: 'in_progress' }] }],
+      });
+    }
+    const runningPath = getServeRunningPath(projectDir);
+    mkdirSync(path.dirname(runningPath), { recursive: true });
+    writeFileSync(runningPath, JSON.stringify({ taskIds }));
+
     const p = serve({}, 0);
-    await vi.waitFor(() => expect(plan('001-a').status).toBe('queue'));
-    expect(plan('001-a').phases[0].subtasks[0].status).toBe('pending');
-    await stop(p);
+    await vi.waitFor(() => expect(signalHandler).toBeDefined());
+    try {
+      expect(createHeadlessTaskReader).toHaveBeenCalledTimes(1);
+      const reader = vi.mocked(createHeadlessTaskReader).mock.results[0].value;
+      expect(reader.snapshotById).toHaveBeenCalledTimes(1);
+      expect(reader.list).toHaveBeenCalledTimes(1); // Initial queue pass, not recovery.
+      for (const id of taskIds) {
+        expect(plan(id).status).toBe('queue');
+        expect(plan(id).phases[0].subtasks[0].status).toBe('pending');
+      }
+      expect(existsSync(runningPath)).toBe(false);
+    } finally {
+      expect(await stop(p)).toBe(0);
+    }
   });
 });
 
 describe('runServe schedules', () => {
-  function writeSchedule(over: Partial<RecurringSchedule> = {}) {
-    const file = path.join(projectDir, '.auto-claude', 'schedules.json');
-    const schedule: RecurringSchedule = {
+  let daemon: Promise<number> | undefined;
+
+  afterEach(async () => {
+    try {
+      if (daemon) await stop(daemon);
+    } finally {
+      daemon = undefined;
+      vi.mocked(createScheduledTaskSpec).mockReset();
+    }
+  });
+
+  function serveSchedules(options: Partial<ServeOptions> = {}, limit = 2) {
+    daemon = serve({ now: () => T0, tickIntervalMs: 20, ...options }, limit);
+    return daemon;
+  }
+
+  function makeSchedule(over: Partial<RecurringSchedule> = {}): RecurringSchedule {
+    return {
       id: 's1',
-      projectId: 'whatever',
+      projectId: 'desktop-project',
       name: 'nightly',
       enabled: true,
       cadence: { kind: 'daily', time: '09:00' },
@@ -251,55 +431,171 @@ describe('runServe schedules', () => {
       history: [],
       ...over,
     };
-    mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify({ version: 1, schedules: [schedule] }));
-    return file;
   }
-  const readSchedule = (file: string): RecurringSchedule => JSON.parse(readFileSync(file, 'utf-8')).schedules[0];
 
-  it('fires a due schedule, creates a task and starts it', async () => {
-    const file = writeSchedule();
-    const p = serve({ now: () => T0, tickIntervalMs: 20 });
+  async function seedSchedules(schedules: RecurringSchedule[], filename = 'schedules.json') {
+    const file = path.join(projectDir, '.auto-claude', filename);
+    const store = createScheduleFileStore(file);
+    for (const schedule of schedules) await store.insertSchedule(schedule);
+    return { file, store };
+  }
+
+  function waitForHistory(
+    store: ReturnType<typeof createScheduleFileStore>,
+    id: string,
+    kinds: RecurringSchedule['history'][number]['kind'][]
+  ) {
+    return vi.waitFor(() => {
+      const schedule = store.getSchedule(id);
+      if (!schedule) throw new Error(`Schedule ${id} not found`);
+      expect(schedule.history.map((h) => h.kind)).toEqual(kinds);
+      return schedule;
+    });
+  }
+
+  it('fires a due schedule and starts its task with the schedule budget rather than the default', async () => {
+    const due = makeSchedule({ template: { title: 'Nightly check', description: 'do it', tokenBudget: 5000 } });
+    const { store } = await seedSchedules([due]);
+    const p = serveSchedules({ config: { project: { defaultTokenBudget: 1000 } } });
+    try {
+      const schedule = await waitForHistory(store, due.id, ['started']);
+      await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+      expect(createScheduledTaskSpec).toHaveBeenCalledWith(
+        expect.objectContaining({ id: `headless:${projectDir}` }),
+        due.template,
+        due.id,
+        T0,
+        vi.mocked(createHeadlessTaskReader).mock.results[0]?.value.cache
+      );
+      expect(schedule.projectId).toBe(due.projectId);
+      expect(schedule.nextRunAt).toBe(T0 + DAY);
+      const taskId = schedule.lastTaskId as string;
+      expect(plan(taskId).status).toBe('in_progress');
+      expect(spawned()[0].taskId).toBe(taskId);
+      expect(spawned()[0].spawn.mock.calls[0][0].session.tokenBudget).toBe(5000);
+      expect(out).toContain(`[${taskId}] token budget: 5000 tokens (source: schedule)\n`);
+    } finally {
+      await stop(p);
+    }
+    expect(plan(spawned()[0].taskId).status).toBe('queue');
+  });
+
+  it('filters out other projects when a project ID is configured', async () => {
+    const selected = makeSchedule({ projectId: 'selected-project' });
+    const excluded = makeSchedule({ id: 'other', projectId: 'other-project' });
+    // Put the other due row first so a daemon that ignores the filter cannot skip it by timing.
+    const { file, store } = await seedSchedules([excluded, selected], 'shared-schedules.json');
+    serveSchedules({ schedulesPath: file, projectId: selected.projectId });
+
+    const schedule = await waitForHistory(store, selected.id, ['started']);
     await vi.waitFor(() => expect(spawned()).toHaveLength(1));
-    const schedule = readSchedule(file);
-    expect(schedule.projectId).toBe('whatever');
-    expect(schedule.history.map((h) => h.kind)).toEqual(['started']);
+    expect(schedule.projectId).toBe(selected.projectId);
+    expect(spawned()[0].taskId).toBe(schedule.lastTaskId);
+    expect(createScheduledTaskSpec).toHaveBeenCalledTimes(1);
+    expect(store.getSchedule(excluded.id)).toEqual(excluded);
+  });
+
+  it('preserves disk project identity and a concurrent acknowledgement in a shared store', async () => {
+    const pendingReport = { id: 'report', kind: 'failed', at: T0 - DAY, acknowledged: false } as const;
+    const due = makeSchedule({ history: [pendingReport] });
+    const unrelated = makeSchedule({ id: 'other', projectId: 'other-project', nextRunAt: T0 + DAY });
+    const { file, store } = await seedSchedules([due, unrelated], 'shared-schedules.json');
+    const real = await vi.importActual<typeof import('../task-store')>('../task-store');
+    let entered = false;
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(createScheduledTaskSpec).mockImplementationOnce(async (...args) => {
+      entered = true;
+      await released;
+      return real.createScheduledTaskSpec(...args);
+    });
+
+    serveSchedules({ schedulesPath: file });
+    let acknowledged: RecurringSchedule | undefined;
+    try {
+      await vi.waitFor(() => expect(entered).toBe(true));
+      acknowledged = await store.updateSchedule(due.id, (current) => ({
+        history: current.history.map((report) => ({ ...report, acknowledged: true })),
+      }));
+    } finally {
+      release();
+    }
+
+    const schedule = await waitForHistory(store, due.id, ['failed', 'started']);
+    expect(acknowledged?.history).toEqual([{ ...pendingReport, acknowledged: true }]);
+    expect(schedule.projectId).toBe(due.projectId);
     expect(schedule.nextRunAt).toBe(T0 + DAY);
-    const taskId = schedule.lastTaskId as string;
-    expect(plan(taskId).status).toBe('in_progress');
-    expect(spawned()[0].taskId).toBe(taskId);
-    await stop(p);
-    expect(plan(taskId).status).toBe('queue');
+    expect(schedule.lastRunAt).toBe(T0);
+    expect(schedule.lastTaskId).toEqual(expect.any(String));
+    expect(schedule.history).toEqual([
+      { ...pendingReport, acknowledged: true },
+      expect.objectContaining({ kind: 'started', taskId: schedule.lastTaskId, acknowledged: false }),
+    ]);
+    expect(store.getSchedule(unrelated.id)).toEqual(unrelated);
+    await vi.waitFor(() => expect(spawned().map((bridge) => bridge.taskId)).toEqual([schedule.lastTaskId]));
   });
 
   it('records a missed run and creates one catch-up task', async () => {
-    const file = writeSchedule();
-    const p = serve({ now: () => T0 + 3 * DAY + 1000, tickIntervalMs: 20 }, 5);
+    const { store } = await seedSchedules([makeSchedule()]);
+    serveSchedules({ now: () => T0 + 3 * DAY + 1000 }, 5);
+    const schedule = await waitForHistory(store, 's1', ['missed', 'started']);
     await vi.waitFor(() => expect(spawned()).toHaveLength(1));
-    await new Promise((r) => setTimeout(r, 100));
-    expect(spawned()).toHaveLength(1);
-    const schedule = readSchedule(file);
-    expect(schedule.history.map((h) => h.kind)).toEqual(['missed', 'started']);
     expect(schedule.history[0].missedCount).toBe(4);
-    await stop(p);
+    expect(createScheduledTaskSpec).toHaveBeenCalledTimes(1);
   });
 
   it('stops an over-budget scheduled task; status error and a failed webhook', async () => {
-    const file = writeSchedule({ template: { title: 'Nightly check', description: 'do it', tokenBudget: 100 } });
-    const p = serve({ now: () => T0, tickIntervalMs: 20 });
-    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
-    const taskId = readSchedule(file).lastTaskId as string;
+    const { store } = await seedSchedules([
+      makeSchedule({ template: { title: 'Nightly check', description: 'do it', tokenBudget: 100 } }),
+    ]);
+    const p = serveSchedules();
+    try {
+      const schedule = await waitForHistory(store, 's1', ['started']);
+      await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+      const taskId = schedule.lastTaskId as string;
+      writeFileSync(
+        path.join(specDir(taskId), 'run_metrics.json'),
+        JSON.stringify({ sessions: [{ tokens: { input: 80, output: 60 } }] })
+      );
+      await vi.waitFor(() => expect(webhook).toHaveBeenCalledTimes(1), { timeout: 3000 });
+      expect(spawned()[0].terminate).toHaveBeenCalled();
+      expect(plan(taskId).status).toBe('error');
+      expect(webhook.mock.calls[0][1].status).toBe('error');
+      await waitForHistory(store, 's1', ['started', 'budget_exceeded']);
+    } finally {
+      await stop(p);
+    }
+    expect(webhook).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops an over-budget task without writing to a schedule excluded by the project filter', async () => {
+    const selected = makeSchedule({ projectId: 'selected-project', enabled: false, nextRunAt: null });
+    const excluded = makeSchedule({ id: 'other', projectId: 'other-project', enabled: false, nextRunAt: null });
+    const { file, store } = await seedSchedules([selected, excluded], 'shared-schedules.json');
+    const taskId = '001-existing';
+    makeSpec(taskId, 'queue', {}, { sourceType: 'schedule', scheduleId: excluded.id, tokenBudget: 100 });
     writeFileSync(
       path.join(specDir(taskId), 'run_metrics.json'),
       JSON.stringify({ sessions: [{ tokens: { input: 80, output: 60 } }] })
     );
-    await vi.waitFor(() => expect(webhook).toHaveBeenCalledTimes(1), { timeout: 3000 });
-    expect(spawned()[0].terminate).toHaveBeenCalled();
-    expect(plan(taskId).status).toBe('error');
-    expect(webhook.mock.calls[0][1].status).toBe('error');
-    expect(readSchedule(file).history.map((h) => h.kind)).toContain('budget_exceeded');
-    await stop(p);
-    expect(webhook).toHaveBeenCalledTimes(1);
+
+    serveSchedules({ schedulesPath: file, projectId: selected.projectId });
+
+    await vi.waitFor(
+      () => {
+        expect(plan(taskId).status).toBe('error');
+        // Budget enforcement notifies after deciding whether to persist a report.
+        expect(out.join('')).toContain(`Schedules changed for ${selected.projectId}`);
+      },
+      { timeout: 3000 }
+    );
+    expect(spawned()).toHaveLength(1);
+    expect(spawned()[0].taskId).toBe(taskId);
+    expect(spawned()[0].terminate).toHaveBeenCalledTimes(1);
+    expect(store.getSchedule(excluded.id)).toEqual(excluded);
+    expect(store.getSchedule(selected.id)).toEqual(selected);
   });
 });
 

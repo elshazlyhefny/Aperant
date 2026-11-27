@@ -136,7 +136,7 @@ describe('loadHeadlessConfig', () => {
   });
 });
 
-describe('loadHeadlessConfig webhook and maxParallelTasks', () => {
+describe('loadHeadlessConfig webhook and project options', () => {
   const write = (value: unknown) => {
     const file = path.join(dir, 'w.json');
     writeFileSync(file, JSON.stringify(value));
@@ -171,6 +171,25 @@ describe('loadHeadlessConfig webhook and maxParallelTasks', () => {
 
   it('parses maxParallelTasks', () => {
     expect(loadHeadlessConfig(write({ project: { maxParallelTasks: 3 } })).project?.maxParallelTasks).toBe(3);
+  });
+
+  it('parses project.defaultTokenBudget', () => {
+    const file = write({ project: { defaultTokenBudget: 500_000 } });
+    expect(loadHeadlessConfig(file).project?.defaultTokenBudget).toBe(500_000);
+  });
+
+  it('leaves project.defaultTokenBudget absent when omitted', () => {
+    const project = { mainBranch: 'dev', pushNewBranches: false, maxParallelTasks: 3 };
+    const config = loadHeadlessConfig(write({ project }));
+    expect(config.project).toEqual(project);
+    expect(config.project).not.toHaveProperty('defaultTokenBudget');
+  });
+
+  it.each([0, -1, 1.5, '1000', null])('rejects project.defaultTokenBudget = %j', (defaultTokenBudget) => {
+    const file = write({ project: { defaultTokenBudget } });
+    expect(() => loadHeadlessConfig(file)).toThrow(
+      `Config file ${file}: project.defaultTokenBudget must be a positive integer (omit it for no default)`,
+    );
   });
 
   it('rejects bad webhook values', () => {

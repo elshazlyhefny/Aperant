@@ -61,6 +61,11 @@ describe('getBestAvailableUnifiedAccount key status', () => {
     expect(r?.id).toBe('oauth-o');
   });
 
+  it('never selects an API profile whose key is an undecryptable envelope', () => {
+    const locked = { ...api('locked', 'valid'), apiKey: 'aperant-secret:v1:Y2lwaGVydGV4dA==' };
+    expect(getBestAvailableUnifiedAccount([], [locked], settings)).toBeNull();
+  });
+
   it('leaves OAuth accounts unaffected', () => {
     const r = getBestAvailableUnifiedAccount([oauth('o1'), oauth('o2')], [], settings, {
       priorityOrder: ['oauth-o2', 'oauth-o1']

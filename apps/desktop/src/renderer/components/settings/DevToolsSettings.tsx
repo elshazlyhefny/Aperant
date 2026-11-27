@@ -7,11 +7,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
 import { SettingsSection } from './SettingsSection';
-import type { AppSettings, SupportedIDE, SupportedTerminal, SupportedCLI } from '../../../shared/types';
+import type { RendererAppSettings, SupportedIDE, SupportedTerminal, SupportedCLI } from '../../../shared/types';
 
 interface DevToolsSettingsProps {
-  settings: AppSettings;
-  onSettingsChange: (settings: AppSettings) => void;
+  settings: RendererAppSettings;
+  onSettingsChange: (settings: RendererAppSettings) => void;
 }
 
 interface DetectedTool {

@@ -186,9 +186,9 @@ The project also needs an `autoBuildPath` and an existing `.auto-claude/.env`. R
 | `AZURE_DEVOPS_ORGANIZATION` | Organization name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
 | `AZURE_DEVOPS_PROJECT` | Project name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
 | `AZURE_DEVOPS_REPOSITORY` | Repository name as it appears in the clone URL. Spaces are allowed, `/` is not. | Yes |
-| `AZURE_DEVOPS_PAT` | Personal access token. A secret, see [Secrets](#secrets). It needs the scopes Code (Read & write) and Build (Read). | Yes |
+| `AZURE_DEVOPS_PAT` | Personal access token. A secret, see [Secrets](#secrets). For pull requests, it needs the scopes Code (Read & write) and Build (Read). | Yes |
 
-These same keys are used for Azure Boards work item write-back, which is off by default and controlled in the app settings. The PAT then also needs the Work Items (Read & write) scope. See [issue-writeback.md](issue-writeback.md).
+Azure Boards import and write-back use these same keys, with separate PAT scopes for work items.
 
 Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visualstudio.com` remotes. Azure DevOps Server (on premises) is not.
 
@@ -197,8 +197,100 @@ What works:
 - **Detect** reads the `origin` remote and matches the five remote formats of Azure DevOps Services.
 - **Create PR** opens a pull request on Azure DevOps. Drafts are real drafts. The description is capped at 4000 characters. Issue lines are worded without `#`, because Azure DevOps links `#123` to work items. See [Creating pull requests](creating-pull-requests.md).
 - **PR feedback** sends failed build validations and active threads to the task's agent. See [PR Follow-ups](pr-follow-ups.md).
+- **AI review** of an open pull request, with selected findings posted back to it. See [Azure DevOps AI review](#azure-devops-ai-review).
+- [Import work items](#import-work-items-from-azure-boards) from Azure Boards as tasks.
+
+#### Azure DevOps AI review
+
+1. Open **Azure DevOps PRs** in the sidebar, select an open pull request and click **Start AI review**. Once a result exists, the button reads **Re-run review**. For other pull requests, the button is disabled (`AI review is only available for open pull requests`). Progress and logs update live.
+2. Click **Cancel** to stop the review. The run ends with `Review cancelled`.
+3. Starting a review on the same pull request while one is running reconnects to it: `Review is already in progress. Reconnecting to ongoing review...`
+
+The review reads a detached Git worktree of the pull request head under `.auto-claude/pr-review/` and removes it when the run ends. The fetch uses the local repository's `origin` and configured Git credentials; Aperant does not pass `AZURE_DEVOPS_PAT` to Git. No branch is created, nothing is pushed, and running the review does not change the pull request. If the source branch name is unusable, the head SHA is invalid, the pull request is from a fork, or the fetch fails, the review reads the local base branch files and logs a `WARNING`. It still uses the pull request diff to review changed lines. Forks are not fetched, and no credentials are sent to their repositories.
+
+Results and logs are stored locally:
+
+- Result: `<project>/.auto-claude/azuredevops/pr/review_<id>.json`. The snake_case JSON includes `findings`, `summary`, `overall_status`, `reviewed_commit_sha`, `posted_finding_ids` and, after posting, `posted_at`.
+- Logs: `<project>/.auto-claude/azuredevops/pr/logs_<id>.json`.
+
+Do not commit `.auto-claude`. A successful re-run replaces the result for that pull request.
+
+Running a review does not publish its results to Azure DevOps. To publish findings:
+
+1. Tick the findings you want to share.
+2. To add inline threads, tick **Also post selected findings as inline comments**.
+3. Click **Post selected findings to Azure DevOps**, then click **Post** in the confirmation dialog.
+
+With the inline option on, Aperant first creates one active comment thread for each selected finding that has a file and a line number, anchored to that file and line. Each inline comment ends with `_Aperant PR Review_` unless truncated. Aperant then creates exactly one summary thread headed `Aperant PR Review`, with the review summary and a `Findings (N)` list. Findings without a line number appear only in the summary. Inline threads that fail are reported as `could not be placed`; their findings stay in full in the summary, subject to the length cap. Severity markers, ordering and the 32768-character cap work as described in the Bitbucket [AI review](#ai-review) section.
+
+Posting skips findings already recorded in `posted_finding_ids`. If all selected findings were already posted, the error is `No unposted findings among the selection`.
+
+If the summary thread fails after inline threads were posted, those threads stay on the pull request and their findings are marked posted. The error ends with `N inline comment(s) were already posted (findings: ...)`. Check the pull request before retrying and delete any stray threads in Azure DevOps if needed. A retry sends only findings not yet marked posted.
+
+Listing pull requests, viewing the diff and running a review need a PAT with **Code (Read)** scope and an account with the repository **Read** permission. Posting creates pull request threads: use **Code (Read & write)** and make sure the account has the repository **Contribute to pull requests** permission. Without that scope or permission, **Post** fails with the Azure DevOps error, but the review can still run with read access. **Build (Read)** is for PR follow-ups, not AI review.
+
+Sending reviewer feedback back to a task's agent is a separate workflow. See [PR Follow-ups](pr-follow-ups.md#azure-devops).
+
+#### Import work items from Azure Boards
+
+Import reads work items, so the PAT needs the Work Items (Read) scope. Write-back is off by default and needs Work Items (Read & write) instead. See [issue-writeback.md](issue-writeback.md). The connection check only reads the repository, so the PAT also needs Code (Read) for that check. A token that can read the repository but lacks the Work Items scope can still show **Connected to** the repository. The import window then shows an authorization error.
+
+1. Open the project's **Settings > Azure DevOps**. Once connected, click **Import from Azure Boards**. The **Import Azure Boards work items** window opens.
+2. Choose a query mode:
+   - **Filter** (default): **Area path** matches the specified area and its child areas, for example `MyProject\Team`. The **States** and **Work item types** checkboxes are loaded from the project's work item types. Leaving all filters empty queries every work item in the project, most recently changed first.
+   - **Saved query**: Select one of the project's saved queries. The list includes queries in folders up to two levels deep. The saved query's conditions and order apply, and the filter fields are ignored. Use a flat list query. Tree and direct-links queries return no items in this window.
+3. Click **Run query**. Each row shows `#id`, title, state, type, assignee and tags. Items that match an existing task show an **Already imported** badge.
+4. Select the work items and click **Import N work items** (**Import 1 work item** for a single selection). In the results list, arrow keys move, Space toggles selection, Ctrl+A selects all and Enter imports. The app fetches the current work item content from Azure DevOps at import time. Each imported work item becomes a task and spec creation starts right away.
+
+A query lists at most 200 work items. The warning **Showing 200 of 200 work items. Narrow the query to see the rest.** uses a capped total, not the total number of matches. In **Filter** mode the warning appears whenever the query returns 200 items, even if exactly 200 match. In **Saved query** mode it appears when more than 200 match. The first 200 in the saved query's order are shown.
+
+One import accepts at most 100 work items. Trying to import more fails with `Too many work items selected (max 100)`. On a full 200-row result, narrow the query or select a smaller batch instead of using **Select all**.
+
+For example, in **Filter** mode set **Area path** to `Fabrikam\Payments`, select `New` and `Active` under **States** (or use `To Do`, depending on the process), and select `Bug` under **Work item types**. This limits the list to bugs in that area and its child areas in the selected states. If the list still has more than 100 items, use a more specific area path or fewer states to get a list you can import in one batch.
+
+**Importing the same work item again**
+
+A work item is **Already imported** if a task in the project's specs directory has a `task_metadata.json` with `sourceType` set to `azure_boards`, the same `azureBoardsWorkItemId`, and matching `azureBoardsOrganization` and `azureBoardsProject`. The organization and project are compared case-insensitively after trimming whitespace. Archived tasks count, but deleted tasks and tasks imported from a different organization or project do not.
+
+If you click the import button with any **Already imported** items selected, the window shows **Some work items were already imported**:
+
+- **Skip duplicates** imports only the other items. If every selected item is a duplicate, nothing is imported and the prompt closes.
+- **Import anyway** creates a separate task for each selected work item, including a new task for each duplicate.
+
+The import checks for duplicates again and skips them by default, even if no prompt appeared. The result shows **N work items imported** and, if the import itself found and skipped duplicates, **N duplicates skipped**. Items omitted at the prompt are not included in that count. Per-item errors appear as `Failed to import AB#<id>: ...`.
+
+**Links to the original work item**
+
+An imported task's description looks like this:
+
+```markdown
+# Fix duplicate payment entries
+
+**Azure Boards Work Item:** [AB#123](https://dev.azure.com/fabrikam/Fabrikam/_workitems/edit/123)
+**Type:** Bug
+**State:** Active
+**Area Path:** Fabrikam\Payments
+**Tags:** payments, checkout
+
+## Description
+
+Retrying checkout can create a second payment entry.
+
+## Acceptance Criteria
+
+Retrying checkout leaves only one payment entry.
+```
+
+For a `Bug` without a description, the app uses the reproduction steps under `## Description` if they are available. `## Acceptance Criteria` is included when the work item has acceptance criteria.
+
+The task's `task_metadata.json` records `sourceType` (`azure_boards`), `azureBoardsWorkItemId`, `azureBoardsUrl`, `azureBoardsOrganization` and `azureBoardsProject`. It sets `category` to `bug_fix` for `Bug` work items and `feature` otherwise. Click **AB#123** in the task detail to open the work item in Azure DevOps. Kanban search matches `AB#123`.
+
+To post the task's outcome back to the work item, see [issue-writeback.md](issue-writeback.md).
 
 #### Troubleshooting
+
+- If the import window shows an authorization error while the connection says **Connected**, check that the PAT has the Work Items (Read) scope.
+- If **Import from Azure Boards** is missing, make sure **Enable Azure DevOps Integration** is on and wait for the repository connection check to succeed.
 
 If Azure DevOps is reported as not configured, `getAzureDevOpsConfig()` returned `null`. This happens when:
 
@@ -317,7 +409,8 @@ A `WEBHOOK_URL` in a committed `.env` could send your task data to an address th
 
 **Rules**
 
-- Approval matches the exact URL. Any change to it needs a new approval.
+- Approval is for the destination only. It matches the exact URL. Any change to it needs a new approval.
+- The optional [project signing secret](notifications-and-webhooks.md#project-webhook-secret) is a separate local credential tied to this project and its approved URL. The old secret does not apply to a changed URL. Generate a new one after approval if you want to sign for the new URL.
 - A URL you type on that page is approved when you save. A URL that is already in the file is not approved until you press **Approve**.
 - Project URLs must use `https`. Loopback addresses and `http` are refused for project URLs.
 - Approvals are stored in `<userData>/webhook-approvals.json`, outside the repo, because a hostile repo could pre-approve itself.

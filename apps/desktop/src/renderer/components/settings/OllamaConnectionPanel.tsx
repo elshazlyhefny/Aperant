@@ -5,12 +5,12 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { cn } from '../../lib/utils';
 import { useSettingsStore } from '../../stores/settings-store';
-import type { ProviderAccount } from '@shared/types/provider-account';
+import type { ProviderAccountView } from '@shared/types/provider-account';
 
 type OllamaConnectionState = 'checking' | 'not-installed' | 'not-running' | 'connected';
 
 interface OllamaConnectionPanelProps {
-  accounts: ProviderAccount[];
+  accounts: ProviderAccountView[];
   onAccountCreated?: () => void;
 }
 

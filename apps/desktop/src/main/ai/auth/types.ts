@@ -88,6 +88,9 @@ export const PROVIDER_ENV_VARS: Record<SupportedProvider, string | undefined> = 
   ollama: undefined,   // No auth required for local Ollama
 } as const;
 
+/** Providers that work without explicit authentication. */
+export const NO_AUTH_PROVIDERS: ReadonlySet<string> = new Set<SupportedProvider>(['ollama']);
+
 /**
  * Maps each provider to the settings field name for global API keys.
  * These correspond to fields in AppSettings (src/shared/types/settings.ts).

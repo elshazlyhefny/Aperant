@@ -5,10 +5,14 @@
  * `electron`. The daemon uses its own filesystem adapter and shares persisted
  * field interpretation with ProjectStore through `../task-record-fields.ts`.
  *
- * Deliberate differences: uncached reads, no stale-status correction writes,
- * no failed-run classification, no JSON-error display markers, and different
+ * Deliberate differences: no stale-status correction writes, no failed-run
+ * classification, no JSON-error display markers, and different
  * executionProgress inference. A worktree copy of a spec wins over the main
  * copy because the agent writes the live plan there.
+ *
+ * The daemon can reuse parsed files with a daemon-scoped FileParseCache, validated
+ * by mtime, size and file identity, and invalidated on its own writes. One-shot
+ * CLI commands read uncached.
  *
  * Keep resetStuckSubtasks in sync with ipc-handlers/task/plan-file-utils.ts.
  * Do not import electron, project-store, app-logger or plan-file-utils here.
@@ -31,6 +35,7 @@ import { normalizeTaskTokenBudget } from '../../shared/utils/token-budget';
 import { mapPersistedTaskFields, type ParsedSpecMarkdown, parseSpecMarkdown } from '../task-record-fields';
 import { writeFileAtomicSync } from '../utils/atomic-file';
 import { withFileLock } from '../utils/file-lock';
+import { FileParseCache } from '../utils/file-parse-cache';
 import { safeParseJson } from '../utils/json-repair';
 import { withSpecNumberLock } from '../utils/spec-number-lock';
 import { buildSpecId } from '../utils/spec-slug';
@@ -45,11 +50,14 @@ export interface HeadlessProject {
 
 const METADATA_FILE = 'task_metadata.json';
 
-function readJson<T>(file: string): T | null {
+// zeenha fork: distinguish missing plans from unreadable or malformed plans
+// without a separate existence check before reading.
+function readJson<T>(file: string, cache?: FileParseCache, touched?: Set<string>): T | null | undefined {
+  touched?.add(file);
   try {
-    return safeParseJson<T>(readFileSync(file, 'utf-8'));
-  } catch {
-    return null;
+    return cache ? cache.read(file, (raw) => safeParseJson<T>(raw)) : safeParseJson<T>(readFileSync(file, 'utf-8'));
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? undefined : null;
   }
 }
 
@@ -72,13 +80,14 @@ function inferPhase(planStatus: string | undefined): ExecutionPhase | undefined 
   }
 }
 
-function loadTaskFromSpecDir(specPath: string, projectId: string): Task | null {
+function loadTaskFromSpecDir(specPath: string, projectId: string, cache?: FileParseCache, touched?: Set<string>): Task {
   const name = path.basename(specPath);
   const planPath = path.join(specPath, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
-  const plan = readJson<ImplementationPlan>(planPath);
-  const hasJsonError = existsSync(planPath) && plan === null;
-  const requirements = readJson<unknown>(path.join(specPath, AUTO_BUILD_PATHS.REQUIREMENTS));
-  const metadata = readJson<TaskMetadata>(path.join(specPath, METADATA_FILE)) ?? undefined;
+  const planRead = readJson<ImplementationPlan>(planPath, cache, touched);
+  const plan = planRead ?? null;
+  const hasJsonError = planRead === null && (cache !== undefined || existsSync(planPath));
+  const requirements = readJson<unknown>(path.join(specPath, AUTO_BUILD_PATHS.REQUIREMENTS), cache, touched);
+  const metadata = readJson<TaskMetadata>(path.join(specPath, METADATA_FILE), cache, touched) ?? undefined;
 
   let specMarkdown: ParsedSpecMarkdown | undefined;
   let specMarkdownLoaded = false;
@@ -111,54 +120,86 @@ function loadTaskFromSpecDir(specPath: string, projectId: string): Task | null {
     projectId,
     ...fields,
     logs: [],
-    metadata,
+    // zeenha fork: callers can mutate task metadata, but not the cached copy.
+    metadata: cache && metadata !== undefined ? structuredClone(metadata) : metadata,
     ...(reviewReason !== undefined && { reviewReason }),
     ...(phase && { executionProgress: { phase, phaseProgress: 50, overallProgress: 50 } }),
     specsPath: specPath
   };
 }
 
-function listSpecDirs(specsDir: string): string[] {
-  if (!existsSync(specsDir)) return [];
+function listSpecDirs(specsDir: string): string[] | undefined {
+  if (!existsSync(specsDir)) return undefined;
   try {
     return readdirSync(specsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => path.join(specsDir, d.name));
   } catch {
-    return [];
+    return undefined;
   }
 }
 
-/** Every task of a project: main specs plus worktree specs (worktree copy wins). */
-export function listHeadlessTasks(project: HeadlessProject): Task[] {
+function scanHeadlessTasks(project: HeadlessProject, cache?: FileParseCache, scannedDirs?: Set<string>): Map<string, Task> {
   const specsBaseDir = getSpecsDir(project.autoBuildPath);
   const tasks = new Map<string, Task>();
 
-  for (const specPath of listSpecDirs(path.join(project.path, specsBaseDir))) {
-    const task = loadTaskFromSpecDir(specPath, project.id);
-    if (task) tasks.set(task.id, task);
+  function scanSpecsDir(specsDir: string, worktree: boolean): void {
+    const specPaths = listSpecDirs(specsDir);
+    if (!specPaths) return;
+    scannedDirs?.add(specsDir);
+    const touched = cache ? new Set<string>() : undefined;
+    for (const specPath of specPaths) {
+      // A worktree spec only counts when the spec exists in main.
+      if (worktree && !tasks.has(path.basename(specPath))) continue;
+      const task = loadTaskFromSpecDir(specPath, project.id, cache, touched);
+      tasks.set(task.id, task);
+    }
+    if (cache && touched) cache.retainOnly(specsDir, touched);
   }
 
-  // As in ProjectStore.getTasks, a worktree spec only counts when the spec exists in main
+  scanSpecsDir(path.join(project.path, specsBaseDir), false);
+
   const worktreesDir = getTaskWorktreeDir(project.path);
   if (existsSync(worktreesDir)) {
     try {
       for (const worktree of readdirSync(worktreesDir, { withFileTypes: true })) {
         if (!worktree.isDirectory()) continue;
-        const specsDir = path.join(worktreesDir, worktree.name, specsBaseDir);
-        for (const specPath of listSpecDirs(specsDir)) {
-          const id = path.basename(specPath);
-          if (!tasks.has(id)) continue;
-          const task = loadTaskFromSpecDir(specPath, project.id);
-          if (task) tasks.set(id, task);
-        }
+        scanSpecsDir(path.join(worktreesDir, worktree.name, specsBaseDir), true);
       }
     } catch {
       // Unreadable worktrees directory: keep the main tasks
     }
   }
 
-  return Array.from(tasks.values());
+  return tasks;
+}
+
+/** Every task of a project: main specs plus worktree specs (worktree copy wins). */
+export function listHeadlessTasks(project: HeadlessProject, cache?: FileParseCache): Task[] {
+  return Array.from(scanHeadlessTasks(project, cache).values());
+}
+
+/** zeenha fork: rediscover specs on every daemon scan, reusing only unchanged file contents. */
+export function createHeadlessTaskReader(project: HeadlessProject) {
+  const cache = new FileParseCache();
+  let previousDirs = new Set<string>();
+
+  function snapshotById(): Map<string, Task> {
+    const scannedDirs = new Set<string>();
+    const tasks = scanHeadlessTasks(project, cache, scannedDirs);
+    for (const dir of previousDirs) {
+      if (!scannedDirs.has(dir)) cache.evictScope(dir);
+    }
+    previousDirs = scannedDirs;
+    return tasks;
+  }
+
+  return {
+    list: (): Task[] => Array.from(snapshotById().values()),
+    snapshotById,
+    cache,
+    stats: cache.stats
+  };
 }
 
 /** Persist a status on the worktree and main copy of a spec's plan. */
@@ -166,7 +207,8 @@ export async function setTaskStatus(
   project: HeadlessProject,
   specId: string,
   status: TaskStatus,
-  reviewReason?: ReviewReason
+  reviewReason?: ReviewReason,
+  cache?: FileParseCache
 ): Promise<void> {
   const specsBaseDir = getSpecsDir(project.autoBuildPath);
   let specPaths = findAllSpecPaths(project.path, specsBaseDir, specId, '[headless-task-store]');
@@ -190,6 +232,7 @@ export async function setTaskStatus(
       plan.updated_at = new Date().toISOString();
       mkdirSync(specPath, { recursive: true });
       writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
+      cache?.invalidate(planPath);
     });
   }
 }
@@ -232,7 +275,10 @@ export async function queueHeadlessTask(
  * Equivalent of plan-file-utils.resetStuckSubtasks: in_progress/failed subtasks go
  * back to pending, completed ones are never touched.
  */
-export async function resetStuckSubtasks(planPath: string): Promise<{ success: boolean; resetCount: number }> {
+export async function resetStuckSubtasks(
+  planPath: string,
+  cache?: FileParseCache
+): Promise<{ success: boolean; resetCount: number }> {
   return withFileLock(planPath, async () => {
     let raw: string;
     try {
@@ -261,6 +307,7 @@ export async function resetStuckSubtasks(planPath: string): Promise<{ success: b
     if (resetCount > 0) {
       plan.updated_at = new Date().toISOString();
       writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
+      cache?.invalidate(planPath);
     }
     return { success: true, resetCount };
   });
@@ -277,7 +324,8 @@ export async function createScheduledTaskSpec(
   project: HeadlessProject,
   template: ScheduleTemplate,
   scheduleId: string,
-  scheduledFor: number
+  scheduledFor: number,
+  cache?: FileParseCache
 ): Promise<Task> {
   const specsBaseDir = getSpecsDir(project.autoBuildPath);
   const specsDir = path.join(project.path, specsBaseDir);
@@ -292,6 +340,12 @@ export async function createScheduledTaskSpec(
   });
   const specDir = path.join(specsDir, specId);
 
+  function writeScheduledFile(name: string, content: string): void {
+    const file = path.join(specDir, name);
+    writeFileSync(file, content, 'utf-8');
+    cache?.invalidate(file);
+  }
+
   const metadata: TaskMetadata = { sourceType: 'schedule', scheduleId, scheduledFor };
   const tokenBudget = normalizeTaskTokenBudget(template.tokenBudget);
   if (tokenBudget !== undefined) metadata.tokenBudget = tokenBudget;
@@ -300,19 +354,14 @@ export async function createScheduledTaskSpec(
   if (template.thinkingLevel) metadata.thinkingLevel = template.thinkingLevel;
 
   const now = new Date().toISOString();
-  writeFileSync(
-    path.join(specDir, AUTO_BUILD_PATHS.REQUIREMENTS),
-    JSON.stringify({ task_description: template.description, workflow_type: template.category || 'feature' }, null, 2),
-    'utf-8'
+  writeScheduledFile(
+    AUTO_BUILD_PATHS.REQUIREMENTS,
+    JSON.stringify({ task_description: template.description, workflow_type: template.category || 'feature' }, null, 2)
   );
-  writeFileSync(path.join(specDir, METADATA_FILE), JSON.stringify(metadata, null, 2), 'utf-8');
-  writeFileSync(
-    path.join(specDir, AUTO_BUILD_PATHS.SPEC_FILE),
-    `# ${title}\n\n## Overview\n\n${template.description}\n`,
-    'utf-8'
-  );
-  writeFileSync(
-    path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN),
+  writeScheduledFile(METADATA_FILE, JSON.stringify(metadata, null, 2));
+  writeScheduledFile(AUTO_BUILD_PATHS.SPEC_FILE, `# ${title}\n\n## Overview\n\n${template.description}\n`);
+  writeScheduledFile(
+    AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN,
     JSON.stringify(
       {
         feature: title,
@@ -325,11 +374,8 @@ export async function createScheduledTaskSpec(
       },
       null,
       2
-    ),
-    'utf-8'
+    )
   );
 
-  const task = loadTaskFromSpecDir(specDir, project.id);
-  if (!task) throw new Error(`Failed to read back scheduled task spec ${specId}`);
-  return task;
+  return loadTaskFromSpecDir(specDir, project.id);
 }

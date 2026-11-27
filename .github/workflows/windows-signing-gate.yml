@@ -1,0 +1,213 @@
+# zeenha fork: Exercise the release signing gate with disposable fixtures, without publishing.
+name: Windows Signing Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [zeenha]
+    paths:
+      - 'scripts/verify-windows-signatures.ps1'
+      - 'scripts/release-signing-gate.mjs'
+      - '.github/workflows/windows-signing-gate.yml'
+  pull_request:
+    branches: [zeenha]
+    paths:
+      - 'scripts/verify-windows-signatures.ps1'
+      - 'scripts/release-signing-gate.mjs'
+      - '.github/workflows/windows-signing-gate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test-signing-gate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Test the signing gate with Windows fixtures
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ''
+          AZURE_TENANT_ID: ''
+          AZURE_SUBSCRIPTION_ID: ''
+          AZURE_SIGNING_ACCOUNT: ''
+          AZURE_CERTIFICATE_PROFILE: ''
+          WINDOWS_SIGNING_PUBLISHER: ''
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          # Expected native failures are checked below rather than thrown by the shell.
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $publisher = 'Aperant Signing Gate Test'
+          $pwsh = Join-Path $PSHOME 'pwsh.exe'
+          $verifier = './scripts/verify-windows-signatures.ps1'
+          $root = Join-Path $env:RUNNER_TEMP "signing-gate-$([guid]::NewGuid())"
+          $null = New-Item -ItemType Directory -Path $root
+          "SIGNING_GATE_FIXTURE_DIR=$root" >> $env:GITHUB_ENV
+
+          # PowerShell 7 Add-Type only emits libraries. Compile a tiny unsigned PE
+          # using the .NET Framework compiler on the hosted runner; never execute it.
+          $source = Join-Path $root 'Fixture.cs'
+          $unsigned = Join-Path $root 'fixture.exe'
+          Set-Content -LiteralPath $source -Value 'public static class Fixture { public static void Main() {} }'
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe "/out:$unsigned" $source
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compile the unsigned PE fixture.' }
+
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=$publisher" `
+            -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable `
+            -NotAfter (Get-Date).AddDays(1)
+          "SIGNING_GATE_CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+
+          $results = [System.Collections.Generic.List[object]]::new()
+          function Test-Case([string] $Name, [scriptblock] $Body) {
+            Write-Host "Testing: $Name"
+            try {
+              & $Body
+              $results.Add([pscustomobject]@{ Case = $Name; Result = 'PASS'; Detail = '' })
+            } catch {
+              $results.Add([pscustomobject]@{ Case = $Name; Result = 'FAIL'; Detail = $_.Exception.Message })
+            }
+          }
+
+          function New-FixtureDirectory([string] $Name) {
+            $directory = Join-Path $root $Name
+            $null = New-Item -ItemType Directory -Path $directory
+            return $directory
+          }
+
+          function Assert-Result($Actual, [int] $Expected, $Output, [string] $Diagnostic) {
+            # Prefix child output so expected ::error:: lines do not annotate the run.
+            foreach ($line in $Output) { Write-Host "  child: $line" }
+            if ($Actual -ne $Expected) { throw "Expected exit $Expected, got $Actual." }
+            if ($Diagnostic -and ($Output -join "`n") -notmatch $Diagnostic) {
+              throw "Exit code matched, but expected diagnostic '$Diagnostic' was not found."
+            }
+          }
+
+          function Assert-Verification([string] $Directory, [int] $ExpectedExit,
+                                       [string] $Diagnostic, [string] $ExpectedPublisher = $publisher,
+                                       [switch] $RecordUnsigned) {
+            $arguments = @('-Directory', $Directory, '-ExpectedPublisher', $ExpectedPublisher)
+            if ($RecordUnsigned) { $arguments += '-RecordUnsigned' }
+            $output = & $pwsh -NoProfile -File $verifier @arguments 2>&1
+            Assert-Result $LASTEXITCODE $ExpectedExit $output $Diagnostic
+          }
+
+          Test-Case 'Empty directory' {
+            Assert-Verification (New-FixtureDirectory 'empty') 1 'No Windows installers'
+          }
+
+          Test-Case 'Unsigned executable' {
+            $directory = New-FixtureDirectory 'unsigned'
+            Copy-Item -LiteralPath $unsigned -Destination $directory
+            Assert-Verification $directory 1 'Authenticode status: NotSigned'
+          }
+
+          Test-Case 'Self-signed but untrusted' {
+            $directory = New-FixtureDirectory 'untrusted'
+            $exe = Join-Path $directory 'fixture.exe'
+            Copy-Item -LiteralPath $unsigned -Destination $exe
+            Set-AuthenticodeSignature -LiteralPath $exe -Certificate $cert | Out-Null
+            Assert-Verification $directory 1 'Authenticode status: (NotTrusted|UnknownError)'
+          }
+
+          Test-Case 'Trusted but wrong publisher' {
+            $publicCert = Join-Path $root 'test-signing.cer'
+            Export-Certificate -Cert $cert -FilePath $publicCert | Out-Null
+            foreach ($store in @('Cert:\LocalMachine\Root', 'Cert:\LocalMachine\TrustedPublisher')) {
+              Import-Certificate -FilePath $publicCert -CertStoreLocation $store | Out-Null
+            }
+            $directory = New-FixtureDirectory 'wrong-publisher'
+            $exe = Join-Path $directory 'fixture.exe'
+            Copy-Item -LiteralPath $unsigned -Destination $exe
+            Set-AuthenticodeSignature -LiteralPath $exe -Certificate $cert | Out-Null
+            Assert-Verification $directory 1 "Expected publisher 'Some Other Publisher'" -ExpectedPublisher 'Some Other Publisher'
+          }
+
+          Test-Case 'Trusted but missing a timestamp' {
+            $directory = New-FixtureDirectory 'no-timestamp'
+            $exe = Join-Path $directory 'fixture.exe'
+            Copy-Item -LiteralPath $unsigned -Destination $exe
+            Set-AuthenticodeSignature -LiteralPath $exe -Certificate $cert | Out-Null
+            Assert-Verification $directory 1 'missing a timestamp'
+          }
+
+          $signed = Join-Path $root 'signed/fixture.exe'
+          Test-Case 'Trusted and timestamped' {
+            $directory = New-FixtureDirectory 'signed'
+            Copy-Item -LiteralPath $unsigned -Destination $signed
+            Set-AuthenticodeSignature -LiteralPath $signed -Certificate $cert `
+              -TimestampServer 'http://timestamp.digicert.com' | Out-Null
+            Assert-Verification $directory 0 'Verified signature'
+            $attestation = Get-Content -LiteralPath (Join-Path $directory 'windows-signature-attestation.json') -Raw |
+              ConvertFrom-Json
+            if ($attestation.signed -isnot [bool] -or -not $attestation.signed -or $attestation.files.Count -ne 1 -or
+                $attestation.files[0].name -cne 'fixture.exe' -or -not $attestation.files[0].timestamped) {
+              throw 'Expected a signed attestation for exactly one timestamped fixture.exe.'
+            }
+          }
+
+          Test-Case 'Tampered executable' {
+            $directory = New-FixtureDirectory 'tampered'
+            $exe = Join-Path $directory 'fixture.exe'
+            # Change a hashed DOS stub byte as well as appending bytes so the
+            # fixture fails even when WinVerifyTrust tolerates trailing data.
+            $bytes = [System.IO.File]::ReadAllBytes($signed)
+            $bytes[0x40] = $bytes[0x40] -bxor 1
+            [System.IO.File]::WriteAllBytes($exe, [byte[]]($bytes + @(1, 2, 3)))
+            Assert-Verification $directory 1 'Authenticode status:'
+          }
+
+          Test-Case 'Manifest references a missing executable' {
+            $directory = New-FixtureDirectory 'missing-reference'
+            Copy-Item -LiteralPath $unsigned -Destination $directory
+            Set-Content -LiteralPath (Join-Path $directory 'latest.yml') -Value 'path: missing.exe'
+            Assert-Verification $directory 1 "latest.yml references 'missing.exe'"
+          }
+
+          Test-Case 'RecordUnsigned accepts an unsigned executable' {
+            $directory = New-FixtureDirectory 'record-unsigned'
+            Copy-Item -LiteralPath $unsigned -Destination $directory
+            Assert-Verification $directory 0 'UNSIGNED and cannot be published' -RecordUnsigned
+            $attestation = Get-Content -LiteralPath (Join-Path $directory 'windows-signature-attestation.json') -Raw |
+              ConvertFrom-Json
+            if ($attestation.signed -isnot [bool] -or $attestation.signed) {
+              throw 'Expected an attestation with signed=false.'
+            }
+          }
+
+          Test-Case 'Official preflight without signing settings' {
+            $output = & node ./scripts/release-signing-gate.mjs preflight --official true 2>&1
+            Assert-Result $LASTEXITCODE 1 $output '::error::Missing Windows signing settings:'
+          }
+
+          $results | Format-Table -AutoSize -Wrap | Out-Host
+          if ($results.Result -contains 'FAIL') { exit 1 }
+          # The last native command (preflight) is expected to exit 1.
+          exit 0
+
+      - name: Remove test certificate and fixtures
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:SIGNING_GATE_CERT_THUMBPRINT -match '^[0-9A-Fa-f]{40}$') {
+            foreach ($store in @('Cert:\LocalMachine\TrustedPublisher', 'Cert:\LocalMachine\Root', 'Cert:\CurrentUser\My')) {
+              $path = Join-Path $store $env:SIGNING_GATE_CERT_THUMBPRINT
+              if (Test-Path -LiteralPath $path) {
+                if ($store -eq 'Cert:\CurrentUser\My') {
+                  Remove-Item -LiteralPath $path -DeleteKey
+                } else {
+                  Remove-Item -LiteralPath $path
+                }
+              }
+            }
+          }
+          if ($env:SIGNING_GATE_FIXTURE_DIR -and (Test-Path -LiteralPath $env:SIGNING_GATE_FIXTURE_DIR)) {
+            Remove-Item -LiteralPath $env:SIGNING_GATE_FIXTURE_DIR -Recurse -Force
+          }

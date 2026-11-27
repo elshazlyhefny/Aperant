@@ -6,6 +6,7 @@
  *
  * Features:
  * - Multi-tier polling intervals (60s for active PRs, 5min for stable)
+ * - Coalesced refreshes with bounded concurrency per project
  * - ETag-based conditional requests to minimize API usage
  * - Rate limit monitoring with automatic pause/resume
  * - PR classification based on recent activity
@@ -91,6 +92,22 @@ interface PRPollingState {
   mergeableRetryTimeout?: NodeJS.Timeout;
 }
 
+type RefreshPriority = 'high' | 'normal';
+
+interface RefreshPass {
+  remaining: Set<number>;
+  statuses: PRStatus[];
+  resolve: () => void;
+}
+
+interface QueuedRefresh {
+  prNumber: number;
+  priority: RefreshPriority;
+  passes: Set<RefreshPass>;
+}
+
+const CONCURRENCY_LIMIT = 5;
+
 /**
  * Project polling context
  */
@@ -100,6 +117,14 @@ interface ProjectPollingContext {
   repo: string;
   token: string;
   prStates: Map<number, PRPollingState>;
+  // zeenha fork: Coalesce overlapping tier and full-refresh polls by PR.
+  queue: Map<number, QueuedRefresh>;
+  inFlight: Set<number>;
+  inFlightPasses: Map<number, Set<RefreshPass>>;
+  rerunAfterFlight: Set<number>;
+  stopped: boolean;
+  pendingPasses: Set<RefreshPass>;
+  highPriorityStreak: number;
   /** Timer for active tier polling */
   activeTimer: NodeJS.Timeout | null;
   /** Timer for stable tier polling */
@@ -197,6 +222,13 @@ export class PRStatusPoller {
       repo,
       token,
       prStates: new Map(),
+      queue: new Map(),
+      inFlight: new Set(),
+      inFlightPasses: new Map(),
+      rerunAfterFlight: new Set(),
+      stopped: false,
+      pendingPasses: new Set(),
+      highPriorityStreak: 0,
       activeTimer: null,
       stableTimer: null,
       fullRefreshTimer: null,
@@ -225,8 +257,10 @@ export class PRStatusPoller {
     // Run initial poll immediately
     await this.pollAllPRs(context);
 
-    // Start polling timers
-    this.startPollingTimers(context);
+    // The context may have been stopped or replaced during the initial pass.
+    if (this.isCurrentContext(context)) {
+      this.startPollingTimers(context);
+    }
   }
 
   /**
@@ -237,6 +271,15 @@ export class PRStatusPoller {
     if (!context) {
       return;
     }
+
+    context.stopped = true;
+    context.queue.clear();
+    context.rerunAfterFlight.clear();
+    context.inFlightPasses.clear();
+    for (const pass of context.pendingPasses) {
+      pass.resolve();
+    }
+    context.pendingPasses.clear();
 
     // Clear all timers
     if (context.activeTimer) {
@@ -261,6 +304,11 @@ export class PRStatusPoller {
 
     this.contexts.delete(projectId);
     this.lastErrors.delete(projectId);
+    for (const prKey of this.consecutiveErrors.keys()) {
+      if (prKey.startsWith(`${projectId}:`)) {
+        this.consecutiveErrors.delete(prKey);
+      }
+    }
 
     appLog.info(`[PRStatusPoller] Stopped polling for ${projectId}`);
   }
@@ -340,6 +388,16 @@ export class PRStatusPoller {
         clearTimeout(state.mergeableRetryTimeout);
       }
       context.prStates.delete(prNumber);
+      this.consecutiveErrors.delete(`${projectId}:${prNumber}`);
+      this.dropQueuedRefresh(context, prNumber);
+
+      // Keep the slot reserved until the request settles, but don't deliver its
+      // stale result or share it with a subsequent re-add of this PR.
+      const passes = context.inFlightPasses.get(prNumber);
+      if (passes) {
+        context.inFlightPasses.delete(prNumber);
+        this.completeRefresh(context, prNumber, passes);
+      }
     }
 
     appLog.info(
@@ -381,41 +439,31 @@ export class PRStatusPoller {
   private startPollingTimers(context: ProjectPollingContext): void {
     // Active tier polling (60s)
     context.activeTimer = setInterval(() => {
-      if (!this.isPausedForRateLimit) {
-        this.pollPRsByTier(context, 'active');
-      }
+      void this.pollPRsByTier(context, 'active');
     }, POLLING_INTERVALS.ACTIVE);
 
     // Stable tier polling (5min)
     context.stableTimer = setInterval(() => {
-      if (!this.isPausedForRateLimit) {
-        this.pollPRsByTier(context, 'stable');
-      }
+      void this.pollPRsByTier(context, 'stable');
     }, POLLING_INTERVALS.STABLE);
 
     // Full refresh (15min)
     context.fullRefreshTimer = setInterval(() => {
-      if (!this.isPausedForRateLimit) {
-        this.pollAllPRs(context);
-      }
+      void this.pollAllPRs(context);
     }, POLLING_INTERVALS.FULL_REFRESH);
   }
 
   /**
    * Poll all PRs in a context
    */
-  private async pollAllPRs(context: ProjectPollingContext): Promise<void> {
-    const prNumbers = Array.from(context.prStates.keys());
-    await this.pollPRs(context, prNumbers);
+  private pollAllPRs(context: ProjectPollingContext): Promise<void> {
+    return this.enqueueRefresh(context, context.prStates.keys(), { priority: 'normal' });
   }
 
   /**
    * Poll PRs of a specific tier
    */
-  private async pollPRsByTier(
-    context: ProjectPollingContext,
-    tier: PRPollingTier
-  ): Promise<void> {
+  private pollPRsByTier(context: ProjectPollingContext, tier: PRPollingTier): Promise<void> {
     const prNumbers: number[] = [];
     for (const [prNumber, state] of context.prStates) {
       if (state.tier === tier) {
@@ -423,64 +471,184 @@ export class PRStatusPoller {
       }
     }
 
-    if (prNumbers.length > 0) {
-      await this.pollPRs(context, prNumbers);
+    return prNumbers.length > 0
+      ? this.enqueueRefresh(context, prNumbers, { priority: tier === 'active' ? 'high' : 'normal' })
+      : Promise.resolve();
+  }
+
+  private isCurrentContext(context: ProjectPollingContext): boolean {
+    return !context.stopped && this.contexts.get(context.projectId) === context;
+  }
+
+  private enqueueRefresh(
+    context: ProjectPollingContext,
+    prNumbers: Iterable<number>,
+    { priority, requireFresh }: { priority: RefreshPriority; requireFresh?: boolean }
+  ): Promise<void> {
+    if (!this.isCurrentContext(context) || this.isPausedForRateLimit) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      const pass: RefreshPass = { remaining: new Set(), statuses: [], resolve };
+      context.pendingPasses.add(pass);
+
+      for (const prNumber of prNumbers) {
+        if (!context.prStates.has(prNumber)) {
+          continue;
+        }
+        pass.remaining.add(prNumber);
+
+        const queued = context.queue.get(prNumber);
+        if (queued) {
+          queued.passes.add(pass);
+          if (priority === 'high') {
+            queued.priority = 'high';
+          }
+          continue;
+        }
+
+        const inFlightPasses = context.inFlightPasses.get(prNumber);
+        if (inFlightPasses && !requireFresh) {
+          inFlightPasses.add(pass);
+          continue;
+        }
+
+        if (context.inFlight.has(prNumber)) {
+          context.rerunAfterFlight.add(prNumber);
+        }
+        context.queue.set(prNumber, { prNumber, priority, passes: new Set([pass]) });
+      }
+
+      if (pass.remaining.size === 0) {
+        this.finishPass(context, pass);
+      }
+      this.drain(context);
+    });
+  }
+
+  /** Start ready refreshes without awaiting them; each completion frees a slot. */
+  private drain(context: ProjectPollingContext): void {
+    while (!context.stopped && !this.isPausedForRateLimit && context.inFlight.size < CONCURRENCY_LIMIT) {
+      const entry = this.nextRefresh(context);
+      if (!entry) {
+        break;
+      }
+      context.queue.delete(entry.prNumber);
+      context.inFlight.add(entry.prNumber);
+      context.inFlightPasses.set(entry.prNumber, entry.passes);
+      context.highPriorityStreak = entry.priority === 'high'
+        ? Math.min(context.highPriorityStreak + 1, CONCURRENCY_LIMIT)
+        : 0;
+      void this.runRefresh(context, entry.prNumber);
     }
   }
 
-  /**
-   * Poll specific PRs and update their status
-   */
-  private async pollPRs(
+  private nextRefresh(context: ProjectPollingContext): QueuedRefresh | undefined {
+    const preferredPriority = context.highPriorityStreak >= CONCURRENCY_LIMIT ? 'normal' : 'high';
+    let fallback: QueuedRefresh | undefined;
+    for (const entry of context.queue.values()) {
+      if (context.rerunAfterFlight.has(entry.prNumber)) {
+        continue;
+      }
+      if (entry.priority === preferredPriority) {
+        return entry;
+      }
+      fallback ??= entry;
+    }
+    return fallback;
+  }
+
+  private async runRefresh(context: ProjectPollingContext, prNumber: number): Promise<void> {
+    let result: PromiseSettledResult<PRStatus | null>;
+    try {
+      result = { status: 'fulfilled', value: await this.fetchPRStatus(context, prNumber) };
+    } catch (reason) {
+      result = { status: 'rejected', reason };
+    }
+    this.settleRefresh(context, prNumber, result);
+    this.drain(context);
+  }
+
+  private settleRefresh(
     context: ProjectPollingContext,
-    prNumbers: number[]
-  ): Promise<void> {
-    if (this.isPausedForRateLimit) {
+    prNumber: number,
+    result: PromiseSettledResult<PRStatus | null>
+  ): void {
+    context.inFlight.delete(prNumber);
+    const passes = context.inFlightPasses.get(prNumber);
+    context.inFlightPasses.delete(prNumber);
+    if (!this.isCurrentContext(context)) {
       return;
     }
 
-    const updatedStatuses: PRStatus[] = [];
-
-    // Poll PRs in batches with limited concurrency to avoid long sequential delays
-    const CONCURRENCY_LIMIT = 5;
-    for (let i = 0; i < prNumbers.length; i += CONCURRENCY_LIMIT) {
-      if (this.isPausedForRateLimit) {
-        break;
-      }
-
-      const batch = prNumbers.slice(i, i + CONCURRENCY_LIMIT);
-      const results = await Promise.allSettled(
-        batch.map((prNumber) => this.fetchPRStatus(context, prNumber))
-      );
-
-      for (let j = 0; j < results.length; j++) {
-        const result = results[j];
-        const prKey = `${context.projectId}:${batch[j]}`;
-        if (result.status === 'fulfilled' && result.value) {
-          updatedStatuses.push(result.value);
-          this.consecutiveErrors.delete(prKey);
-        } else if (result.status === 'rejected') {
-          const message = result.reason instanceof Error ? result.reason.message : 'Unknown error';
-          const errorCount = (this.consecutiveErrors.get(prKey) ?? 0) + 1;
-          this.consecutiveErrors.set(prKey, errorCount);
-          // Only log first error and then every 10th to avoid spam
-          if (errorCount === 1 || errorCount % 10 === 0) {
-            console.error(
-              `[PRStatusPoller] Error polling PR #${batch[j]} (x${errorCount}): ${message}`
-            );
-          }
-          this.lastErrors.set(context.projectId, message);
+    if (passes) {
+      const prKey = `${context.projectId}:${prNumber}`;
+      const status = result.status === 'fulfilled' ? result.value : null;
+      if (status) {
+        this.consecutiveErrors.delete(prKey);
+      } else if (result.status === 'rejected') {
+        const message = result.reason instanceof Error ? result.reason.message : 'Unknown error';
+        const errorCount = (this.consecutiveErrors.get(prKey) ?? 0) + 1;
+        this.consecutiveErrors.set(prKey, errorCount);
+        // Only log first error and then every 10th to avoid spam.
+        if (errorCount === 1 || errorCount % 10 === 0) {
+          console.error(`[PRStatusPoller] Error polling PR #${prNumber} (x${errorCount}): ${message}`);
         }
+        this.lastErrors.set(context.projectId, message);
+      }
+      this.completeRefresh(context, prNumber, passes, status);
+    }
+
+    if (context.rerunAfterFlight.delete(prNumber)) {
+      const rerun = context.queue.get(prNumber);
+      if (rerun) {
+        // Join the back of the high-priority queue now that the PR can run again.
+        context.queue.delete(prNumber);
+        context.queue.set(prNumber, { ...rerun, priority: 'high' });
       }
     }
+  }
 
-    // Track when this poll cycle completed
-    context.lastPollCycle = new Date();
-
-    // Send update to renderer
-    if (updatedStatuses.length > 0) {
-      this.sendStatusUpdate(context.projectId, updatedStatuses);
+  private dropQueuedRefresh(context: ProjectPollingContext, prNumber: number): void {
+    context.rerunAfterFlight.delete(prNumber);
+    const entry = context.queue.get(prNumber);
+    if (entry) {
+      context.queue.delete(prNumber);
+      this.completeRefresh(context, prNumber, entry.passes);
     }
+  }
+
+  private completeRefresh(
+    context: ProjectPollingContext,
+    prNumber: number,
+    passes: Set<RefreshPass>,
+    status: PRStatus | null = null
+  ): void {
+    for (const pass of passes) {
+      pass.remaining.delete(prNumber);
+      if (status) {
+        pass.statuses.push(status);
+      }
+      if (pass.remaining.size === 0) {
+        this.finishPass(context, pass);
+      }
+    }
+  }
+
+  private finishPass(context: ProjectPollingContext, pass: RefreshPass): void {
+    context.pendingPasses.delete(pass);
+    if (this.isCurrentContext(context)) {
+      context.lastPollCycle = new Date();
+      if (pass.statuses.length > 0) {
+        this.sendStatusUpdate(context.projectId, pass.statuses);
+      }
+    }
+    pass.resolve();
+  }
+
+  private isCurrentRefresh(context: ProjectPollingContext, state: PRPollingState): boolean {
+    return this.isCurrentContext(context) && context.prStates.get(state.prNumber) === state;
   }
 
   /**
@@ -501,6 +669,9 @@ export class PRStatusPoller {
       // Fetch PR data (for updated_at and mergeable state)
       const prEndpoint = `/repos/${owner}/${repo}/pulls/${prNumber}`;
       const prResult = await githubFetchWithETag(token, prEndpoint);
+      if (!this.isCurrentRefresh(context, state)) {
+        return null;
+      }
       this.updateGitHubRateLimitInfo(prResult.rateLimitInfo);
 
       const prData = prResult.data as PRStatusPollData;
@@ -512,10 +683,16 @@ export class PRStatusPoller {
       state.tier = tier;
 
       // Fetch CI status (pass headSha to avoid duplicate PR fetch)
-      const checksStatus = await this.fetchChecksStatus(context, prNumber, prData.head.sha);
+      const checksStatus = await this.fetchChecksStatus(context, state, prData.head.sha);
+      if (!this.isCurrentRefresh(context, state)) {
+        return null;
+      }
 
       // Fetch review status
-      const reviewsStatus = await this.fetchReviewsStatus(context, prNumber);
+      const reviewsStatus = await this.fetchReviewsStatus(context, state);
+      if (!this.isCurrentRefresh(context, state)) {
+        return null;
+      }
 
       // Determine mergeable state
       const mergeableState = this.determineMergeableState(
@@ -540,6 +717,9 @@ export class PRStatusPoller {
         lastActivity: lastActivity.toISOString(),
       };
     } catch (error) {
+      if (!this.isCurrentRefresh(context, state)) {
+        return null;
+      }
       // Pause polling on 403 unless we know rate limit remaining is healthy
       // (a permission-denied 403 would still show healthy remaining from prior requests)
       if (
@@ -558,7 +738,7 @@ export class PRStatusPoller {
    */
   private async fetchChecksStatus(
     context: ProjectPollingContext,
-    prNumber: number,
+    state: PRPollingState,
     headSha: string
   ): Promise<ChecksStatus> {
     const { owner, repo, token } = context;
@@ -567,6 +747,9 @@ export class PRStatusPoller {
       // Fetch combined status
       const statusEndpoint = `/repos/${owner}/${repo}/commits/${headSha}/status`;
       const statusResult = await githubFetchWithETag(token, statusEndpoint);
+      if (!this.isCurrentRefresh(context, state)) {
+        return 'none';
+      }
       this.updateGitHubRateLimitInfo(statusResult.rateLimitInfo);
 
       const statusData = statusResult.data as CombinedStatusResponse;
@@ -574,6 +757,9 @@ export class PRStatusPoller {
       // Fetch check runs
       const checksEndpoint = `/repos/${owner}/${repo}/commits/${headSha}/check-runs`;
       const checksResult = await githubFetchWithETag(token, checksEndpoint);
+      if (!this.isCurrentRefresh(context, state)) {
+        return 'none';
+      }
       this.updateGitHubRateLimitInfo(checksResult.rateLimitInfo);
 
       const checksData = checksResult.data as CheckRunsResponse;
@@ -581,10 +767,12 @@ export class PRStatusPoller {
       // Aggregate status
       return this.aggregateChecksStatus(statusData, checksData);
     } catch (error) {
-      console.error(
-        `[PRStatusPoller] Error fetching checks status for PR #${prNumber}:`,
-        error
-      );
+      if (this.isCurrentRefresh(context, state)) {
+        console.error(
+          `[PRStatusPoller] Error fetching checks status for PR #${state.prNumber}:`,
+          error
+        );
+      }
       return 'none';
     }
   }
@@ -634,23 +822,28 @@ export class PRStatusPoller {
    */
   private async fetchReviewsStatus(
     context: ProjectPollingContext,
-    prNumber: number
+    state: PRPollingState
   ): Promise<ReviewsStatus> {
     const { owner, repo, token } = context;
 
     try {
-      const endpoint = `/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
+      const endpoint = `/repos/${owner}/${repo}/pulls/${state.prNumber}/reviews`;
       const result = await githubFetchWithETag(token, endpoint);
+      if (!this.isCurrentRefresh(context, state)) {
+        return 'none';
+      }
       this.updateGitHubRateLimitInfo(result.rateLimitInfo);
 
       const reviews = result.data as ReviewsResponse[];
 
       return this.aggregateReviewsStatus(reviews);
     } catch (error) {
-      console.error(
-        `[PRStatusPoller] Error fetching reviews for PR #${prNumber}:`,
-        error
-      );
+      if (this.isCurrentRefresh(context, state)) {
+        console.error(
+          `[PRStatusPoller] Error fetching reviews for PR #${state.prNumber}:`,
+          error
+        );
+      }
       return 'none';
     }
   }
@@ -719,7 +912,8 @@ export class PRStatusPoller {
     if (prData.mergeable === null) {
       // Schedule retry after 2s
       state.mergeableRetryTimeout = setTimeout(() => {
-        this.pollPRs(context, [prData.number]);
+        state.mergeableRetryTimeout = undefined;
+        void this.enqueueRefresh(context, [state.prNumber], { priority: 'high', requireFresh: true });
       }, POLLING_INTERVALS.MERGEABLE_RETRY);
 
       return 'unknown';
@@ -804,9 +998,13 @@ export class PRStatusPoller {
       );
     }
 
-    // Send pause notification to all active contexts
-    for (const projectId of this.contexts.keys()) {
-      this.sendStatusUpdate(projectId, []);
+    // Drop all work that has not started (including deferred retries). In-flight
+    // refreshes still settle their passes, and resume will enqueue every PR again.
+    for (const context of this.contexts.values()) {
+      for (const prNumber of context.queue.keys()) {
+        this.dropQueuedRefresh(context, prNumber);
+      }
+      this.sendStatusUpdate(context.projectId, []);
     }
   }
 
@@ -828,11 +1026,8 @@ export class PRStatusPoller {
     this.clearStaggeredResumeTimeouts();
     let delay = 0;
     for (const context of this.contexts.values()) {
-      const contextId = context.projectId;
       const timeout = setTimeout(() => {
-        if (!this.isPausedForRateLimit && this.contexts.has(contextId)) {
-          this.pollAllPRs(context);
-        }
+        void this.pollAllPRs(context);
       }, delay);
       this.staggeredResumeTimeouts.push(timeout);
       delay += 5000;

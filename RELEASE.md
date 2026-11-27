@@ -1,6 +1,6 @@
 # Release Process
 
-> **This document describes upstream's (`AndyMik90/Auto-Claude`) release pipeline and does not apply to this fork.** In this fork `zeenha` is the trunk, and releases go through `scripts/zeenha-release.sh`, which only a human runs:
+> **The upstream release process below does not apply to this fork.** In this fork `zeenha` is the trunk, and releases go through `scripts/zeenha-release.sh`, which only a human runs:
 >
 > - `scripts/zeenha-release.sh`: test, build, push, install the next `zeenha.N`
 > - `scripts/zeenha-release.sh --no-install`: same, but stop before replacing the installed app
@@ -8,6 +8,52 @@
 > - `scripts/zeenha-release.sh --rollback`: swap back to the previous install
 >
 > `APERANT_INSTALL_DIR` overrides the install directory (default `~/Applications/aperant-zeenha`).
+
+<!-- zeenha fork: rehearse manual installs without changing a real install or publishing a release. -->
+## Fork only: Desktop artifact smoke checks
+
+### Linux x64: install, upgrade, and roll back
+
+Run this rehearsal by hand on a **fresh, non-root, disposable Linux x64 VM or account** with its own display session. Do not use your everyday account, mount your real home or profile, or forward credential agents. Use trusted local Git refs in a checkout that includes the smoke scripts. Environment overrides are not a security boundary. No provider sign-in, Ollama service, or model download is needed.
+
+- Put Node.js **24**, npm, Git, Bash, and tar on `PATH`. Install native build tools (Python 3, `make`, a C/C++ compiler, and `pkg-config`) and Electron desktop libraries (GTK 3, NSS, ALSA, and X11 libraries). Use a working X11 display or install Xvfb and `xauth` for the examples below.
+- Allow access to public dependency and build-tool downloads and leave room in `/tmp` for two independent builds. If the packaged app cannot run with the available display or sandbox policy, use a compatible disposable runner or report **not run**. Do not weaken the developer host’s sandbox or AppArmor policy.
+
+From the checkout root, build both versions from the same committed source (the desktop version must end in `.zeenha.N`):
+
+```bash
+xvfb-run --auto-servernum node scripts/smoke-desktop-linux.mjs --run --baseline-ref HEAD
+```
+
+The runner exports `HEAD` twice, installs dependencies separately with `npm ci`, and bumps `zeenha.N` only in the generated candidate’s desktop manifest after dependency installation. This checks swapping, not migration compatibility.
+
+To test two distinct revisions, replace `local-baseline` and `local-candidate` with trusted refs already present locally. The candidate must have a higher valid desktop version:
+
+```bash
+xvfb-run --auto-servernum node scripts/smoke-desktop-linux.mjs --run --baseline-ref local-baseline --candidate-ref local-candidate --keep-diagnostics
+```
+
+Both builds use `--publish never`. With its own temporary `APERANT_INSTALL_DIR`, the smoke runner invokes `scripts/zeenha-release.sh` only as `--install <A.AppImage>`, `--install <B.AppImage>`, and `--rollback`, in that order. It launches and closes the **installed, extracted `aperant` binary** after each step. Do not substitute the release script’s default mode or `--no-install`: **`--no-install` still pushes**.
+
+A pass requires correct `.previous` bookkeeping and real packaged launches reporting versions **A → B → A** via IPC on Linux x64. All three launches must use one disposable profile and preserve the fixture Git repo’s HEAD and marker, project ID, canonical path, and branch setting. The packaged terminal must read the fixture marker, and the local libSQL query must return a zero project memory count with `memory.db` in that profile and still present at the next launch.
+
+Stage records go to stdout and to `/tmp/aperant-smoke-*/logs/stages.jsonl` during the run. They include the source commits, expected versions, AppImage names and SHA-256 hashes, and observed launch results. Look for the JSON record `{"stage":"rehearsal","status":"passed"}` and exit code zero; a failure exits nonzero. The runner closes its own processes and removes the temporary builds, install, fixture, profile, and logs. `--keep-diagnostics` retains only a sanitized `/tmp/aperant-smoke-report-*/report.json`; the runner prints the exact path. If cleanup fails or process exit cannot be confirmed, retire the disposable runner rather than reusing its paths.
+
+### Windows and macOS: advisory native launch checks
+
+In the fork’s GitHub **Actions**, select **Desktop Artifact Smoke** → **Run workflow**. Choose a trusted ref that includes the workflow and smoke scripts, then select `all` or one target:
+
+| Target | Built artifact | Native runner |
+| --- | --- | --- |
+| `windows-x64` | Windows x64 ZIP | `windows-latest` |
+| `macos-arm64` | macOS arm64 DMG | `macos-15` |
+| `macos-x64` | macOS x64 DMG | `macos-15-intel` |
+
+Read the workflow run’s **Summary** for one row per target with artifact name (or `not-produced`), source and expected version, observed version and architecture when available, and stage or reason. **pass** means the packaged app launched and passed the fixture Git, terminal, and local database checks. **fail** means an attempted check failed. **not run** means the target was unselected, no compatible runner was available, or the run ended without completed evidence. The workflow uploads result records, not packages.
+
+Running from an extracted ZIP is not an NSIS installation test. Launching the app copied from a DMG does not validate distribution signing, notarization, or Gatekeeper. These checks do not publish binaries, add a CI or release gate, or enable in-app updates. Even a successful Linux rollback applies only to the tested builds and disposable state; it is not a general rollback or migration guarantee.
+
+## Upstream release process
 
 This document describes how releases are created for Auto Claude.
 
@@ -227,6 +273,10 @@ git commit -m "docs: add changelog for vX.Y.Z"
 git push origin main
 ```
 
+### Windows signing preflight failed
+
+Check the `signing-preflight` job log. It lists the names of missing or blank settings, not their values. Set the listed secrets and repository variable in GitHub under **Settings → Secrets and variables → Actions**, then rerun the workflow. See [Windows code signing](#windows-code-signing) for the required settings.
+
 ### Build failed after tag was created
 
 - The release won't be published if builds fail
@@ -257,6 +307,26 @@ git push origin v2.8.0
 
 - All macOS binaries are code signed with Apple Developer certificate
 - All macOS binaries are notarized by Apple
-- Windows binaries are code signed
+- Official stable releases (tag pushes) and beta releases (non-dry-run) refuse to publish unless every Windows installer has a valid, timestamped Authenticode signature from the configured publisher.
 - All binaries are scanned with VirusTotal
 - SHA256 checksums are generated for all artifacts
+
+### Windows code signing
+
+Set these GitHub Actions secrets:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `AZURE_SIGNING_ACCOUNT`
+- `AZURE_CERTIFICATE_PROFILE`
+
+Set the repository variable `WINDOWS_SIGNING_PUBLISHER` to the signer certificate's common name (CN).
+
+If any setting is missing or blank, `signing-preflight` stops an official run before any build starts and, for beta, before the tag is created.
+
+When signing is configured, `build-windows` verifies the signature, publisher, and timestamp on every `.exe` it uploads. It records the results and SHA-256 hashes in `windows-signature-attestation.json`. Before publishing, `create-release` recalculates the SHA-256 hash of each Windows installer and requires it to match the signed attestation for the configured publisher.
+
+Manual runs of `release.yml` (`workflow_dispatch`) and beta runs with `dry_run` enabled are build-only. If signing settings are missing, these runs produce unsigned Windows installers and emit a warning. These runs do not publish a release, and the unsigned artifacts cannot pass the official release gate.
+
+The `windows-signing-gate.yml` workflow tests signing failures without publishing a release.

@@ -7,13 +7,13 @@ import { Switch } from '../ui/switch';
 import { SettingsSection } from './SettingsSection';
 import { ProviderAgentTabs } from './ProviderAgentTabs';
 import type {
-  AppSettings,
+  RendererAppSettings,
   ToolDetectionResult
 } from '../../../shared/types';
 
 interface GeneralSettingsProps {
-  settings: AppSettings;
-  onSettingsChange: (settings: AppSettings) => void;
+  settings: RendererAppSettings;
+  onSettingsChange: (settings: RendererAppSettings) => void;
   section: 'agent' | 'paths';
 }
 

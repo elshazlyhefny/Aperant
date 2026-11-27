@@ -1,9 +1,9 @@
 import { debugLog } from '@shared/utils/debug-logger';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useProjectStore } from '../../../stores/project-store';
 import { useSettingsStore } from '../../../stores/settings-store';
 import { checkTaskRunning, isIncompleteHumanReview, getTaskProgress, useTaskStore, loadTasks, hasRecentActivity } from '../../../stores/task-store';
-import type { Task, TaskLogs, TaskLogPhase, WorktreeStatus, WorktreeDiff, MergeConflict, MergeStats, GitConflictInfo, ImageAttachment } from '../../../../shared/types';
+import type { Task, TaskLogs, TaskLogPhase, WorktreeStatus, WorktreeDiff, MergeConflict, MergeStats, GitConflictInfo, ImageAttachment, IPCResult } from '../../../../shared/types';
 import { applyLogsDelta } from './applyLogsDelta';
 
 /**
@@ -51,6 +51,37 @@ export interface UseTaskDetailOptions {
   task: Task;
 }
 
+// zeenha fork: A failed lookup is not verified absence, and either lookup can fail independently.
+export type WorkspaceCheckState = 'idle' | 'loading' | 'success' | 'error';
+
+type WorkspaceCheck = { state: WorkspaceCheckState; error: string | null };
+type WorkspaceQuery<T> = { data: T | null; check: WorkspaceCheck };
+type WorkspaceCheckOutcome<T> = { data: T; error: null } | { data: null; error: string };
+
+const idleWorkspaceQuery = { data: null, check: { state: 'idle', error: null } } as const;
+const loadingCheck = { state: 'loading', error: null } as const;
+const successfulCheck = { state: 'success', error: null } as const;
+
+function classifyWorkspaceCheck<T>(result: PromiseSettledResult<IPCResult<T>>, fallback: string): WorkspaceCheckOutcome<T> {
+  if (result.status === 'rejected') {
+    const reason: unknown = result.reason;
+    const message = reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : null;
+    return { data: null, error: message || fallback };
+  }
+  const { success, data, error } = result.value;
+  return success && data
+    ? { data, error: null }
+    : { data: null, error: error || fallback };
+}
+
+async function requestWorkspaceCheck<T>(request: () => Promise<IPCResult<T>>, fallback: string) {
+  try {
+    return classifyWorkspaceCheck({ status: 'fulfilled', value: await request() }, fallback);
+  } catch (reason) {
+    return classifyWorkspaceCheck<T>({ status: 'rejected', reason }, fallback);
+  }
+}
+
 export function useTaskDetail({ task }: UseTaskDetailOptions) {
   const [feedback, setFeedback] = useState('');
   const [feedbackImages, setFeedbackImages] = useState<ImageAttachment[]>([]);
@@ -66,9 +97,12 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
   const [worktreeChangesInfo, setWorktreeChangesInfo] = useState<{ hasChanges: boolean; worktreePath?: string; changedFileCount?: number } | null>(null);
   const [isCheckingChanges, setIsCheckingChanges] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
-  const [worktreeDiff, setWorktreeDiff] = useState<WorktreeDiff | null>(null);
-  const [isLoadingWorktree, setIsLoadingWorktree] = useState(false);
+  const [{ data: worktreeStatus, check: worktreeStatusCheck }, setStatusQuery] = useState<WorkspaceQuery<WorktreeStatus>>(idleWorkspaceQuery);
+  const [{ data: worktreeDiff, check: worktreeDiffCheck }, setDiffQuery] = useState<WorkspaceQuery<WorktreeDiff>>(idleWorkspaceQuery);
+  const activeTaskIdRef = useRef<string | null>(null);
+  const statusRequestSeqRef = useRef(0);
+  const diffRequestSeqRef = useRef(0);
+  const previewRequestSeqRef = useRef(0);
   const [isMerging, setIsMerging] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
@@ -170,6 +204,15 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
     setIsUserScrolledUp(!isAtAnchor);
   };
 
+  const jumpToLatestLogs = useCallback(() => {
+    const container = logsContainerRef.current;
+    if (container) {
+      // zeenha fork: Jump instantly so the 100px scroll-away check can't pause following mid-animation.
+      container.scrollTop = logOrder === 'reverse-chronological' ? 0 : container.scrollHeight;
+    }
+    setIsUserScrolledUp(false);
+  }, [logOrder]);
+
   // Auto-scroll logs to anchor (top for reverse, bottom for chronological) only if user hasn't scrolled away
   useEffect(() => {
     const isReverseOrder = logOrder === 'reverse-chronological';
@@ -195,32 +238,70 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
     setFeedbackImages([]);
   }, []);
 
-  // Load worktree status when task is in human_review
-  useEffect(() => {
-    if (needsReview) {
-      setIsLoadingWorktree(true);
-      setWorkspaceError(null);
+  // zeenha fork: Only the latest request for each check can publish for the active task.
+  const runStatusCheck = useCallback(async (preserveOnError = false) => {
+    const taskId = task.id;
+    if (activeTaskIdRef.current !== taskId) return;
+    const seq = ++statusRequestSeqRef.current;
+    // A background merge-preview refresh shouldn't hide the verified workspace.
+    setStatusQuery(previous => preserveOnError && previous.check.state === 'success'
+      ? previous
+      : { ...previous, check: loadingCheck });
+    const outcome = await requestWorkspaceCheck(
+      () => window.electronAPI.getWorktreeStatus(taskId),
+      'Failed to load worktree status'
+    );
+    if (activeTaskIdRef.current !== taskId || statusRequestSeqRef.current !== seq) return;
 
-      Promise.all([
-        window.electronAPI.getWorktreeStatus(task.id),
-        window.electronAPI.getWorktreeDiff(task.id)
-      ]).then(([statusResult, diffResult]) => {
-        if (statusResult.success && statusResult.data) {
-          setWorktreeStatus(statusResult.data);
-        }
-        if (diffResult.success && diffResult.data) {
-          setWorktreeDiff(diffResult.data);
-        }
-      }).catch((err) => {
-        console.error('Failed to load worktree info:', err);
-      }).finally(() => {
-        setIsLoadingWorktree(false);
-      });
-    } else {
-      setWorktreeStatus(null);
-      setWorktreeDiff(null);
+    setStatusQuery(previous => {
+      if (outcome.data !== null) return { data: outcome.data, check: successfulCheck };
+      const check: WorkspaceCheck = preserveOnError && previous.data !== null
+        ? successfulCheck
+        : { state: 'error', error: outcome.error };
+      return { ...previous, check };
+    });
+    return { seq, error: outcome.error };
+  }, [task.id]);
+
+  const runDiffCheck = useCallback(async () => {
+    const taskId = task.id;
+    if (activeTaskIdRef.current !== taskId) return;
+    const seq = ++diffRequestSeqRef.current;
+    setDiffQuery(previous => ({ ...previous, check: loadingCheck }));
+    const outcome = await requestWorkspaceCheck(
+      () => window.electronAPI.getWorktreeDiff(taskId),
+      'Failed to load worktree diff'
+    );
+    if (activeTaskIdRef.current !== taskId || diffRequestSeqRef.current !== seq) return;
+
+    setDiffQuery(previous => outcome.data !== null
+      ? { data: outcome.data, check: successfulCheck }
+      : { ...previous, check: { state: 'error', error: outcome.error } });
+  }, [task.id]);
+
+  const retryWorktreeStatus = useCallback(async () => { await runStatusCheck(); }, [runStatusCheck]);
+  const retryWorktreeDiff = runDiffCheck;
+
+  // zeenha fork: Reset before paint so the next task never displays the previous task's workspace.
+  useLayoutEffect(() => {
+    activeTaskIdRef.current = needsReview ? task.id : null;
+    setStatusQuery(idleWorkspaceQuery);
+    setDiffQuery(idleWorkspaceQuery);
+    setMergePreview(null);
+    setIsLoadingPreview(false);
+    setWorkspaceError(null);
+    if (needsReview) {
+      void runStatusCheck();
+      void runDiffCheck();
     }
-  }, [task.id, needsReview]);
+
+    return () => {
+      activeTaskIdRef.current = null;
+      statusRequestSeqRef.current++;
+      diffRequestSeqRef.current++;
+      previewRequestSeqRef.current++;
+    };
+  }, [task.id, needsReview, runStatusCheck, runDiffCheck]);
 
   // Load and watch phase logs
   useEffect(() => {
@@ -336,103 +417,53 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
     setFeedbackImages([]);
   }, []);
 
-  // Track if we've already loaded preview for this task to prevent infinite loops
-  const hasLoadedPreviewRef = useRef<string | null>(null);
-
-  // Clear merge preview state when switching to a different task
-  useEffect(() => {
-    if (hasLoadedPreviewRef.current !== task.id) {
-      setMergePreview(null);
-      hasLoadedPreviewRef.current = null;
-    }
-  }, [task.id]);
-
-  // Load merge preview (conflict detection) and refresh worktree status
+  // zeenha fork: Refresh status through the same guard used by the initial check and retries.
   const loadMergePreview = useCallback(async () => {
+    const taskId = task.id;
+    if (activeTaskIdRef.current !== taskId) return;
+    const seq = ++previewRequestSeqRef.current;
     setIsLoadingPreview(true);
-    // Clear any previous workspace error before loading
     setWorkspaceError(null);
 
-    try {
-      // Fetch both merge preview and updated worktree status in parallel
-      // This ensures the branch information (currentProjectBranch) is refreshed
-      // when the user clicks the refresh button after switching branches locally
-      // Use Promise.allSettled to handle partial failures - if one API call fails,
-      // the other's result is still processed rather than being discarded
-      const [previewResult, statusResult] = await Promise.allSettled([
-        window.electronAPI.mergeWorktreePreview(task.id),
-        window.electronAPI.getWorktreeStatus(task.id)
-      ]);
+    const [preview, status] = await Promise.all([
+      requestWorkspaceCheck(() => window.electronAPI.mergeWorktreePreview(taskId), 'Failed to load merge preview'),
+      runStatusCheck(true)
+    ]);
+    if (activeTaskIdRef.current !== taskId || previewRequestSeqRef.current !== seq) return;
 
-      const errors: string[] = [];
-
-      // Process merge preview result if fulfilled
-      if (previewResult.status === 'fulfilled') {
-        const result = previewResult.value;
-        if (result.success && result.data?.preview) {
-          setMergePreview(result.data.preview);
-        } else if (!result.success && result.error) {
-          errors.push(`Merge preview: ${result.error}`);
-        }
-      } else {
-        console.error('[useTaskDetail] Failed to load merge preview:', previewResult.reason);
-        errors.push('Failed to load merge preview');
-      }
-
-      // Update worktree status with fresh branch information if fulfilled
-      if (statusResult.status === 'fulfilled') {
-        const result = statusResult.value;
-        if (result.success && result.data) {
-          setWorktreeStatus(result.data);
-        } else if (!result.success && result.error) {
-          errors.push(`Worktree status: ${result.error}`);
-        }
-      } else {
-        console.error('[useTaskDetail] Failed to load worktree status:', statusResult.reason);
-        errors.push('Failed to load worktree status');
-      }
-
-      // Set workspace error if any API calls failed
-      if (errors.length > 0) {
-        setWorkspaceError(errors.join('; '));
-      }
-    } catch (err) {
-      console.error('[useTaskDetail] Unexpected error in loadMergePreview:', err);
-      setWorkspaceError('An unexpected error occurred while loading workspace information');
-    } finally {
-      hasLoadedPreviewRef.current = task.id;
-      setIsLoadingPreview(false);
+    const errors: string[] = [];
+    if (preview.data?.preview) setMergePreview(preview.data.preview);
+    if (preview.error) errors.push(`Merge preview: ${preview.error}`);
+    if (status?.error && statusRequestSeqRef.current === status.seq) {
+      errors.push(`Worktree status: ${status.error}`);
     }
-  }, [task.id]);
+    if (errors.length > 0) setWorkspaceError(errors.join('; '));
+    setIsLoadingPreview(false);
+  }, [task.id, runStatusCheck]);
 
   // Handle "Review Again" - clears staged state and reloads worktree info
   const handleReviewAgain = useCallback(async () => {
+    if (activeTaskIdRef.current !== task.id) return;
+
     // Clear staged success state if it was set in this session
     setStagedSuccess(null);
     setStagedProjectPath(undefined);
     setSuggestedCommitMessage(undefined);
 
     // Reset merge preview to force re-check
+    previewRequestSeqRef.current++;
     setMergePreview(null);
-    hasLoadedPreviewRef.current = null;
+    setIsLoadingPreview(false);
 
     // Reset workspace error state
     setWorkspaceError(null);
 
-    // Reload worktree status
-    setIsLoadingWorktree(true);
+    // zeenha fork: Each reload publishes independently, even if the other check fails.
+    const statusRequest = runStatusCheck();
+    const diffRequest = runDiffCheck();
     try {
-      const [statusResult, diffResult] = await Promise.all([
-        window.electronAPI.getWorktreeStatus(task.id),
-        window.electronAPI.getWorktreeDiff(task.id)
-      ]);
-      if (statusResult.success && statusResult.data) {
-        setWorktreeStatus(statusResult.data);
-      }
-      if (diffResult.success && diffResult.data) {
-        setWorktreeDiff(diffResult.data);
-      }
-
+      await statusRequest;
+      await diffRequest;
       // Reload task data from store to reflect cleared staged state
       // (clearStagedState IPC already invalidated the cache)
       if (currentProject) {
@@ -440,10 +471,8 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
       }
     } catch (err) {
       console.error('Failed to reload worktree info:', err);
-    } finally {
-      setIsLoadingWorktree(false);
     }
-  }, [task.id, currentProject]);
+  }, [task.id, currentProject, runStatusCheck, runDiffCheck]);
 
   // NOTE: Merge preview is NO LONGER auto-loaded on modal open.
   // User must click "Check for Conflicts" button to trigger the expensive preview operation.
@@ -542,7 +571,10 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
     isEditDialogOpen,
     worktreeStatus,
     worktreeDiff,
-    isLoadingWorktree,
+    worktreeStatusCheck,
+    worktreeDiffCheck,
+    isLoadingWorktree: worktreeStatusCheck.state === 'loading',
+    isLoadingWorktreeDiff: worktreeDiffCheck.state === 'loading',
     isMerging,
     isDiscarding,
     showDiscardDialog,
@@ -586,9 +618,6 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
     setWorktreeChangesInfo,
     setIsCheckingChanges,
     setIsEditDialogOpen,
-    setWorktreeStatus,
-    setWorktreeDiff,
-    setIsLoadingWorktree,
     setIsMerging,
     setIsDiscarding,
     setShowDiscardDialog,
@@ -609,8 +638,11 @@ export function useTaskDetail({ task }: UseTaskDetailOptions) {
 
     // Handlers
     handleLogsScroll,
+    jumpToLatestLogs,
     togglePhase,
     loadMergePreview,
+    retryWorktreeStatus,
+    retryWorktreeDiff,
     addFeedbackImage,
     addFeedbackImages,
     removeFeedbackImage,

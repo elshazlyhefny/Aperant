@@ -18,6 +18,7 @@ vi.mock('../../ai/prompts/prompt-loader', () => ({
   tryLoadPrompt: () => 'PLANNER PROMPT',
 }));
 
+import { readDeliveryReceipts } from '../../delivery-receipts';
 import { runHeadlessTask, runHeadlessTaskDetailed } from '../run-task';
 import type { HeadlessBridge } from '../run-task';
 
@@ -266,6 +267,75 @@ describe('runHeadlessTask', () => {
   });
 });
 
+describe('runHeadlessTask token budget', () => {
+  const defaultConfig = { project: { defaultTokenBudget: 1000 } };
+
+  function expectBudget(limit: number | undefined, source: string) {
+    expect(bridge.spawn).toHaveBeenCalledOnce();
+    expect(bridge.spawn.mock.calls[0][0].session.tokenBudget).toBe(limit);
+    const budget = { limit: limit ?? null, source };
+    const records = out.map((line) => JSON.parse(line));
+    expect(records).toContainEqual({ type: 'token-budget', ...budget });
+    const result = records.at(-1);
+    expect(result).toMatchObject({ type: 'result', tokenBudget: budget });
+    return result;
+  }
+
+  it.each([
+    { name: 'uses the configured default without task metadata', config: defaultConfig, limit: 1000, source: 'config' },
+    { name: 'prefers the task limit over the default', config: defaultConfig, taskLimit: 500, limit: 500, source: 'task' },
+    { name: 'honors an explicit unlimited task', config: defaultConfig, taskLimit: 0, source: 'task' },
+    { name: 'stays unlimited without a configured default', source: 'none' },
+  ])('$name', async ({ config, taskLimit, limit, source }) => {
+    const specDir = makeSpec();
+    if (taskLimit !== undefined) {
+      writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({ tokenBudget: taskLimit }));
+    }
+    script([{ type: 'QA_PASSED' }]);
+    expect(await run({ config, json: true, sendWebhook: false })).toBe(0);
+    expectBudget(limit, source);
+  });
+
+  it('rejects an invalid configured default before auth, worktree creation or bridge startup', async () => {
+    makeSpec();
+    const configPath = path.join(projectDir, 'headless-config.json');
+    writeFileSync(configPath, JSON.stringify({ project: { defaultTokenBudget: 'lots' } }));
+    const createBridge = vi.fn(() => bridge);
+
+    expect(await run({ configPath, createBridge })).toBe(1);
+    expect(err.join('')).toContain('project.defaultTokenBudget must be a positive integer');
+    expect(mockResolveAuth).not.toHaveBeenCalled();
+    expect(mockCreateWorktree).not.toHaveBeenCalled();
+    expect(createBridge).not.toHaveBeenCalled();
+    expect(bridge.spawn).not.toHaveBeenCalled();
+  });
+
+  it('reapplies the default on resume until the task limit is raised', async () => {
+    const specDir = makeSpec();
+    const options = { config: defaultConfig, json: true, sendWebhook: false };
+    const capped = [{ type: 'TOKEN_BUDGET_REACHED', used: 1200, limit: 1000 }];
+
+    script(capped);
+    expect(await run(options)).toBe(1);
+    expect(expectBudget(1000, 'config')).toMatchObject({
+      reason: 'token budget reached: 1200 of 1000 tokens used',
+    });
+
+    bridge = new FakeBridge();
+    out = [];
+    script(capped);
+    expect(await run(options)).toBe(1);
+    expectBudget(1000, 'config');
+
+    writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({ tokenBudget: 5000 }));
+    bridge = new FakeBridge();
+    out = [];
+    script([{ type: 'QA_PASSED' }]);
+    expect(await run(options)).toBe(0);
+    expectBudget(5000, 'task');
+  });
+});
+
 describe('runHeadlessTask outcome webhook', () => {
   const HOOK = 'https://hooks.example.com/services/T000/B000/SECRETTOKEN';
   const PR = 'https://github.com/o/r/pull/7';
@@ -315,6 +385,26 @@ describe('runHeadlessTask outcome webhook', () => {
     expect(JSON.stringify(body.blocks)).toContain('Demo');
   });
 
+  it('prints the settled receipt before the final result after a successful retry', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED' }]);
+    fetchMock.mockResolvedValueOnce({ status: 429 }).mockImplementationOnce(async () => {
+      expect(await readDeliveryReceipts(projectDir, '001-demo')).toMatchObject([
+        { event: 'review_ready', status: 'unknown', reason: 'unconfirmed' },
+      ]);
+      return { status: 200 };
+    });
+    expect(await runHook({ json: true })).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const records = out.join('').trim().split('\n').map((line) => JSON.parse(line));
+    expect(records.slice(-2)).toMatchObject([
+      { type: 'delivery-receipts', spec: '001-demo', receipts: [{ status: 'delivered', attempts: 2, httpStatus: 200 }] },
+      { type: 'result', kind: 'success', exitCode: 0 },
+    ]);
+    expect(records.at(-2).receipts).toEqual(await readDeliveryReceipts(projectDir, '001-demo'));
+    expect(JSON.stringify(records.at(-2))).not.toContain('SECRETTOKEN');
+  });
+
   it('posts blocked and keeps exit code 2 on QA_MAX_ITERATIONS', async () => {
     makeSpec();
     script([{ type: 'QA_MAX_ITERATIONS' }]);
@@ -334,9 +424,13 @@ describe('runHeadlessTask outcome webhook', () => {
   it('posts failed for a setup failure after the config loaded', async () => {
     makeSpec();
     mockResolveAuth.mockRejectedValue(new Error('No credentials found.'));
-    expect(await runHook()).toBe(1);
+    expect(await runHook({ json: true })).toBe(1);
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(bodies()[0].text.toLowerCase()).toContain('fail');
+    expect(out.map((line) => JSON.parse(line)).slice(-2)).toMatchObject([
+      { type: 'delivery-receipts', spec: '001-demo', receipts: [{ event: 'failed', status: 'delivered' }] },
+      { type: 'result', kind: 'error', exitCode: 1 },
+    ]);
   });
 
   it('sends nothing when the config itself cannot be loaded', async () => {
@@ -376,6 +470,7 @@ describe('runHeadlessTask outcome webhook', () => {
     const [reviewReady] = bodies();
     expect(prLinks(reviewReady)).toEqual([]);
     expect(reviewReady.text.split(' ').at(-1)).not.toBe(PR);
+    expect(out.join('')).toContain('webhook pr_opened skipped reason=event_disabled');
   });
 
   it('keeps exit 0 and warns without the URL when the server returns 500', async () => {
@@ -417,6 +512,8 @@ describe('runHeadlessTask outcome webhook', () => {
     const text = err.join('');
     expect(text).toContain('warning: webhook disabled');
     expect(text).not.toContain('remote.example.com');
+    expect(out.join('')).toContain('webhook review_ready skipped reason=invalid_target');
+    expect(out.join('')).not.toContain('remote.example.com');
   });
 
   it('redacts the webhook secret from stderr warnings', async () => {
@@ -436,6 +533,8 @@ describe('runHeadlessTask outcome webhook', () => {
     script([{ type: 'QA_PASSED' }]);
     expect(await run()).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(out.join('')).not.toContain('DELIVERY');
+    expect(await readDeliveryReceipts(projectDir, '001-demo')).toEqual([]);
   });
 });
 

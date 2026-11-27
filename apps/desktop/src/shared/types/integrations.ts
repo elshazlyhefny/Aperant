@@ -166,12 +166,24 @@ export interface AzureBoardsSkippedItem {
   specId: string;
 }
 
+export type AzureBoardsImportItemStatus = 'imported' | 'skipped' | 'failed';
+
+export interface AzureBoardsImportItemOutcome {
+  id: number;
+  status: AzureBoardsImportItemStatus;
+  title?: string;
+  specId?: string;
+  reason?: string;
+}
+
 export interface AzureBoardsImportResult {
   success: boolean;
   imported: number;
   failed: number;
   skipped: AzureBoardsSkippedItem[];
   errors?: string[];
+  /** One outcome per distinct requested id, in request order. */
+  items: AzureBoardsImportItemOutcome[];
 }
 
 // ============================================

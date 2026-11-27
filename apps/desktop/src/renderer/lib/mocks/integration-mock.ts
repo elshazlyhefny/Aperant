@@ -96,7 +96,7 @@ export const integrationMock = {
 
   importAzureBoardsWorkItems: async () => ({
     success: true,
-    data: { success: true, imported: 0, failed: 0, skipped: [] }
+    data: { success: true, imported: 0, failed: 0, skipped: [], items: [] }
   }),
 
   // GitHub Integration Operations

@@ -27,10 +27,20 @@ import { savedTaskAgent, taskPhaseMetadata } from '@shared/utils/task-agent';
  * />
  * ```
  */
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
-import { Button } from './ui/button';
+import { Button, buttonVariants } from './ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from './ui/alert-dialog';
 import { TaskModalLayout } from './task-form/TaskModalLayout';
 import { TaskFormFields } from './task-form/TaskFormFields';
 import { TaskDependencyPicker, mapDependencyError } from './task-form/TaskDependencyPicker';
@@ -47,9 +57,10 @@ import {
   PHASE_KEYS,
   getProviderPreset
 } from '../../shared/constants';
-import type { TaskAgentSelection, PhaseModelConfig, PhaseThinkingConfig } from '../../shared/types/settings';
+import type { AppSettings, TaskAgentSelection, PhaseModelConfig, PhaseThinkingConfig } from '../../shared/types/settings';
 import { useSettingsStore } from '../stores/settings-store';
 import { useActiveProvider } from '../hooks/useActiveProvider';
+import type { BuiltinProvider } from '../../shared/types/provider-account';
 
 /**
  * Props for the TaskEditDialog component
@@ -65,12 +76,27 @@ interface TaskEditDialogProps {
   onSaved?: () => void;
 }
 
-export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDialogProps) {
-  const { t } = useTranslation(['tasks', 'common']);
-  // Get selected agent profile from settings for defaults
-  const { settings } = useSettingsStore();
-  const { isAnthropic, provider: activeProvider } = useActiveProvider();
+interface EditValues {
+  title: string;
+  description: string;
+  category: TaskCategory | '';
+  priority: TaskPriority | '';
+  complexity: TaskComplexity | '';
+  impact: TaskImpact | '';
+  taskAgent: TaskAgentSelection | null;
+  profileId: string;
+  model: ModelType | '';
+  thinkingLevel: ThinkingLevel | '';
+  phaseModels: PhaseModelConfig | undefined;
+  phaseThinking: PhaseThinkingConfig | undefined;
+  images: ImageAttachment[];
+  requireReviewBeforeCoding: boolean;
+  fastMode: boolean;
+  taskDependencies: string[];
+  tokenBudgetText: string;
+}
 
+function initializeEditValues(task: Task, settings: AppSettings, activeProvider: BuiltinProvider | null): EditValues {
   // Resolve per-provider settings (same chain as AgentProfileSettings)
   const providerConfig = activeProvider ? settings.providerAgentConfig?.[activeProvider] : undefined;
   const resolvedProfileId = providerConfig?.selectedAgentProfile ?? settings.selectedAgentProfile ?? 'auto';
@@ -78,8 +104,170 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     p => p.id === resolvedProfileId
   ) || DEFAULT_AGENT_PROFILES.find(p => p.id === 'auto')!;
   const providerPreset = activeProvider ? getProviderPreset(activeProvider, resolvedProfileId) : null;
-  const profilePhaseModels = providerPreset?.phaseModels ?? selectedProfile.phaseModels ?? DEFAULT_PHASE_MODELS;
-  const profilePhaseThinking = providerPreset?.phaseThinking ?? selectedProfile.phaseThinking ?? DEFAULT_PHASE_THINKING;
+  const metadata = task.metadata;
+  const taskModel = metadata?.model;
+  const taskThinking = metadata?.thinkingLevel;
+  let profileId = resolvedProfileId;
+  let model = selectedProfile.model;
+  let thinkingLevel = selectedProfile.thinkingLevel;
+  let phaseModels = providerPreset?.phaseModels ?? selectedProfile.phaseModels ?? DEFAULT_PHASE_MODELS;
+  let phaseThinking = providerPreset?.phaseThinking ?? selectedProfile.phaseThinking ?? DEFAULT_PHASE_THINKING;
+
+  if (metadata?.isAutoProfile) {
+    profileId = 'auto';
+    model = taskModel || selectedProfile.model;
+    thinkingLevel = taskThinking || selectedProfile.thinkingLevel;
+    phaseModels = metadata.phaseModels || DEFAULT_PHASE_MODELS;
+    phaseThinking = metadata.phaseThinking || DEFAULT_PHASE_THINKING;
+  } else if (taskModel && taskThinking) {
+    const matchingProfile = DEFAULT_AGENT_PROFILES.find(
+      p => p.model === taskModel && p.thinkingLevel === taskThinking && !p.isAutoProfile
+    );
+    profileId = matchingProfile?.id || 'custom';
+    model = taskModel;
+    thinkingLevel = taskThinking;
+    phaseModels = metadata?.phaseModels || DEFAULT_PHASE_MODELS;
+    phaseThinking = metadata?.phaseThinking || DEFAULT_PHASE_THINKING;
+  }
+
+  return {
+    title: task.title,
+    description: task.description,
+    category: metadata?.category || '',
+    priority: metadata?.priority || '',
+    complexity: metadata?.complexity || '',
+    impact: metadata?.impact || '',
+    taskAgent: savedTaskAgent(metadata),
+    profileId,
+    model,
+    thinkingLevel,
+    phaseModels,
+    phaseThinking,
+    images: metadata?.attachedImages || [],
+    requireReviewBeforeCoding: metadata?.requireReviewBeforeCoding ?? false,
+    fastMode: metadata?.fastMode ?? false,
+    taskDependencies: metadata?.taskDependencies || [],
+    tokenBudgetText: metadata?.tokenBudget !== undefined ? String(metadata.tokenBudget) : ''
+  };
+}
+
+function attachmentValues({ id, filename, mimeType, size, path, data }: ImageAttachment) {
+  // Thumbnails can be hydrated asynchronously without a user edit.
+  return [id, filename, mimeType, size, path, data];
+}
+
+function snapshotEditValues(values: EditValues) {
+  // Copy primitives only, flattening phase records in a fixed order. Dependencies
+  // and attachments retain their form order. Image data is compared, not serialized.
+  return {
+    fields: [
+      values.title.trim(), values.description.trim(),
+      values.category, values.priority, values.complexity, values.impact,
+      values.profileId, values.model, values.thinkingLevel, values.taskAgent?.mode,
+      ...PHASE_KEYS.flatMap(phase => {
+        const route = values.taskAgent?.phases[phase];
+        return [values.phaseModels?.[phase], values.phaseThinking?.[phase],
+          route?.provider, route?.modelId, route?.thinkingLevel];
+      }),
+      values.requireReviewBeforeCoding, values.fastMode, parseTokenBudgetText(values.tokenBudgetText),
+      ...values.taskDependencies
+    ],
+    attachments: values.images.map(attachmentValues)
+  };
+}
+
+function sameOrderedValues<T>(first: readonly T[], second: readonly T[]) {
+  return first.length === second.length && first.every((value, index) => value === second[index]);
+}
+
+function hasClassification({ category, priority, complexity, impact }: EditValues) {
+  return Boolean(category || priority || complexity || impact);
+}
+
+function useTaskEditSession(task: Task, open: boolean, settings: AppSettings, activeProvider: BuiltinProvider | null) {
+  const startSession = () => {
+    const values = initializeEditValues(task, settings, activeProvider);
+    return { open, taskId: task.id, projectId: task.projectId, values, baseline: snapshotEditValues(values) };
+  };
+  const [session, setSession] = useState(startSession);
+  const [showClassification, setShowClassification] = useState(() => hasClassification(session.values));
+  const [error, setError] = useState<string | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // Reset before rendering the form for a new session, but never rebase on
+  // same-task store or settings changes. Keep values on close for the exit animation.
+  if (open && (!session.open || session.taskId !== task.id || session.projectId !== task.projectId)) {
+    const nextSession = startSession();
+    setSession(nextSession);
+    setConfirmDiscard(false);
+    setError(null);
+    setShowClassification(hasClassification(nextSession.values));
+  } else if (!open && session.open) {
+    setSession({ ...session, open: false });
+    setConfirmDiscard(false);
+  }
+
+  const updateValues = useCallback((patch: Partial<EditValues> | ((values: EditValues) => Partial<EditValues>)) => {
+    setSession(current => ({
+      ...current,
+      values: { ...current.values, ...(typeof patch === 'function' ? patch(current.values) : patch) }
+    }));
+  }, []);
+
+  // Keep separate from Save's comparison against persisted metadata.
+  const hasUnsavedEdits = () => {
+    const current = snapshotEditValues(session.values);
+    return !sameOrderedValues(current.fields, session.baseline.fields) ||
+      current.attachments.length !== session.baseline.attachments.length ||
+      current.attachments.some((image, index) => !sameOrderedValues(image, session.baseline.attachments[index]));
+  };
+
+  return {
+    values: session.values, updateValues, hasUnsavedEdits, error, setError,
+    showClassification, setShowClassification, confirmDiscard, setConfirmDiscard
+  };
+}
+
+export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDialogProps) {
+  const { t } = useTranslation(['tasks', 'common']);
+  const { settings } = useSettingsStore();
+  const { isAnthropic, provider: activeProvider } = useActiveProvider();
+  const {
+    values, updateValues, hasUnsavedEdits, error, setError, showClassification,
+    setShowClassification, confirmDiscard, setConfirmDiscard
+  } = useTaskEditSession(task, open, settings, activeProvider);
+  const {
+    title, description, category, priority, complexity, impact, taskAgent, profileId, model,
+    thinkingLevel, phaseModels, phaseThinking, images, requireReviewBeforeCoding,
+    fastMode, taskDependencies, tokenBudgetText
+  } = values;
+  const [isSaving, setIsSaving] = useState(false);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+
+  // Radix restores focus after the alert unmounts. Don't restore into a closed
+  // editor or a different task if the edit session ended in the meantime.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: open and the task identity are intentional triggers; the cleanup must clear the focus target whenever the edit session changes
+  useLayoutEffect(() => () => {
+    returnFocusRef.current = null;
+  }, [open, task.id, task.projectId]);
+
+  const requestClose = () => {
+    if (!open || isSaving || confirmDiscard) return;
+    if (!hasUnsavedEdits()) {
+      onOpenChange(false);
+      return;
+    }
+
+    const fallback = cancelButtonRef.current;
+    const active = fallback?.ownerDocument.activeElement;
+    returnFocusRef.current = active instanceof HTMLElement && fallback?.closest('[role="dialog"]')?.contains(active)
+      ? active
+      : fallback;
+    setConfirmDiscard(true);
+  };
+  // TaskFormFields uses this callback as a dependency of its thumbnail-loading effect.
+  const setImages = useCallback((images: ImageAttachment[]) => updateValues({ images }), [updateValues]);
 
   // Get project path for loading image thumbnails from disk
   const projects = useProjectStore((state) => state.projects);
@@ -88,63 +276,8 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
     return project?.path;
   }, [projects, task.projectId]);
 
-  // Form state
-  const [title, setTitle] = useState(task.title);
-  const [description, setDescription] = useState(task.description);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [taskDependencies, setTaskDependencies] = useState<string[]>(task.metadata?.taskDependencies || []);
   const allTasks = useTaskStore((state) => state.tasks);
   const projectTasks = useMemo(() => allTasks.filter((x) => x.projectId === task.projectId), [allTasks, task.projectId]);
-  const [showClassification, setShowClassification] = useState(false);
-
-  // Classification fields
-  const [category, setCategory] = useState<TaskCategory | ''>(task.metadata?.category || '');
-  const [priority, setPriority] = useState<TaskPriority | ''>(task.metadata?.priority || '');
-  const [complexity, setComplexity] = useState<TaskComplexity | ''>(task.metadata?.complexity || '');
-  const [impact, setImpact] = useState<TaskImpact | ''>(task.metadata?.impact || '');
-
-  // Agent profile / model configuration
-  const [taskAgent, setTaskAgent] = useState<TaskAgentSelection | null>(() => savedTaskAgent(task.metadata));
-  const [profileId, setProfileId] = useState<string>(() => {
-    if (task.metadata?.isAutoProfile) {
-      return 'auto';
-    }
-    const taskModel = task.metadata?.model;
-    const taskThinking = task.metadata?.thinkingLevel;
-    if (taskModel && taskThinking) {
-      const matchingProfile = DEFAULT_AGENT_PROFILES.find(
-        p => p.model === taskModel && p.thinkingLevel === taskThinking && !p.isAutoProfile
-      );
-      return matchingProfile?.id || 'custom';
-    }
-    return resolvedProfileId;
-  });
-  const [model, setModel] = useState<ModelType | ''>(task.metadata?.model || selectedProfile.model);
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | ''>(
-    task.metadata?.thinkingLevel || selectedProfile.thinkingLevel
-  );
-  const [phaseModels, setPhaseModels] = useState<PhaseModelConfig | undefined>(
-    task.metadata?.phaseModels || profilePhaseModels
-  );
-  const [phaseThinking, setPhaseThinking] = useState<PhaseThinkingConfig | undefined>(
-    task.metadata?.phaseThinking || profilePhaseThinking
-  );
-
-  // Image attachments
-  const [images, setImages] = useState<ImageAttachment[]>(task.metadata?.attachedImages || []);
-
-  // Review setting
-  const [requireReviewBeforeCoding, setRequireReviewBeforeCoding] = useState(
-    task.metadata?.requireReviewBeforeCoding ?? false
-  );
-
-  // Fast mode
-  const [fastMode, setFastMode] = useState(task.metadata?.fastMode ?? false);
-
-  // Token budget override ('' = inherit project default, '0' = no limit)
-  const initialTokenBudgetText = task.metadata?.tokenBudget !== undefined ? String(task.metadata.tokenBudget) : '';
-  const [tokenBudgetText, setTokenBudgetText] = useState(initialTokenBudgetText);
   const inheritedTokenBudget = projects.find((p) => p.id === task.projectId)?.settings?.tokenBudget;
 
   // Show Fast Mode toggle when any phase uses an Opus model
@@ -158,61 +291,6 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
   // Disable fast mode toggle for tasks that have moved past backlog
   const isFastModeEditable = task.status === 'backlog';
 
-  // Reset form when task changes or dialog opens
-  useEffect(() => {
-    if (open) {
-      setTaskAgent(savedTaskAgent(task.metadata));
-      setTitle(task.title);
-      setDescription(task.description);
-      setCategory(task.metadata?.category || '');
-      setPriority(task.metadata?.priority || '');
-      setComplexity(task.metadata?.complexity || '');
-      setImpact(task.metadata?.impact || '');
-
-      // Reset model configuration
-      const taskModel = task.metadata?.model;
-      const taskThinking = task.metadata?.thinkingLevel;
-      const isAutoProfile = task.metadata?.isAutoProfile;
-
-      if (isAutoProfile) {
-        setProfileId('auto');
-        setModel(taskModel || selectedProfile.model);
-        setThinkingLevel(taskThinking || selectedProfile.thinkingLevel);
-        setPhaseModels(task.metadata?.phaseModels || DEFAULT_PHASE_MODELS);
-        setPhaseThinking(task.metadata?.phaseThinking || DEFAULT_PHASE_THINKING);
-      } else if (taskModel && taskThinking) {
-        const matchingProfile = DEFAULT_AGENT_PROFILES.find(
-          p => p.model === taskModel && p.thinkingLevel === taskThinking && !p.isAutoProfile
-        );
-        setProfileId(matchingProfile?.id || 'custom');
-        setModel(taskModel);
-        setThinkingLevel(taskThinking);
-        setPhaseModels(task.metadata?.phaseModels || DEFAULT_PHASE_MODELS);
-        setPhaseThinking(task.metadata?.phaseThinking || DEFAULT_PHASE_THINKING);
-      } else {
-        setProfileId(resolvedProfileId);
-        setModel(selectedProfile.model);
-        setThinkingLevel(selectedProfile.thinkingLevel);
-        setPhaseModels(profilePhaseModels);
-        setPhaseThinking(profilePhaseThinking);
-      }
-
-      setImages(task.metadata?.attachedImages || []);
-      setRequireReviewBeforeCoding(task.metadata?.requireReviewBeforeCoding ?? false);
-      setFastMode(task.metadata?.fastMode ?? false);
-      setTaskDependencies(task.metadata?.taskDependencies || []);
-      setTokenBudgetText(task.metadata?.tokenBudget !== undefined ? String(task.metadata.tokenBudget) : '');
-      setError(null);
-
-      // Auto-expand classification if it has content
-      if (task.metadata?.category || task.metadata?.priority || task.metadata?.complexity || task.metadata?.impact) {
-        setShowClassification(true);
-      } else {
-        setShowClassification(false);
-      }
-    }
-  }, [open, task, resolvedProfileId, selectedProfile.model, selectedProfile.thinkingLevel, profilePhaseModels, profilePhaseThinking]);
-
   /**
    * Handle file reference drop from FileTreeItem drag
    * Appends @filename to the end of the description (no textarea ref in edit dialog)
@@ -220,13 +298,15 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
   const handleFileReferenceDrop = useCallback((reference: string, _data: FileReferenceData) => {
     // Append to description using functional update to ensure latest state
     // This prevents stale closure issues with rapid consecutive drops
-    setDescription(prev => {
-      const separator = prev.endsWith(' ') || prev === '' ? '' : ' ';
-      return prev + separator + reference + ' ';
+    updateValues(({ description }) => {
+      const separator = description.endsWith(' ') || description === '' ? '' : ' ';
+      return { description: description + separator + reference + ' ' };
     });
-  }, []);
+  }, [updateValues]);
 
   const handleSave = async () => {
+    if (isSaving || confirmDiscard) return;
+
     // Validate input
     if (!description.trim()) {
       setError(t('tasks:form.errors.descriptionRequired'));
@@ -319,88 +399,126 @@ export function TaskEditDialog({ task, open, onOpenChange, onSaved }: TaskEditDi
   const isValid = description.trim().length > 0;
 
   return (
-    <TaskModalLayout
-      open={open}
-      onOpenChange={onOpenChange}
-      title={t('tasks:edit.title')}
-      description={t('tasks:edit.description')}
-      disabled={isSaving}
-      footer={
-        <div className="flex items-center justify-end gap-3">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
-            {t('common:buttons.cancel')}
-          </Button>
-          <Button onClick={handleSave} disabled={isSaving || !isValid}>
-            {isSaving ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {t('common:buttons.saving')}
-              </>
-            ) : (
-              t('tasks:edit.saveChanges')
-            )}
-          </Button>
-        </div>
-      }
-    >
-      <TaskFormFields
-        taskAgent={taskAgent}
-        onTaskAgentChange={setTaskAgent}
-        allowConfiguredProfile={!task.metadata?.taskAgentMode}
-        projectPath={projectPath}
-        specId={task.specId}
-        description={description}
-        onDescriptionChange={setDescription}
-        title={title}
-        onTitleChange={setTitle}
-        profileId={profileId}
-        model={model}
-        thinkingLevel={thinkingLevel}
-        phaseModels={phaseModels}
-        phaseThinking={phaseThinking}
-        onProfileChange={(newProfileId, newModel, newThinkingLevel) => {
-          setProfileId(newProfileId);
-          setModel(newModel);
-          setThinkingLevel(newThinkingLevel);
-        }}
-        onModelChange={setModel}
-        onThinkingLevelChange={setThinkingLevel}
-        onPhaseModelsChange={setPhaseModels}
-        onPhaseThinkingChange={setPhaseThinking}
-        category={category}
-        priority={priority}
-        complexity={complexity}
-        impact={impact}
-        onCategoryChange={setCategory}
-        onPriorityChange={setPriority}
-        onComplexityChange={setComplexity}
-        onImpactChange={setImpact}
-        showClassification={showClassification}
-        onShowClassificationChange={setShowClassification}
-        images={images}
-        onImagesChange={setImages}
-        requireReviewBeforeCoding={requireReviewBeforeCoding}
-        onRequireReviewChange={setRequireReviewBeforeCoding}
-        fastMode={fastMode}
-        onFastModeChange={setFastMode}
-        showFastModeToggle={showFastModeToggle && isFastModeEditable}
-        tokenBudgetText={tokenBudgetText}
-        onTokenBudgetTextChange={setTokenBudgetText}
-        inheritedTokenBudget={inheritedTokenBudget}
+    <>
+      <TaskModalLayout
+        open={open}
+        onOpenChange={requestClose}
+        title={t('tasks:edit.title')}
+        description={t('tasks:edit.description')}
         disabled={isSaving}
-        error={error}
-        onError={setError}
-        onFileReferenceDrop={handleFileReferenceDrop}
-        idPrefix="edit"
-      />
-      <TaskDependencyPicker
-        value={taskDependencies}
-        onChange={setTaskDependencies}
-        tasks={projectTasks}
-        excludeTaskId={task.id}
-        disabled={isSaving}
-        idPrefix="edit"
-      />
-    </TaskModalLayout>
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <Button ref={cancelButtonRef} variant="outline" onClick={requestClose} disabled={isSaving}>
+              {t('common:buttons.cancel')}
+            </Button>
+            <Button onClick={handleSave} disabled={isSaving || !isValid}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t('common:buttons.saving')}
+                </>
+              ) : (
+                t('tasks:edit.saveChanges')
+              )}
+            </Button>
+          </div>
+        }
+      >
+        <TaskFormFields
+          taskAgent={taskAgent}
+          onTaskAgentChange={(taskAgent) => updateValues({ taskAgent })}
+          allowConfiguredProfile={!task.metadata?.taskAgentMode}
+          projectPath={projectPath}
+          specId={task.specId}
+          description={description}
+          onDescriptionChange={(description) => updateValues({ description })}
+          title={title}
+          onTitleChange={(title) => updateValues({ title })}
+          profileId={profileId}
+          model={model}
+          thinkingLevel={thinkingLevel}
+          phaseModels={phaseModels}
+          phaseThinking={phaseThinking}
+          onProfileChange={(profileId, model, thinkingLevel) => updateValues({ profileId, model, thinkingLevel })}
+          onModelChange={(model) => updateValues({ model })}
+          onThinkingLevelChange={(thinkingLevel) => updateValues({ thinkingLevel })}
+          onPhaseModelsChange={(phaseModels) => updateValues({ phaseModels })}
+          onPhaseThinkingChange={(phaseThinking) => updateValues({ phaseThinking })}
+          category={category}
+          priority={priority}
+          complexity={complexity}
+          impact={impact}
+          onCategoryChange={(category) => updateValues({ category })}
+          onPriorityChange={(priority) => updateValues({ priority })}
+          onComplexityChange={(complexity) => updateValues({ complexity })}
+          onImpactChange={(impact) => updateValues({ impact })}
+          showClassification={showClassification}
+          onShowClassificationChange={setShowClassification}
+          images={images}
+          onImagesChange={setImages}
+          requireReviewBeforeCoding={requireReviewBeforeCoding}
+          onRequireReviewChange={(requireReviewBeforeCoding) => updateValues({ requireReviewBeforeCoding })}
+          fastMode={fastMode}
+          onFastModeChange={(fastMode) => updateValues({ fastMode })}
+          showFastModeToggle={showFastModeToggle && isFastModeEditable}
+          tokenBudgetText={tokenBudgetText}
+          onTokenBudgetTextChange={(tokenBudgetText) => updateValues({ tokenBudgetText })}
+          inheritedTokenBudget={inheritedTokenBudget}
+          disabled={isSaving}
+          error={error}
+          onError={setError}
+          onFileReferenceDrop={handleFileReferenceDrop}
+          idPrefix="edit"
+        />
+        <TaskDependencyPicker
+          value={taskDependencies}
+          onChange={(taskDependencies) => updateValues({ taskDependencies })}
+          tasks={projectTasks}
+          excludeTaskId={task.id}
+          disabled={isSaving}
+          idPrefix="edit"
+        />
+      </TaskModalLayout>
+      <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
+        <AlertDialogContent
+          onEscapeKeyDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setConfirmDiscard(false);
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const target = returnFocusRef.current;
+            returnFocusRef.current = null;
+            if (!target) return;
+            if (target.isConnected) target.focus({ preventScroll: true });
+            if (target.ownerDocument.activeElement !== target) {
+              cancelButtonRef.current?.focus({ preventScroll: true });
+            }
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('tasks:edit.discardDialog.title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('tasks:edit.discardDialog.description')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('tasks:edit.discardDialog.keepEditing')}</AlertDialogCancel>
+            {/* Not asChild + <Button variant="destructive">: AlertDialogAction's default
+                buttonVariants() classes would be merged last and win, rendering primary. */}
+            <AlertDialogAction
+              className={buttonVariants({ variant: 'destructive' })}
+              onClick={(event) => {
+                event.preventDefault();
+                returnFocusRef.current = null;
+                setConfirmDiscard(false);
+                onOpenChange(false);
+              }}
+            >
+              {t('tasks:edit.discardDialog.discardEdits')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

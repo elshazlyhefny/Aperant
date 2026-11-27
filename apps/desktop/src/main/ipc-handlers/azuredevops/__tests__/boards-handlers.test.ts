@@ -21,6 +21,7 @@ vi.mock('../../../project-store', () => ({
 
 import { registerAzureBoardsHandlers } from '../boards-handlers';
 import { IPC_CHANNELS } from '../../../../shared/constants';
+import type { AzureBoardsImportResult, IPCResult } from '../../../../shared/types';
 
 const PAT = 'SECRET-PAT-VALUE-123';
 const GUID = ['abcdef01', 'abcd', 'abcd', 'abcd', 'abcdef012345'].join('-');
@@ -149,17 +150,17 @@ describe('Azure Boards IPC handlers', () => {
   it('imports one spec with azure_boards metadata and skips it the second time', async () => {
     configure();
     routeFetch([42]);
-    const first = await call<{ data: { imported: number; failed: number } }>(
+    const first = await call<IPCResult<AzureBoardsImportResult>>(
       IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
       'p1',
       [42, 42]
     );
-    expect(first.data.imported).toBe(1);
-    expect(first.data.failed).toBe(0);
+    expect(first).toMatchObject({ success: true, data: { success: true, imported: 1, failed: 0, skipped: [] } });
     expect(startSpecCreation).toHaveBeenCalledTimes(1);
 
     const specsDir = path.join(projectDir, '.auto-claude', 'specs');
     const [specName] = readdirSync(specsDir);
+    expect(first.data?.items).toEqual([{ id: 42, status: 'imported', specId: specName, title: 'Item 42' }]);
     const meta = JSON.parse(readFileSync(path.join(specsDir, specName, 'task_metadata.json'), 'utf-8'));
     expect(meta).toMatchObject({
       sourceType: 'azure_boards',
@@ -168,15 +169,105 @@ describe('Azure Boards IPC handlers', () => {
     });
     expect(startSpecCreation.mock.calls[0][4]).toMatchObject({ sourceType: 'azure_boards' });
 
-    const second = await call<{
-      data: { imported: number; skipped: Array<{ id: number; specId: string }> };
-    }>(IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS, 'p1', [42]);
+    const second = await call<{ data: AzureBoardsImportResult }>(
+      IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
+      'p1',
+      [42]
+    );
     expect(second.data.imported).toBe(0);
     expect(second.data.skipped).toEqual([{ id: 42, specId: specName }]);
+    expect(second.data.items).toEqual([{ id: 42, status: 'skipped', specId: specName, title: 'Item 42' }]);
     expect(startSpecCreation).toHaveBeenCalledTimes(1);
+  });
 
-    const dup = await call<{ data: { imported: number } }>(IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS, 'p1', [42], true);
-    expect(dup.data.imported).toBe(1);
+  it('creates one new spec for an explicit re-import even if the request repeats the ID', async () => {
+    configure();
+    const id = 42;
+    routeFetch([id]);
+    const first = await call<IPCResult<AzureBoardsImportResult>>(
+      IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
+      'p1',
+      [id]
+    );
+    const success = { success: true, data: { success: true, imported: 1, failed: 0, skipped: [] } };
+    expect(first).toMatchObject(success);
+
+    const specsDir = path.join(projectDir, '.auto-claude', 'specs');
+    const originalSpecs = readdirSync(specsDir);
+    expect(originalSpecs).toHaveLength(1);
+    const [originalSpecId] = originalSpecs;
+    expect(originalSpecId).toMatch(/^001-/);
+
+    fetchMock.mockClear();
+    const reimport = await call<IPCResult<AzureBoardsImportResult>>(
+      IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
+      'p1',
+      [id, id],
+      true
+    );
+    expect(reimport).toMatchObject(success);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).ids).toEqual([id]);
+
+    const specs = readdirSync(specsDir).sort();
+    expect(specs).toEqual([originalSpecId, expect.stringMatching(/^002-/)]);
+    const [, newSpecId] = specs;
+    for (const specId of specs) {
+      const meta = JSON.parse(readFileSync(path.join(specsDir, specId, 'task_metadata.json'), 'utf-8'));
+      expect(meta).toMatchObject({
+        sourceType: 'azure_boards',
+        azureBoardsOrganization: 'acme',
+        azureBoardsProject: 'Proj',
+        azureBoardsWorkItemId: id,
+      });
+    }
+    expect(startSpecCreation.mock.calls.map(([specId]) => specId)).toEqual([originalSpecId, newSpecId]);
+  });
+
+  it('reuses the same spec when two ordinary imports overlap', async () => {
+    configure();
+    const id = 42;
+    let releaseBatch!: () => void;
+    const batchGate = new Promise<void>(resolve => {
+      releaseBatch = resolve;
+    });
+    fetchMock.mockImplementation(async (url: string) => {
+      expect(url).toContain('/wit/workitemsbatch');
+      // Both requests must reach the batch fetch before either response is released.
+      if (fetchMock.mock.calls.length === 2) releaseBatch();
+      await batchGate;
+      return json({ value: [rawItem(id)] });
+    });
+
+    const importItem = () =>
+      call<IPCResult<AzureBoardsImportResult>>(IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS, 'p1', [id]);
+    const responses = await Promise.all([importItem(), importItem()]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const results = responses.map(response => {
+      expect(response.success).toBe(true);
+      expect(response.data).toMatchObject({ success: true, failed: 0 });
+      return response.data;
+    });
+
+    expect(results.map(result => result?.imported).sort()).toEqual([0, 1]);
+    const winner = results.find(result => result?.imported === 1);
+    const reused = results.find(result => result?.imported === 0);
+    expect(winner?.skipped).toEqual([]);
+
+    const specsDir = path.join(projectDir, '.auto-claude', 'specs');
+    const specs = readdirSync(specsDir);
+    expect(specs).toHaveLength(1);
+    const [specId] = specs;
+    expect(reused?.skipped).toEqual([{ id, specId }]);
+    const meta = JSON.parse(readFileSync(path.join(specsDir, specId, 'task_metadata.json'), 'utf-8'));
+    expect(meta).toMatchObject({
+      sourceType: 'azure_boards',
+      azureBoardsOrganization: 'acme',
+      azureBoardsProject: 'Proj',
+      azureBoardsWorkItemId: id,
+    });
+    expect(startSpecCreation).toHaveBeenCalledTimes(1);
+    expect(startSpecCreation.mock.calls[0][0]).toBe(specId);
   });
 
   it('rejects 101 ids and invalid ids without calling Azure', async () => {
@@ -199,13 +290,99 @@ describe('Azure Boards IPC handlers', () => {
   it('reports items missing in Azure as per-item errors', async () => {
     configure();
     fetchMock.mockImplementation(async () => json({ value: [] }));
-    const res = await call<{ data: { imported: number; failed: number; errors?: string[] } }>(
+    const res = await call<{ data: AzureBoardsImportResult }>(
       IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
       'p1',
       [9]
     );
     expect(res.data.failed).toBe(1);
     expect(res.data.errors?.[0]).toContain('AB#9');
+    expect(res.data.items).toEqual([{ id: 9, status: 'failed', reason: expect.stringContaining('not found') }]);
+  });
+
+  it('reports mixed import outcomes in request order', async () => {
+    configure();
+    routeFetch([1]);
+    await call(IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS, 'p1', [1]);
+    fetchMock.mockResolvedValueOnce(json({ value: [rawItem(2), rawItem(1)] }));
+
+    const res = await call<{ success: boolean; data: AzureBoardsImportResult }>(
+      IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
+      'p1',
+      [1, 2, 3]
+    );
+
+    expect(res.success).toBe(true);
+    expect(res.data).toMatchObject({ success: false, imported: 1, failed: 1 });
+    expect(res.data.skipped).toHaveLength(1);
+    expect(res.data.items).toEqual([
+      { id: 1, status: 'skipped', specId: res.data.skipped[0].specId, title: 'Item 1' },
+      { id: 2, status: 'imported', specId: expect.any(String), title: 'Item 2' },
+      { id: 3, status: 'failed', reason: 'work item not found in Azure DevOps' },
+    ]);
+  });
+
+  it('reports the title and reason when starting spec creation throws', async () => {
+    configure();
+    routeFetch([8]);
+    startSpecCreation.mockImplementationOnce(() => {
+      throw new Error('Could not start spec creation');
+    });
+
+    const res = await call<{ data: AzureBoardsImportResult }>(
+      IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
+      'p1',
+      [8]
+    );
+
+    expect(res.data.items).toEqual([
+      { id: 8, status: 'failed', title: 'Item 8', reason: 'Could not start spec creation' },
+    ]);
+    expect(res.data.errors).toEqual(['Failed to import AB#8: Could not start spec creation']);
+  });
+
+  it('skips known items omitted by Azure but reports missing items that require creation', async () => {
+    configure();
+    const existingId = 7;
+    const missingId = 9;
+    routeFetch([existingId]);
+    const importItems = (ids: number[], allowDuplicates?: boolean) =>
+      call<IPCResult<AzureBoardsImportResult>>(IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS, 'p1', ids, allowDuplicates);
+    const first = await importItems([existingId]);
+    expect(first).toMatchObject({ success: true, data: { success: true, imported: 1, failed: 0 } });
+    const specsDir = path.join(projectDir, '.auto-claude', 'specs');
+    const [specId] = readdirSync(specsDir);
+
+    fetchMock.mockResolvedValue(json({ value: [] }));
+    const ordinary = await importItems([existingId, missingId]);
+    expect(ordinary).toMatchObject({
+      success: true,
+      data: {
+        success: false,
+        imported: 0,
+        failed: 1,
+        skipped: [{ id: existingId, specId }],
+        errors: [`Failed to import AB#${missingId}: work item not found in Azure DevOps`],
+        items: [
+          { id: existingId, status: 'skipped', specId },
+          { id: missingId, status: 'failed', reason: 'work item not found in Azure DevOps' },
+        ],
+      },
+    });
+
+    const explicit = await importItems([existingId], true);
+    expect(explicit).toMatchObject({
+      success: true,
+      data: {
+        success: false,
+        imported: 0,
+        failed: 1,
+        skipped: [],
+        errors: [`Failed to import AB#${existingId}: work item not found in Azure DevOps`],
+      },
+    });
+    expect(readdirSync(specsDir)).toEqual([specId]);
+    expect(startSpecCreation).toHaveBeenCalledTimes(1);
   });
 
   it('never leaks the PAT in returned errors or written files', async () => {
