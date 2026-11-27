@@ -364,6 +364,12 @@
     "title": "Modifier la tâche",
     "description": "Mettez à jour les détails de la tâche, y compris le titre, la description, la classification, les images et les paramètres. Les modifications seront enregistrées dans les fichiers de spécification.",
     "saveChanges": "Enregistrer les modifications",
+    "discardDialog": {
+      "title": "Abandonner les modifications non enregistrées ?",
+      "description": "Vos modifications non enregistrées seront perdues si vous les abandonnez.",
+      "keepEditing": "Continuer la modification",
+      "discardEdits": "Abandonner les modifications"
+    },
     "errors": {
       "updateFailed": "Échec de la mise à jour de la tâche. Veuillez réessayer."
     }
