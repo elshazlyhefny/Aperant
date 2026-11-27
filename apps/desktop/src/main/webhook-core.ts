@@ -11,7 +11,7 @@
 import type { TaskStatus, ReviewReason } from '../shared/types';
 import type { WebhookSettings } from '../shared/types/settings';
 import { appLogPort } from './log-port';
-import { prepareWebhookDelivery, sendWebhook, validateWebhookUrl, type WebhookEvent } from './task-webhook-core';
+import { deliverWebhookEvent, validateWebhookUrl, type WebhookEvent } from './task-webhook-core';
 
 export function mapOutcomeToWebhookEvent(
   status: TaskStatus | string,
@@ -27,15 +27,6 @@ export function mapOutcomeToWebhookEvent(
   if (status === 'pr_created') return 'pr_opened';
   return null;
 }
-
-const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
-  review_ready: 'reviewReady',
-  failed: 'failed',
-  blocked: 'blocked',
-  // zeenha fork: an account pause needs attention, so it shares the blocked toggle (no new setting).
-  account_required: 'blocked',
-  pr_opened: 'prOpened'
-};
 
 export interface TaskOutcomeWebhookInput {
   status: TaskStatus | string;
@@ -53,21 +44,13 @@ export function dispatchTaskOutcomeWebhookWith(
   try {
     const event = mapOutcomeToWebhookEvent(input.status, input.reviewReason);
     if (!event) return;
-    if (!settings.enabled || !settings.events[EVENT_TOGGLE[event]]) return;
+    if (!settings.enabled) return;
     if (!validateWebhookUrl(settings.url).ok) return;
-    const delivery = prepareWebhookDelivery({
-      url: settings.url,
-      format: settings.format,
-      projectName: input.projectName,
-      taskTitle: input.taskTitle,
-      event,
-      prUrl: input.prUrl
-    });
-    void sendWebhook(delivery.url, delivery.payload, {
-      eventName: event,
-      secret: settings.secret,
-      warn: (message) => appLogPort.warn(message)
-    }).catch(() => undefined);
+    void deliverWebhookEvent(
+      settings,
+      { event, projectName: input.projectName, taskTitle: input.taskTitle, prUrl: input.prUrl },
+      { warn: (message) => appLogPort.warn(message) }
+    ).catch(() => undefined);
   } catch {
     // never let webhook problems affect task flow
   }
