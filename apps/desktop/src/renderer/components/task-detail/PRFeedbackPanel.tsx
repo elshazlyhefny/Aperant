@@ -1,11 +1,11 @@
 /**
  * zeenha fork: shows the failing CI checks and unresolved review feedback of a
  * task's pull request and lets the user choose which items to send to the
- * task's agent. Nothing is pre-selected and nothing starts without a click.
- * Works for GitHub, GitLab and Bitbucket Cloud pull requests. All forge text
- * is rendered as plain text.
+ * task's agent. Selections are bound to the displayed PR revision. Nothing is
+ * pre-selected and nothing starts without a click. Works for GitHub, GitLab,
+ * Bitbucket Cloud and Azure DevOps. All forge text is rendered as plain text.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, GitPullRequest, Loader2, RefreshCw, Send } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -23,36 +23,56 @@ export function PRFeedbackPanel({ task }: PRFeedbackPanelProps) {
   const { t } = useTranslation(['tasks']);
   const eligible = Boolean(task.metadata?.prUrl) && (task.status === 'pr_created' || task.status === 'done');
   const { feedback, loading, error, refresh } = usePRFeedback(task.id, eligible);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const headSha = feedback?.headSha;
+  const [selection, setSelection] = useState(() => ({ headSha, ids: new Set<string>() }));
+  const selected = selection.headSha === headSha ? selection.ids : undefined;
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [stale, setStale] = useState<'head_changed' | 'head_unverified' | null>(null);
   const [started, setStarted] = useState(false);
+
+  useEffect(() => {
+    setSelection({ headSha, ids: new Set() });
+  }, [headSha]);
 
   if (!eligible) return null;
 
   const outcomeLine = [...(task.logs ?? [])].reverse().find((l) => l.includes(FOLLOW_UP_PREFIX));
 
+  const canSelect = feedback?.canStartFollowUp && !loading && !stale && !sending;
+
+  const refreshFeedback = () => {
+    setStale(null);
+    void refresh();
+  };
+
   const toggle = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
+    setSelection((prev) => {
+      const next = new Set(prev.headSha === headSha ? prev.ids : undefined);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      return next;
+      return { headSha, ids: next };
     });
   };
 
   const send = async () => {
+    if (!feedback || !canSelect || !selected?.size) return;
     const ids = Array.from(selected);
-    if (ids.length === 0) return;
     setSending(true);
     setSendError(null);
     try {
-      const result = await window.electronAPI.startPRFollowUp(task.id, ids);
+      const result = await window.electronAPI.startPRFollowUp(task.id, ids, feedback.headSha);
       if (!result.success) {
-        setSendError(result.error || t('tasks:prFeedback.sendFailed'));
+        const code = 'code' in result ? result.code : undefined;
+        if (code === 'head_changed' || code === 'head_unverified') {
+          setSelection({ headSha, ids: new Set() });
+          setStale(code);
+        } else {
+          setSendError(result.error || t('tasks:prFeedback.sendFailed'));
+        }
       } else {
         setStarted(true);
-        setSelected(new Set());
+        setSelection({ headSha, ids: new Set() });
       }
     } catch (err) {
       setSendError(err instanceof Error ? err.message : t('tasks:prFeedback.sendFailed'));
@@ -64,9 +84,9 @@ export function PRFeedbackPanel({ task }: PRFeedbackPanelProps) {
   const renderItem = (item: PRFeedbackItem) => (
     <li key={item.id} className="flex items-start gap-2 rounded-lg border border-border bg-background/50 p-2">
       <Checkbox
-        checked={selected.has(item.id)}
+        checked={selected?.has(item.id) ?? false}
         onCheckedChange={() => toggle(item.id)}
-        disabled={!feedback?.canStartFollowUp}
+        disabled={!canSelect}
         aria-label={item.title}
         data-testid={`pr-feedback-item-${item.id}`}
       />
@@ -115,7 +135,7 @@ export function PRFeedbackPanel({ task }: PRFeedbackPanelProps) {
           <GitPullRequest className="h-4 w-4" />
           {t('tasks:prFeedback.title')}
         </h3>
-        <Button size="sm" variant="ghost" onClick={() => void refresh()} disabled={loading} data-testid="pr-feedback-refresh">
+        <Button size="sm" variant="ghost" onClick={refreshFeedback} disabled={loading || sending} data-testid="pr-feedback-refresh">
           {loading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
           {t('tasks:prFeedback.refresh')}
         </Button>
@@ -129,6 +149,11 @@ export function PRFeedbackPanel({ task }: PRFeedbackPanelProps) {
 
       {feedback && (
         <div className="space-y-3">
+          {headSha && (
+            <p className="text-xs text-muted-foreground" data-testid="pr-feedback-revision">
+              {t('tasks:prFeedback.revision', { sha: headSha.slice(0, 7) })}
+            </p>
+          )}
           {blocked && (
             <p className="text-sm text-muted-foreground" data-testid="pr-feedback-blocked">
               {t(`tasks:prFeedback.blocked.${blocked}`)}
@@ -146,7 +171,7 @@ export function PRFeedbackPanel({ task }: PRFeedbackPanelProps) {
               size="sm"
               className="w-full"
               onClick={() => void send()}
-              disabled={selected.size === 0 || sending}
+              disabled={!selected?.size || !canSelect}
               data-testid="pr-feedback-send"
             >
               {sending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
@@ -156,6 +181,16 @@ export function PRFeedbackPanel({ task }: PRFeedbackPanelProps) {
         </div>
       )}
 
+      {stale && (
+        <div className="mt-2 space-y-2" data-testid="pr-feedback-stale">
+          <p className="text-sm text-muted-foreground" role="alert">
+            {t(`tasks:prFeedback.stale.${stale}`)}
+          </p>
+          <Button size="sm" variant="outline" onClick={refreshFeedback} data-testid="pr-feedback-stale-refresh">
+            {t('tasks:prFeedback.refresh')}
+          </Button>
+        </div>
+      )}
       {sendError && (
         <p className="mt-2 text-sm text-destructive break-words" data-testid="pr-feedback-send-error">
           {sendError}
@@ -164,6 +199,11 @@ export function PRFeedbackPanel({ task }: PRFeedbackPanelProps) {
       {(started || outcomeLine) && (
         <p className="mt-2 text-sm text-muted-foreground break-words" data-testid="pr-feedback-status">
           {outcomeLine ?? t('tasks:prFeedback.started')}
+        </p>
+      )}
+      {outcomeLine?.includes('Not pushed (stale)') && (
+        <p className="mt-2 text-sm text-muted-foreground" data-testid="pr-feedback-stale-outcome">
+          {t('tasks:prFeedback.staleOutcome')}
         </p>
       )}
     </div>

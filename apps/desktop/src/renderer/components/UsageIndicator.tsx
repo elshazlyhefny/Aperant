@@ -21,7 +21,7 @@ import type { AppSection } from './settings/AppSettings';
 import { useSettingsStore, saveSettings } from '../stores/settings-store';
 import { useActiveProvider } from '../hooks/useActiveProvider';
 import { PROVIDER_REGISTRY } from '@shared/constants/providers';
-import type { ProviderAccount, BuiltinProvider } from '../../shared/types/provider-account';
+import type { ProviderAccountView, BuiltinProvider } from '../../shared/types/provider-account';
 import { getQueuedRowVariant, selectUsageView, type QueuedRowVariant, type UsageView } from './usage-indicator-view';
 
 /**
@@ -110,9 +110,9 @@ const getProviderName = (providerId: string): string => {
  * Check whether a provider account supports real-time usage monitoring.
  * Currently: Anthropic OAuth, OpenAI OAuth, and Z.AI / OpenRouter API key accounts.
  */
-const accountHasUsageMonitoring = (account: { provider: string; authType?: string; apiKey?: string }): boolean => {
+const accountHasUsageMonitoring = (account: { provider: string; authType?: string; hasApiKey?: boolean }): boolean => {
   if ((account.provider === 'anthropic' || account.provider === 'openai') && account.authType === 'oauth') return true;
-  if ((account.provider === 'zai' || account.provider === 'openrouter') && account.apiKey) return true;
+  if ((account.provider === 'zai' || account.provider === 'openrouter') && account.hasApiKey) return true;
   return false;
 };
 
@@ -165,7 +165,7 @@ function MiniUsageBars({ sessionPercent, weeklyPercent }: { sessionPercent: numb
 }
 
 function QueuedAccountRow({ account, profileData, variant, onSwap }: {
-  account: ProviderAccount;
+  account: ProviderAccountView;
   profileData: ProfileUsageSummary | undefined;
   variant: QueuedRowVariant;
   onSwap: SwapHandler;
@@ -233,7 +233,7 @@ function QueuedAccountRow({ account, profileData, variant, onSwap }: {
 }
 
 function QueuedAccounts({ accounts, otherProfiles, variant, onSwap }: {
-  accounts: ProviderAccount[];
+  accounts: ProviderAccountView[];
   otherProfiles: ProfileUsageSummary[];
   variant: QueuedRowVariant;
   onSwap: SwapHandler;
@@ -241,7 +241,7 @@ function QueuedAccounts({ accounts, otherProfiles, variant, onSwap }: {
   const { t } = useTranslation(['common']);
   if (accounts.length === 0) return null;
 
-  const findProfile = (account: ProviderAccount) => (
+  const findProfile = (account: ProviderAccountView) => (
     otherProfiles.find(p => p.profileId === account.claudeProfileId)
       ?? otherProfiles.find(p => p.profileId === account.id)
       ?? (accountHasUsageMonitoring(account)
@@ -921,7 +921,7 @@ export function UsageIndicator() {
       );
 
       // Helper: look up usage by claudeProfileId first, then by account id
-      const getUsage = (a: ProviderAccount) =>
+      const getUsage = (a: ProviderAccountView) =>
         (a.claudeProfileId ? profileUsageById.get(a.claudeProfileId) : undefined)
         ?? profileUsageById.get(a.id);
 

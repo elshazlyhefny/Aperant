@@ -24,7 +24,7 @@ import { WebhookSettings } from './WebhookSettings';
 import { JiraWritebackSettings } from './JiraWritebackSettings';
 import { IssueWritebackSettings } from './IssueWritebackSettings';
 import type {
-  AppSettings,
+  RendererAppSettings,
   AppUpdateAvailableEvent,
   AppUpdateProgress,
   AppUpdateInfo,
@@ -68,8 +68,8 @@ function ReleaseNotesRenderer({ content }: { content: string }) {
 }
 
 interface AdvancedSettingsProps {
-  settings: AppSettings;
-  onSettingsChange: (settings: AppSettings) => void;
+  settings: RendererAppSettings;
+  onSettingsChange: (settings: RendererAppSettings) => void;
   section: 'updates' | 'notifications';
   version: string;
 }

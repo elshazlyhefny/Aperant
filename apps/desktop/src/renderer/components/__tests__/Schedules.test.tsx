@@ -40,24 +40,53 @@ function makeSchedule(overrides: Partial<RecurringSchedule> = {}): RecurringSche
 }
 
 const api = {
-  listSchedules: vi.fn(),
+  listSchedules: vi.fn<Window['electronAPI']['listSchedules']>(),
   setScheduleEnabled: vi.fn(),
   acknowledgeScheduleReports: vi.fn(),
   deleteSchedule: vi.fn(),
-  runScheduleNow: vi.fn()
+  runScheduleNow: vi.fn<Window['electronAPI']['runScheduleNow']>()
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function loadSchedulesForProject(projectId: string) {
+  await act(async () => {
+    // Emulate App's effect without waiting on a potentially pending IPC response.
+    void useScheduleStore.getState().loadSchedules(projectId);
+  });
+}
+
+async function renderSchedules(projectId = 'p1', onOpenTask?: (taskId: string) => void) {
+  const view = render(<Schedules projectId={projectId} onOpenTask={onOpenTask} />);
+  await loadSchedulesForProject(projectId);
+  return view;
+}
 
 describe('Schedules', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    for (const mock of Object.values(api)) mock.mockReset();
     useScheduleStore.setState({ schedules: [], activeProjectId: null, isLoading: false, error: null, loadError: null });
     useTaskStore.setState({ tasks: [] });
     (window as unknown as { electronAPI: unknown }).electronAPI = api;
   });
 
+  it('waits for App to load schedules instead of loading on mount', () => {
+    render(<Schedules projectId="p1" />);
+    expect(api.listSchedules).not.toHaveBeenCalled();
+    expect(screen.getByText('schedules:loading')).toBeTruthy();
+  });
+
   it('shows the empty state with a new schedule button', async () => {
     api.listSchedules.mockResolvedValue({ success: true, data: [] });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     expect(await screen.findByText('schedules:empty.title')).toBeTruthy();
     expect(screen.getByText('schedules:buttons.new')).toBeTruthy();
   });
@@ -67,7 +96,7 @@ describe('Schedules', () => {
       success: true,
       data: [makeSchedule({ enabled: false, nextRunAt: null })]
     });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     expect(await screen.findByText('Nightly audit')).toBeTruthy();
     expect(screen.getByText('schedules:status.paused')).toBeTruthy();
     expect(screen.getByText('schedules:buttons.resume')).toBeTruthy();
@@ -76,10 +105,35 @@ describe('Schedules', () => {
   it('runs a schedule now and shows the started notice', async () => {
     api.listSchedules.mockResolvedValue({ success: true, data: [makeSchedule()] });
     api.runScheduleNow.mockResolvedValue({ success: true, data: { started: true, taskId: 't1' } });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     fireEvent.click(await screen.findByText('schedules:buttons.runNow'));
     expect(await screen.findByText('schedules:runNow.started')).toBeTruthy();
     expect(api.runScheduleNow).toHaveBeenCalledWith('s1');
+  });
+
+  it('keeps the new project unchanged when run now finishes after switching projects', async () => {
+    const run = deferred<Awaited<ReturnType<typeof api.runScheduleNow>>>();
+    const p2 = makeSchedule({ id: 's2', projectId: 'p2', name: 'Weekly review' });
+    api.listSchedules
+      .mockResolvedValueOnce({ success: true, data: [makeSchedule()] })
+      .mockResolvedValue({ success: true, data: [p2] });
+    api.runScheduleNow.mockReturnValueOnce(run.promise);
+
+    const view = await renderSchedules();
+    fireEvent.click(screen.getByRole('button', { name: 'schedules:buttons.runNow' }));
+    expect(api.runScheduleNow).toHaveBeenCalledWith('s1');
+
+    view.rerender(<Schedules projectId="p2" />);
+    await loadSchedulesForProject('p2');
+    await act(async () => {
+      run.resolve({ success: true, data: { started: true, taskId: 't1' } });
+    });
+
+    expect(screen.getByText('Weekly review')).toBeTruthy();
+    expect(screen.queryByText('Nightly audit')).toBeNull();
+    expect(screen.queryByText('schedules:runNow.started')).toBeNull();
+    expect(useScheduleStore.getState().schedules).toEqual([p2]);
+    expect(api.listSchedules.mock.calls).toEqual([['p1'], ['p2']]);
   });
 
   it('shows the unfinished notice when run now is skipped', async () => {
@@ -88,7 +142,7 @@ describe('Schedules', () => {
       success: true,
       data: { started: false, reason: 'unfinished' }
     });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     fireEvent.click(await screen.findByText('schedules:buttons.runNow'));
     expect(await screen.findByText('schedules:runNow.unfinished')).toBeTruthy();
   });
@@ -98,7 +152,7 @@ describe('Schedules', () => {
       success: true,
       data: [makeSchedule({ enabled: false, nextRunAt: null })]
     });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     expect(await screen.findByText('schedules:buttons.runNow')).toBeTruthy();
   });
 
@@ -111,7 +165,7 @@ describe('Schedules', () => {
       success: true,
       data: { ...schedule, history: [{ ...schedule.history[0], acknowledged: true }] }
     });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     expect(await screen.findByRole('alert')).toBeTruthy();
     fireEvent.click(screen.getByText('schedules:buttons.dismiss'));
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
@@ -130,7 +184,7 @@ describe('Schedules', () => {
       success: true,
       data: [makeSchedule({ lastTaskId: 'task-1' })]
     });
-    render(<Schedules projectId="p1" onOpenTask={onOpenTask} />);
+    await renderSchedules('p1', onOpenTask);
     fireEvent.click(await screen.findByRole('button', { name: 'schedules:lastTask:Audit result' }));
     expect(onOpenTask).toHaveBeenCalledWith('task-1');
   });
@@ -142,7 +196,7 @@ describe('Schedules', () => {
       success: true,
       data: [makeSchedule({ lastTaskId: '001-spec' })]
     });
-    render(<Schedules projectId="p1" onOpenTask={onOpenTask} />);
+    await renderSchedules('p1', onOpenTask);
     fireEvent.click(await screen.findByRole('button', { name: 'schedules:lastTask:Audit result' }));
     expect(onOpenTask).toHaveBeenCalledWith('001-spec');
   });
@@ -152,7 +206,7 @@ describe('Schedules', () => {
       success: true,
       data: [makeSchedule({ lastTaskId: 'gone' })]
     });
-    render(<Schedules projectId="p1" onOpenTask={vi.fn()} />);
+    await renderSchedules('p1', vi.fn());
     const button = (await screen.findByRole('button', {
       name: 'schedules:lastTask:gone'
     })) as HTMLButtonElement;
@@ -173,7 +227,7 @@ describe('Schedules', () => {
         })
       ]
     });
-    render(<Schedules projectId="p1" onOpenTask={onOpenTask} />);
+    await renderSchedules('p1', onOpenTask);
     const buttons = await screen.findAllByRole('button', { name: 'schedules:buttons.openTask' });
     expect(buttons).toHaveLength(2);
     for (const b of buttons) fireEvent.click(b);
@@ -193,21 +247,21 @@ describe('Schedules', () => {
         })
       ]
     });
-    render(<Schedules projectId="p1" onOpenTask={vi.fn()} />);
+    await renderSchedules('p1', vi.fn());
     await screen.findByRole('alert');
     expect(screen.queryByText('schedules:buttons.openTask')).toBeNull();
   });
 
   it('shows a loading state while schedules load', async () => {
     api.listSchedules.mockReturnValue(new Promise(() => undefined));
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     expect(await screen.findByText('schedules:loading')).toBeTruthy();
     expect(screen.queryByText('schedules:empty.title')).toBeNull();
   });
 
   it('shows a load failure with retry instead of the empty state', async () => {
     api.listSchedules.mockResolvedValueOnce({ success: false, error: 'boom' });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     expect(await screen.findByText('schedules:errors.loadFailed')).toBeTruthy();
     expect(screen.getByText('schedules:buttons.retry')).toBeTruthy();
     expect(screen.queryByText('schedules:empty.title')).toBeNull();
@@ -221,15 +275,36 @@ describe('Schedules', () => {
 
   it('shows a load failure when listing rejects', async () => {
     api.listSchedules.mockRejectedValueOnce(new Error('ipc down'));
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     expect(await screen.findByText('schedules:errors.loadFailed')).toBeTruthy();
     expect(screen.queryByText('schedules:empty.title')).toBeNull();
+  });
+
+  it('does not show a late load rejection from the previous project', async () => {
+    const first = deferred<Awaited<ReturnType<typeof api.listSchedules>>>();
+    const p2 = makeSchedule({ id: 's2', projectId: 'p2', name: 'Weekly review' });
+    api.listSchedules
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ success: true, data: [p2] });
+
+    const firstLoad = useScheduleStore.getState().loadSchedules('p1');
+    await renderSchedules('p2');
+    expect(screen.getByText('Weekly review')).toBeTruthy();
+
+    await act(async () => {
+      first.reject(new Error('p1 IPC down'));
+      await firstLoad;
+    });
+
+    expect(screen.getByText('Weekly review')).toBeTruthy();
+    expect(screen.queryByText('schedules:errors.loadFailed')).toBeNull();
+    expect(useScheduleStore.getState().loadError).toBeNull();
   });
 
   it('keeps the delete dialog open and shows an error when delete fails', async () => {
     api.listSchedules.mockResolvedValue({ success: true, data: [makeSchedule()] });
     api.deleteSchedule.mockResolvedValue({ success: false, error: 'x' });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     fireEvent.click(await screen.findByText('schedules:buttons.delete'));
     expect(await screen.findByText('schedules:delete.title')).toBeTruthy();
     const dialog = await screen.findByRole('alertdialog');
@@ -242,7 +317,7 @@ describe('Schedules', () => {
   it('closes the delete dialog when delete succeeds', async () => {
     api.listSchedules.mockResolvedValue({ success: true, data: [makeSchedule()] });
     api.deleteSchedule.mockResolvedValue({ success: true });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     fireEvent.click(await screen.findByText('schedules:buttons.delete'));
     const dialog = await screen.findByRole('alertdialog');
     fireEvent.click(within(dialog).getByText('schedules:buttons.delete'));
@@ -253,7 +328,7 @@ describe('Schedules', () => {
   it('shows an error when pausing a schedule fails', async () => {
     api.listSchedules.mockResolvedValue({ success: true, data: [makeSchedule()] });
     api.setScheduleEnabled.mockResolvedValue({ success: false });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     fireEvent.click(await screen.findByText('schedules:buttons.pause'));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe('schedules:errors.actionFailed');
@@ -266,14 +341,14 @@ describe('Schedules', () => {
     });
     api.listSchedules.mockResolvedValue({ success: true, data: [schedule] });
     api.acknowledgeScheduleReports.mockResolvedValue({ success: false });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     fireEvent.click(await screen.findByText('schedules:buttons.dismiss'));
     expect(await screen.findByText('schedules:errors.actionFailed')).toBeTruthy();
   });
 
   it('does not show the load-error screen for a save error', async () => {
     api.listSchedules.mockResolvedValue({ success: true, data: [] });
-    render(<Schedules projectId="p1" />);
+    await renderSchedules();
     expect(await screen.findByText('schedules:empty.title')).toBeTruthy();
     act(() => {
       useScheduleStore.setState({ error: 'save failed' });

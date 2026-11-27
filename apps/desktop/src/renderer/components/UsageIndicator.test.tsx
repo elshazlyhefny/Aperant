@@ -11,7 +11,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { UsageIndicator } from './UsageIndicator';
 import { useSettingsStore, saveSettings } from '../stores/settings-store';
 import type { ClaudeUsageSnapshot, ProfileUsageSummary } from '../../shared/types/agent';
-import type { ProviderAccount } from '../../shared/types/provider-account';
+import type { ProviderAccountView } from '../../shared/types/provider-account';
 
 vi.mock('../stores/settings-store', () => ({
   useSettingsStore: vi.fn(),
@@ -72,14 +72,14 @@ vi.mock('react-i18next', () => ({
   })),
 }));
 
-const crossProviderAccounts: ProviderAccount[] = [
+const crossProviderAccounts: ProviderAccountView[] = [
   {
     id: 'account-openai',
     provider: 'openai',
     name: 'OpenAI API',
     authType: 'api-key',
     billingModel: 'pay-per-use',
-    apiKey: 'openai-key',
+    hasApiKey: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -88,6 +88,7 @@ const crossProviderAccounts: ProviderAccount[] = [
     provider: 'anthropic',
     name: 'Anthropic OAuth',
     authType: 'oauth',
+    hasApiKey: false,
     billingModel: 'subscription',
     claudeProfileId: 'account-anthropic',
     createdAt: Date.now(),
@@ -95,12 +96,13 @@ const crossProviderAccounts: ProviderAccount[] = [
   },
 ];
 
-const crossProviderMonitoredAccounts: ProviderAccount[] = [
+const crossProviderMonitoredAccounts: ProviderAccountView[] = [
   {
     id: 'account-anthropic-active',
     provider: 'anthropic',
     name: 'Anthropic OAuth',
     authType: 'oauth',
+    hasApiKey: false,
     billingModel: 'subscription',
     claudeProfileId: 'account-anthropic-active',
     createdAt: Date.now(),
@@ -111,6 +113,7 @@ const crossProviderMonitoredAccounts: ProviderAccount[] = [
     provider: 'openai',
     name: 'OpenAI OAuth',
     authType: 'oauth',
+    hasApiKey: false,
     billingModel: 'pay-per-use',
     claudeProfileId: 'account-openai-other',
     createdAt: Date.now(),
@@ -130,7 +133,7 @@ function createStoreMock(overrides?: {
   customMixedProfileActive?: boolean;
   customMixedPhaseConfig?: Record<string, { provider: 'anthropic' | 'openai' }>;
   globalPriorityOrder?: string[];
-  providerAccounts?: ProviderAccount[];
+  providerAccounts?: ProviderAccountView[];
 }) {
   return {
     providerAccounts: overrides?.providerAccounts ?? crossProviderAccounts,
@@ -202,20 +205,20 @@ describe('UsageIndicator', () => {
     const reauthDescription = /^Your session has expired\./;
     const asyncOptions = { timeout: 2000 };
 
-    const subscriptionAccount: ProviderAccount = {
+    const subscriptionAccount: ProviderAccountView = {
       ...crossProviderAccounts[0],
       name: 'OpenAI Subscription',
       billingModel: 'subscription',
     };
-    const unmeteredAccount: ProviderAccount = {
+    const unmeteredAccount: ProviderAccountView = {
       ...crossProviderAccounts[0],
       id: 'account-google',
       provider: 'google',
       name: 'Google API',
     };
     const monitoredAccount = crossProviderMonitoredAccounts[0];
-    const limitedAccount: ProviderAccount = { ...crossProviderAccounts[1], name: 'Limited Anthropic Account' };
-    const expiredAccount: ProviderAccount = {
+    const limitedAccount: ProviderAccountView = { ...crossProviderAccounts[1], name: 'Limited Anthropic Account' };
+    const expiredAccount: ProviderAccountView = {
       ...limitedAccount,
       id: 'account-anthropic-expired',
       claudeProfileId: 'profile-expired',
@@ -258,7 +261,7 @@ describe('UsageIndicator', () => {
       });
     }
 
-    function mockAccounts(active: ProviderAccount, ...queued: ProviderAccount[]) {
+    function mockAccounts(active: ProviderAccountView, ...queued: ProviderAccountView[]) {
       vi.mocked(useSettingsStore).mockReturnValue(createStoreMock({
         providerAccounts: [...queued, active],
         globalPriorityOrder: [active, ...queued].map((account) => account.id),
@@ -646,14 +649,14 @@ describe('UsageIndicator', () => {
   });
 
   describe('OpenRouter credit usage', () => {
-    const openRouterAccounts: ProviderAccount[] = [
+    const openRouterAccounts: ProviderAccountView[] = [
       {
         id: 'account-openrouter',
         provider: 'openrouter',
         name: 'OpenRouter Key',
         authType: 'api-key',
         billingModel: 'pay-per-use',
-        apiKey: 'or-key',
+        hasApiKey: true,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },

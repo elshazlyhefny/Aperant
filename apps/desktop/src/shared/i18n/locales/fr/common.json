@@ -169,6 +169,20 @@
     "deleteSuccess": "Worktree '{{branch}}' supprimé avec succès",
     "bulkDeleteSuccess": "{{count}} worktree supprimé avec succès",
     "bulkDeleteSuccess_plural": "{{count}} worktrees supprimés avec succès",
+    "bulkDeleteSuccess_one": "{{count}} worktree supprimé avec succès",
+    "bulkDeleteSuccess_other": "{{count}} worktrees supprimés avec succès",
+    "bulkDeleteResult": {
+      "title": "La suppression groupée a rencontré des problèmes",
+      "summary": "Worktrees supprimés : {{deleted}} ; worktrees non supprimés : {{failed}}",
+      "failedItem": "{{name}} : {{reason}}",
+      "unknownReason": "Erreur inconnue",
+      "notFound": "Ce worktree ne figure plus dans la liste",
+      "retryFailed": "Réessayer les suppressions qui ont échoué",
+      "retryHint": "Les worktrees qui n'ont pas été supprimés restent sélectionnés. Corrigez le problème, puis réessayez.",
+      "refreshFailed": "La liste des worktrees n'a pas pu être actualisée. Les worktrees dont la suppression a échoué n'ont donc pas été resélectionnés. Actualisez la liste avant de réessayer.",
+      "refreshFailedDetail": "Erreur d'actualisation : {{error}}",
+      "dismiss": "Fermer"
+    },
     "autoCleanup": {
       "button": "Nettoyer les fusionnés",
       "running": "Nettoyage…",

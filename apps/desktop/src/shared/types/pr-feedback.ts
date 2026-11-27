@@ -32,7 +32,11 @@ export type PRFeedbackBlockedReason =
   | 'no_bitbucket_config'
   // zeenha fork: Azure DevOps repository/credentials are not configured
   | 'no_azuredevops_config'
-  | 'branch_mismatch';
+  | 'branch_mismatch'
+  // zeenha fork: the PR head moved since the panel was loaded
+  | 'head_changed'
+  // zeenha fork: the PR head or push destination could not be verified
+  | 'head_unverified';
 
 /** Providers that have their own blocked code (and UI text) instead of the generic `not_configured`. */
 export const LEGACY_NOT_CONFIGURED_CODES: readonly PRFeedbackBlockedReason[] = [
