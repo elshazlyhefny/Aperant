@@ -3,8 +3,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { Project, Task } from '../../shared/types';
-import type { RecurringSchedule } from '../../shared/types/schedule';
-import { createScheduleService, type ScheduleServiceDeps } from '../schedule-service';
+import type { RecurringSchedule, ScheduleRunRecord } from '../../shared/types/schedule';
+import { createScheduleService, MISSED_GRACE_MS, type ScheduleServiceDeps } from '../schedule-service';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -228,6 +228,155 @@ describe('schedule service', () => {
     });
   });
 
+  describe('edits during task creation', () => {
+    function deferTaskCreation(deps: ScheduleServiceDeps) {
+      const mock = vi.mocked(deps.createTask);
+      const createTask = mock.getMockImplementation();
+      if (!createTask) throw new Error('Expected the fake task creator');
+
+      let signalStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        signalStarted = resolve;
+      });
+      let finish!: () => void;
+      let fail!: (error: Error) => void;
+      const pending = new Promise<void>((resolve, reject) => {
+        finish = resolve;
+        fail = reject;
+      });
+      mock.mockImplementationOnce(async (...args) => {
+        signalStarted();
+        await pending;
+        return createTask(...args);
+      });
+      return { started, finish, fail };
+    }
+
+    describe.each(['timed', 'manual'] as const)('%s runs', (mode) => {
+      const manual = mode === 'manual';
+
+      function startRun(over: Partial<RecurringSchedule> = {}, now = T0) {
+        const ctx = setup({
+          maxParallel: 0,
+          now,
+          schedules: [makeSchedule({ nextRunAt: manual ? T0 + DAY : T0, ...over })],
+        });
+        const creation = deferTaskCreation(ctx.deps);
+        const run = manual ? ctx.service.runNow('s1') : ctx.service.tick();
+        return { ...ctx, creation, run };
+      }
+
+      it('preserves a pause and still records the completed run', async () => {
+        const { creation, run, schedules } = startRun();
+        await creation.started;
+        schedules[0] = { ...schedules[0], enabled: false, nextRunAt: null };
+        creation.finish();
+
+        await expect(run).resolves.toEqual(manual ? { started: true, taskId: 't1' } : undefined);
+        expect(schedules[0]).toMatchObject({
+          enabled: false,
+          nextRunAt: null,
+          lastTaskId: 't1',
+          lastRunAt: T0,
+          history: [{ kind: 'started', taskId: 't1' }],
+        });
+      });
+
+      it('preserves a cadence edit and its rescheduled cursor', async () => {
+        const { creation, run, schedules } = startRun();
+        await creation.started;
+        const edit = {
+          cadence: { kind: 'interval', everyMinutes: 30 },
+          nextRunAt: T0 + HOUR / 2,
+          name: 'Updated schedule',
+          template: { ...schedules[0].template, title: 'Updated task title' },
+          updatedAt: T0,
+        } satisfies Partial<RecurringSchedule>;
+        schedules[0] = { ...schedules[0], ...edit };
+        creation.finish();
+
+        await run;
+        expect(schedules[0]).toMatchObject({ ...edit, history: [{ kind: 'started', taskId: 't1' }] });
+      });
+
+      it('preserves an acknowledgement when appending new history', async () => {
+        const now = manual ? T0 : T0 + MISSED_GRACE_MS + 1;
+        const prior: ScheduleRunRecord = { id: 'previous', at: T0 - DAY, kind: 'failed', acknowledged: false };
+        const { creation, run, schedules } = startRun({ history: [prior] }, now);
+        await creation.started;
+        schedules[0] = {
+          ...schedules[0],
+          history: schedules[0].history.map((entry) => ({ ...entry, acknowledged: true })),
+        };
+        creation.finish();
+
+        await run;
+        const expected: Partial<ScheduleRunRecord>[] = [{ ...prior, acknowledged: true }];
+        if (!manual) {
+          expected.push({ kind: 'missed', missedCount: 1, missedFrom: T0, missedTo: T0, acknowledged: false });
+        }
+        expected.push({ kind: 'started', taskId: 't1', acknowledged: false, ...(manual && { detail: 'manual' }) });
+        expect(schedules[0].history).toMatchObject(expected);
+      });
+
+      it('keeps the created task without recreating a deleted schedule', async () => {
+        const { creation, run, schedules, tasks, deps } = startRun();
+        await creation.started;
+        schedules.splice(0, 1);
+        creation.finish();
+
+        await expect(run).resolves.toEqual(manual ? { started: true, taskId: 't1' } : undefined);
+        expect(schedules).toEqual([]);
+        expect(tasks).toMatchObject([{ id: 't1', metadata: { scheduleId: 's1' } }]);
+        expect(deps.updateExisting).toHaveBeenCalledWith('s1', expect.any(Function));
+        expect(deps.updateExisting).toHaveReturnedWith(undefined);
+        expect(deps.notifyChanged).toHaveBeenCalledWith('p1');
+      });
+    });
+
+    it('advances the timed cursor when the schedule is unchanged', async () => {
+      const { deps, service, schedules } = setup();
+      const creation = deferTaskCreation(deps);
+      const tick = service.tick();
+      await creation.started;
+      creation.finish();
+
+      await tick;
+      expect(schedules[0].nextRunAt).toBe(T0 + DAY);
+    });
+
+    it('records a timed task creation failure without undoing a pause', async () => {
+      const { deps, service, schedules, tasks } = setup();
+      const creation = deferTaskCreation(deps);
+      const tick = service.tick();
+      await creation.started;
+      schedules[0] = { ...schedules[0], enabled: false, nextRunAt: null };
+      creation.fail(new Error('disk full'));
+
+      await expect(tick).resolves.toBeUndefined();
+      expect(tasks).toEqual([]);
+      expect(schedules[0]).toMatchObject({
+        enabled: false,
+        nextRunAt: null,
+        history: [{ kind: 'failed', detail: 'disk full' }],
+      });
+    });
+
+    it('re-reads a later due schedule before running it in the same tick', async () => {
+      const { deps, service, schedules } = setup({ schedules: [makeSchedule(), makeSchedule({ id: 's2' })] });
+      const creation = deferTaskCreation(deps);
+      const tick = service.tick();
+      await creation.started;
+      const paused = { ...schedules[1], enabled: false, nextRunAt: null };
+      schedules[1] = paused;
+      creation.finish();
+
+      await tick;
+      expect(deps.createTask).toHaveBeenCalledExactlyOnceWith('p1', schedules[0].template, 's1', T0);
+      expect(schedules[1]).toEqual(paused);
+    });
+  });
+
   describe('token budget', () => {
     const runOne = async (metadata: Record<string, unknown> = {}) => {
       const ctx = setup();
@@ -260,6 +409,23 @@ describe('schedule service', () => {
       ctx.tokens.value = 5000;
       await ctx.service.tick();
       expect(ctx.deps.stopTask).toHaveBeenCalledWith('t1');
+    });
+
+    it('does not recreate a schedule deleted before recording budget_exceeded', async () => {
+      const { deps, service, schedules, tokens } = await runOne();
+      tokens.value = 1000;
+      vi.mocked(deps.updateExisting).mockClear();
+      // Delete after the budget check has read the schedule, but before it writes history.
+      vi.mocked(deps.stopTask).mockImplementationOnce(() => {
+        schedules.splice(0, 1);
+      });
+
+      await service.tick();
+
+      expect(deps.stopTask).toHaveBeenCalledWith('t1');
+      expect(deps.updateExisting).toHaveBeenCalledWith('s1', expect.any(Function));
+      expect(deps.updateExisting).toHaveReturnedWith(undefined);
+      expect(schedules).toEqual([]);
     });
 
     it('never stops non-scheduled tasks', async () => {
