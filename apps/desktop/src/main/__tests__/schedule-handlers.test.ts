@@ -1,14 +1,21 @@
 /**
- * zeenha fork: schedule IPC handlers, with the store and task functions mocked.
+ * zeenha fork: schedule IPC handlers and their real-store run interleavings.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { RecurringSchedule, ScheduleInput } from '../../shared/types/schedule';
-import type { ScheduleMutator } from '../schedule-file-store';
+import { registerScheduleHandlers } from '../ipc-handlers/schedule-handlers';
+import { createTaskSpec } from '../ipc-handlers/task/create-task';
+import { applyTaskStatusUpdate } from '../ipc-handlers/task/execution-handlers';
+import { createScheduleFileStore, type ScheduleMutator } from '../schedule-file-store';
 
 // biome-ignore lint/suspicious/noExplicitAny: handler results are loosely typed in tests
 const handlers = new Map<string, (...args: unknown[]) => Promise<any>>();
 let stored: RecurringSchedule[] = [];
+let userDataDir: string | undefined;
 const send = vi.fn();
 const getSchedule = vi.fn((id: string) => stored.find((s) => s.id === id));
 const insertSchedule = vi.fn(async (schedule: RecurringSchedule) => {
@@ -32,16 +39,27 @@ const deleteSchedule = vi.fn(async (id: string) => {
 });
 
 vi.mock('electron', () => ({
+  app: { getPath: () => userDataDir },
   ipcMain: { handle: (channel: string, fn: (...args: unknown[]) => Promise<unknown>) => handlers.set(channel, fn) },
 }));
 
-vi.mock('../schedule-store', () => ({
-  listSchedules: (projectId?: string) => stored.filter((s) => !projectId || s.projectId === projectId),
-  getSchedule,
-  insertSchedule,
-  updateSchedule,
-  deleteSchedule,
-}));
+vi.mock('../schedule-store', async (importOriginal) => {
+  const realStore = await importOriginal<typeof import('../schedule-store')>();
+  // Use the actual Electron facade when a test provides a temporary userData path.
+  return {
+    ...realStore,
+    listSchedules: (projectId?: string) =>
+      userDataDir ? realStore.listSchedules(projectId) : stored.filter((s) => !projectId || s.projectId === projectId),
+    getSchedule: (id: string) => (userDataDir ? realStore.getSchedule(id) : getSchedule(id)),
+    insertSchedule: (schedule: RecurringSchedule) =>
+      userDataDir ? realStore.insertSchedule(schedule) : insertSchedule(schedule),
+    updateSchedule: (id: string, mutator: ScheduleMutator) =>
+      userDataDir ? realStore.updateSchedule(id, mutator) : updateSchedule(id, mutator),
+    deleteSchedule: (id: string) => (userDataDir ? realStore.deleteSchedule(id) : deleteSchedule(id)),
+  };
+});
+
+vi.mock('../desktop-queue-lock', () => ({ ensureQueueLock: () => ({ ok: true }) }));
 
 vi.mock('../project-store', () => ({
   projectStore: {
@@ -54,12 +72,11 @@ vi.mock('../project-store', () => ({
 vi.mock('../ipc-handlers/task/create-task', () => ({ createTaskSpec: vi.fn() }));
 vi.mock('../ipc-handlers/task/execution-handlers', () => ({ applyTaskStatusUpdate: vi.fn(), stopTask: vi.fn() }));
 const runNow = vi.fn();
-vi.mock('../schedule-service', () => ({
-  createScheduleService: () => ({ start: vi.fn(), stop: vi.fn(), tick: vi.fn(), onAgentExit: vi.fn(), runNow }),
-  readTaskTokensFromDisk: () => 0,
-}));
 
-import { registerScheduleHandlers } from '../ipc-handlers/schedule-handlers';
+const registerHandlers = () => {
+  const win = { isDestroyed: () => false, webContents: { send } };
+  return registerScheduleHandlers({ isRunning: () => false } as never, () => win as never);
+};
 
 const input = (over: Partial<ScheduleInput> = {}): ScheduleInput => ({
   projectId: 'p1',
@@ -82,8 +99,7 @@ describe('schedule handlers', () => {
     vi.clearAllMocks();
     beforeUpdate.mockReset();
     runNow.mockReset();
-    const win = { isDestroyed: () => false, webContents: { send } };
-    registerScheduleHandlers({ isRunning: () => false } as never, () => win as never);
+    vi.spyOn(registerHandlers(), 'runNow').mockImplementation(runNow);
   });
 
   it('creates a schedule with nextRunAt in the future and notifies', async () => {
@@ -293,5 +309,141 @@ describe('schedule handlers', () => {
       [IPC_CHANNELS.SCHEDULE_CHANGED, { projectId: 'p1' }],
       [IPC_CHANNELS.SCHEDULE_CHANGED, { projectId: 'p1' }],
     ]);
+  });
+});
+
+describe('schedule handler interleavings with a real file', () => {
+  let disk: ReturnType<typeof createScheduleFileStore>;
+  const taskId = 'created-task';
+  const cadence = { kind: 'interval', everyMinutes: 30 } as const;
+
+  beforeEach(() => {
+    handlers.clear();
+    vi.clearAllMocks();
+    userDataDir = mkdtempSync(join(tmpdir(), 'schedule-handlers-'));
+    disk = createScheduleFileStore(join(userDataDir, 'schedules.json'));
+    vi.mocked(applyTaskStatusUpdate).mockResolvedValue({ success: true });
+    registerHandlers();
+  });
+
+  afterEach(() => {
+    if (userDataDir) rmSync(userDataDir, { recursive: true, force: true });
+    userDataDir = undefined;
+  });
+
+  async function runDuring<T>(id: string, mutate: () => Promise<T>): Promise<T> {
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(createTaskSpec).mockImplementationOnce(async (projectId, title, description, metadata) => {
+      enter();
+      await released;
+      const now = new Date();
+      return {
+        success: true,
+        data: {
+          id: taskId,
+          specId: taskId,
+          projectId,
+          title,
+          description,
+          metadata,
+          status: 'queue',
+          subtasks: [],
+          logs: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      };
+    });
+
+    send.mockClear();
+    const run = call(IPC_CHANNELS.SCHEDULE_RUN_NOW, id);
+    let committed: T;
+    try {
+      await Promise.race([
+        entered,
+        run.then((result) => {
+          throw new Error(`Run finished before entering task creation: ${JSON.stringify(result)}`);
+        }),
+      ]);
+      // Each IPC mutation must commit while the task creator is still blocked.
+      committed = await mutate();
+    } finally {
+      release();
+      await run;
+    }
+    expect(await run).toEqual({ success: true, data: { started: true, taskId } });
+    expect(createTaskSpec).toHaveBeenCalledTimes(1);
+    expect(applyTaskStatusUpdate).toHaveBeenCalledExactlyOnceWith(expect.anything(), expect.any(Function), taskId, 'queue');
+    return committed;
+  }
+
+  it.each([false, true])('keeps edits and acknowledgement after a run (pause: %s)', async (pause) => {
+    const created = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input({ cadence }));
+    expect(created.success).toBe(true);
+    const { id } = created.data;
+    const report = { id: 'old-report', at: 1, kind: 'missed', acknowledged: false } as const;
+    await disk.updateSchedule(id, () => ({ history: [report] }));
+
+    const edit = input({
+      name: 'New name',
+      cadence: { kind: 'interval', everyMinutes: 45 },
+      template: { title: 'New title', description: 'New instructions', tokenBudget: 2000 },
+    });
+    const committed = await runDuring(id, async () => {
+      const edited = await call(IPC_CHANNELS.SCHEDULE_UPDATE, id, edit);
+      expect(edited.success).toBe(true);
+      expect(edited.data.nextRunAt).toBe(edited.data.updatedAt + 45 * 60_000);
+      if (pause) {
+        const paused = await call(IPC_CHANNELS.SCHEDULE_SET_ENABLED, id, false);
+        expect(paused.success).toBe(true);
+      }
+      const acked = await call(IPC_CHANNELS.SCHEDULE_ACK_REPORTS, id, [report.id]);
+      expect(acked.success).toBe(true);
+      const current = disk.getSchedule(id);
+      expect(current).toMatchObject({
+        name: edit.name,
+        cadence: edit.cadence,
+        template: edit.template,
+        nextRunAt: pause ? null : edited.data.nextRunAt,
+        enabled: !pause,
+        history: [{ ...report, acknowledged: true }],
+      });
+      return current;
+    });
+
+    const scheduledFor = vi.mocked(createTaskSpec).mock.calls[0]?.[3]?.scheduledFor;
+    expect(scheduledFor).toEqual(expect.any(Number));
+    expect(disk.getSchedule(id)).toEqual({
+      ...committed,
+      lastRunAt: scheduledFor,
+      lastTaskId: taskId,
+      history: [
+        { ...report, acknowledged: true },
+        { id: expect.any(String), kind: 'started', at: scheduledFor, detail: 'manual', taskId, acknowledged: false },
+      ],
+    });
+  });
+
+  it('does not recreate a deleted schedule or notify again when task creation finishes', async () => {
+    const created = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input({ cadence }));
+    expect(created.success).toBe(true);
+    const { id, projectId } = created.data;
+
+    await runDuring(id, async () => {
+      expect(disk.getSchedule(id)).toEqual(created.data);
+      expect(await call(IPC_CHANNELS.SCHEDULE_DELETE, id)).toEqual({ success: true });
+      expect(disk.getSchedule(id)).toBeUndefined();
+      expect(send).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.SCHEDULE_CHANGED, { projectId });
+    });
+
+    expect(disk.listSchedules()).toEqual([]);
+    expect(send).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.SCHEDULE_CHANGED, { projectId });
   });
 });
