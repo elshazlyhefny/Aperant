@@ -77,10 +77,10 @@ describe('headless cli imports', () => {
     expect(findForbiddenChains(CLI_ENTRY)).toEqual([]);
   });
 
-  it('bundles the queue and schedule modules but not their Electron-bound siblings', () => {
+  it('bundles the shared task modules but not their Electron-bound siblings', () => {
     const reached = new Set([...collectReachable(CLI_ENTRY)].map((file) => path.basename(file)));
     for (const name of ['task-queue-manager.ts', 'schedule-service.ts', 'schedule-file-store.ts',
-      'task-store.ts', 'shared.ts', 'preflight.ts', 'preflight-credentials.ts',
+      'task-store.ts', 'task-record-fields.ts', 'shared.ts', 'preflight.ts', 'preflight-credentials.ts',
       'github-writer.ts', 'gitlab-writer.ts', 'linear-writer.ts', 'jira-writer.ts', 'headless-writers.ts',
       'issue-writeback-core.ts', 'issue-writeback-settings.ts', 'github-api.ts', 'gitlab-api.ts', 'writeback.ts',
     ]) {
@@ -129,7 +129,7 @@ describe('headless cli imports', () => {
     }
   });
 
-  it('does not reach the Electron-bound write-back modules', () => {
+  it('does not reach ProjectStore or the Electron-bound write-back modules', () => {
     const reached = new Set([...collectReachable(CLI_ENTRY)].map((file) => path.relative(SRC_ROOT, file)));
     for (const rel of [
       'main/ipc-handlers/forge/github-forge.ts',
@@ -140,6 +140,7 @@ describe('headless cli imports', () => {
       'main/ipc-handlers/github/utils.ts',
       'main/ipc-handlers/gitlab/utils.ts',
       'main/task-failure-facts.ts',
+      'main/project-store.ts',
     ]) {
       expect(reached.has(rel), `${rel} must not be reachable`).toBe(false);
     }

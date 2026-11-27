@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, utimesSync, w
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TASK_RECORD_FIXTURES } from '../../__tests__/fixtures/task-record-fixtures';
 import { DELIVERY_TIMING_FILE } from '../../ai/logging/delivery-timing';
 import {
   createHeadlessTaskReader,
@@ -12,6 +13,11 @@ import {
   resolveSpecId,
   setTaskStatus
 } from '../task-store';
+
+vi.mock('fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('fs')>();
+  return { ...fs, readFileSync: vi.fn(fs.readFileSync) };
+});
 
 let root: string;
 const project = () => ({ id: 'p1', path: root, autoBuildPath: '.auto-claude' });
@@ -75,6 +81,78 @@ describe('listHeadlessTasks', () => {
   it('defaults to backlog without a plan', () => {
     writeSpec(root, '001-a');
     expect(listHeadlessTasks(project())[0].status).toBe('backlog');
+  });
+
+  it('uses the Markdown heading instead of a spec-ID feature', () => {
+    const dir = writeSpec(root, '012-some-id', { feature: '012-some-id', description: 'From the plan' });
+    writeFileSync(path.join(dir, 'spec.md'), '# Specification: Real Title');
+
+    const [task] = listHeadlessTasks(project());
+    expect(task.title).toBe('Real Title');
+    expect(task.description).toBe('From the plan');
+  });
+
+  it('uses the Markdown Overview when requirements and the plan supply no description', () => {
+    const dir = writeSpec(root, '012-some-id', { feature: 'Plan title' });
+    writeFileSync(path.join(dir, 'spec.md'), '# Spec title\n\n## Overview\n\nDescribe the task\n\n## Details\n\nMore text');
+
+    const [task] = listHeadlessTasks(project());
+    expect(task.title).toBe('Plan title');
+    expect(task.description).toBe('Describe the task');
+  });
+
+  it('does not read spec.md when requirements and the plan supply display fields', () => {
+    const dir = writeSpec(root, '012-some-id', { feature: 'Plan title' }, undefined, 'From requirements');
+    const specFile = path.join(dir, 'spec.md');
+    writeFileSync(specFile, '# Spec title\n\n## Overview\n\nSpec description');
+    vi.mocked(readFileSync).mockClear();
+
+    const [task] = listHeadlessTasks(project());
+    expect(task.title).toBe('Plan title');
+    expect(task.description).toBe('From requirements');
+    expect(vi.mocked(readFileSync).mock.calls.map(([file]) => file)).not.toContain(specFile);
+  });
+
+  it('reports an unreadable plan without desktop display markers', () => {
+    const dir = writeSpec(root, '012-some-id');
+    writeFileSync(path.join(dir, 'implementation_plan.json'), 'not valid JSON');
+    writeFileSync(path.join(dir, 'spec.md'), '# Spec title\n\n## Overview\n\nSpec description');
+
+    const [task] = listHeadlessTasks(project());
+    expect(task.status).toBe('human_review');
+    expect(task.reviewReason).toBe('errors');
+    expect(task.title).toBe('012-some-id');
+    expect(task.description).toBe('Spec description');
+  });
+});
+
+describe('shared task record fixtures', () => {
+  it.each(TASK_RECORD_FIXTURES)('$name', ({ specId, plan, requirements, specMd, expected }) => {
+    const dir = writeSpec(root, specId);
+    if (plan !== undefined) {
+      writeFileSync(path.join(dir, 'implementation_plan.json'), typeof plan === 'string' ? plan : JSON.stringify(plan));
+    }
+    if (requirements !== undefined) {
+      writeFileSync(path.join(dir, 'requirements.json'), JSON.stringify(requirements));
+    }
+    if (specMd !== undefined) {
+      writeFileSync(path.join(dir, 'spec.md'), specMd);
+    }
+
+    const tasks = listHeadlessTasks(project());
+    expect(tasks).toHaveLength(1);
+    const [task] = tasks;
+    expect(task.specId).toBe(specId);
+    expect(task.status).toBe(expected.status);
+    expect(task.reviewReason).toBe(expected.reviewReason);
+    expect(task.title).toBe(expected.title);
+    expect(task.description).toBe(expected.description);
+    expect(task.subtasks.map(({ id }) => id)).toEqual(expected.subtaskIds);
+    if (expected.subtaskFiles) {
+      expect(Object.fromEntries(task.subtasks.map(({ id, files }) => [id, files]))).toEqual(expected.subtaskFiles);
+    }
+    if (expected.createdAt) expect(task.createdAt.toISOString()).toBe(expected.createdAt);
+    if (expected.updatedAt) expect(task.updatedAt.toISOString()).toBe(expected.updatedAt);
   });
 });
 

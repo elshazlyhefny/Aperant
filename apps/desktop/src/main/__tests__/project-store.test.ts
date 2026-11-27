@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, utimesSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
+import { TASK_RECORD_FIXTURES } from './fixtures/task-record-fixtures';
 
 // Test directories - will be set in beforeEach with unique temp dir
 let TEST_DIR: string;
@@ -1223,6 +1224,41 @@ describe('ProjectStore', () => {
     });
   });
 
+  describe('shared task record fixtures', () => {
+    it.each(TASK_RECORD_FIXTURES)('$name', async ({ specId, plan, requirements, specMd, expected }) => {
+      const dir = path.join(TEST_PROJECT_PATH, '.auto-claude', 'specs', specId);
+      mkdirSync(dir, { recursive: true });
+      if (plan !== undefined) {
+        writeFileSync(path.join(dir, 'implementation_plan.json'), typeof plan === 'string' ? plan : JSON.stringify(plan));
+      }
+      if (requirements !== undefined) {
+        writeFileSync(path.join(dir, 'requirements.json'), JSON.stringify(requirements));
+      }
+      if (specMd !== undefined) {
+        writeFileSync(path.join(dir, 'spec.md'), specMd);
+      }
+
+      const { ProjectStore } = await import('../project-store');
+      const store = new ProjectStore();
+      const project = store.addProject(TEST_PROJECT_PATH);
+      const tasks = store.getTasks(project.id);
+
+      expect(tasks).toHaveLength(1);
+      const [task] = tasks;
+      expect(task.specId).toBe(specId);
+      expect(task.status).toBe(expected.status);
+      expect(task.reviewReason).toBe(expected.reviewReason);
+      expect(task.title).toBe(expected.title);
+      expect(task.description).toBe(expected.description);
+      expect(task.subtasks.map(({ id }) => id)).toEqual(expected.subtaskIds);
+      if (expected.subtaskFiles) {
+        expect(Object.fromEntries(task.subtasks.map(({ id, files }) => [id, files]))).toEqual(expected.subtaskFiles);
+      }
+      if (expected.createdAt) expect(task.createdAt.toISOString()).toBe(expected.createdAt);
+      if (expected.updatedAt) expect(task.updatedAt.toISOString()).toBe(expected.updatedAt);
+    });
+  });
+
   describe('file parse cache', () => {
     const specsRoot = () => path.join(TEST_PROJECT_PATH, '.auto-claude', 'specs');
     const worktreeSpecsRoot = () =>
@@ -1380,6 +1416,19 @@ describe('ProjectStore', () => {
         const again = scan();
         expect(again[0].status).toBe('human_review');
         expect(again[0].reviewReason).toBe('completed');
+      });
+
+      it('returns the timestamp from the corrected plan on the first scan', async () => {
+        const file = planOf(specsRoot(), spec);
+        const plan = staleDoc();
+        writeOld(file, JSON.stringify(plan));
+        const { scan } = await setup();
+
+        const [task] = scan();
+        const persisted = JSON.parse(readFileSync(file, 'utf-8'));
+        expect(task.createdAt).toEqual(new Date(plan.created_at));
+        expect(task.updatedAt.toISOString()).toBe(persisted.updated_at);
+        expect(task.updatedAt.getTime()).toBeGreaterThan(Date.parse(plan.updated_at));
       });
 
       it('does not mutate the cached plan object in place', async () => {
