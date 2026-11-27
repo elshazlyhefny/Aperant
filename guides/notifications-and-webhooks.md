@@ -382,6 +382,7 @@ Behaviour to know:
 ```
 
 - `github`, `gitlab` and `linear` are booleans. `jira` is an object with `enabled`, `comment`, `transitionOnReview` and `transitionStatusName` (the name of the Jira status to move the issue to). `azureBoards` is an object with `enabled`, `transitionOnReview` and `transitionStateName` (the name of the Azure Boards state to move the work item to).
+- Set `linear` to `true` to post Linear comments only. Neither `run` nor `serve` moves Linear issues to another workflow state. The **Move issue when ready for review** option is available only in the [desktop app settings](issue-writeback.md#turn-it-on), which the headless commands do not read. There is no config key for this option: extra keys under `writeback` are ignored, not rejected.
 - Credentials come from the project's `.auto-claude/.env`:
   - GitHub: `GITHUB_TOKEN` and `GITHUB_REPO`.
   - GitLab: `GITLAB_TOKEN`, `GITLAB_PROJECT` and `GITLAB_INSTANCE_URL`.
