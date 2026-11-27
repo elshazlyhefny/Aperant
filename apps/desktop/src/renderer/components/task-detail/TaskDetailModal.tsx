@@ -620,6 +620,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                             isSubmitting={state.isSubmitting}
                             worktreeStatus={state.worktreeStatus}
                             worktreeDiff={state.worktreeDiff}
+                            worktreeStatusCheck={state.worktreeStatusCheck}
+                            worktreeDiffCheck={state.worktreeDiffCheck}
                             isLoadingWorktree={state.isLoadingWorktree}
                             isMerging={state.isMerging}
                             isDiscarding={state.isDiscarding}
@@ -644,6 +646,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                             onStageOnlyChange={state.setStageOnly}
                             onShowConflictDialog={state.setShowConflictDialog}
                             onLoadMergePreview={state.loadMergePreview}
+                            onRetryWorktreeStatus={state.retryWorktreeStatus}
+                            onRetryWorktreeDiff={state.retryWorktreeDiff}
                             onClose={handleClose}
                             onSwitchToTerminals={onSwitchToTerminals}
                             onOpenInbuiltTerminal={onOpenInbuiltTerminal}
