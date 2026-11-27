@@ -402,6 +402,34 @@ describe('runServe schedules', () => {
     await stop(p);
     expect(webhook).toHaveBeenCalledTimes(1);
   });
+
+  it('stops an over-budget task without writing to a schedule excluded by the project filter', async () => {
+    const selected = makeSchedule({ projectId: 'selected-project', enabled: false, nextRunAt: null });
+    const excluded = makeSchedule({ id: 'other', projectId: 'other-project', enabled: false, nextRunAt: null });
+    const { file, store } = await seedSchedules([selected, excluded], 'shared-schedules.json');
+    const taskId = '001-existing';
+    makeSpec(taskId, 'queue', {}, { sourceType: 'schedule', scheduleId: excluded.id, tokenBudget: 100 });
+    writeFileSync(
+      path.join(specDir(taskId), 'run_metrics.json'),
+      JSON.stringify({ sessions: [{ tokens: { input: 80, output: 60 } }] })
+    );
+
+    serveSchedules({ schedulesPath: file, projectId: selected.projectId });
+
+    await vi.waitFor(
+      () => {
+        expect(plan(taskId).status).toBe('error');
+        // Budget enforcement notifies after deciding whether to persist a report.
+        expect(out.join('')).toContain(`Schedules changed for ${selected.projectId}`);
+      },
+      { timeout: 3000 }
+    );
+    expect(spawned()).toHaveLength(1);
+    expect(spawned()[0].taskId).toBe(taskId);
+    expect(spawned()[0].terminate).toHaveBeenCalledTimes(1);
+    expect(store.getSchedule(excluded.id)).toEqual(excluded);
+    expect(store.getSchedule(selected.id)).toEqual(selected);
+  });
 });
 
 describe('runServe stop requests', () => {

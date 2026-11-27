@@ -273,9 +273,12 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
           } catch {
             // Still record below; the task is not retried
           }
-          await appendRunRecords(scheduleId, [
-            record('budget_exceeded', deps.now(), { taskId: task.id, detail: `${used}/${budget}` }),
-          ]);
+          // Task metadata can point to a schedule outside the daemon's filtered list.
+          if (schedule) {
+            await appendRunRecords(schedule.id, [
+              record('budget_exceeded', deps.now(), { taskId: task.id, detail: `${used}/${budget}` }),
+            ]);
+          }
           deps.notifyChanged(projectId);
         }
       } catch {

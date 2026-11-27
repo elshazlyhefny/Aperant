@@ -92,7 +92,7 @@ function deferTaskCreation(deps: ScheduleServiceDeps) {
   const entered = deferred();
   const release = deferred();
   const createTask = deps.createTask;
-  deps.createTask = vi.fn(async (...args) => {
+  deps.createTask = vi.fn<ScheduleServiceDeps['createTask']>(async (...args) => {
     entered.resolve();
     await release.promise;
     return createTask(...args);
