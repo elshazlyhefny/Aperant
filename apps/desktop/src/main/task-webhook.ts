@@ -15,10 +15,8 @@ import { getWebhookApprovals } from './webhook-approval-store';
 import {
   sendWebhook as sendWebhookCore,
   validateWebhookUrl,
-  buildWebhookPayload,
-  prepareWebhookDelivery,
+  deliverWebhookEvent,
   prepareTestWebhookDelivery,
-  type WebhookEvent,
   type WebhookPayload
 } from './task-webhook-core';
 import { mapOutcomeToWebhookEvent } from './webhook-core';
@@ -65,15 +63,6 @@ function loadWebhookSettings(): WebhookSettings {
   };
 }
 
-const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
-  review_ready: 'reviewReady',
-  failed: 'failed',
-  blocked: 'blocked',
-  // zeenha fork: an account pause needs attention, so it shares the blocked toggle (no new setting).
-  account_required: 'blocked',
-  pr_opened: 'prOpened'
-};
-
 export function dispatchTaskOutcomeWebhook(input: {
   status: TaskStatus | string;
   reviewReason?: ReviewReason | string | null;
@@ -85,44 +74,32 @@ export function dispatchTaskOutcomeWebhook(input: {
   try {
     const event = mapOutcomeToWebhookEvent(input.status, input.reviewReason);
     if (!event) return;
+    const { projectName, taskTitle, prUrl } = input;
+    const deliveryInput = { event, projectName, taskTitle, prUrl };
     // An APPROVED project webhook overrides the app-wide one exclusively. An
     // unapproved or refused one is untrusted: it never receives task data.
     const projectConfig = input.project
       ? getProjectWebhookConfig(input.project, getWebhookApprovals(input.project.path))
       : null;
-    if (projectConfig && projectConfig.status !== 'approved') {
-      safeWarn('[Webhook] project webhook not approved, using app-wide webhook');
-    }
     if (projectConfig?.status === 'approved') {
-      if (!projectConfig.events[EVENT_TOGGLE[event]]) return;
-      const projectDelivery = prepareWebhookDelivery({
-        url: projectConfig.url,
-        format: projectConfig.format,
-        projectName: input.projectName,
-        taskTitle: input.taskTitle,
-        event,
-        prUrl: input.prUrl
-      });
-      void sendWebhook(projectDelivery.url, projectDelivery.payload, {
-        eventName: event,
-        secret: loadWebhookSettings().secret
-      }).catch(() => undefined);
+      void deliverWebhookEvent(
+        {
+          url: projectConfig.url,
+          format: projectConfig.format,
+          events: projectConfig.events,
+          secret: () => loadWebhookSettings().secret
+        },
+        deliveryInput,
+        { warn: safeWarn }
+      ).catch(() => undefined);
       return;
     }
+    if (projectConfig) {
+      safeWarn('[Webhook] project webhook not approved, using app-wide webhook');
+    }
     const settings = loadWebhookSettings();
-    if (!settings.enabled || !settings.events[EVENT_TOGGLE[event]]) return;
-    if (!validateWebhookUrl(settings.url).ok) return;
-    const delivery = prepareWebhookDelivery({
-      url: settings.url,
-      format: settings.format,
-      projectName: input.projectName,
-      taskTitle: input.taskTitle,
-      event,
-      prUrl: input.prUrl
-    });
-    void sendWebhook(delivery.url, delivery.payload, { eventName: event, secret: settings.secret }).catch(
-      () => undefined
-    );
+    if (!settings.enabled || !validateWebhookUrl(settings.url).ok) return;
+    void deliverWebhookEvent(settings, deliveryInput, { warn: safeWarn }).catch(() => undefined);
   } catch {
     // never let webhook problems affect task flow
   }

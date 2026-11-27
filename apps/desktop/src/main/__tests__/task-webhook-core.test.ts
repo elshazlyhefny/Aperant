@@ -1,8 +1,10 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
+import type { WebhookSettings } from '../../shared/types/settings';
 import {
   buildTestWebhookPayload,
   buildWebhookPayload,
+  deliverWebhookEvent,
   prepareTestWebhookDelivery,
   prepareWebhookDelivery,
   sendWebhook,
@@ -176,6 +178,82 @@ describe('multi-format payloads', () => {
     });
     expect(prepareTestWebhookDelivery('https://x.webhook.office.com/a').format).toBe('teams');
     expect(prepareTestWebhookDelivery('https://discord.com/api/webhooks/1/a/github').url).toBe('https://discord.com/api/webhooks/1/a');
+  });
+});
+
+describe('deliverWebhookEvent', () => {
+  const events: Array<[WebhookEvent, keyof WebhookSettings['events']]> = [
+    ['review_ready', 'reviewReady'],
+    ['failed', 'failed'],
+    ['blocked', 'blocked'],
+    ['account_required', 'blocked'],
+    ['pr_opened', 'prOpened']
+  ];
+  const input = { projectName: 'P', taskTitle: 'T', event: 'pr_opened' } as const;
+  const destination = {
+    url: URL_OK,
+    events: { reviewReady: false, failed: false, blocked: false, prOpened: true }
+  };
+
+  it.each(events)('filters %s by %s alone', async (event, toggle) => {
+    const send = vi.fn<typeof sendWebhook>().mockResolvedValue(true);
+    const secret = vi.fn(() => 'test-signing-key');
+    const onlySelected = { reviewReady: false, failed: false, blocked: false, prOpened: false, [toggle]: true };
+    const allExceptSelected = { reviewReady: true, failed: true, blocked: true, prOpened: true, [toggle]: false };
+
+    await expect(deliverWebhookEvent(
+      { url: URL_OK, events: allExceptSelected, secret },
+      { ...input, event },
+      { send }
+    )).resolves.toBe('skipped');
+    expect(send).not.toHaveBeenCalled();
+    expect(secret).not.toHaveBeenCalled();
+
+    await expect(deliverWebhookEvent(
+      { url: URL_OK, events: onlySelected, secret },
+      { ...input, event },
+      { send }
+    )).resolves.toBe('delivered');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(secret).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards a normalized URL, prepared payload, and transport options', async () => {
+    const send = vi.fn<typeof sendWebhook>().mockResolvedValue(true);
+    const warn = vi.fn();
+    const delay = vi.fn().mockResolvedValue(undefined);
+    const prUrl = 'https://github.com/o/r/pull/1';
+    const secret = 'test-signing-key';
+    await expect(deliverWebhookEvent(
+      { ...destination, url: 'https://discord.com/api/webhooks/1/abc/slack', format: 'discord', secret: () => secret },
+      { ...input, prUrl },
+      { send, warn, delay }
+    )).resolves.toBe('delivered');
+    expect(send).toHaveBeenCalledWith(
+      'https://discord.com/api/webhooks/1/abc',
+      buildWebhookPayload({ ...input, prUrl, format: 'discord' }),
+      { eventName: 'pr_opened', secret, warn, delay }
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the default sender and forwards a configured secret', async () => {
+    const secret = 'test-signing-key';
+    fetchMock.mockResolvedValueOnce(res(204));
+    await expect(deliverWebhookEvent({ ...destination, secret }, input)).resolves.toBe('delivered');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(URL_OK);
+    const { headers, body } = fetchMock.mock.calls[0][1];
+    expect(headers[WEBHOOK_SIGNATURE_HEADER]).toBe(signWebhookBody(secret, headers[WEBHOOK_TIMESTAMP_HEADER], body));
+  });
+
+  it('distinguishes a false transport result from an unexpected rejection without logging either', async () => {
+    const failure = new Error('unexpected sender failure');
+    const send = vi.fn<typeof sendWebhook>().mockResolvedValueOnce(false).mockRejectedValueOnce(failure);
+    const warn = vi.fn();
+    await expect(deliverWebhookEvent(destination, input, { send, warn })).resolves.toBe('failed');
+    await expect(deliverWebhookEvent(destination, input, { send, warn })).rejects.toBe(failure);
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

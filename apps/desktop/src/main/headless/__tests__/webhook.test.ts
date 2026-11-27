@@ -3,7 +3,8 @@ import { createHmac } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildWebhookPayload } from '../../task-webhook-core';
+import { setImmediate } from 'node:timers/promises';
+import { buildWebhookPayload, type sendWebhook } from '../../task-webhook-core';
 import { sendWebhook as desktopSendWebhook } from '../../task-webhook';
 import type { RunOutcome } from '../outcome';
 import {
@@ -26,6 +27,9 @@ const URL_OK = 'https://hooks.example.com/services/SECRET/PATH';
 const noDelay = () => Promise.resolve();
 const allOn = { reviewReady: true, failed: true, blocked: true, prOpened: true };
 const success: RunOutcome = { kind: 'success', exitCode: 0 };
+const paused: RunOutcome = { kind: 'error', exitCode: 1, accountPaused: true };
+const prUrl = 'https://github.com/o/r/pull/1';
+const successWithPr: RunOutcome = { ...success, prUrl };
 
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
@@ -203,52 +207,90 @@ describe('resolveServeWebhookSettings', () => {
 
 describe('eventsForOutcome', () => {
   it('maps the three outcomes', () => {
-    expect(eventsForOutcome(success, allOn)).toEqual(['review_ready']);
-    expect(eventsForOutcome({ kind: 'qa_failed', exitCode: 2 }, allOn)).toEqual(['blocked']);
-    expect(eventsForOutcome({ kind: 'error', exitCode: 1 }, allOn)).toEqual(['failed']);
+    expect(eventsForOutcome(success)).toEqual(['review_ready']);
+    expect(eventsForOutcome({ kind: 'qa_failed', exitCode: 2 })).toEqual(['blocked']);
+    expect(eventsForOutcome({ kind: 'error', exitCode: 1 })).toEqual(['failed']);
   });
 
-  it('maps an account pause to account_required, gated by the blocked toggle', () => {
-    const paused: RunOutcome = { kind: 'error', exitCode: 1, accountPaused: true };
-    expect(eventsForOutcome(paused, allOn)).toEqual(['account_required']);
-    expect(eventsForOutcome(paused, { ...allOn, blocked: false })).toEqual([]);
+  it('gives an account pause priority over the outcome kind', () => {
+    expect(eventsForOutcome(paused)).toEqual(['account_required']);
+    expect(eventsForOutcome({ ...successWithPr, accountPaused: true })).toEqual(['account_required', 'pr_opened']);
   });
 
-  it('appends pr_opened after the outcome event', () => {
-    const outcome: RunOutcome = { ...success, prUrl: 'https://github.com/o/r/pull/1' };
-    expect(eventsForOutcome(outcome, allOn)).toEqual(['review_ready', 'pr_opened']);
-  });
-
-  it('filters by toggles', () => {
-    const outcome: RunOutcome = { ...success, prUrl: 'https://github.com/o/r/pull/1' };
-    expect(eventsForOutcome(outcome, { ...allOn, prOpened: false })).toEqual(['review_ready']);
-    expect(eventsForOutcome(outcome, { ...allOn, reviewReady: false })).toEqual(['pr_opened']);
-    expect(eventsForOutcome({ kind: 'error', exitCode: 1 }, { ...allOn, failed: false })).toEqual([]);
+  it('appends pr_opened after the outcome event when there is a PR URL', () => {
+    expect(eventsForOutcome(successWithPr)).toEqual(['review_ready', 'pr_opened']);
+    expect(eventsForOutcome({ ...success, prUrl: '' })).toEqual(['review_ready']);
   });
 });
 
 describe('notifyHeadlessOutcome', () => {
   const webhook: ResolvedHeadlessWebhook = { url: URL_OK, events: allOn };
+  const task = { projectName: 'proj', taskTitle: 'My task' };
 
-  it('sends the same payload the desktop builds', async () => {
-    fetchMock.mockResolvedValue({ status: 200 } as Response);
-    const prUrl = 'https://github.com/o/r/pull/1';
+  it('awaits both sends in order and includes the HTTPS link only in the PR payload', async () => {
+    let finishFirst!: (delivered: boolean) => void;
+    let finishPr!: (delivered: boolean) => void;
+    const first = new Promise<boolean>((resolve) => { finishFirst = resolve; });
+    const pr = new Promise<boolean>((resolve) => { finishPr = resolve; });
+    const send = vi.fn<typeof sendWebhook>().mockReturnValueOnce(first).mockReturnValueOnce(pr);
+    const warn = vi.fn();
+    const completed = vi.fn();
+    const pending = notifyHeadlessOutcome({ webhook, outcome: successWithPr, ...task, warn, send }).then(completed);
+
+    await setImmediate();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(completed).not.toHaveBeenCalled();
+
+    finishFirst(true);
+    await setImmediate();
+    expect(send.mock.calls.map(([, , options]) => options?.eventName)).toEqual(['review_ready', 'pr_opened']);
+    expect(completed).not.toHaveBeenCalled();
+
+    finishPr(true);
+    await pending;
+    const [primaryPayload, prPayload] = send.mock.calls.map(([, payload]) => payload);
+    expect(primaryPayload).toEqual(buildWebhookPayload({ ...task, event: 'review_ready' }));
+    expect(prPayload).toEqual(buildWebhookPayload({ ...task, event: 'pr_opened', prUrl }));
+    expect(JSON.stringify(primaryPayload)).not.toContain(prUrl);
+    expect(JSON.stringify(prPayload)).toContain(prUrl);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { outcome: successWithPr, overrides: { prOpened: false }, sent: ['review_ready'] },
+    { outcome: successWithPr, overrides: { reviewReady: false }, sent: ['pr_opened'] },
+    { outcome: { kind: 'error', exitCode: 1 } satisfies RunOutcome, overrides: { failed: false }, sent: [] },
+    { outcome: paused, overrides: { blocked: false }, sent: [] },
+    { outcome: paused, overrides: { failed: false }, sent: ['account_required'] }
+  ])('silently filters events with toggles $overrides', async ({ outcome, overrides, sent }) => {
+    const send = vi.fn<typeof sendWebhook>().mockResolvedValue(true);
+    const warn = vi.fn();
     await notifyHeadlessOutcome({
-      webhook,
-      outcome: { ...success, prUrl },
-      projectName: 'proj',
-      taskTitle: 'My task',
-      warn: vi.fn(),
-      delay: noDelay
+      webhook: { ...webhook, events: { ...allOn, ...overrides } },
+      outcome,
+      ...task,
+      warn,
+      send
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const bodies = fetchMock.mock.calls.map((c) => JSON.parse(c[1].body));
-    expect(bodies[0]).toEqual(
-      buildWebhookPayload({ projectName: 'proj', taskTitle: 'My task', event: 'review_ready' })
-    );
-    expect(bodies[1]).toEqual(
-      buildWebhookPayload({ projectName: 'proj', taskTitle: 'My task', event: 'pr_opened', prUrl })
-    );
+    expect(send.mock.calls.map(([, , options]) => options?.eventName)).toEqual(sent);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('warns for a false send and continues to the PR event', async () => {
+    const warn = vi.fn();
+    const send = vi.fn<typeof sendWebhook>().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await notifyHeadlessOutcome({ webhook, outcome: successWithPr, ...task, warn, send });
+    expect(send.mock.calls.map(([, , options]) => options?.eventName)).toEqual(['review_ready', 'pr_opened']);
+    expect(warn.mock.calls).toEqual([['webhook delivery failed for event review_ready; the run result is unchanged']]);
+  });
+
+  it('warns generically and stops when the sender rejects', async () => {
+    const warn = vi.fn();
+    const send = vi.fn<typeof sendWebhook>().mockRejectedValueOnce(new Error(`sensitive transport error: ${URL_OK}`));
+    await expect(notifyHeadlessOutcome({ webhook, outcome: successWithPr, ...task, warn, send })).resolves.toBeUndefined();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][2]?.eventName).toBe('review_ready');
+    expect(warn.mock.calls).toEqual([['webhook delivery failed; the run result is unchanged']]);
   });
 
   it('builds the body for the configured format and sends it through the injected send', async () => {

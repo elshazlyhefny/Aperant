@@ -2,12 +2,12 @@
  * Electron-free core of the task-outcome webhook (Slack-compatible JSON body).
  *
  * Security: payloads are built from an allow-list of fields only; the URL,
- * request body and response body are never logged; nothing here throws.
- * Only type imports and the dependency-free sanitizer are allowed here so the
- * module can be loaded outside Electron.
+ * request body and response body are never logged. Keep runtime imports
+ * Electron-free so the module can be loaded from both desktop and CLI.
  */
 
 import { createHmac } from 'node:crypto';
+import type { WebhookSettings } from '../shared/types/settings';
 import { sanitizeUrl } from './ipc-handlers/shared/sanitize';
 import {
   detectWebhookFormat,
@@ -18,6 +18,14 @@ import {
 // zeenha fork: account_required is a resumable pause (no usable account for a
 // phase's provider), reported apart from failed so receivers do not see a failure.
 export type WebhookEvent = 'review_ready' | 'failed' | 'blocked' | 'account_required' | 'pr_opened';
+
+const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
+  review_ready: 'reviewReady',
+  failed: 'failed',
+  blocked: 'blocked',
+  account_required: 'blocked',
+  pr_opened: 'prOpened'
+};
 
 export interface SlackWebhookPayload {
   text: string;
@@ -284,6 +292,34 @@ export function prepareWebhookDelivery(
     format
   });
   return { url: nativeUrl(input.url, format), payload, format };
+}
+
+type WebhookDestination = Pick<WebhookSettings, 'url' | 'format' | 'events'> & {
+  /** A lazy secret is resolved only when the event is enabled. */
+  secret?: string | (() => string | undefined);
+};
+
+type WebhookDeliveryTransport = Pick<NonNullable<Parameters<typeof sendWebhook>[2]>, 'warn' | 'delay'> & {
+  send?: typeof sendWebhook;
+};
+
+/** Deliver one mapped event to a caller-validated destination. Unexpected errors reject. */
+export async function deliverWebhookEvent(
+  destination: WebhookDestination,
+  input: WebhookBuildInput,
+  { send = sendWebhook, warn, delay }: WebhookDeliveryTransport = {}
+): Promise<'skipped' | 'delivered' | 'failed'> {
+  if (!destination.events[EVENT_TOGGLE[input.event]]) return 'skipped';
+
+  const { url, format, secret } = destination;
+  const prepared = prepareWebhookDelivery({ ...input, url, format });
+  const delivered = await send(prepared.url, prepared.payload, {
+    eventName: input.event,
+    secret: typeof secret === 'function' ? secret() : secret,
+    warn,
+    delay
+  });
+  return delivered ? 'delivered' : 'failed';
 }
 
 export function prepareTestWebhookDelivery(
