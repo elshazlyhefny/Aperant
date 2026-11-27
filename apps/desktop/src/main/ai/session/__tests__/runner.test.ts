@@ -370,4 +370,79 @@ describe('runAgentSession', () => {
     const callArgs = mockStreamText.mock.calls[0][0];
     expect(callArgs.stopWhen).toEqual({ type: 'stepCount', count: 500 });
   });
+
+  // ===========================================================================
+  // Step notes and prompt caching (zeenha fork)
+  // ===========================================================================
+
+  describe('step notes', () => {
+    const history = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Working on it' },
+    ];
+
+    async function prepareStepFor(config: SessionConfig, parts: Array<Record<string, unknown>> = []) {
+      mockStreamText.mockReturnValue(createMockStreamResult(parts, { text: 'done' }));
+      await runAgentSession(config);
+      return mockStreamText.mock.calls[0][0].prepareStep as (args: {
+        stepNumber: number;
+        messages: unknown[];
+      }) => Promise<Record<string, unknown>>;
+    }
+
+    it('adds the convergence nudge as a trailing user message and keeps the system prompt', async () => {
+      const prepareStep = await prepareStepFor(createMockConfig({ agentType: 'qa_reviewer', maxSteps: 10 }));
+
+      expect(await prepareStep({ stepNumber: 1, messages: history })).toEqual({});
+
+      const result = await prepareStep({ stepNumber: 8, messages: history });
+      expect(result.system).toBeUndefined();
+      expect(result.messages).toEqual([
+        ...history,
+        { role: 'user', content: expect.stringContaining('You have used 8 of 10 steps') },
+      ]);
+    });
+
+    it('adds the context window warning as a trailing user message', async () => {
+      const prepareStep = await prepareStepFor(createMockConfig({ contextWindowLimit: 1000 }), [
+        { type: 'finish-step', usage: { inputTokens: 870, outputTokens: 10 } },
+      ]);
+
+      const result = await prepareStep({ stepNumber: 2, messages: history });
+      expect(result.system).toBeUndefined();
+      expect(result.messages).toEqual([
+        ...history,
+        { role: 'user', content: expect.stringContaining('approaching the context window limit (87% used') },
+      ]);
+    });
+  });
+
+  describe('prompt cache key', () => {
+    const run = async (model: Record<string, unknown>) => {
+      mockStreamText.mockClear();
+      mockStreamText.mockReturnValue(createMockStreamResult([], { text: 'done' }));
+      await runAgentSession(createMockConfig({ model: model as unknown as SessionConfig['model'] }));
+      return mockStreamText.mock.calls[0][0].providerOptions;
+    };
+
+    it('sends one key per session to OpenAI models, alongside the reasoning effort', async () => {
+      mockStreamText.mockReturnValue(createMockStreamResult([], { text: 'done' }));
+      await runAgentSession(
+        createMockConfig({
+          model: { provider: 'openai.responses', modelId: 'gpt-6.2-sol' } as unknown as SessionConfig['model'],
+          thinkingLevel: 'high',
+        }),
+      );
+      const first = mockStreamText.mock.calls[0][0].providerOptions;
+      expect(first.openai).toEqual({ reasoningEffort: 'high', promptCacheKey: expect.any(String) });
+
+      const second = await run({ provider: 'openai.responses', modelId: 'gpt-6.2-sol' });
+      expect(second.openai.promptCacheKey).not.toBe(first.openai.promptCacheKey);
+    });
+
+    it('sends no key to other providers', async () => {
+      const options = await run({ provider: 'anthropic.messages', modelId: 'claude-opus-5-5' });
+      expect(options?.openai).toBeUndefined();
+    });
+  });
 });
