@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TASK_RECORD_FIXTURES } from '../../__tests__/fixtures/task-record-fixtures';
+import { DELIVERY_TIMING_FILE } from '../../ai/logging/delivery-timing';
 import {
   createHeadlessTaskReader,
   createScheduledTaskSpec,
@@ -353,10 +354,32 @@ describe('setTaskStatus', () => {
       expect(plan.status).toBe('human_review');
       expect(plan.planStatus).toBe('review');
       expect(plan.reviewReason).toBe('completed');
+      const timing = JSON.parse(readFileSync(path.join(dir, DELIVERY_TIMING_FILE), 'utf-8'));
+      expect(timing.events).toMatchObject([
+        { status: 'human_review', reviewReason: 'completed', from: 'queue', source: 'daemon' }
+      ]);
     }
     const [task] = listHeadlessTasks(project());
     expect(task.status).toBe('human_review');
     expect(task.reviewReason).toBe('completed');
+  });
+
+  it('records pause and interruption metadata with the previous status of each copy', async () => {
+    const main = writeSpec(root, '001-a', { status: 'in_progress' });
+    const wtDir = writeSpec(path.join(root, '.auto-claude', 'worktrees', 'tasks', '001-a'), '001-a', {
+      status: 'coding'
+    });
+
+    await setTaskStatus(project(), '001-a', 'error', undefined, undefined, { pause: 'budget' });
+    await setTaskStatus(project(), '001-a', 'queue', undefined, undefined, { interrupted: true });
+
+    for (const [dir, from] of [[main, 'in_progress'], [wtDir, 'coding']]) {
+      const timing = JSON.parse(readFileSync(path.join(dir, DELIVERY_TIMING_FILE), 'utf-8'));
+      expect(timing.events).toMatchObject([
+        { status: 'error', from, pause: 'budget', source: 'daemon' },
+        { status: 'queue', from: 'error', interrupted: true, source: 'daemon' }
+      ]);
+    }
   });
 
   it('creates a minimal plan when none exists', async () => {

@@ -38,6 +38,7 @@ import { runServe, EXIT_LOCKED } from '../serve';
 import type { ServeOptions } from '../serve';
 import type { HeadlessBridge } from '../run-task';
 import { writeStopRequest } from '../stop-request';
+import { DELIVERY_TIMING_FILE } from '../../ai/logging/delivery-timing';
 import type { AgentExecutorConfig } from '../../ai/agent/types';
 import { createHeadlessTaskReader, createScheduledTaskSpec } from '../task-store';
 import { createScheduleFileStore } from '../../schedule-file-store';
@@ -87,6 +88,10 @@ function makeSpec(id: string, status = 'queue', extra: Record<string, unknown> =
 
 function plan(id: string): Record<string, any> {
   return JSON.parse(readFileSync(path.join(specDir(id), 'implementation_plan.json'), 'utf-8'));
+}
+
+function timingEvents(id: string) {
+  return JSON.parse(readFileSync(path.join(specDir(id), DELIVERY_TIMING_FILE), 'utf-8')).events;
 }
 
 function serve(overrides: Partial<ServeOptions> = {}, limit = 2) {
@@ -392,6 +397,9 @@ describe('runServe queue', () => {
       for (const id of taskIds) {
         expect(plan(id).status).toBe('queue');
         expect(plan(id).phases[0].subtasks[0].status).toBe('pending');
+        expect(timingEvents(id)).toMatchObject([
+          { status: 'queue', from: 'in_progress', interrupted: true, source: 'daemon' },
+        ]);
       }
       expect(existsSync(runningPath)).toBe(false);
     } finally {
@@ -551,6 +559,7 @@ describe('runServe schedules', () => {
       makeSchedule({ template: { title: 'Nightly check', description: 'do it', tokenBudget: 100 } }),
     ]);
     const p = serveSchedules();
+    await vi.waitFor(() => expect(signalHandler).toBeDefined());
     try {
       const schedule = await waitForHistory(store, 's1', ['started']);
       await vi.waitFor(() => expect(spawned()).toHaveLength(1));
@@ -563,6 +572,9 @@ describe('runServe schedules', () => {
       expect(spawned()[0].terminate).toHaveBeenCalled();
       expect(plan(taskId).status).toBe('error');
       expect(webhook.mock.calls[0][1].status).toBe('error');
+      expect(timingEvents(taskId).at(-1)).toMatchObject({
+        status: 'error', from: 'in_progress', pause: 'budget', source: 'daemon',
+      });
       await waitForHistory(store, 's1', ['started', 'budget_exceeded']);
     } finally {
       await stop(p);

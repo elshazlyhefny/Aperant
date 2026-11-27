@@ -23,6 +23,7 @@ import { AUTO_BUILD_PATHS, getSpecsDir } from '../../../shared/constants';
 import type { TaskStatus, Project, Task } from '../../../shared/types';
 import { projectStore } from '../../project-store';
 import type { TaskEventPayload } from '../../agent/task-event-schema';
+import { recordDeliveryTimingEvent } from '../../ai/logging/delivery-timing';
 import { writeFileAtomicSync } from '../../utils/atomic-file';
 import { safeParseJson } from '../../utils/json-repair';
 import { mapStatusToPlanStatus } from '../../../shared/utils/plan-status';
@@ -78,6 +79,10 @@ export function getPlanPath(project: Project, task: Task): string {
   return path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
 }
 
+// zeenha fork: this is the one funnel for recording desktop status writes:
+// the task-state-manager XState subscriber, TASK_UPDATE_STATUS (including drag to
+// queue), agent-events re-stamps, and worktree-pr marking done. Record beside
+// either plan copy only after the write succeeds; the timing log dedupes re-stamps.
 /**
  * Persist task status to implementation_plan.json file.
  * This is thread-safe and prevents race conditions when multiple handlers update the same file.
@@ -99,11 +104,14 @@ export async function persistPlanStatus(planPath: string, status: TaskStatus, pr
         return false;
       }
 
+      const from = typeof plan.status === 'string' ? plan.status : undefined;
       plan.status = status;
       plan.planStatus = mapStatusToPlanStatus(status);
       plan.updated_at = new Date().toISOString();
 
       writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
+      // Status-only writes don't assert a review outcome, even if the plan has an old reason.
+      recordDeliveryTimingEvent(path.dirname(planPath), { status, from, source: 'desktop' });
       console.warn(`[plan-file-utils] Successfully persisted status: ${status} to implementation_plan.json`);
 
       // Invalidate tasks cache since status changed
@@ -159,11 +167,13 @@ export function persistPlanStatusSync(planPath: string, status: TaskStatus, proj
       return false;
     }
 
+    const from = typeof plan.status === 'string' ? plan.status : undefined;
     plan.status = status;
     plan.planStatus = mapStatusToPlanStatus(status);
     plan.updated_at = new Date().toISOString();
 
     writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
+    recordDeliveryTimingEvent(path.dirname(planPath), { status, from, source: 'desktop' });
 
     // Invalidate tasks cache since status changed
     if (projectId) {
@@ -258,6 +268,7 @@ export function persistPlanStatusAndReasonSync(
       appLog.info(`[plan-file-utils] Creating minimal plan for XState persistence: ${planPath}`);
     }
 
+    const from = typeof plan.status === 'string' ? plan.status : undefined;
     plan.status = status;
     plan.planStatus = mapStatusToPlanStatus(status);
     plan.reviewReason = reviewReason;
@@ -276,6 +287,7 @@ export function persistPlanStatusAndReasonSync(
     plan.updated_at = new Date().toISOString();
 
     writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
+    recordDeliveryTimingEvent(path.dirname(planPath), { status, reviewReason, from, source: 'desktop' });
 
     if (projectId) {
       projectStore.invalidateTasksCache(projectId);
@@ -450,6 +462,7 @@ export async function createPlanIfNotExists(
     }
 
     writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
+    recordDeliveryTimingEvent(planDir, { status, source: 'desktop' });
   });
 }
 

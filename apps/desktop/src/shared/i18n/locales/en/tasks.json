@@ -600,7 +600,27 @@
       "output": "Output",
       "total": "Total"
     },
-    "note": "Rate-limit recovery is not recorded, so time lost to rate limits is not shown separately."
+    "timing": {
+      "title": "Delivery timing breakdown",
+      "coverage": "Timing coverage: {{measured}} of {{eligible}} eligible tasks ({{percent}}).",
+      "unknown": "Unknown timing: {{missing}} older records without timing, {{corrupt}} unreadable records, {{incomplete}} incomplete or interrupted runs.",
+      "columns": {
+        "metric": "Metric",
+        "median": "Median",
+        "p90": "90th percentile",
+        "samples": "Samples"
+      },
+      "metrics": {
+        "queueToReviewReady": "Queue entry to review-ready",
+        "queued": "Queue wait",
+        "active": "Active execution",
+        "credentialPause": "Credential or rate-limit pause",
+        "budgetPause": "Budget pause",
+        "other": "Waiting on review or other"
+      },
+      "note": "Review-ready means QA passed; credential and budget pauses do not count as review-ready. Timing is unknown for tasks without enough events. These measurements are a baseline, not a target."
+    },
+    "note": "Per-session duration excludes queue wait and pause time. The delivery timing breakdown shows those separately when data is available."
   },
   "prFeedback": {
     "title": "PR feedback",

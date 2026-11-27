@@ -137,7 +137,10 @@ beforeEach(async () => {
   git.execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
   git.execFileSync('git', [
     '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false',
-    '-c', 'core.hooksPath=.git/no-hooks', 'commit', '-q', '--allow-empty', '-m', 'Initial fixture commit',
+    // zeenha fork: no detached auto-maintenance, which could write .git/objects/maintenance.lock
+    // after the "before" snapshot and fail the no-side-effects comparison.
+    '-c', 'core.hooksPath=.git/no-hooks', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
+    'commit', '-q', '--allow-empty', '-m', 'Initial fixture commit',
   ], { cwd: root });
 
   const specDir = path.join(root, '.auto-claude', 'specs', SPEC_ID);
