@@ -1,12 +1,12 @@
 # Issue Write-Back
 
-Aperant can post a short comment on the issue a task was imported from when the task is ready for review, fails, or is blocked. It works for GitHub, GitLab, Linear, Jira and Azure Boards issues. Aperant can also move a Jira issue to another status, an Azure Boards work item to another state, or a Linear issue to another workflow state. This guide covers which tasks qualify, how to turn it on, the exact comment text, which credentials are used, and how delivery behaves.
+Aperant can report a task's outcome on the issue or work item it was imported from when the task is ready for review, fails, or is blocked. Write-back is off by default and targets only that matching issue or work item. It is separate from posting AI review findings on a PR/MR and from sending a [task outcome webhook](notifications-and-webhooks.md). See the [integration capabilities table](README.md#integration-capabilities) for supported providers and surfaces.
 
 > **Warning:** Nothing is posted unless you turn it on. Every switch is off by default, except Jira's **Post a comment**, which does nothing until **Enable Jira write-back** is on. Issue trackers are usually shared, so a comment is visible to everyone who can read the issue. The comment is posted with the project's own import credentials (see [Credentials and logging](#credentials-and-logging)).
 
 ## Which tasks qualify
 
-Only tasks that were imported from an issue get a comment. Aperant reads the `sourceType` key of the task's `task_metadata.json` in its spec directory. The directory is looked up in the project's specs directory and, when the task has a worktree, in the worktree's specs directory too.
+Only tasks imported from an issue or work item qualify for write-back. Aperant reads the `sourceType` key of the task's `task_metadata.json` in its spec directory. The directory is looked up in the project's specs directory and, when the task has a worktree, in the worktree's specs directory too.
 
 | `sourceType` | Provider |
 |--------------|----------|
@@ -18,7 +18,7 @@ Only tasks that were imported from an issue get a comment. Aperant reads the `so
 
 Bitbucket Cloud issues are not supported. Aperant cannot import issues from Bitbucket, so no task has a Bitbucket issue to comment on, and Bitbucket's built-in issue tracker is per repository and often switched off. If your team uses Bitbucket for code and Jira for tracking, the outcome comment goes on the task's Jira ticket (see the Jira rows above and below).
 
-Tasks created by hand (`manual`) or from the roadmap, ideation, insights or a schedule get no comment. Only the one issue the task was imported from is touched.
+Tasks created by hand (`manual`) or from the roadmap, ideation, insights or a schedule get no comment. No other issue or work item is updated.
 
 Each provider also has guards. All of them must hold, or nothing is posted:
 
@@ -46,11 +46,11 @@ Write-back follows the same task states as the webhook (see [Events](notificatio
 | Human review, reason `account_required` (paused: no usable account for a phase's provider) | none | none |
 | Any other state | none | none |
 
-One comment is posted each time a task moves into one of these states. `pr_opened` is never written back (see [Why PR opened is webhook-only](#why-pr-opened-is-webhook-only)). An account pause (`account_required`) is never written back either, and is never reported as `failed`: every Resume without a usable account pauses the task again, and each pause would post another public comment. The webhook still reports it (see [Events](notifications-and-webhooks.md#events)).
+When comments are enabled, Aperant attempts one per eligible state change (`review_ready`, `failed`, or `blocked`). `pr_opened` is never written back (see [Why PR opened is webhook-only](#why-pr-opened-is-webhook-only)). An account pause (`account_required`) is never written back either, and is never reported as `failed`: every Resume without a usable account pauses the task again, and each pause would post another public comment. The webhook still reports it (see [Events](notifications-and-webhooks.md#events)).
 
 ## Turn it on
 
-Open **Settings > App Settings > Notifications**. The write-back blocks are below the **Task outcome webhook** block.
+In the desktop app, open **Settings > App Settings > Notifications**. The write-back blocks are below the **Task outcome webhook** block.
 
 **Issue write-back** has one switch per provider:
 
@@ -70,12 +70,26 @@ Open **Settings > App Settings > Notifications**. The write-back blocks are belo
 | **Move issue when ready for review** | Off | Moves the issue to the status named below. |
 | **Target status name** | `In Review` | The status to move to. It can be edited only while the move switch is on. |
 
-**Azure Boards work items** is a switch in the same block, off by default. It has its own move controls:
+GitHub and GitLab write-back posts a comment or note only; it does not move issue status.
 
-| Control | Default | Effect |
-|---------|---------|--------|
-| **Move work item when ready for review** | Off | Moves the work item to the state named below. |
-| **Target state name** | `Resolved` | The state to move to. |
+### Optional moves on `review_ready`
+
+Moves are opt-in and do not run for `failed` or `blocked`. On desktop, the **Linear issues** and **Azure Boards work items** switches each reveal their own move controls:
+
+| Provider | Move switch (off by default) | Target field and default |
+|-----------|------------------------------|--------------------------|
+| Linear | **Move issue when ready for review** | **Target workflow state name**: `In Review` |
+| Azure Boards | **Move work item when ready for review** | **Target state name**: `Resolved` |
+
+Linear move rules (desktop only):
+
+- The move controls take effect only while **Linear issues** is on. The target name can be edited only while the move switch is on.
+- The move happens only on `review_ready` and requires a non-empty target state name. If the saved value is missing, is not text, or is empty after cleanup, Aperant uses `In Review`.
+- The name is matched against the workflow states of the issue's own team, ignoring case and surrounding spaces. States from other teams are not considered. Unlike Jira, matching is not limited to states reachable from the current state.
+- If no state on the team has that name, Aperant skips the move without logging a warning. The comment is not affected.
+- Aperant always attempts the comment first. If the move is enabled and the event is `review_ready`, it attempts the move even if the comment failed. Unlike Jira, there is no switch to move without commenting.
+- If the state lookup or update fails, or Linear rejects the update, the app logs `[IssueWriteback] linear transition failed event=review_ready issue=<id> reason=...`. A failed comment is logged as `[IssueWriteback] linear comment failed ...`. Neither failure undoes the other action or affects the task.
+- Moving Linear issues is available only in the desktop app. See [headless write-back](notifications-and-webhooks.md#reporting-back-to-the-issue-tracker-write-back).
 
 Azure Boards move rules:
 
@@ -89,29 +103,18 @@ Jira move rules:
 - If no available transition leads to that status, nothing happens and no error is reported. The comment is not affected.
 - The comment and the move are independent. With the comment off and the move on, only the move is attempted. With both off, nothing is sent.
 
-**Linear issues** is a switch in the same block, off by default. It has its own move controls:
-
-| Control | Default | Effect |
-|---------|---------|--------|
-| **Move issue when ready for review** | Off | Moves the issue to the workflow state named below. |
-| **Target workflow state name** | `In Review` | The workflow state to move to. It can be edited only while the move switch is on. |
-
-Linear move rules:
-
-- The move controls take effect only while **Linear issues** is on.
-- The move happens only on `review_ready` and requires a non-empty target state name. If the saved value is missing, is not text, or is empty after cleanup, Aperant uses `In Review`.
-- The name is matched against the workflow states of the issue's own team, ignoring case and surrounding spaces. States from other teams are not considered. Unlike Jira, matching is not limited to states reachable from the current state.
-- If no state on the team has that name, Aperant skips the move without logging a warning. The comment is not affected.
-- Aperant always attempts the comment first. If the move is enabled and the event is `review_ready`, it attempts the move even if the comment failed. Unlike Jira, there is no switch to move without commenting.
-- If the state lookup or update fails, or Linear rejects the update, the app logs `[IssueWriteback] linear transition failed event=review_ready issue=<id> reason=...`. A failed comment is logged as `[IssueWriteback] linear comment failed ...`. Neither failure undoes the other action or affects the task.
-- Moving Linear issues is available only in the desktop app. See [headless write-back](notifications-and-webhooks.md#reporting-back-to-the-issue-tracker-write-back).
-
-Other points:
+Other desktop settings details:
 
 - These settings are app-wide, not per project.
 - They are stored only in the app's `settings.json`, never in `.aperant.json` or `.auto-claude/.env`. The reasoning is the same as for the webhook (see [Security: user-level only](notifications-and-webhooks.md#security-user-level-only)): a repository must not be able to switch on posting to a tracker.
 - A missing or non-boolean value falls back to the default.
 - The write-back toggles are independent of the webhook toggles and of desktop notifications.
+
+### Headless `run` and `serve`
+
+Headless write-back is also off by default. It uses existing import metadata and does not import issues. Use the `writeback` key in the `--config` file; see [headless write-back configuration](notifications-and-webhooks.md#reporting-back-to-the-issue-tracker-write-back).
+
+Jira and Azure Boards also support their optional `review_ready` status and state moves in headless runs. Jira's comment can be switched off independently of its move. Headless Linear has a comment toggle only; it cannot move the issue's state.
 
 ## What the comment says
 
@@ -187,7 +190,7 @@ For GitHub, GitLab and Azure Boards the issue reference is `#<number>`. For Line
 - There is one attempt. There is no retry and no queue. A comment that fails is dropped.
 - It never changes a task's status and never blocks the app.
 - Delivery errors do not affect task flow. **Task Detail → Overview → Delivery history** shows the comment result separately from the result of any enabled issue state change. A failed comment does not stop an eligible state change, and a state-change failure does not alter the comment receipt.
-- The headless commands (`cli.js run` and `cli.js serve`) also post issue comments, when their `--config` file turns write-back on. They can post Linear comments but cannot move Linear issues. The Linear workflow-state option is desktop-only. See [CLI-USAGE.md](CLI-USAGE.md).
+- For headless delivery and failure behavior, see [headless write-back configuration](notifications-and-webhooks.md#reporting-back-to-the-issue-tracker-write-back).
 
 The [delivery history guide](notifications-and-webhooks.md#delivery-history) explains each status and the local retention limit. Use the [read-only CLI history command](CLI-USAGE.md#delivery-receipts) after a headless run. An unconfirmed write may already have reached the tracker; check the issue before posting manually. Neither receipt reads nor restarts replay a comment or state change.
 

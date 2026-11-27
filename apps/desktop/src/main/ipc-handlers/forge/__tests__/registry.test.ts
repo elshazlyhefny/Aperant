@@ -3,10 +3,11 @@
  * provider needs one implementation plus one registry entry.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import integrationCapabilities from '../../../../../../../guides/integration-capabilities.json';
 import { notConfiguredBlockedReason } from '../../../../shared/types/pr-feedback';
+import { jiraWriter } from '../../jira/jira-writeback';
 import { loadPRFeedback } from '../../task/pr-feedback-source';
 import { azureBoardsWriter } from '../azureboards-writer';
-import { jiraWriter } from '../../jira/jira-writeback';
 import { OUTCOME_WRITERS, createForgeRegistry, getForgeForPrUrl, getOutcomeWriter } from '../registry';
 import type { Forge } from '../types';
 
@@ -91,6 +92,26 @@ describe('getForgeForPrUrl', () => {
     expect(getForgeForPrUrl('not a url')).toBeNull();
     expect(getForgeForPrUrl('https://example.com/x')).toBeNull();
   });
+
+  // Resolve only the URL, without loading feedback or looking up configuration.
+  it.each([
+    ['azure-devops-services', 'https://dev.azure.com/org/project/_git/repo/pullrequest/7', 'azuredevops'],
+    ['azure-devops-server', 'https://tfs.example.test/tfs/Collection/project/_git/repo/pullrequest/7', null],
+    ['bitbucket-cloud', 'https://bitbucket.org/workspace/repo/pull-requests/7', 'bitbucket'],
+    ['bitbucket-server', 'https://bitbucket.example.test/projects/PROJ/repos/repo/pull-requests/7/overview', null],
+    ['bitbucket-data-center', 'https://bitbucket-dc.example.test/projects/PROJ/repos/repo/pull-requests/7/overview', null],
+  ] as const)('matches the published edition support for %s', (id, url, provider) => {
+    const resolved = getForgeForPrUrl(url);
+    if (provider === null) {
+      expect(resolved).toBeNull();
+    } else {
+      expect(resolved?.forge.providerId).toBe(provider);
+      expect(resolved?.ref).toEqual({ provider, number: 7 });
+    }
+    const row = integrationCapabilities.find((row) => row.id === id);
+    expect(row?.editionSupported).toBe(resolved !== null);
+    expect(row?.prProviderId).toBe(provider ?? undefined);
+  });
 });
 
 describe('getOutcomeWriter', () => {
@@ -126,19 +147,30 @@ describe('getOutcomeWriter', () => {
   });
 });
 
-describe('default registry has no Bitbucket or Azure DevOps writer', () => {
+describe('published outcome write-back capabilities', () => {
   // Decision recorded in forge/README.md, section "Not planned: Bitbucket issue
   // writeback". If you add Bitbucket issue import, revisit it and update this test.
-  it('only github, gitlab, linear, jira and azure_boards have outcome writers', () => {
+  it('matches the desktop writer registry, excluding Bitbucket and Azure DevOps PRs', () => {
+    const publishedSourceTypes = integrationCapabilities
+      .filter((row) => row.outcomeComments.desktop !== 'unsupported')
+      .map((row) => row.sourceType)
+      .sort();
     expect(getOutcomeWriter('bitbucket')).toBeUndefined();
     expect(getOutcomeWriter('azuredevops')).toBeUndefined();
-    expect(OUTCOME_WRITERS.map((w) => w.sourceType).sort()).toEqual([
-      'azure_boards',
-      'github',
-      'gitlab',
-      'jira',
-      'linear',
-    ]);
+    expect(OUTCOME_WRITERS.map((w) => w.sourceType).sort()).toEqual(publishedSourceTypes);
+  });
+
+  it('publishes only the optional review-ready transitions covered by the writer behavior tests', () => {
+    const publishedTransitions = Object.fromEntries(
+      integrationCapabilities
+        .filter((row) => row.transition)
+        .map((row) => [row.sourceType, row.transition]),
+    );
+    expect(publishedTransitions).toEqual({
+      jira: { type: 'status', event: 'review_ready', surfaces: ['desktop', 'headless'] },
+      azure_boards: { type: 'state', event: 'review_ready', surfaces: ['desktop', 'headless'] },
+      linear: { type: 'state', event: 'review_ready', surfaces: ['desktop'] },
+    });
   });
 });
 

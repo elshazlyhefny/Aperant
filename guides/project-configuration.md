@@ -190,7 +190,7 @@ The project also needs an `autoBuildPath` and an existing `.auto-claude/.env`. R
 
 Azure Boards import and write-back use these same keys, with separate PAT scopes for work items.
 
-Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visualstudio.com` remotes. Azure DevOps Server (on premises) is not.
+Azure DevOps Services is supported, with `dev.azure.com` and legacy `{org}.visualstudio.com` remotes. Azure DevOps Server (on premises) is not. See the [integration capabilities table](README.md#integration-capabilities) for review, import and write-back support.
 
 What works:
 
@@ -220,6 +220,8 @@ Running a review does not publish its results to Azure DevOps. To publish findin
 1. Tick the findings you want to share.
 2. To add inline threads, tick **Also post selected findings as inline comments**.
 3. Click **Post selected findings to Azure DevOps**, then click **Post** in the confirmation dialog.
+
+Findings are posted to the pull request, not to an Azure Boards work item.
 
 With the inline option on, Aperant first creates one active comment thread for each selected finding that has a file and a line number, anchored to that file and line. Each inline comment ends with `_Aperant PR Review_` unless truncated. Aperant then creates exactly one summary thread headed `Aperant PR Review`, with the review summary and a `Findings (N)` list. Findings without a line number appear only in the summary. Inline threads that fail are reported as `could not be placed`; their findings stay in full in the summary, subject to the length cap. Severity markers, ordering and the 32768-character cap work as described in the Bitbucket [AI review](#ai-review) section.
 
