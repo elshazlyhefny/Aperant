@@ -15,12 +15,19 @@ vi.mock('../auth', () => ({
   resolveHeadlessAuth: async () => ({ auth: { apiKey: 'sk-test' }, provider: 'anthropic', modelId: 'claude-sonnet-4-5' }),
 }));
 vi.mock('../../ai/prompts/prompt-loader', () => ({ tryLoadPrompt: () => 'PLANNER PROMPT' }));
+// zeenha fork: let schedule races defer creation while still writing real task specs.
+vi.mock('../task-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../task-store')>();
+  return { ...actual, createScheduledTaskSpec: vi.fn(actual.createScheduledTaskSpec) };
+});
 
 import { readDeliveryReceipts } from '../../delivery-receipts';
 import { runServe, EXIT_LOCKED } from '../serve';
 import type { ServeOptions } from '../serve';
 import type { HeadlessBridge } from '../run-task';
 import { writeStopRequest } from '../stop-request';
+import { createScheduledTaskSpec } from '../task-store';
+import { createScheduleFileStore } from '../../schedule-file-store';
 import { acquireProjectQueueLock, getQueueLockPath } from '../../utils/project-queue-lock';
 import type { RecurringSchedule } from '../../../shared/types/schedule';
 
@@ -291,11 +298,26 @@ describe('runServe queue', () => {
 });
 
 describe('runServe schedules', () => {
-  function writeSchedule(over: Partial<RecurringSchedule> = {}) {
-    const file = path.join(projectDir, '.auto-claude', 'schedules.json');
-    const schedule: RecurringSchedule = {
+  let daemon: Promise<number> | undefined;
+
+  afterEach(async () => {
+    try {
+      if (daemon) await stop(daemon);
+    } finally {
+      daemon = undefined;
+      vi.mocked(createScheduledTaskSpec).mockReset();
+    }
+  });
+
+  function serveSchedules(options: Partial<ServeOptions> = {}, limit = 2) {
+    daemon = serve({ now: () => T0, tickIntervalMs: 20, ...options }, limit);
+    return daemon;
+  }
+
+  function makeSchedule(over: Partial<RecurringSchedule> = {}): RecurringSchedule {
+    return {
       id: 's1',
-      projectId: 'whatever',
+      projectId: 'desktop-project',
       name: 'nightly',
       enabled: true,
       cadence: { kind: 'daily', time: '09:00' },
@@ -306,19 +328,41 @@ describe('runServe schedules', () => {
       history: [],
       ...over,
     };
-    mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify({ version: 1, schedules: [schedule] }));
-    return file;
   }
-  const readSchedule = (file: string): RecurringSchedule => JSON.parse(readFileSync(file, 'utf-8')).schedules[0];
+
+  async function seedSchedules(schedules: RecurringSchedule[], filename = 'schedules.json') {
+    const file = path.join(projectDir, '.auto-claude', filename);
+    const store = createScheduleFileStore(file);
+    for (const schedule of schedules) await store.insertSchedule(schedule);
+    return { file, store };
+  }
+
+  function waitForHistory(
+    store: ReturnType<typeof createScheduleFileStore>,
+    id: string,
+    kinds: RecurringSchedule['history'][number]['kind'][]
+  ) {
+    return vi.waitFor(() => {
+      const schedule = store.getSchedule(id);
+      if (!schedule) throw new Error(`Schedule ${id} not found`);
+      expect(schedule.history.map((h) => h.kind)).toEqual(kinds);
+      return schedule;
+    });
+  }
 
   it('fires a due schedule, creates a task and starts it', async () => {
-    const file = writeSchedule();
-    const p = serve({ now: () => T0, tickIntervalMs: 20 });
+    const due = makeSchedule();
+    const { store } = await seedSchedules([due]);
+    const p = serveSchedules();
+    const schedule = await waitForHistory(store, due.id, ['started']);
     await vi.waitFor(() => expect(spawned()).toHaveLength(1));
-    const schedule = readSchedule(file);
-    expect(schedule.projectId).toBe('whatever');
-    expect(schedule.history.map((h) => h.kind)).toEqual(['started']);
+    expect(createScheduledTaskSpec).toHaveBeenCalledWith(
+      expect.objectContaining({ id: `headless:${projectDir}` }),
+      due.template,
+      due.id,
+      T0
+    );
+    expect(schedule.projectId).toBe(due.projectId);
     expect(schedule.nextRunAt).toBe(T0 + DAY);
     const taskId = schedule.lastTaskId as string;
     expect(plan(taskId).status).toBe('in_progress');
@@ -327,23 +371,80 @@ describe('runServe schedules', () => {
     expect(plan(taskId).status).toBe('queue');
   });
 
-  it('records a missed run and creates one catch-up task', async () => {
-    const file = writeSchedule();
-    const p = serve({ now: () => T0 + 3 * DAY + 1000, tickIntervalMs: 20 }, 5);
+  it('filters out other projects when a project ID is configured', async () => {
+    const selected = makeSchedule({ projectId: 'selected-project' });
+    const excluded = makeSchedule({ id: 'other', projectId: 'other-project' });
+    // Put the other due row first so a daemon that ignores the filter cannot skip it by timing.
+    const { file, store } = await seedSchedules([excluded, selected], 'shared-schedules.json');
+    serveSchedules({ schedulesPath: file, projectId: selected.projectId });
+
+    const schedule = await waitForHistory(store, selected.id, ['started']);
     await vi.waitFor(() => expect(spawned()).toHaveLength(1));
-    await new Promise((r) => setTimeout(r, 100));
-    expect(spawned()).toHaveLength(1);
-    const schedule = readSchedule(file);
-    expect(schedule.history.map((h) => h.kind)).toEqual(['missed', 'started']);
+    expect(schedule.projectId).toBe(selected.projectId);
+    expect(spawned()[0].taskId).toBe(schedule.lastTaskId);
+    expect(createScheduledTaskSpec).toHaveBeenCalledTimes(1);
+    expect(store.getSchedule(excluded.id)).toEqual(excluded);
+  });
+
+  it('preserves disk project identity and a concurrent acknowledgement in a shared store', async () => {
+    const pendingReport = { id: 'report', kind: 'failed', at: T0 - DAY, acknowledged: false } as const;
+    const due = makeSchedule({ history: [pendingReport] });
+    const unrelated = makeSchedule({ id: 'other', projectId: 'other-project', nextRunAt: T0 + DAY });
+    const { file, store } = await seedSchedules([due, unrelated], 'shared-schedules.json');
+    const real = await vi.importActual<typeof import('../task-store')>('../task-store');
+    let entered = false;
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(createScheduledTaskSpec).mockImplementationOnce(async (...args) => {
+      entered = true;
+      await released;
+      return real.createScheduledTaskSpec(...args);
+    });
+
+    serveSchedules({ schedulesPath: file });
+    let acknowledged: RecurringSchedule | undefined;
+    try {
+      await vi.waitFor(() => expect(entered).toBe(true));
+      acknowledged = await store.updateSchedule(due.id, (current) => ({
+        history: current.history.map((report) => ({ ...report, acknowledged: true })),
+      }));
+    } finally {
+      release();
+    }
+
+    const schedule = await waitForHistory(store, due.id, ['failed', 'started']);
+    expect(acknowledged?.history).toEqual([{ ...pendingReport, acknowledged: true }]);
+    expect(schedule.projectId).toBe(due.projectId);
+    expect(schedule.nextRunAt).toBe(T0 + DAY);
+    expect(schedule.lastRunAt).toBe(T0);
+    expect(schedule.lastTaskId).toEqual(expect.any(String));
+    expect(schedule.history).toEqual([
+      { ...pendingReport, acknowledged: true },
+      expect.objectContaining({ kind: 'started', taskId: schedule.lastTaskId, acknowledged: false }),
+    ]);
+    expect(store.getSchedule(unrelated.id)).toEqual(unrelated);
+    await vi.waitFor(() => expect(spawned().map((bridge) => bridge.taskId)).toEqual([schedule.lastTaskId]));
+  });
+
+  it('records a missed run and creates one catch-up task', async () => {
+    const { store } = await seedSchedules([makeSchedule()]);
+    serveSchedules({ now: () => T0 + 3 * DAY + 1000 }, 5);
+    const schedule = await waitForHistory(store, 's1', ['missed', 'started']);
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
     expect(schedule.history[0].missedCount).toBe(4);
-    await stop(p);
+    expect(createScheduledTaskSpec).toHaveBeenCalledTimes(1);
   });
 
   it('stops an over-budget scheduled task; status error and a failed webhook', async () => {
-    const file = writeSchedule({ template: { title: 'Nightly check', description: 'do it', tokenBudget: 100 } });
-    const p = serve({ now: () => T0, tickIntervalMs: 20 });
+    const { store } = await seedSchedules([
+      makeSchedule({ template: { title: 'Nightly check', description: 'do it', tokenBudget: 100 } }),
+    ]);
+    const p = serveSchedules();
+    const schedule = await waitForHistory(store, 's1', ['started']);
     await vi.waitFor(() => expect(spawned()).toHaveLength(1));
-    const taskId = readSchedule(file).lastTaskId as string;
+    const taskId = schedule.lastTaskId as string;
     writeFileSync(
       path.join(specDir(taskId), 'run_metrics.json'),
       JSON.stringify({ sessions: [{ tokens: { input: 80, output: 60 } }] })
@@ -352,9 +453,37 @@ describe('runServe schedules', () => {
     expect(spawned()[0].terminate).toHaveBeenCalled();
     expect(plan(taskId).status).toBe('error');
     expect(webhook.mock.calls[0][1].status).toBe('error');
-    expect(readSchedule(file).history.map((h) => h.kind)).toContain('budget_exceeded');
+    await waitForHistory(store, 's1', ['started', 'budget_exceeded']);
     await stop(p);
     expect(webhook).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops an over-budget task without writing to a schedule excluded by the project filter', async () => {
+    const selected = makeSchedule({ projectId: 'selected-project', enabled: false, nextRunAt: null });
+    const excluded = makeSchedule({ id: 'other', projectId: 'other-project', enabled: false, nextRunAt: null });
+    const { file, store } = await seedSchedules([selected, excluded], 'shared-schedules.json');
+    const taskId = '001-existing';
+    makeSpec(taskId, 'queue', {}, { sourceType: 'schedule', scheduleId: excluded.id, tokenBudget: 100 });
+    writeFileSync(
+      path.join(specDir(taskId), 'run_metrics.json'),
+      JSON.stringify({ sessions: [{ tokens: { input: 80, output: 60 } }] })
+    );
+
+    serveSchedules({ schedulesPath: file, projectId: selected.projectId });
+
+    await vi.waitFor(
+      () => {
+        expect(plan(taskId).status).toBe('error');
+        // Budget enforcement notifies after deciding whether to persist a report.
+        expect(out.join('')).toContain(`Schedules changed for ${selected.projectId}`);
+      },
+      { timeout: 3000 }
+    );
+    expect(spawned()).toHaveLength(1);
+    expect(spawned()[0].taskId).toBe(taskId);
+    expect(spawned()[0].terminate).toHaveBeenCalledTimes(1);
+    expect(store.getSchedule(excluded.id)).toEqual(excluded);
+    expect(store.getSchedule(selected.id)).toEqual(selected);
   });
 });
 
