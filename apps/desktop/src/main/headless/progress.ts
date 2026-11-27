@@ -5,6 +5,7 @@
 import type { ExecutionProgressData } from '../agent/types';
 import { stripAnsiCodes } from '../../shared/utils/ansi-sanitizer';
 import type { RunEvent, RunOutcome } from './outcome';
+import type { HeadlessTokenBudget } from './token-budget';
 
 export interface ProgressReporterOptions {
   json?: boolean;
@@ -19,12 +20,14 @@ export interface ResultInfo {
   spec?: string;
   branch?: string;
   worktree?: string;
+  tokenBudget?: { limit: number | null; source: string };
 }
 
 export interface ProgressReporter {
   log(text: string): void;
   progress(data: ExecutionProgressData): void;
   taskEvent(event: RunEvent): void;
+  tokenBudget(budget: HeadlessTokenBudget): void;
   error(message: string): void;
   summary(outcome: RunOutcome, info?: ResultInfo): void;
 }
@@ -74,6 +77,16 @@ export function createProgressReporter(options: ProgressReporterOptions = {}): P
       if (json) {
         emit({ type: 'task-event', event: JSON.parse(clean(JSON.stringify(event))) });
       }
+    },
+
+    // zeenha fork: report the effective budget and its source in both output modes.
+    tokenBudget({ limit, source }) {
+      if (json) {
+        emit({ type: 'token-budget', limit: limit ?? null, source });
+        return;
+      }
+      const label = limit === undefined ? 'unlimited' : `${limit} tokens`;
+      out(`token budget: ${label} (source: ${source})\n`);
     },
 
     error(message) {

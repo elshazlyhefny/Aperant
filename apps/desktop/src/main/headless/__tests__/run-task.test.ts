@@ -266,6 +266,75 @@ describe('runHeadlessTask', () => {
   });
 });
 
+describe('runHeadlessTask token budget', () => {
+  const defaultConfig = { project: { defaultTokenBudget: 1000 } };
+
+  function expectBudget(limit: number | undefined, source: string) {
+    expect(bridge.spawn).toHaveBeenCalledOnce();
+    expect(bridge.spawn.mock.calls[0][0].session.tokenBudget).toBe(limit);
+    const budget = { limit: limit ?? null, source };
+    const records = out.map((line) => JSON.parse(line));
+    expect(records).toContainEqual({ type: 'token-budget', ...budget });
+    const result = records.at(-1);
+    expect(result).toMatchObject({ type: 'result', tokenBudget: budget });
+    return result;
+  }
+
+  it.each([
+    { name: 'uses the configured default without task metadata', config: defaultConfig, limit: 1000, source: 'config' },
+    { name: 'prefers the task limit over the default', config: defaultConfig, taskLimit: 500, limit: 500, source: 'task' },
+    { name: 'honors an explicit unlimited task', config: defaultConfig, taskLimit: 0, source: 'task' },
+    { name: 'stays unlimited without a configured default', source: 'none' },
+  ])('$name', async ({ config, taskLimit, limit, source }) => {
+    const specDir = makeSpec();
+    if (taskLimit !== undefined) {
+      writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({ tokenBudget: taskLimit }));
+    }
+    script([{ type: 'QA_PASSED' }]);
+    expect(await run({ config, json: true, sendWebhook: false })).toBe(0);
+    expectBudget(limit, source);
+  });
+
+  it('rejects an invalid configured default before auth, worktree creation or bridge startup', async () => {
+    makeSpec();
+    const configPath = path.join(projectDir, 'headless-config.json');
+    writeFileSync(configPath, JSON.stringify({ project: { defaultTokenBudget: 'lots' } }));
+    const createBridge = vi.fn(() => bridge);
+
+    expect(await run({ configPath, createBridge })).toBe(1);
+    expect(err.join('')).toContain('project.defaultTokenBudget must be a positive integer');
+    expect(mockResolveAuth).not.toHaveBeenCalled();
+    expect(mockCreateWorktree).not.toHaveBeenCalled();
+    expect(createBridge).not.toHaveBeenCalled();
+    expect(bridge.spawn).not.toHaveBeenCalled();
+  });
+
+  it('reapplies the default on resume until the task limit is raised', async () => {
+    const specDir = makeSpec();
+    const options = { config: defaultConfig, json: true, sendWebhook: false };
+    const capped = [{ type: 'TOKEN_BUDGET_REACHED', used: 1200, limit: 1000 }];
+
+    script(capped);
+    expect(await run(options)).toBe(1);
+    expect(expectBudget(1000, 'config')).toMatchObject({
+      reason: 'token budget reached: 1200 of 1000 tokens used',
+    });
+
+    bridge = new FakeBridge();
+    out = [];
+    script(capped);
+    expect(await run(options)).toBe(1);
+    expectBudget(1000, 'config');
+
+    writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({ tokenBudget: 5000 }));
+    bridge = new FakeBridge();
+    out = [];
+    script([{ type: 'QA_PASSED' }]);
+    expect(await run(options)).toBe(0);
+    expectBudget(5000, 'task');
+  });
+});
+
 describe('runHeadlessTask outcome webhook', () => {
   const HOOK = 'https://hooks.example.com/services/T000/B000/SECRETTOKEN';
   const PR = 'https://github.com/o/r/pull/7';

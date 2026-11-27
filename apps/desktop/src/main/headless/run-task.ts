@@ -21,7 +21,6 @@ import {
   readTaskMetadata,
   resolveTaskModelId,
   resolveTaskPhaseProvider,
-  resolveTaskTokenBudget,
   serializeSecurityProfile,
 } from '../ai/agent/task-session';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
@@ -36,6 +35,7 @@ import { classifyRun, EXIT_ERROR } from './outcome';
 import type { RunOutcome } from './outcome';
 import { createProgressReporter } from './progress';
 import { AUTO_BUILD_PATH, findGitRoot, HeadlessSetupError, providerPhaseModels } from './shared';
+import { resolveHeadlessTokenBudget } from './token-budget';
 import {
   notifyHeadlessOutcome,
   projectNameFromPath,
@@ -218,6 +218,9 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       noPush: options.noPush,
     });
 
+    const tokenBudget = resolveHeadlessTokenBudget(specDir, config);
+    reporter.tokenBudget(tokenBudget);
+
     // (3) model and credentials, before anything is created on disk
     const modelId = await resolveTaskModelId(specDir, 'planning', providerPhaseModels(config));
     const preferredProvider = resolveTaskPhaseProvider(specDir, 'planning');
@@ -265,9 +268,9 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       specDir: worktreeSpecDir,
       projectDir: worktreePath,
       sourceSpecDir: specDir,
-      // zeenha fork: the task's token budget from task_metadata.json, as in the app.
-      // The CLI has no project store, so there is no project default.
-      tokenBudget: resolveTaskTokenBudget(specDir),
+      // zeenha fork: use task_metadata.json, then --config project.defaultTokenBudget,
+      // never desktop settings.
+      tokenBudget: tokenBudget.limit,
       provider: resolvedAuth.provider,
       modelId: resolvedAuth.modelId,
       apiKey: resolvedAuth.auth.apiKey,
@@ -308,7 +311,12 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     };
     const bridge = options.createBridge ? options.createBridge(bridgeOptions) : new WorkerBridgeCore(bridgeOptions);
 
-    const info = { spec: specId, branch, worktree: worktreePath };
+    const info = {
+      spec: specId,
+      branch,
+      worktree: worktreePath,
+      tokenBudget: { limit: tokenBudget.limit ?? null, source: tokenBudget.source },
+    };
     reporter.log(`Running ${specId} in worktree ${worktreePath} (branch ${branch})`);
 
     const runInput = await collectBridgeRun({
