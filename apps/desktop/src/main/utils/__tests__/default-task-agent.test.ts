@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AppSettings, TaskAgentSelection } from '../../../shared/types/settings';
+import type { AppSettings, MixedPhaseConfig, TaskAgentSelection } from '../../../shared/types/settings';
 import type { TaskMetadata } from '../../../shared/types/task';
 import { applyDefaultTaskAgent } from '../default-task-agent';
 
@@ -37,6 +37,46 @@ describe('applyDefaultTaskAgent', () => {
       phaseProviders: { spec: 'openai', planning: 'openai', coding: 'openai', qa: 'openai' },
       phaseModels: { spec: 'gpt-spec', planning: 'gpt-plan', coding: 'gpt-code', qa: 'gpt-qa' },
       phaseThinking: { spec: 'medium', planning: 'high', coding: 'medium', qa: 'low' },
+    });
+  });
+
+  describe('active cross-provider (mixed) profile', () => {
+    const mixed: MixedPhaseConfig = {
+      spec: { provider: 'anthropic', modelId: 'opus', thinkingLevel: 'high' },
+      planning: { provider: 'anthropic', modelId: 'opus', thinkingLevel: 'high' },
+      coding: { provider: 'openai', modelId: 'gpt-code', thinkingLevel: 'high' },
+      qa: { provider: 'anthropic', modelId: 'opus', thinkingLevel: 'low' },
+    };
+    const mixedSettings: Partial<AppSettings> = { customMixedProfileActive: true, customMixedPhaseConfig: mixed };
+
+    it('applies the mixed profile when no default task agent is set', () => {
+      const result = applyDefaultTaskAgent<TaskMetadata>({ sourceType: 'ideation' }, mixedSettings);
+
+      expect(result).toMatchObject({
+        sourceType: 'ideation',
+        provider: 'anthropic',
+        model: 'opus',
+        isAutoProfile: true,
+        phaseProviders: { spec: 'anthropic', planning: 'anthropic', coding: 'openai', qa: 'anthropic' },
+        phaseModels: { spec: 'opus', planning: 'opus', coding: 'gpt-code', qa: 'opus' },
+        phaseThinking: { spec: 'high', planning: 'high', coding: 'high', qa: 'low' },
+      });
+      expect(result.taskAgentMode).toBeUndefined();
+    });
+
+    it('prefers the default task agent over the mixed profile', () => {
+      const result = applyDefaultTaskAgent({ sourceType: 'roadmap' }, { ...mixedSettings, defaultTaskAgent: codexDefault });
+      expect(result).toMatchObject({ taskAgentMode: 'codex', phaseModels: { planning: 'gpt-plan' } });
+    });
+
+    it('ignores a saved mixed profile that is not active', () => {
+      const metadata: TaskMetadata = { sourceType: 'roadmap' };
+      expect(applyDefaultTaskAgent(metadata, { customMixedProfileActive: false, customMixedPhaseConfig: mixed })).toEqual(metadata);
+    });
+
+    it('leaves an explicit task choice untouched', () => {
+      const metadata: TaskMetadata = { sourceType: 'manual', model: 'sonnet' };
+      expect(applyDefaultTaskAgent(metadata, mixedSettings)).toEqual(metadata);
     });
   });
 
