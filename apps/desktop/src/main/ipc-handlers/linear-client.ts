@@ -20,9 +20,14 @@ export const getLinearApiKey = (project: Project): string | null => {
   }
 };
 
-/**
- * Make a request to the Linear API
- */
+/** zeenha fork: retain typed status without changing the diagnostic or Error name. */
+class LinearAPIError extends Error {
+  constructor(message: string, public readonly linearStatus: number) {
+    super(message);
+  }
+}
+
+/** Make a request to the Linear API. */
 export const linearGraphQL = async (
   apiKey: string,
   query: string,
@@ -50,13 +55,13 @@ export const linearGraphQL = async (
     } catch {
       // JSON parsing failed - use status text as fallback
     }
-    throw new Error(`Linear API error: ${response.status} - ${errorMessage}`);
+    throw new LinearAPIError(`Linear API error: ${response.status} - ${errorMessage}`, response.status);
   }
 
   const result = await response.json();
-  if (result.errors) {
-    throw new Error(result.errors[0]?.message || 'Linear API error');
+  if (result?.errors) {
+    throw new LinearAPIError(result.errors[0]?.message || 'Linear API error', response.status);
   }
 
-  return result.data;
+  return result?.data;
 };

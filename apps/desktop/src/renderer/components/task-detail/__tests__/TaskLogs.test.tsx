@@ -4,14 +4,15 @@
  * zeenha fork: expanded phase entries are virtualized so huge logs stay cheap.
  */
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
   initReactI18next: { type: '3rdParty', init: () => {} },
 }));
 
+import { useSettingsStore } from '../../../stores/settings-store';
 import { TaskLogs } from '../TaskLogs';
 
 function makeLogs(count: number) {
@@ -46,6 +47,8 @@ function renderLogs(count: number) {
       isStuck={false}
       logsEndRef={endRef}
       logsContainerRef={ref}
+      isAwayFromLatest={false}
+      onJumpToLatest={() => {}}
       onLogsScroll={() => {}}
       onTogglePhase={() => {}}
     />
@@ -87,6 +90,8 @@ function renderWith(phaseLogs: unknown, expanded: string[] = []) {
       isStuck={false}
       logsEndRef={endRef}
       logsContainerRef={ref}
+      isAwayFromLatest={false}
+      onJumpToLatest={() => {}}
       onLogsScroll={() => {}}
       onTogglePhase={() => {}}
     />
@@ -141,5 +146,113 @@ describe('TaskLogs i18n', () => {
       ['coding']
     );
     expect(screen.getByText('tasks:logs.done')).toBeInTheDocument();
+  });
+});
+
+describe('TaskLogs jump to latest', () => {
+  const initialLogOrder = useSettingsStore.getState().settings.logOrder;
+
+  beforeEach(() => {
+    useSettingsStore.setState(({ settings }) => ({ settings: { ...settings, logOrder: 'chronological' } }));
+  });
+
+  afterEach(() => {
+    useSettingsStore.setState(({ settings }) => ({ settings: { ...settings, logOrder: initialLogOrder } }));
+    vi.restoreAllMocks();
+  });
+
+  function renderJumpButton(isAwayFromLatest = true) {
+    const logsContainerRef: React.RefObject<HTMLDivElement | null> = { current: null };
+    const logsEndRef: React.RefObject<HTMLDivElement | null> = { current: null };
+    const onJumpToLatest = vi.fn();
+    const props: React.ComponentProps<typeof TaskLogs> = {
+      task: { id: 't', status: 'in_progress' } as never,
+      phaseLogs: makeLogs(1),
+      isLoadingLogs: false,
+      expandedPhases: new Set(['coding']),
+      isStuck: false,
+      logsContainerRef,
+      logsEndRef,
+      isAwayFromLatest,
+      onJumpToLatest,
+      onLogsScroll: vi.fn(),
+      onTogglePhase: vi.fn(),
+    };
+    const { rerender } = render(<TaskLogs {...props} />);
+    const viewport = logsContainerRef.current;
+    const endSentinel = logsEndRef.current;
+    if (!viewport || !endSentinel) throw new Error('Expected the log viewport and end sentinel to be mounted');
+
+    return {
+      viewport,
+      endSentinel,
+      onJumpToLatest,
+      resumeFollowing: () => rerender(<TaskLogs {...props} isAwayFromLatest={false} />),
+    };
+  }
+
+  function getJumpButton() {
+    return screen.getByRole('button', { name: 'tasks:logs.jumpToLatest' });
+  }
+
+  it('hides the button while following the latest logs', () => {
+    renderJumpButton(false);
+    expect(screen.queryByTestId('task-logs-jump-to-latest')).not.toBeInTheDocument();
+  });
+
+  it('shows a keyboard-focusable button outside the scroll viewport when away from the latest logs', () => {
+    const { viewport } = renderJumpButton();
+    const button = getJumpButton();
+    expect(button).toBeInstanceOf(HTMLButtonElement);
+    expect(viewport.contains(button)).toBe(false);
+    expect(button.tabIndex).toBe(0);
+
+    button.focus();
+    expect(button).toHaveFocus();
+  });
+
+  it('calls onJumpToLatest once when clicked', () => {
+    const { onJumpToLatest } = renderJumpButton();
+    fireEvent.click(getJumpButton());
+    expect(onJumpToLatest).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns focus to the viewport without scrolling when the focused button disappears', () => {
+    const { viewport, endSentinel, resumeFollowing } = renderJumpButton();
+    const focus = vi.spyOn(viewport, 'focus');
+    const scrollTo = vi.fn();
+    const scrollIntoView = vi.fn();
+    Object.assign(viewport, { scrollTo, scrollIntoView });
+    Object.assign(endSentinel, { scrollIntoView });
+    viewport.scrollTop = 200;
+
+    const button = getJumpButton();
+    button.focus();
+    expect(button).toHaveFocus();
+    resumeFollowing();
+
+    expect(button).not.toBeInTheDocument();
+    expect(viewport).toHaveFocus();
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(viewport.scrollTop).toBe(200);
+  });
+
+  it('preserves focus elsewhere when the button disappears after losing focus', () => {
+    const { viewport, resumeFollowing } = renderJumpButton();
+    const focus = vi.spyOn(viewport, 'focus');
+    const button = getJumpButton();
+    const phaseButton = screen.getByRole('button', { name: /tasks:execution\.phases\.coding/ });
+    button.focus();
+    expect(button).toHaveFocus();
+    phaseButton.focus();
+    expect(phaseButton).toHaveFocus();
+
+    resumeFollowing();
+
+    expect(button).not.toBeInTheDocument();
+    expect(phaseButton).toHaveFocus();
+    expect(focus).not.toHaveBeenCalled();
   });
 });
