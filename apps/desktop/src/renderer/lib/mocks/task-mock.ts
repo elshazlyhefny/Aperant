@@ -64,7 +64,7 @@ export const taskMock = {
 
   getPRFeedback: async () => ({ success: false, error: 'Not available in browser mode' }),
 
-  startPRFollowUp: async () => ({ success: false, error: 'Not available in browser mode' }),
+  startPRFollowUp: async (_taskId: string, _itemIds: string[], _expectedHeadSha: string) => ({ success: false, error: 'Not available in browser mode' }),
 
   recoverStuckTask: async (taskId: string, options?: TaskRecoveryOptions) => ({
     success: true,

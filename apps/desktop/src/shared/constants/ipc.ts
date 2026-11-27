@@ -38,7 +38,7 @@ export const IPC_CHANNELS = {
   TASK_RESET_PLAN: 'task:resetPlan',  // zeenha fork: discard a failed task's plan (Re-plan)
   // zeenha fork: send a PR's failing CI / review feedback back to the task's agent
   TASK_PR_FEEDBACK_GET: 'task:prFeedback:get',
-  TASK_PR_FOLLOWUP_START: 'task:prFollowUp:start',  // (taskId, itemIds) - IDs only, never text
+  TASK_PR_FOLLOWUP_START: 'task:prFollowUp:start',  // (taskId, itemIds, expectedHeadSha) - IDs and a revision only, never text
 
   // Workspace management (for human review)
   // Per-spec architecture: Each spec has its own worktree at .worktrees/{spec-name}/
