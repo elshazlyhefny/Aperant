@@ -9,6 +9,9 @@
  * run the same queue at once. SIGTERM/SIGINT stop the runs, put the tasks back to
  * 'queue' with stuck subtasks reset (resumable) and release the lock.
  *
+ * Schedules catch up once after a missed window by default, or can opt to skip
+ * it. The daemon logs each schedule's policy at startup and new history as it is saved.
+ *
  * `stop-spec` drops a request file in .auto-claude/.locks/; the daemon polls it on
  * its safety timer and stops that one run, leaving the task in human_review
  * ('stopped') or, with requeue, back in the queue. Other runs are not touched.
@@ -25,7 +28,12 @@ import type { WebhookSettings } from '../../shared/types/settings';
 import type { RecurringSchedule } from '../../shared/types/schedule';
 import type { WorkerBridgeCoreOptions } from '../ai/agent/worker-bridge-core';
 import { createScheduleFileStore } from '../schedule-file-store';
-import { createScheduleService, readTaskTokensFromDisk } from '../schedule-service';
+import {
+  createScheduleService,
+  describeMissedRunPolicy,
+  describeScheduleRecord,
+  readTaskTokensFromDisk,
+} from '../schedule-service';
 import { TaskQueueManager } from '../task-queue-manager';
 import { writeFileAtomicSync } from '../utils/atomic-file';
 import { acquireProjectQueueLock, formatLockHolder } from '../utils/project-queue-lock';
@@ -390,7 +398,16 @@ export async function runServe(options: ServeOptions): Promise<number> {
     now,
     listSchedules,
     saveSchedule: (schedule) => {
+      // zeenha fork: compare by id because history trimming can shift old records.
+      const previousIds = new Set(scheduleStore.getSchedule(schedule.id)?.history.map((entry) => entry?.id));
       scheduleStore.saveSchedule({ ...schedule, projectId: originalProjectIds.get(schedule.id) ?? schedule.projectId });
+      for (const entry of schedule.history) {
+        try {
+          if (!previousIds.has(entry.id)) log(describeScheduleRecord(schedule, entry));
+        } catch {
+          // Best effort: logging must not affect a successful save.
+        }
+      }
     },
     getProject: (id) => (id === projectId ? project : undefined),
     listTasks: () => getTasks(),
@@ -414,6 +431,16 @@ export async function runServe(options: ServeOptions): Promise<number> {
   // (7) start
   log(`Serving ${project.name} (${projectPath}), up to ${limit()} parallel task(s)`);
   await queue.requestProcess();
+  for (const schedule of listSchedules()) {
+    try {
+      const { cadence, enabled, name, nextRunAt } = schedule;
+      const summary = cadence.kind === 'interval' ? `every ${cadence.everyMinutes} min` : `${cadence.kind} at ${cadence.time}`;
+      const next = enabled && nextRunAt !== null ? new Date(nextRunAt).toISOString() : 'paused';
+      log(`Schedule "${name}": ${summary}, missed runs: ${describeMissedRunPolicy(schedule)}, next run ${next}`);
+    } catch {
+      // An invalid schedule timestamp or a logging error must not block startup.
+    }
+  }
   scheduleService.start();
   const timers: Array<ReturnType<typeof setInterval>> = [];
   if (options.tickIntervalMs !== undefined) {
