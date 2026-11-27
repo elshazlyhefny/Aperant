@@ -217,11 +217,12 @@ export function App() {
   const projectTabs = getProjectTabs();
   const selectedProject = projects.find((p) => p.id === (activeProjectId || selectedProjectId));
 
-  // zeenha fork: keep schedules loaded for the active project so the sidebar badge works
   useEffect(() => {
     const unsubscribe = subscribeToScheduleChanges();
     return unsubscribe;
   }, []);
+  // zeenha fork: App is the sole owner of initial schedule loads so the sidebar badge
+  // works even when Schedules is closed. Retry and SCHEDULE_CHANGED reuse loadSchedules.
   useEffect(() => {
     const projectId = activeProjectId || selectedProjectId;
     if (projectId) void useScheduleStore.getState().loadSchedules(projectId);

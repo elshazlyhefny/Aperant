@@ -64,7 +64,7 @@ export const taskMock = {
 
   getPRFeedback: async () => ({ success: false, error: 'Not available in browser mode' }),
 
-  startPRFollowUp: async () => ({ success: false, error: 'Not available in browser mode' }),
+  startPRFollowUp: async (_taskId: string, _itemIds: string[], _expectedHeadSha: string) => ({ success: false, error: 'Not available in browser mode' }),
 
   recoverStuckTask: async (taskId: string, options?: TaskRecoveryOptions) => ({
     success: true,
@@ -98,6 +98,12 @@ export const taskMock = {
   getTaskLogs: async () => ({
     success: true,
     data: null
+  }),
+
+  // zeenha fork: browser previews have no persisted delivery history.
+  getTaskDeliveryReceipts: async (_projectId: string, _specId: string) => ({
+    success: true,
+    data: []
   }),
 
   getTaskRunMetrics: async () => ({

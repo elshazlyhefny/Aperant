@@ -1,14 +1,17 @@
 /**
  * @vitest-environment jsdom
  *
- * zeenha fork: the PR feedback panel: opt-in selection, explicit send only.
+ * zeenha fork: the PR feedback panel: revision-bound selection and explicit send only.
  */
 import '@testing-library/jest-dom/vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
+  useTranslation: () => ({
+    t: (key: string, options?: { sha?: string }) => (options?.sha ? `${key}: ${options.sha}` : key),
+    i18n: { language: 'en' },
+  }),
 }));
 
 import { PRFeedbackPanel } from '../PRFeedbackPanel';
@@ -65,7 +68,65 @@ describe('PRFeedbackPanel', () => {
     fireEvent.click(screen.getByTestId('pr-feedback-item-r1'));
     await act(async () => fireEvent.click(screen.getByTestId('pr-feedback-send')));
     expect(startPRFollowUp).toHaveBeenCalledTimes(1);
-    expect(startPRFollowUp).toHaveBeenCalledWith('t1', ['c1', 'r1']);
+    expect(startPRFollowUp).toHaveBeenCalledWith('t1', ['c1', 'r1'], 'abc');
+  });
+
+  it.each(['head_changed', 'head_unverified'])('clears the selection and offers refresh on %s', async (code) => {
+    startPRFollowUp.mockResolvedValue({ success: false, code, error: 'generic error' });
+    await renderPanel();
+    const checkbox = screen.getByTestId('pr-feedback-item-c1');
+    const send = screen.getByTestId('pr-feedback-send');
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    await act(async () => fireEvent.click(send));
+
+    expect(checkbox).not.toBeChecked();
+    expect(send).toBeDisabled();
+    expect(screen.getByTestId('pr-feedback-stale')).toHaveTextContent(`tasks:prFeedback.stale.${code}`);
+    expect(screen.queryByTestId('pr-feedback-send-error')).not.toBeInTheDocument();
+
+    await act(async () => fireEvent.click(screen.getByTestId('pr-feedback-stale-refresh')));
+    expect(getPRFeedback).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('pr-feedback-stale')).not.toBeInTheDocument();
+    expect(checkbox).toBeEnabled();
+    expect(checkbox).not.toBeChecked();
+    expect(startPRFollowUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the selection when refresh returns a different head even if the same items remain', async () => {
+    await renderPanel();
+    const checkbox = screen.getByTestId('pr-feedback-item-c1');
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    getPRFeedback.mockResolvedValueOnce({ success: true, data: feedback({ headSha: 'def012345678' }) });
+    await act(async () => fireEvent.click(screen.getByTestId('pr-feedback-refresh')));
+
+    expect(checkbox).not.toBeChecked();
+    expect(screen.getByTestId('pr-feedback-send')).toBeDisabled();
+    expect(screen.getByTestId('pr-feedback-revision')).toHaveTextContent('tasks:prFeedback.revision: def0123');
+  });
+
+  it('keeps the selection when refresh returns the same head', async () => {
+    await renderPanel();
+    const checkbox = screen.getByTestId('pr-feedback-item-c1');
+    fireEvent.click(checkbox);
+    await act(async () => fireEvent.click(screen.getByTestId('pr-feedback-refresh')));
+
+    expect(checkbox).toBeChecked();
+    expect(screen.getByTestId('pr-feedback-send')).toBeEnabled();
+  });
+
+  it('omits the revision line when the head is unavailable', async () => {
+    getPRFeedback.mockResolvedValueOnce({ success: true, data: feedback({ headSha: '' }) });
+    await renderPanel();
+    expect(screen.queryByTestId('pr-feedback-revision')).not.toBeInTheDocument();
+  });
+
+  it('shows recovery guidance alongside a stale publish outcome', async () => {
+    const outcome = '[PR follow-up] Not pushed (stale): The head changed.';
+    await renderPanel(task({ logs: [outcome] }));
+    expect(screen.getByTestId('pr-feedback-status')).toHaveTextContent(outcome);
+    expect(screen.getByTestId('pr-feedback-stale-outcome')).toHaveTextContent('tasks:prFeedback.staleOutcome');
   });
 
   it('does not start a follow-up on mount or refresh', async () => {

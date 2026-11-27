@@ -5,23 +5,21 @@
  * from the config; the PAT is never written to disk.
  */
 
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import path from 'path';
-import { AUTO_BUILD_PATHS } from '../../../shared/constants';
+import { AUTO_BUILD_PATHS, getSpecsDir } from '../../../shared/constants';
 import type { TaskMetadata } from '../../../shared/types';
 import { sanitizeText, sanitizeUrl, sanitizeStringArray } from '../shared/sanitize';
-import { allocateSpecDir } from '../../utils/spec-number-lock';
+import { withSpecNumberLock } from '../../utils/spec-number-lock';
+import { buildSpecId } from '../../utils/spec-slug';
 import { applyDefaultTaskAgent } from '../../utils/default-task-agent';
 import { readSettingsFile } from '../../settings-utils';
 import { htmlToMarkdown, type AzureBoardsWorkItemData } from './boards-client';
 import type { AzureDevOpsConfig } from './types';
 
-export interface BoardsSpecResult {
-  specId: string;
-  specDir: string;
-  description: string;
-  metadata: TaskMetadata;
-}
+export type BoardsSpecResult =
+  | { kind: 'existing'; specId: string }
+  | { kind: 'created'; specId: string; specDir: string; description: string; metadata: TaskMetadata };
 
 type SpecConfig = Pick<AzureDevOpsConfig, 'organization' | 'project'>;
 
@@ -64,16 +62,7 @@ export function findExistingBoardsSpecs(
   return result;
 }
 
-export async function createSpecFromWorkItem(
-  project: { path: string; autoBuildPath?: string },
-  config: SpecConfig,
-  item: AzureBoardsWorkItemData
-): Promise<BoardsSpecResult> {
-  const organization = sanitizeText(config.organization, 200);
-  const azureProject = sanitizeText(config.project, 200);
-  if (!organization || !azureProject) throw new Error('Invalid Azure DevOps organization or project');
-  if (!Number.isSafeInteger(item.id) || item.id <= 0) throw new Error('Invalid work item id');
-
+function prepareWorkItem(item: AzureBoardsWorkItemData) {
   const id = item.id;
   const title = sanitizeText(item.title, 500) || `AB#${id}`;
   const workItemType = sanitizeText(item.workItemType, 100);
@@ -95,34 +84,62 @@ export async function createSpecFromWorkItem(
   if (body) lines.push('', '## Description', '', body);
   if (acceptance) lines.push('', '## Acceptance Criteria', '', acceptance);
   lines.push('');
-  const description = lines.join('\n');
+  return { title, description: lines.join('\n'), isBug, itemUrl };
+}
 
-  const { specId, specDir } = await allocateSpecDir(project, title);
+export async function createSpecFromWorkItem(
+  project: { path: string; autoBuildPath?: string },
+  config: SpecConfig,
+  id: number,
+  item: AzureBoardsWorkItemData | undefined,
+  allowDuplicates = false
+): Promise<BoardsSpecResult> {
+  const organization = sanitizeText(config.organization, 200);
+  const azureProject = sanitizeText(config.project, 200);
+  if (!organization || !azureProject) throw new Error('Invalid Azure DevOps organization or project');
+  if (!Number.isSafeInteger(id) || id <= 0 || (item && item.id !== id)) throw new Error('Invalid work item id');
 
-  const now = new Date().toISOString();
-  const category = isBug ? 'bug_fix' : 'feature';
+  const prepared = item ? prepareWorkItem(item) : undefined;
+  const specsDir = path.join(project.path, getSpecsDir(project.autoBuildPath));
 
-  writeFileSync(
-    path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN),
-    JSON.stringify({ feature: title, description, created_at: now, updated_at: now, status: 'pending', phases: [] }, null, 2),
-    'utf-8'
-  );
-  writeFileSync(
-    path.join(specDir, AUTO_BUILD_PATHS.REQUIREMENTS),
-    JSON.stringify({ task_description: description, workflow_type: 'feature' }, null, 2),
-    'utf-8'
-  );
+  return withSpecNumberLock<BoardsSpecResult>(project.path, lock => {
+    if (allowDuplicates !== true) {
+      const existingSpecId = findExistingBoardsSpecs(specsDir, organization, azureProject).get(id);
+      if (existingSpecId) return { kind: 'existing', specId: existingSpecId };
+    }
+    if (!prepared) throw new Error('work item not found in Azure DevOps');
 
-  // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
-  const metadata: TaskMetadata = applyDefaultTaskAgent({
-    sourceType: 'azure_boards',
-    azureBoardsWorkItemId: id,
-    azureBoardsUrl: itemUrl,
-    azureBoardsOrganization: organization,
-    azureBoardsProject: azureProject,
-    category,
-  }, readSettingsFile());
-  writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
+    const { title, description, isBug, itemUrl } = prepared;
+    const specNumber = lock.getNextSpecNumber(project.autoBuildPath);
+    const specId = buildSpecId(specNumber, title);
+    const specDir = path.join(specsDir, specId);
+    mkdirSync(specDir, { recursive: true });
 
-  return { specId, specDir, description, metadata };
+    const now = new Date().toISOString();
+
+    writeFileSync(
+      path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN),
+      JSON.stringify({ feature: title, description, created_at: now, updated_at: now, status: 'pending', phases: [] }, null, 2),
+      'utf-8'
+    );
+    writeFileSync(
+      path.join(specDir, AUTO_BUILD_PATHS.REQUIREMENTS),
+      JSON.stringify({ task_description: description, workflow_type: 'feature' }, null, 2),
+      'utf-8'
+    );
+
+    // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
+    const metadata: TaskMetadata = applyDefaultTaskAgent({
+      sourceType: 'azure_boards',
+      azureBoardsWorkItemId: id,
+      azureBoardsUrl: itemUrl,
+      azureBoardsOrganization: organization,
+      azureBoardsProject: azureProject,
+      category: isBug ? 'bug_fix' : 'feature',
+    }, readSettingsFile());
+    // Publish the identity last, before another import can acquire the lock.
+    writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
+
+    return { kind: 'created', specId, specDir, description, metadata };
+  });
 }

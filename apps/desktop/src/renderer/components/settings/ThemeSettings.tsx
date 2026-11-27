@@ -1,11 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { SettingsSection } from './SettingsSection';
 import { ThemeSelector } from './ThemeSelector';
-import type { AppSettings } from '../../../shared/types';
+import type { RendererAppSettings } from '../../../shared/types';
 
 interface ThemeSettingsProps {
-  settings: AppSettings;
-  onSettingsChange: (settings: AppSettings) => void;
+  settings: RendererAppSettings;
+  onSettingsChange: (settings: RendererAppSettings) => void;
 }
 
 /**

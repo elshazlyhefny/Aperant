@@ -212,20 +212,32 @@ export function adfToMarkdown(adf: unknown): string {
 // ============================================
 
 export class JiraAPIError extends Error {
-  constructor(message: string, public readonly statusCode?: number) {
+  constructor(
+    message: string,
+    public readonly statusCode?: number,
+    // zeenha fork: preserve receipt evidence independently from diagnostics.
+    public readonly failureKind?: 'timeout' | 'ambiguous_response'
+  ) {
     super(message);
     this.name = 'JiraAPIError';
   }
 }
 
-export async function jiraFetch(
+/** zeenha fork: a failed lookup cannot leave a transition mutation unconfirmed. */
+export class JiraTransitionLookupError extends JiraAPIError {
+  constructor(error: JiraAPIError) {
+    super(error.message, error.statusCode, error.failureKind);
+  }
+}
+
+async function jiraRequest(
   siteUrl: string,
   email: string,
   token: string,
   apiPath: string,
   query?: Record<string, string | number | undefined>,
   options?: { method?: 'GET' | 'POST'; body?: unknown }
-): Promise<unknown> {
+): Promise<{ status: number; data: unknown }> {
   const site = normalizeJiraSiteUrl(siteUrl);
   if (!site) throw new JiraAPIError('Invalid Jira site URL. Use https://<name>.atlassian.net');
 
@@ -253,7 +265,7 @@ export async function jiraFetch(
   } catch (error) {
     const name = error instanceof Error ? error.name : '';
     if (name === 'TimeoutError' || name === 'AbortError') {
-      throw new JiraAPIError('Jira request timed out');
+      throw new JiraAPIError('Jira request timed out', undefined, 'timeout');
     }
     throw new JiraAPIError('Could not reach Jira. Check the site URL and your network connection.');
   }
@@ -272,14 +284,21 @@ export async function jiraFetch(
     }
   }
 
-  if (response.status === 204) return null;
+  const { status } = response;
+  if (status === 204) return { status, data: null };
 
   try {
-    return await response.json();
-  } catch {
-    if (response.headers?.get?.('content-length') === '0') return null;
-    throw new JiraAPIError('Jira returned an invalid response');
+    return { status, data: await response.json() };
+  } catch (error) {
+    if (response.headers?.get?.('content-length') === '0') return { status, data: null };
+    const name = error instanceof Error ? error.name : '';
+    const kind = name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'ambiguous_response';
+    throw new JiraAPIError('Jira returned an invalid response', status, kind);
   }
+}
+
+export async function jiraFetch(...args: Parameters<typeof jiraRequest>): Promise<unknown> {
+  return (await jiraRequest(...args)).data;
 }
 
 // ============================================
@@ -330,13 +349,21 @@ export async function addIssueComment(
   token: string,
   issueKey: string,
   text: string
-): Promise<void> {
+): Promise<{ confirmed: boolean; httpStatus: number }> {
   if (!isValidIssueKey(issueKey)) throw new JiraAPIError('Invalid Jira issue key');
-  await jiraFetch(siteUrl, email, token, `/rest/api/3/issue/${issueKey}/comment`, undefined, {
+  const { status, data } = await jiraRequest(siteUrl, email, token, `/rest/api/3/issue/${issueKey}/comment`, undefined, {
     method: 'POST',
     body: { body: buildAdfComment(text) },
   });
+  // Jira acknowledges creation with 201 and a comment identifier. Keep only the evidence, not the body or ID.
+  const { id } = asRecord(data);
+  return { confirmed: status === 201 && typeof id === 'string' && id.trim().length > 0, httpStatus: status };
 }
+
+type JiraTransitionResult =
+  | { transitioned: true; httpStatus: number }
+  | { transitioned: false; reason: 'transition_not_available' }
+  | { transitioned: false; reason: 'ambiguous_response'; httpStatus: number };
 
 export async function transitionIssue(
   siteUrl: string,
@@ -344,21 +371,33 @@ export async function transitionIssue(
   token: string,
   issueKey: string,
   statusName: string
-): Promise<{ transitioned: boolean; reason?: 'transition_not_available' }> {
+): Promise<JiraTransitionResult> {
   if (!isValidIssueKey(issueKey)) throw new JiraAPIError('Invalid Jira issue key');
-  const data = asRecord(await jiraFetch(siteUrl, email, token, `/rest/api/3/issue/${issueKey}/transitions`));
+  const endpoint = `/rest/api/3/issue/${issueKey}/transitions`;
+  let transitions: unknown[];
+  try {
+    const data = asRecord(await jiraFetch(siteUrl, email, token, endpoint));
+    if (!Array.isArray(data.transitions)) throw new JiraAPIError('Jira returned an invalid response');
+    transitions = data.transitions;
+  } catch (error) {
+    throw new JiraTransitionLookupError(
+      error instanceof JiraAPIError ? error : new JiraAPIError('Jira transition lookup failed')
+    );
+  }
   const target = String(statusName ?? '').trim().toLowerCase();
   const match = target
-    ? (Array.isArray(data.transitions) ? data.transitions : [])
+    ? transitions
         .map(asRecord)
         .find(t => str(asRecord(t.to).name, 100).trim().toLowerCase() === target && str(t.id, 50))
     : undefined;
   if (!match) return { transitioned: false, reason: 'transition_not_available' };
-  await jiraFetch(siteUrl, email, token, `/rest/api/3/issue/${issueKey}/transitions`, undefined, {
+  const { status } = await jiraRequest(siteUrl, email, token, endpoint, undefined, {
     method: 'POST',
     body: { transition: { id: str(match.id, 50) } },
   });
-  return { transitioned: true };
+  return status === 204
+    ? { transitioned: true, httpStatus: status }
+    : { transitioned: false, reason: 'ambiguous_response', httpStatus: status };
 }
 
 export async function listProjects(siteUrl: string, email: string, token: string): Promise<JiraProject[]> {

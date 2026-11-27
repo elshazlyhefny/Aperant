@@ -26,7 +26,7 @@ import type { AppSection } from './settings/AppSettings';
 import { useSettingsStore, saveSettings } from '../stores/settings-store';
 import { useActiveProvider } from '../hooks/useActiveProvider';
 import { PROVIDER_REGISTRY } from '@shared/constants/providers';
-import type { ProviderAccount, BuiltinProvider } from '../../shared/types/provider-account';
+import type { ProviderAccountView, BuiltinProvider } from '../../shared/types/provider-account';
 
 /**
  * Usage threshold constants for color coding
@@ -114,9 +114,9 @@ const getProviderName = (providerId: string): string => {
  * Check whether a provider account supports real-time usage monitoring.
  * Currently: Anthropic OAuth, OpenAI OAuth, and Z.AI / OpenRouter API key accounts.
  */
-const accountHasUsageMonitoring = (account: { provider: string; authType?: string; apiKey?: string }): boolean => {
+const accountHasUsageMonitoring = (account: { provider: string; authType?: string; hasApiKey?: boolean }): boolean => {
   if ((account.provider === 'anthropic' || account.provider === 'openai') && account.authType === 'oauth') return true;
-  if ((account.provider === 'zai' || account.provider === 'openrouter') && account.apiKey) return true;
+  if ((account.provider === 'zai' || account.provider === 'openrouter') && account.hasApiKey) return true;
   return false;
 };
 
@@ -358,7 +358,7 @@ export function UsageIndicator() {
       );
 
       // Helper: look up usage by claudeProfileId first, then by account id
-      const getUsage = (a: ProviderAccount) =>
+      const getUsage = (a: ProviderAccountView) =>
         (a.claudeProfileId ? profileUsageById.get(a.claudeProfileId) : undefined)
         ?? profileUsageById.get(a.id);
 

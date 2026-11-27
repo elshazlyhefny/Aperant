@@ -18,9 +18,12 @@ import {
   Wrench,
   Info,
   Brain,
-  Cpu
+  Cpu,
+  ArrowDown,
+  ArrowUp
 } from 'lucide-react';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '../ui/collapsible';
 import { cn } from '../../lib/utils';
 import { useSettingsStore } from '../../stores/settings-store';
@@ -38,6 +41,8 @@ interface TaskLogsProps {
   isStuck: boolean;
   logsEndRef: React.RefObject<HTMLDivElement | null>;
   logsContainerRef: React.RefObject<HTMLDivElement | null>;
+  isAwayFromLatest: boolean;
+  onJumpToLatest: () => void;
   onLogsScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   onTogglePhase: (phase: TaskLogPhase) => void;
 }
@@ -124,54 +129,96 @@ export function TaskLogs({
   isStuck,
   logsEndRef,
   logsContainerRef,
+  isAwayFromLatest,
+  onJumpToLatest,
   onLogsScroll,
   onTogglePhase
 }: TaskLogsProps) {
   const { t } = useTranslation(['tasks']);
   const rawLogs = useTaskLogsStore(selectTaskLogs(task.id));
+  const logOrder = useSettingsStore(s => s.settings.logOrder);
+  const isReverse = logOrder === 'reverse-chronological';
+  const JumpIcon = isReverse ? ArrowUp : ArrowDown;
+  const jumpLabel = t('tasks:logs.jumpToLatest');
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const buttonFocusedRef = useRef(false);
+
+  // Removing a focused button does not reliably fire blur.
+  useLayoutEffect(() => {
+    if (!isAwayFromLatest && buttonFocusedRef.current) {
+      buttonFocusedRef.current = false;
+      logsContainerRef.current?.focus({ preventScroll: true });
+    }
+  }, [isAwayFromLatest, logsContainerRef]);
+
   return (
-    <div
-      ref={logsContainerRef}
-      className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
-      onScroll={onLogsScroll}
-    >
-      <div className="p-4 space-y-2">
-        {isLoadingLogs ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : phaseLogs ? (
-          <>
-            {/* Phase-based collapsible logs */}
-            {(['planning', 'coding', 'validation'] as TaskLogPhase[]).map((phase) => (
-              <PhaseLogSection
-                key={phase}
-                phase={phase}
-                phaseLog={phaseLogs.phases[phase]}
-                isExpanded={expandedPhases.has(phase)}
-                onToggle={() => onTogglePhase(phase)}
-                isTaskStuck={isStuck}
-                isTaskSettled={task.status === 'human_review' || task.status === 'done' || task.status === 'pr_created' || task.status === 'error'}
-                phaseConfig={getPhaseConfig(task.metadata, phase)}
-                scrollContainerRef={logsContainerRef}
-              />
-            ))}
-            <div ref={logsEndRef} />
-          </>
-        ) : rawLogs.length > 0 ? (
-          // Fallback to legacy raw logs if no phase logs exist
-          <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all">
-            {rawLogs.join('\n')}
-            <div ref={logsEndRef} />
-          </pre>
-        ) : (
-          <div className="text-center text-sm text-muted-foreground py-8">
-            <Terminal className="mx-auto mb-2 h-8 w-8 opacity-50" />
-            <p>{t('tasks:logs.empty.title')}</p>
-            <p className="text-xs mt-1">{t('tasks:logs.empty.hint')}</p>
-          </div>
-        )}
+    <div className="relative h-full">
+      <div
+        ref={logsContainerRef}
+        tabIndex={-1}
+        className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent focus:outline-none"
+        onScroll={onLogsScroll}
+      >
+        <div className="p-4 space-y-2">
+          {isLoadingLogs ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : phaseLogs ? (
+            <>
+              {/* Phase-based collapsible logs */}
+              {(['planning', 'coding', 'validation'] as TaskLogPhase[]).map((phase) => (
+                <PhaseLogSection
+                  key={phase}
+                  phase={phase}
+                  phaseLog={phaseLogs.phases[phase]}
+                  isExpanded={expandedPhases.has(phase)}
+                  onToggle={() => onTogglePhase(phase)}
+                  isTaskStuck={isStuck}
+                  isTaskSettled={task.status === 'human_review' || task.status === 'done' || task.status === 'pr_created' || task.status === 'error'}
+                  phaseConfig={getPhaseConfig(task.metadata, phase)}
+                  scrollContainerRef={logsContainerRef}
+                />
+              ))}
+              <div ref={logsEndRef} />
+            </>
+          ) : rawLogs.length > 0 ? (
+            // Fallback to legacy raw logs if no phase logs exist
+            <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all">
+              {rawLogs.join('\n')}
+              <div ref={logsEndRef} />
+            </pre>
+          ) : (
+            <div className="text-center text-sm text-muted-foreground py-8">
+              <Terminal className="mx-auto mb-2 h-8 w-8 opacity-50" />
+              <p>{t('tasks:logs.empty.title')}</p>
+              <p className="text-xs mt-1">{t('tasks:logs.empty.hint')}</p>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* zeenha fork: keep the return to live logs within reach while auto-follow is paused. */}
+      {isAwayFromLatest && (
+        <Button
+          ref={buttonRef}
+          type="button"
+          variant="secondary"
+          size="sm"
+          onFocus={() => { buttonFocusedRef.current = true; }}
+          onBlur={() => { buttonFocusedRef.current = false; }}
+          onClick={onJumpToLatest}
+          aria-label={jumpLabel}
+          data-testid="task-logs-jump-to-latest"
+          className={cn(
+            'absolute left-1/2 z-10 -translate-x-1/2 gap-1.5 rounded-full shadow-md',
+            isReverse ? 'top-3' : 'bottom-3'
+          )}
+        >
+          <JumpIcon className="h-4 w-4" aria-hidden="true" />
+          <span className="text-xs">{jumpLabel}</span>
+        </Button>
+      )}
     </div>
   );
 }

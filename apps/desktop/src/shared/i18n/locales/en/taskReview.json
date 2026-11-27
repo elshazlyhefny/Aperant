@@ -4,6 +4,15 @@
     "openInbuilt": "Open in Inbuilt Terminal",
     "openExternal": "Open in External Terminal"
   },
+  "workspaceCheck": {
+    "statusFailedTitle": "Couldn't check workspace",
+    "statusFailedDescription": "The workspace status could not be read. This does not mean the workspace is missing. Retry to check again.",
+    "diffFailedTitle": "Couldn't load changed files",
+    "diffFailedDescription": "The list of changed files could not be loaded. Retry to load it again.",
+    "retrying": "Retrying...",
+    "actionsUnavailable": "Workspace actions are unavailable until the workspace check succeeds.",
+    "loadingChangedFiles": "Loading changed files..."
+  },
   "merge": {
     "branchHasNewCommits": "{{branch}} branch has {{count}} new commit.",
     "branchHasNewCommits_other": "{{branch}} branch has {{count}} new commits.",

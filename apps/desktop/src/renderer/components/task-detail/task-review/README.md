@@ -153,6 +153,10 @@ function MyComponent() {
       task={task}
       feedback={feedback}
       worktreeStatus={worktreeStatus}
+      worktreeStatusCheck={worktreeStatusCheck}
+      worktreeDiffCheck={worktreeDiffCheck}
+      onRetryWorktreeStatus={retryWorktreeStatus}
+      onRetryWorktreeDiff={retryWorktreeDiff}
       // ... other props
       onMerge={handleMerge}
       onDiscard={handleDiscard}

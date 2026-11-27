@@ -5,7 +5,7 @@
 import type { NotificationSettings, MemoryEmbeddingProvider } from './project';
 import type { ChangelogFormat, ChangelogAudience, ChangelogEmojiLevel } from './changelog';
 import type { SupportedLanguage } from '../constants/i18n';
-import type { ProviderAccount, BuiltinProvider } from './provider-account';
+import type { ProviderAccount, ProviderAccountView, BuiltinProvider } from './provider-account';
 import type { ProviderModelSpec } from '../constants/models';
 
 // Color theme types for multi-theme support
@@ -405,6 +405,11 @@ export interface AppSettings {
   // GPU acceleration for terminal rendering (WebGL)
   gpuAcceleration?: GpuAcceleration;
 }
+
+/** Settings returned to the renderer with credential-free provider account views. */
+export type RendererAppSettings = Omit<AppSettings, 'providerAccounts'> & {
+  providerAccounts?: ProviderAccountView[];
+};
 
 // GPU acceleration mode for terminal WebGL rendering
 export type GpuAcceleration = 'auto' | 'on' | 'off';
