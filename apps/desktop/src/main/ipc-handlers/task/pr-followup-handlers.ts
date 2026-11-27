@@ -5,8 +5,9 @@
  * Two entry points:
  * - TASK_PR_FEEDBACK_GET is read-only. It never starts anything.
  * - TASK_PR_FOLLOWUP_START is the only place a run starts. The renderer sends
- *   item IDs only. Main re-fetches the feedback from the code host (GitHub, GitLab or Bitbucket) and builds the
- *   request text itself, so renderer-supplied text can never reach the agent.
+ *   item IDs and the reviewed head revision. Main re-fetches feedback from the
+ *   code host (GitHub, GitLab, Bitbucket or Azure DevOps) and requires the same
+ *   revision. It builds the request text itself; the renderer sends no feedback text.
  */
 
 import { ipcMain } from 'electron';
@@ -30,6 +31,7 @@ import { notConfiguredBlockedReason } from '../../../shared/types/pr-feedback';
 import { getForgeById } from '../forge/registry';
 import { loadPRFeedback, resolvePRRef, type LoadPRFeedbackResult, type PRRef } from './pr-feedback-source';
 import { buildFollowUpRequest } from './pr-followup-request';
+import { isVerifiableRevision } from './pr-revision-guard';
 import { findTaskWorktree } from '../../worktree-paths';
 import { getToolPath } from '../../cli-tool-manager';
 import { getIsolatedGitEnv } from '../../utils/git-isolation';
@@ -60,6 +62,10 @@ const BLOCKED_MESSAGES: Record<PRFeedbackBlockedReason, string> = {
     'Azure DevOps is not configured for this project (organization, project, repository or token missing). Nothing was started.',
   branch_mismatch:
     "The task's worktree is not on the pull request branch, so the follow-up cannot push to the same PR. Nothing was started.",
+  head_changed:
+    'The pull request changed since you loaded the feedback (a new commit was pushed). Refresh, review the new revision and select again. Nothing was started.',
+  head_unverified:
+    'The pull request revision could not be verified, so the follow-up was not started. Refresh and try again. Nothing was started.',
 };
 
 /** Failure result for a feedback load that did not succeed. */
@@ -109,9 +115,9 @@ type WorktreeCheck =
   | { available: true; path: string }
   | { available: false; reason: 'missing' | 'not_a_worktree' | 'branch_mismatch' };
 
-function currentBranch(worktreePath: string): string | null {
+function readWorktreeGit(worktreePath: string, args: string[]): string | null {
   try {
-    return execFileSync(getToolPath('git'), ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    return execFileSync(getToolPath('git'), args, {
       cwd: worktreePath,
       encoding: 'utf-8',
       timeout: 15000,
@@ -126,7 +132,9 @@ function checkWorktree(project: Project, task: Task): WorktreeCheck {
   const wt = findTaskWorktree(project.path, task.specId);
   if (!wt || !existsSync(wt)) return { available: false, reason: 'missing' };
   if (!existsSync(path.join(wt, '.git'))) return { available: false, reason: 'not_a_worktree' };
-  if (currentBranch(wt) !== `auto-claude/${task.specId}`) return { available: false, reason: 'branch_mismatch' };
+  if (readWorktreeGit(wt, ['rev-parse', '--abbrev-ref', 'HEAD']) !== `auto-claude/${task.specId}`) {
+    return { available: false, reason: 'branch_mismatch' };
+  }
   return { available: true, path: wt };
 }
 
@@ -143,6 +151,7 @@ function firstBlock(args: {
   worktree: WorktreeCheck;
   prState: PRFeedbackResult['prState'];
   headRef: string;
+  headSha: string;
   specId: string;
   running: boolean;
   auth: boolean;
@@ -154,6 +163,7 @@ function firstBlock(args: {
   if (args.headRef !== `auto-claude/${args.specId}`) return 'branch_mismatch';
   if (args.running) return 'agent_running';
   if (!args.auth) return 'auth_required';
+  if (!isVerifiableRevision(args.headSha)) return 'head_unverified';
   return undefined;
 }
 
@@ -188,6 +198,7 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
         worktree,
         prState: fetched.prState,
         headRef: fetched.headRef,
+        headSha: fetched.headSha,
         specId: task.specId,
         running: agentManager.isRunning(task.id),
         auth: await checkAuth(),
@@ -208,8 +219,10 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
 
   ipcMain.handle(
     IPC_CHANNELS.TASK_PR_FOLLOWUP_START,
-    async (_, taskId: string, itemIds: unknown): Promise<PRFollowUpIPCResult<StartPRFollowUpResult>> => {
-      // 1. Validate input (IDs only).
+    async (
+      _, taskId: string, itemIds: unknown, expectedHeadSha: unknown
+    ): Promise<PRFollowUpIPCResult<StartPRFollowUpResult>> => {
+      // 1. Validate input (IDs and the reviewed revision only).
       if (
         !Array.isArray(itemIds) ||
         itemIds.length === 0 ||
@@ -217,6 +230,9 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
         !itemIds.every((id) => typeof id === 'string' && ITEM_ID_FORMAT.test(id))
       ) {
         return { success: false, code: 'invalid_items', error: 'Select at least one valid feedback item. Nothing was started.' };
+      }
+      if (!isVerifiableRevision(expectedHeadSha)) {
+        return { success: false, code: 'head_unverified', error: BLOCKED_MESSAGES.head_unverified };
       }
       const selected = new Set<string>(itemIds as string[]);
 
@@ -241,11 +257,17 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
         worktree,
         prState: fetched.prState,
         headRef: fetched.headRef,
+        headSha: fetched.headSha,
         specId: task.specId,
         running: agentManager.isRunning(task.id),
         auth: await checkAuth(),
       });
       if (blocked) return { success: false, code: blocked, error: BLOCKED_MESSAGES[blocked] };
+
+      // Both revisions came from the PR API; a shorter matching prefix is not enough.
+      if (fetched.headSha.toLowerCase() !== expectedHeadSha.toLowerCase()) {
+        return { success: false, code: 'head_changed', error: BLOCKED_MESSAGES.head_changed };
+      }
 
       const items = allItems(fetched);
       const known = new Set(items.map((i) => i.id));
@@ -258,6 +280,16 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
       }
       const chosen = items.filter((i) => selected.has(i.id));
 
+      const pushRemoteName = 'origin';
+      const pushUrl = readWorktreeGit(worktreePath, ['remote', 'get-url', '--push', pushRemoteName]);
+      if (!pushUrl) {
+        return {
+          success: false,
+          code: 'head_unverified',
+          error: "The worktree's push destination could not be read. Check its origin push URL, then refresh and try again. Nothing was started.",
+        };
+      }
+
       // 4. Build the request in main and write the marker + request into the worktree spec dir.
       const requestText = buildFollowUpRequest(chosen, { prUrl, prNumber, branch: fetched.headRef });
       const specDir = path.join(worktreePath, getSpecsDir(project.autoBuildPath), task.specId);
@@ -266,11 +298,13 @@ export function registerPRFollowUpHandlers(agentManager: AgentManager): void {
       // A stale marker with status 'running' is simply overwritten: the agent-running
       // check above already proved no run is active.
       const marker = {
-        version: 1,
+        version: 2,
         prUrl,
         prNumber,
         branch: fetched.headRef,
         headShaAtStart: fetched.headSha,
+        reviewedHeadSha: fetched.headSha,
+        pushRemote: { name: pushRemoteName, url: pushUrl },
         selectedItemIds: chosen.map((i) => i.id),
         startedAt: new Date().toISOString(),
         qaSignoffBefore: readRawQASignoff(path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN)),

@@ -75,7 +75,9 @@ function setStore(
     session: makeSession(messageCount),
     status: { phase },
     streamingContent: '',
-    currentTool: null
+    currentTool: null,
+    toolsUsed: [],
+    streamingTasks: []
   });
 }
 
@@ -91,6 +93,14 @@ function scrollUp(viewport: HTMLElement) {
   act(() => {
     viewport.scrollTop = 0;
     viewport.dispatchEvent(new Event('scroll'));
+  });
+}
+
+function finalizeReply() {
+  act(() => {
+    const { finalizeStreamingMessage, setStatus } = useInsightsStore.getState();
+    finalizeStreamingMessage();
+    setStatus({ phase: 'complete', message: '' });
   });
 }
 
@@ -124,6 +134,16 @@ describe('Insights auto-scroll', () => {
     expect(viewport.scrollTop).toBe(3000);
   });
 
+  it('keeps following successive streaming chunks at the bottom', () => {
+    const { viewport } = renderInsights();
+
+    for (const height of [2000, 2500, 3000]) {
+      scrollHeight = height;
+      act(() => useInsightsStore.getState().appendStreamingContent('more '));
+      expect(viewport.scrollTop).toBe(height);
+    }
+  });
+
   it('scrolls when a new message arrives', () => {
     const { viewport } = renderInsights();
     scrollHeight = 2600;
@@ -138,6 +158,65 @@ describe('Insights auto-scroll', () => {
     act(() => useInsightsStore.getState().appendStreamingContent('more'));
     expect(viewport.scrollTop).toBe(0);
     expect(screen.getByLabelText('insights.jumpToLatest')).toBeTruthy();
+  });
+
+  it('pauses following text and tools when scrolled up mid-stream and resumes near the bottom', () => {
+    const { viewport } = renderInsights();
+    act(() => useInsightsStore.getState().appendStreamingContent('first'));
+    expect(viewport.scrollTop).toBe(scrollHeight);
+
+    scrollUp(viewport);
+    for (const height of [2500, 3000]) {
+      scrollHeight = height;
+      act(() => useInsightsStore.getState().appendStreamingContent(' more'));
+      expect(viewport.scrollTop).toBe(0);
+    }
+    scrollHeight = 3200;
+    act(() => useInsightsStore.getState().setCurrentTool({ name: 'Read', input: 'x' }));
+    expect(viewport.scrollTop).toBe(0);
+
+    viewport.scrollTop = scrollHeight - clientHeight - 100;
+    fireEvent.scroll(viewport);
+    scrollHeight = 3500;
+    act(() => useInsightsStore.getState().appendStreamingContent(' last'));
+    expect(viewport.scrollTop).toBe(scrollHeight);
+  });
+
+  it('follows the finalized reply when it replaces the live reply at the bottom', () => {
+    const { viewport } = renderInsights();
+    const reply = 'streamed reply';
+    act(() => useInsightsStore.getState().appendStreamingContent(reply));
+    const liveReply = screen.getByText(reply);
+    expect(viewport.scrollTop).toBe(scrollHeight);
+
+    scrollHeight = 2500;
+    finalizeReply();
+
+    expect(viewport.scrollTop).toBe(scrollHeight);
+    expect(viewport.contains(liveReply)).toBe(false);
+    expect(screen.getAllByText(reply)).toHaveLength(1);
+    expect(screen.queryByLabelText('insights.jumpToLatest')).toBeNull();
+  });
+
+  it('keeps the scroll position when the reply is finalized while scrolled up', () => {
+    const { viewport } = renderInsights();
+    act(() => useInsightsStore.getState().appendStreamingContent('streamed reply'));
+    scrollUp(viewport);
+    expect(screen.getByLabelText('insights.jumpToLatest')).toBeTruthy();
+
+    scrollHeight = 2500;
+    finalizeReply();
+
+    expect(viewport.scrollTop).toBe(0);
+  });
+
+  it('scrolls to the bottom when a tool indicator appears', () => {
+    const { viewport } = renderInsights();
+    scrollHeight = 2500;
+    act(() => useInsightsStore.getState().setCurrentTool({ name: 'Read', input: 'x' }));
+
+    expect(screen.getByText('insights.tools.reading')).toBeTruthy();
+    expect(viewport.scrollTop).toBe(scrollHeight);
   });
 
   it('jump button scrolls to the bottom and disappears', () => {

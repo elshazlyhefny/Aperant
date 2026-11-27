@@ -61,7 +61,8 @@ export function getQueueLockPath(projectPath: string): string {
   return path.join(projectPath, '.auto-claude', '.locks', 'queue-runner.lock');
 }
 
-function defaultIsPidAlive(pid: number): boolean {
+/** Probe a local process without sending a signal. */
+export function isQueueLockPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -107,6 +108,18 @@ export function formatLockHolder(holder: QueueLockHolder | null): string {
   return `${who} (pid ${holder.pid} on host ${holder.host}, since ${holder.startedAt})`;
 }
 
+/** zeenha fork: allow read-only checks to use the same rule as lock takeover. */
+export function isQueueLockHolderStale(
+  holder: QueueLockHolder,
+  { now, hostname, isPidAlive, staleMs = DEFAULT_STALE_MS }: Required<
+    Pick<QueueLockOptions, 'now' | 'hostname' | 'isPidAlive'>
+  > & Pick<QueueLockOptions, 'staleMs'>
+): boolean {
+  if (holder.host === hostname && !isPidAlive(holder.pid)) return true;
+  const beat = Date.parse(holder.heartbeatAt);
+  return Number.isNaN(beat) || now() - beat > staleMs;
+}
+
 export function acquireProjectQueueLock(
   projectPath: string,
   kind: QueueLockKind,
@@ -114,7 +127,7 @@ export function acquireProjectQueueLock(
 ): AcquireResult {
   const now = opts.now ?? Date.now;
   const host = opts.hostname ?? osHostname();
-  const isPidAlive = opts.isPidAlive ?? defaultIsPidAlive;
+  const isPidAlive = opts.isPidAlive ?? isQueueLockPidAlive;
   const heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   const staleMs = opts.staleMs ?? DEFAULT_STALE_MS;
   const lockPath = getQueueLockPath(projectPath);
@@ -141,9 +154,7 @@ export function acquireProjectQueueLock(
         return false;
       }
     }
-    if (existing.host === host && !isPidAlive(existing.pid)) return true;
-    const beat = Date.parse(existing.heartbeatAt);
-    return Number.isNaN(beat) || now() - beat > staleMs;
+    return isQueueLockHolderStale(existing, { now, hostname: host, isPidAlive, staleMs });
   };
 
   const tryCreate = (): boolean => {

@@ -39,11 +39,20 @@ The headless command runs one existing spec through the planner, coder and QA pi
 
 ### Prerequisites
 
-- Node 22 or newer.
-- Dependencies installed with `npm run install:all`.
-- A build: `npm run build` in `apps/desktop`. This produces `apps/desktop/out/main/cli.js`.
 - The project is a git repository.
 - A spec at `.auto-claude/specs/<id>/spec.md`, or create one with `new`. `.auto-claude/` is gitignored in this repository, so a CI job must create or restore the spec before it runs `run`.
+
+#### Building from source
+
+Use Node 24 or newer and npm 10 or newer. Run `npm ci --ignore-scripts` at the checkout root, then run `npm run build` in `apps/desktop`. This produces `apps/desktop/out/main/cli.js`. The CLI does not need Electron's install scripts.
+
+#### Running a built CLI
+
+Use Node 24 or newer. Node 22 is not verified for runtime use.
+
+Keep `apps/desktop/out/` in the checkout. The bundle loads dependencies from the installed `node_modules` and prompts from `apps/desktop/prompts`.
+
+The [`cli-build` and `cli-runtime` jobs](../.github/workflows/ci.yml) check the source build and smoke-test that same build. The runtime smoke is required on Node 24 and informational on Node 22.
 
 ### Creating a spec from a description
 
@@ -106,6 +115,26 @@ npm run cli -- run <spec> ...
 - `--json` prints one JSON object per line on stdout: `{"type":"progress",...}`, `{"type":"log",...}`, `{"type":"task-event",...}`, `{"type":"token-budget",...}` and a final `{"type":"result","kind":...,"exitCode":...}`.
 - The last line in text mode is `RESULT <kind> exit=<code> spec=<id> branch=<branch> worktree=<path>`, where `kind` is `success`, `qa_failed` or `error`.
 - Errors and the failure reason go to stderr (`error: ...`, `reason: ...`). Output has ANSI codes stripped and known secret values replaced with `[REDACTED]`.
+
+### Delivery receipts
+
+Outcome notifications and issue updates are reported separately from the build. Standalone `run` prints `DELIVERY` lines (or one `delivery-receipts` event in `--json` mode) when there are receipts, before the final build result. In `serve --json`, the daemon reports receipts separately after saving the task status; use `taskId` to correlate them with build events. Delivery does not change task status, the final `result` event, or the build exit code.
+
+Read saved history without running the task again, even after an interrupted run:
+
+```bash
+node apps/desktop/out/main/cli.js receipts 001-demo --project ./my-project --json
+# or, from apps/desktop
+npm run cli -- receipts 001-demo --project ../../my-project --json
+```
+
+`--project` defaults to the current directory. Omit `--json` for text. JSON mode prints one line, for example:
+
+```json
+{"type":"delivery-receipts","spec":"001-demo","receipts":[{"id":"9bbb4452-2b19-4a58-ac44-82d44c44ca9e","operation":"webhook","provider":"slack","event":"review_ready","createdAt":"2026-11-27T12:00:00.000Z","status":"unknown","reason":"unconfirmed"}]}
+```
+
+`receipts` is read-only: it does not load delivery credentials, start a worker, or send or replay anything. It exits `0` on a successful read (including empty history) and `1` if the project, task, or history cannot be read. See [how to interpret delivery history](notifications-and-webhooks.md#delivery-history).
 
 ### Credentials
 
@@ -210,7 +239,7 @@ Differences from the app:
 
 ### GitHub Actions example
 
-This workflow starts when an issue gets the `aperant` label. It assumes the job has written the spec to `.auto-claude/specs/issue-<number>/spec.md`.
+This workflow starts when an issue gets the `aperant` label. It assumes the job has written the spec to `.auto-claude/specs/issue-<number>/spec.md`. The `cli-build` job runs the same install and build steps on every change.
 
 ```yaml
 name: aperant-task
@@ -234,10 +263,12 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: npm run install:all
-      - run: npm run build
+          node-version: 24
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Build application
         working-directory: apps/desktop
+        run: npm run build
       - name: Write the spec
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
@@ -284,6 +315,8 @@ The issue text is again passed through `env`. The later steps need the spec id f
 
 ### Troubleshooting
 
+- Start with [`check`](#checking-readiness-before-a-run) using the same spec, project, config and base branch. Fix any blocking setup problems before retrying `run`.
+
 Exit code 1:
 
 - `No credentials found. Set one of: ...`: set one of the variables listed above, or pass `--config` with `providerAccounts`.
@@ -299,6 +332,105 @@ Any exit code:
 - `warning: webhook ...` on stderr: the webhook URL was rejected or delivery failed. The exit code is not affected. Check the URL rules in [notifications-and-webhooks.md](notifications-and-webhooks.md#url-rules).
 
 Exit code 2: QA did not pass. Read `qa_report.md` in the worktree's spec directory, `.auto-claude/worktrees/tasks/<id>/.auto-claude/specs/<id>/qa_report.md`, for the remaining issues.
+
+## Checking readiness before a run
+
+Use `check` to catch locally verifiable setup problems before starting `run` or `serve`. It uses the same CLI build as `run`.
+
+```bash
+node apps/desktop/out/main/cli.js check [<spec>] [--project <dir>] [--config <file>] \
+  [--base-branch <b>] [--daemon] [--json]
+
+# or, from apps/desktop
+npm run cli -- check ...
+```
+
+| Flag | Purpose |
+|------|---------|
+| `--project <dir>` | Project directory. Default: the current directory. |
+| `--config <file>` | Same JSON config file as for `run` (see [Credentials](#credentials)). |
+| `--base-branch <b>` | Override the base branch. Otherwise use `.aperant.json`, then `project.mainBranch` in the config, then `main`. |
+| `--daemon` | Check for a conflicting queue owner and use `serve`'s stricter webhook configuration rules. |
+| `--json` | Print one JSON report on stdout instead of a text report. |
+
+By default, `check` looks for a Git repository with a commit and a locally available base ref (remote-tracking `origin/<base>` or local `<base>`). It does not fetch. It also checks the config file and recognized settings, webhook configuration, availability of tools for the selected Bash sandbox mode, and local credentials for a default run.
+
+Pass a spec id or a path to a spec directory inside the selected checkout's `.auto-claude/specs/` to check that `spec.md` exists, inspect metadata, report the [effective token budget](#token-budget), and check local credential configuration for the planning, coding and QA phases instead of the default run.
+
+### Stable check codes
+
+| Code | Meaning |
+|------|---------|
+| `git.repository` | The selected directory is inside a Git working tree. |
+| `git.commit` | `HEAD` resolves to a commit. |
+| `git.base_ref` | A local or locally tracked remote ref exists for the resolved base branch. |
+| `config.file` | The explicit config file loads and passes schema checks, or defaults are used. |
+| `config.values` | Project settings such as `bashSandbox` and `webFetchProvider` are recognized. |
+| `config.webhook` | The webhook is checked locally, without sending anything. Invalid URLs warn for `run` and can block `serve`. |
+| `sandbox.tools` | The configured Bash sandbox mode is off or supported with its required tool available. |
+| `queue.owner` | In daemon mode, checks whether another process holds the project queue lock. |
+| `spec.found` | The requested spec has a `spec.md` file. |
+| `spec.metadata` | `task_metadata.json` is readable and parses as JSON, or defaults are used. |
+| `budget.effective` | The effective token limit, or unlimited (`details.tokenBudget` is `null`). |
+| `credentials.default` | Local credential configuration for a default run when no spec is supplied. |
+| `credentials.planning` | Local credential configuration for the spec's planning phase. |
+| `credentials.coding` | Local credential configuration for the spec's coding phase. |
+| `credentials.qa` | Local credential configuration for the spec's QA phase. |
+| `credentials.remote` | Token validity, scopes and quotas are not tested. |
+
+### Statuses and exit codes
+
+| Status | Meaning |
+|--------|---------|
+| `valid` | The local check passed. For credentials, this can mean a key is configured, not that the provider accepts it. |
+| `unavailable` | A required local prerequisite is missing, invalid or unsupported. |
+| `unverified` | The check did not verify the prerequisite, for example when an OAuth profile is configured but the keychain has not been read. |
+| `warning` | A non-blocking issue, such as an unrecognized setting with a fallback. |
+| `not_applicable` | The check does not apply or was skipped because a prerequisite failed. |
+
+Token validity, scopes and quotas are never tested because verifying them requires a provider request. `check` is read-only: it starts no worker, refreshes no credentials, reads neither the OS keychain nor token-file contents, makes no network requests, and writes no files or locks. Known secrets and webhook URLs are redacted in text and JSON output.
+
+Exit code **0** means ready: there were no blocking problems, though warnings or unverified items may remain. Exit code **1** means a blocking problem (`status: "unavailable"` and `blocking: true`) or a CLI usage error.
+
+### JSON output
+
+For a completed check, `--json` prints one report with this shape (example `checks` array abbreviated):
+
+```json
+{
+  "version": 1,
+  "ok": true,
+  "mode": "run",
+  "project": "/path/to/project",
+  "spec": "001-my-spec",
+  "checks": [
+    {
+      "code": "budget.effective",
+      "status": "valid",
+      "blocking": false,
+      "message": "500000 tokens",
+      "details": { "tokenBudget": 500000, "source": "task_metadata.json" }
+    }
+  ]
+}
+```
+
+`mode` is `run` or `daemon`. `project` is the resolved Git root or `null`, and `spec` is the reported spec id or `null`. Each check has a stable `code`, `status`, `blocking` and `message`, and may include `guidance` or a `details` object. Use `ok`, `code` and `status` for automation rather than matching the message text.
+
+### Using the check in GitHub Actions
+
+After building the CLI and preparing `.auto-claude/specs/001-my-spec/spec.md` and `ci.json`, put the readiness check before the run step. Give both steps the same credential environment and setup options. A blocking check fails the step, so GitHub Actions skips the run step by default.
+
+```yaml
+      - name: Check readiness
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node apps/desktop/out/main/cli.js check 001-my-spec --config ci.json --json
+      - name: Run the task
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node apps/desktop/out/main/cli.js run 001-my-spec --config ci.json
+```
 
 ## Listing and queueing tasks
 
@@ -333,9 +465,11 @@ npm run cli -- stop <spec> ...
 - **Everything else continues.** Other running tasks and the schedules are not affected.
 - Exit codes: 0 (request sent) and 1 (error, including when no daemon holds the project's lock).
 
+From the desktop app, use **Stop on daemon**; see [Using the desktop app while serve runs](#using-the-desktop-app-while-serve-runs).
+
 ## Running the queue and schedules as a daemon
 
-`serve` runs one project's task queue and its recurring schedules without opening the app, until you stop it. Use it on a server or a machine where the app is not open. It needs the same prerequisites as `run` (Node 22 or newer, a build, a git repository) and the same [credentials](#credentials).
+`serve` runs one project's task queue and its recurring schedules without opening the app, until you stop it. Use it on a server or a machine where the app is not open. It needs a git repository, the same [built CLI and Node runtime](#running-a-built-cli) as `run`, and the same [credentials](#credentials).
 
 ### Command
 
@@ -377,6 +511,31 @@ Cannot start: project queue is already run by <holder>
 ```
 
 and exits with code 3. Stop the other process (close the app, or stop the other daemon) and start `serve` again.
+
+Use [`check --daemon`](#checking-readiness-before-a-run) to report a conflicting queue owner in advance (the condition that causes `serve` to exit 3), without taking the lock.
+
+### Using the desktop app while serve runs
+
+- **The banner.** When another process holds a project's queue lock, that project's Kanban board shows "Queue is run by `<holder>`". The holder looks like `daemon (pid 1234 on host build-01, since 2026-11-27T10:00:00.000Z)` or `desktop app (...)` if another app instance holds the lock. The second line reads "The desktop queue and schedules are paused for it until it stops." The app takes the lock at startup. If the app holds it first, `serve` exits with code 3 (see [The lock](#the-lock)). The daemon banner appears when `serve` took the lock first and still holds it.
+- **What is paused in the app.** The app does not start queued tasks for this project. The daemon starts them instead, including tasks you queue from the app or with `queue <spec>`. The app's schedules do not create tasks, and **Run now** is refused. A due run stays due until the lock is released. The next schedule check applies the usual rules, including creating one catch-up task for [missed runs](recurring-tasks.md#missed-runs). The daemon runs schedules from [its own schedules file](#the-schedules-file), not the app's. Other projects are unaffected.
+- **Opening a daemon-run task.** When the daemon holds the lock, the banner shows "Running in the daemon:" if any tasks in `.auto-claude/.locks/serve-running.json` are still **In Progress** on the board. Each listed task has a button. Click its name to open the task's detail dialog. Tasks that have left **In Progress** are not listed.
+- **Stop on daemon.** This replaces **Stop** on the task card and in the detail dialog footer, but only for tasks that are **In Progress** and listed by the daemon. Desktop-run tasks keep the normal **Stop**. The button writes the same request file as [`cli.js stop <spec>`](#stopping-one-task). There is no network port.
+- **Why it stays pending.** The button is disabled and reads "Stopping on daemon..." with the tooltip "Waiting for the daemon to stop this task". The daemon reads requests on its 30-second safety interval, so it can take about 30 seconds to pick up the request. The app checks every 2 seconds, for up to 3 minutes. It treats the task leaving **In Progress** as confirmation.
+- **What it stops.** Only the selected task. It moves to **Human Review** with the reason `stopped` and its stuck subtasks reset. It is not requeued. The daemon keeps running, and other running tasks and schedules continue. To stop the whole daemon with SIGTERM or SIGINT, see [Stopping](#stopping). To put the task back in the **Queue** instead, use [`cli.js stop <spec> --requeue`](#stopping-one-task). The app has no requeue option.
+
+**Troubleshooting**
+
+**No Stop on daemon button.** Check that the task is **In Progress** and the banner names a daemon. If another desktop instance holds the lock, use **Stop** in that instance. The daemon may not have listed the task in `serve-running.json` yet. If the board's queue state is stale, switch to another project and back, or reopen the app to reload it.
+
+**"No daemon is running, so the task cannot be stopped from here."** No live daemon holds this project's lock. Check whether `serve` is still running for this project and reload the board.
+
+**"This task is not running on the daemon."** The daemon's `serve-running.json` does not list the task. Check its current status and reload the board before retrying.
+
+**"The daemon released the task without stopping it. Check its status."** The app could no longer find a live daemon holding the lock while the task was still **In Progress**. The app tries to delete the leftover request so a later daemon does not apply it. Check the task's status. On restart, the daemon recovers tasks it left running by putting them back in the **Queue** (see [Stopping](#stopping)).
+
+**"The daemon did not stop the task in time. Try again."** The app did not see the task leave **In Progress** within 3 minutes. Check that the daemon is still running and review its output (`--verbose` or `--json` if enabled). Then retry or use [`cli.js stop <spec>`](#stopping-one-task).
+
+_Keep this section in sync with `DaemonQueueBanner.tsx`, `useDaemonStop.ts`, `daemon-stop.ts` and `ipc-handlers/daemon-stop-handlers.ts`._
 
 ### The schedules file
 

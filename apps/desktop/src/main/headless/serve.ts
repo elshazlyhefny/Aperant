@@ -24,6 +24,7 @@ import type { Project, ReviewReason, Task, TaskStatus } from '../../shared/types
 import type { WebhookSettings } from '../../shared/types/settings';
 import type { RecurringSchedule } from '../../shared/types/schedule';
 import type { WorkerBridgeCoreOptions } from '../ai/agent/worker-bridge-core';
+import { createDeliveryReceiptRecorder } from '../delivery-receipts';
 import { createScheduleFileStore } from '../schedule-file-store';
 import { createScheduleService, readTaskTokensFromDisk } from '../schedule-service';
 import { TaskQueueManager } from '../task-queue-manager';
@@ -36,17 +37,18 @@ import { dispatchTaskOutcomeWebhookWith, mapOutcomeToWebhookEvent } from '../web
 import { loadHeadlessConfig } from './config';
 import type { HeadlessConfig } from './config';
 import { EXIT_ERROR } from './outcome';
+import { createProgressReporter } from './progress';
 import { runHeadlessTaskDetailed } from './run-task';
 import { consumeStopRequests } from './stop-request';
 import type { HeadlessBridge, HeadlessRunResult } from './run-task';
 import {
+  createHeadlessTaskReader,
   createScheduledTaskSpec,
-  listHeadlessTasks,
   resetStuckSubtasks,
   setTaskStatus,
 } from './task-store';
 import type { HeadlessProject } from './task-store';
-import { AUTO_BUILD_PATH, findGitRoot } from './shared';
+import { AUTO_BUILD_PATH, findGitRoot, resolveDeliveryReceiptRoot } from './shared';
 import { resolveServeWebhookSettings } from './webhook';
 import { reportOutcomeToSource, resolveHeadlessWritebackSettings } from './writeback';
 import type { HeadlessWritebackSettings } from './writeback';
@@ -117,7 +119,12 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const rawOut = options.out ?? ((t: string) => void process.stdout.write(t));
   const rawErr = options.err ?? ((t: string) => void process.stderr.write(t));
   const now = options.now ?? Date.now;
-  const log = (message: string) => rawOut(`${new Date(now()).toISOString()} ${message}\n`);
+  const log = (message: string, taskId?: string) => {
+    const timestamp = new Date(now()).toISOString();
+    rawOut(options.json
+      ? `${JSON.stringify({ type: 'daemon-log', timestamp, taskId, message })}\n`
+      : `${timestamp} ${message}\n`);
+  };
 
   let projectPath: string;
   let config: HeadlessConfig;
@@ -134,6 +141,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
   }
 
   const realProjectPath = realpathSync(projectPath);
+  const receiptRoot = resolveDeliveryReceiptRoot(realProjectPath);
   const projectId = options.projectId ?? `headless:${realProjectPath}`;
   const project: Project = {
     id: projectId,
@@ -157,8 +165,13 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const lock = acquired.lock;
   lock.startHeartbeat();
 
+  // zeenha fork: queue and schedule passes share one cache, but still rediscover
+  // specs and check freshness so an external queue command is seen on the next pass.
+  const taskReader = createHeadlessTaskReader(headlessProject);
+
   const runningFile = getServeRunningPath(projectPath);
   const runs = new Map<string, ActiveRun>();
+  const deliveries = new Set<Promise<void>>();
   let stopping = false;
 
   const writeRunningFile = () => {
@@ -174,24 +187,27 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const resetPlans = async (specId: string) => {
     for (const specPath of findAllSpecPaths(projectPath, specsBaseDir, specId, '[headless-serve]')) {
       const planPath = path.join(specPath, 'implementation_plan.json');
-      if (existsSync(planPath)) await resetStuckSubtasks(planPath);
+      if (existsSync(planPath)) await resetStuckSubtasks(planPath, taskReader.cache);
     }
   };
   const requeue = async (specId: string) => {
     try {
       await resetPlans(specId);
-      await setTaskStatus(headlessProject, specId, 'queue');
+      await setTaskStatus(headlessProject, specId, 'queue', undefined, taskReader.cache);
     } catch (error) {
-      log(`Could not requeue ${specId}: ${error instanceof Error ? error.message : String(error)}`);
+      log(`Could not requeue ${specId}: ${error instanceof Error ? error.message : String(error)}`, specId);
     }
   };
 
   // (3) startup recovery
-  for (const taskId of readServeRunningTaskIds(projectPath)) {
-    const task = listHeadlessTasks(headlessProject).find((t) => t.id === taskId);
-    if (task?.status === 'in_progress') {
-      log(`Recovering ${taskId} left running by a previous daemon`);
-      await requeue(taskId);
+  const runningIds = new Set(readServeRunningTaskIds(projectPath));
+  if (runningIds.size > 0) {
+    const snapshot = taskReader.snapshotById();
+    for (const taskId of runningIds) {
+      if (snapshot.get(taskId)?.status === 'in_progress') {
+        log(`Recovering ${taskId} left running by a previous daemon`, taskId);
+        await requeue(taskId);
+      }
     }
   }
   rmSync(runningFile, { force: true });
@@ -206,7 +222,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const dispatchWriteback = options.dispatchWriteback ?? reportOutcomeToSource;
 
   // (4) queue and schedules
-  const getTasks = (): Task[] => listHeadlessTasks(headlessProject);
+  const getTasks = (): Task[] => taskReader.list();
   let mutex: Promise<unknown> = Promise.resolve();
   const exclusive = <T>(fn: () => Promise<T>): Promise<T> => {
     const next = mutex.then(fn, fn);
@@ -216,6 +232,47 @@ export async function runServe(options: ServeOptions): Promise<number> {
 
   let queue: TaskQueueManager;
   let scheduleService: ReturnType<typeof createScheduleService>;
+
+  const deliverOutcome = async (taskId: string, title: string, status: TaskStatus, reviewReason?: ReviewReason, prUrl?: string) => {
+    const recorder = createDeliveryReceiptRecorder(receiptRoot, taskId);
+    const warn = (message: string) => log(message, taskId);
+    // Start both independently, as before, so one provider does not delay the other.
+    const webhook = async () => {
+      try {
+        await dispatchWebhook(webhookSettings, { status, reviewReason, projectName: project.name, taskTitle: title }, { recorder });
+      } catch {
+        warn(`Webhook for ${taskId} failed`);
+      }
+    };
+    const writeback = async () => {
+      const event = mapOutcomeToWebhookEvent(status, reviewReason) ?? 'failed';
+      // Account pauses stay webhook-only.
+      if (event === 'account_required') return;
+      try {
+        await dispatchWriteback({
+          settings: writebackSettings,
+          project,
+          specDirs: findAllSpecPaths(projectPath, specsBaseDir, taskId, '[headless-serve]'),
+          event,
+          title,
+          prUrl,
+          recorder,
+          warn,
+        });
+      } catch {
+        warn(`Write-back for ${taskId} failed`);
+      }
+    };
+    await Promise.allSettled([webhook(), writeback()]);
+    const receipts = recorder.snapshot();
+    if (receipts.length) {
+      createProgressReporter({
+        json: options.json,
+        taskId,
+        out: options.json ? rawOut : prefixLines(`[${taskId}] `, rawOut),
+      }).deliveryReceipts(taskId, receipts);
+    }
+  };
 
   const settle = async (taskId: string, run: ActiveRun, result: HeadlessRunResult | undefined, failure?: string) => {
     let status: TaskStatus = 'error';
@@ -247,56 +304,31 @@ export async function runServe(options: ServeOptions): Promise<number> {
     try {
       if (run.stopReason === 'stop') {
         await resetPlans(taskId);
-        await setTaskStatus(headlessProject, taskId, 'human_review', 'stopped');
-        log(`${taskId} stopped by request`);
+        await setTaskStatus(headlessProject, taskId, 'human_review', 'stopped', taskReader.cache);
+        log(`${taskId} stopped by request`, taskId);
       } else if (run.stopReason === 'stop-requeue') {
         await requeue(taskId);
-        log(`${taskId} stopped by request, back in the queue`);
+        log(`${taskId} stopped by request, back in the queue`, taskId);
       } else if (interrupted) {
         await requeue(taskId);
-        log(`${taskId} interrupted, back in the queue`);
+        log(`${taskId} interrupted, back in the queue`, taskId);
       } else {
-        await setTaskStatus(headlessProject, taskId, status, reviewReason);
-        log(`${taskId} finished: ${status}${reviewReason ? ` (${reviewReason})` : ''}${reason ? ` - ${reason}` : ''}`);
+        await setTaskStatus(headlessProject, taskId, status, reviewReason, taskReader.cache);
+        log(`${taskId} finished: ${status}${reviewReason ? ` (${reviewReason})` : ''}${reason ? ` - ${reason}` : ''}`, taskId);
       }
     } catch (error) {
-      log(`Could not save the status of ${taskId}: ${error instanceof Error ? error.message : String(error)}`);
+      log(`Could not save the status of ${taskId}: ${error instanceof Error ? error.message : String(error)}`, taskId);
     }
 
     runs.delete(taskId);
     writeRunningFile();
 
-    if (!interrupted) {
-      try {
-        dispatchWebhook(webhookSettings, {
-          status,
-          reviewReason,
-          projectName: project.name,
-          taskTitle: run.title,
-        });
-      } catch (error) {
-        log(`Webhook for ${taskId} failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      // zeenha fork: an account pause is resumable and goes to the webhook only.
-      // It is never written back to the issue (not even as failed): each paused
-      // retry would post another public comment.
-      const writebackEvent = mapOutcomeToWebhookEvent(status, reviewReason) ?? 'failed';
-      if (writebackEvent !== 'account_required') {
-        try {
-          // Awaited, so shutdown (which waits on run.done) does not drop a pending write.
-          await dispatchWriteback({
-            settings: writebackSettings,
-            project,
-            specDirs: findAllSpecPaths(projectPath, specsBaseDir, taskId, '[headless-serve]'),
-            event: writebackEvent,
-            title: run.title,
-            prUrl: result?.outcome?.prUrl,
-            warn: log,
-          });
-        } catch (error) {
-          log(`Write-back for ${taskId} failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
+    // zeenha fork: settlement owns delivery, but it no longer occupies a build slot.
+    const delivery = interrupted ? undefined : deliverOutcome(taskId, run.title, status, reviewReason, result?.outcome?.prUrl)
+      .catch(() => { rawErr('Could not report delivery receipts\n'); });
+    if (delivery) {
+      deliveries.add(delivery);
+      void delivery.then(() => deliveries.delete(delivery));
     }
 
     if (!stopping) {
@@ -305,10 +337,12 @@ export async function runServe(options: ServeOptions): Promise<number> {
           run.stopReason === 'stop' ? 'human_review' : interrupted ? 'queue' : status;
         await queue.onTaskStatusChanged(taskId, newStatus, projectId);
       } catch (error) {
-        log(`Queue update failed: ${error instanceof Error ? error.message : String(error)}`);
+        log(`Queue update failed: ${error instanceof Error ? error.message : String(error)}`, taskId);
       }
       scheduleService.onAgentExit(taskId);
     }
+    // A shutdown that captured run.done before settlement still drains this delivery.
+    await delivery;
   };
 
   const startTask = (taskId: string): Promise<void> =>
@@ -323,12 +357,12 @@ export async function runServe(options: ServeOptions): Promise<number> {
       ).length;
       if (active >= limit()) throw new Error(`parallel limit reached (${limit()})`);
 
-      await setTaskStatus(headlessProject, taskId, 'in_progress');
+      await setTaskStatus(headlessProject, taskId, 'in_progress', undefined, taskReader.cache);
       const controller = new AbortController();
       const run = { controller, title: task.title } as ActiveRun;
       runs.set(taskId, run);
       writeRunningFile();
-      log(`Starting ${taskId}`);
+      log(`Starting ${taskId}`, taskId);
 
       run.done = (async () => {
         let result: HeadlessRunResult | undefined;
@@ -350,7 +384,8 @@ export async function runServe(options: ServeOptions): Promise<number> {
             verbose: options.verbose,
             workerPath: options.workerPath,
             createBridge: options.createBridge,
-            out: prefixLines(`[${taskId}] `, rawOut),
+            taskId,
+            out: options.json ? rawOut : prefixLines(`[${taskId}] `, rawOut),
             err: prefixLines(`[${taskId}] `, rawErr),
           });
         } catch (error) {
@@ -376,27 +411,21 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const scheduleStore = createScheduleFileStore(
     options.schedulesPath ?? path.join(projectPath, AUTO_BUILD_PATH, 'schedules.json')
   );
-  const originalProjectIds = new Map<string, string>();
   const listSchedules = (): RecurringSchedule[] =>
     scheduleStore
       .listSchedules()
       .filter((s) => !options.projectId || s.projectId === options.projectId)
-      .map((s) => {
-        originalProjectIds.set(s.id, s.projectId);
-        return { ...s, projectId };
-      });
+      .map((s) => ({ ...s, projectId }));
 
   scheduleService = createScheduleService({
     now,
     listSchedules,
-    saveSchedule: (schedule) => {
-      scheduleStore.saveSchedule({ ...schedule, projectId: originalProjectIds.get(schedule.id) ?? schedule.projectId });
-    },
+    updateSchedule: async (id, mutator) => (await scheduleStore.updateSchedule(id, mutator)) !== undefined,
     getProject: (id) => (id === projectId ? project : undefined),
     listTasks: () => getTasks(),
     createTask: async (_projectId, template, scheduleId, scheduledFor) => {
-      const task = await createScheduledTaskSpec(headlessProject, template, scheduleId, scheduledFor);
-      await setTaskStatus(headlessProject, task.id, 'queue');
+      const task = await createScheduledTaskSpec(headlessProject, template, scheduleId, scheduledFor, taskReader.cache);
+      await setTaskStatus(headlessProject, task.id, 'queue', undefined, taskReader.cache);
       return task.id;
     },
     startTask,
@@ -429,11 +458,11 @@ export async function runServe(options: ServeOptions): Promise<number> {
     for (const request of consumeStopRequests(projectPath, log)) {
       const run = runs.get(request.specId);
       if (!run) {
-        log(`Stop requested for ${request.specId}, but it is not running`);
+        log(`Stop requested for ${request.specId}, but it is not running`, request.specId);
         continue;
       }
       run.stopReason = request.requeue ? 'stop-requeue' : 'stop';
-      log(`Stopping ${request.specId}`);
+      log(`Stopping ${request.specId}`, request.specId);
       run.controller.abort('stop requested');
     }
   };
@@ -468,7 +497,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
         run.stopReason ??= 'shutdown';
         run.controller.abort('shutdown');
       }
-      const pending = [...runs.values()].map((r) => r.done);
+      const pending = [...[...runs.values()].map((r) => r.done), ...deliveries];
       const timeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
       let timeout: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
@@ -479,7 +508,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
       ]);
       if (timeout) clearTimeout(timeout);
       for (const taskId of [...runs.keys()]) {
-        log(`${taskId} did not stop in time, requeueing`);
+        log(`${taskId} did not stop in time, requeueing`, taskId);
         await requeue(taskId);
         runs.delete(taskId);
       }

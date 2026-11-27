@@ -26,6 +26,8 @@ import {
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
 import { createOrGetWorktree } from '../ai/worktree/worktree-manager';
 import { phaseConnectionResolver } from '../ai/agent/phase-connection';
+import { createDeliveryReceiptRecorder, type DeliveryReceiptRecorder } from '../delivery-receipts';
+import { isValidTaskId } from '../utils/spec-path-helpers';
 import { resolveHeadlessPhaseFallback, resolveHeadlessAuth, type HeadlessAuthResult } from './auth';
 import { loadHeadlessConfig, mcpOptionsForHeadless, resolveProjectSettings } from './config';
 import type { HeadlessConfig } from './config';
@@ -34,7 +36,15 @@ import type { HeadlessBridge } from './bridge-run';
 import { classifyRun, EXIT_ERROR } from './outcome';
 import type { RunOutcome } from './outcome';
 import { createProgressReporter } from './progress';
-import { AUTO_BUILD_PATH, findGitRoot, HeadlessSetupError, providerPhaseModels } from './shared';
+import type { ResultInfo } from './progress';
+import {
+  AUTO_BUILD_PATH,
+  findGitRoot,
+  HeadlessSetupError,
+  providerPhaseModels,
+  resolveDeliveryReceiptRoot,
+  resolveHeadlessSpec,
+} from './shared';
 import { resolveHeadlessTokenBudget } from './token-budget';
 import {
   notifyHeadlessOutcome,
@@ -42,7 +52,6 @@ import {
   readSpecTitle,
   resolveHeadlessWebhook,
 } from './webhook';
-import type { ResolvedHeadlessWebhook } from './webhook';
 import { isWritebackEnabled, reportOutcomeToSource, resolveHeadlessWritebackSettings, writebackEventForOutcome } from './writeback';
 import type { HeadlessWritebackSettings } from './writeback';
 import type { Project } from '../../shared/types';
@@ -65,6 +74,8 @@ export interface HeadlessRunOptions {
   noPush?: boolean;
   json?: boolean;
   verbose?: boolean;
+  /** Task correlation for daemon child NDJSON. */
+  taskId?: string;
   /** Absolute path of the worker entry file. */
   workerPath?: string;
   createBridge?: (options: WorkerBridgeCoreOptions) => HeadlessBridge;
@@ -89,49 +100,30 @@ export interface HeadlessRunResult {
   aborted: boolean;
 }
 
-function resolveSpec(projectRoot: string, spec: string): { specId: string; specDir: string } {
-  const specsDir = path.join(projectRoot, getSpecsDir(AUTO_BUILD_PATH));
-  const looksLikePath = spec.includes('/') || spec.includes(path.sep);
-  if (!looksLikePath) {
-    return { specId: spec, specDir: path.join(specsDir, spec) };
-  }
-  const specDir = path.resolve(spec);
-  const specId = path.basename(specDir);
-  if (path.resolve(specsDir, specId) !== specDir) {
-    throw new HeadlessSetupError(`Spec directory ${specDir} must be inside ${specsDir}`);
-  }
-  return { specId, specDir };
-}
-
 export async function runHeadlessTask(options: HeadlessRunOptions): Promise<number> {
   return (await runHeadlessTaskDetailed(options)).exitCode;
 }
 
 export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Promise<HeadlessRunResult> {
-  // Secrets resolved later in the run; every line written goes through redact().
+  // The reporter reads this list as secrets are resolved; redact values before serialization.
   const secrets: string[] = [];
   const redact = (text: string): string => {
     let result = text;
     for (const secret of secrets) result = result.split(secret).join('[REDACTED]');
     return result;
   };
-  const rawOut = options.out ?? ((t: string) => void process.stdout.write(t));
   const rawErr = options.err ?? ((t: string) => void process.stderr.write(t));
   const reporter = createProgressReporter({
     json: options.json,
     verbose: options.verbose,
-    out: (t) => rawOut(redact(t)),
-    err: (t) => rawErr(redact(t)),
+    taskId: options.taskId,
+    out: options.out,
+    err: rawErr,
+    redact: secrets,
   });
-  const fail = (message: string, specId?: string): HeadlessRunResult => {
-    reporter.error(message);
-    const outcome: RunOutcome = { kind: 'error', exitCode: EXIT_ERROR, reason: message };
-    reporter.summary(outcome, { spec: specId });
-    return { exitCode: EXIT_ERROR, outcome, specId, aborted: false };
-  };
 
   // zeenha fork: outcome webhook state, set as early as possible so setup failures can notify too.
-  let webhook: ResolvedHeadlessWebhook | undefined;
+  let webhook: ReturnType<typeof resolveHeadlessWebhook>;
   let webhookProject = '';
   let webhookTitle = '';
   // zeenha fork: source write-back state, filled in alongside the webhook.
@@ -139,6 +131,10 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
   let writebackProjectPath = '';
   let mainSpecDir: string | undefined;
   let worktreeSpecDirForWriteback: string | undefined;
+  let specId: string | undefined;
+  let recorder: DeliveryReceiptRecorder | undefined;
+  // zeenha fork: the effective budget joins the result line once the build ran.
+  let resultTokenBudget: ResultInfo['tokenBudget'];
   const sendOutcome = async (outcome: RunOutcome): Promise<void> => {
     if (webhook) {
       try {
@@ -149,6 +145,7 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
           taskTitle: webhookTitle,
           warn: (message) => rawErr(redact(`warning: ${message}\n`)),
           delay: options.webhookDelay,
+          recorder,
         });
       } catch {
         // The webhook must never change the run result.
@@ -172,6 +169,7 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
         event: writebackEvent,
         title: webhookTitle,
         prUrl: outcome.prUrl,
+        recorder,
         warn: (message) => rawErr(redact(`warning: ${message}\n`)),
       });
     } catch {
@@ -179,12 +177,13 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     }
   };
 
-  let specId: string | undefined;
+  let result: HeadlessRunResult & { outcome: RunOutcome };
+
   try {
     // (1) project and spec
     const projectPath = findGitRoot(path.resolve(options.projectPath ?? process.cwd()));
     webhookProject = projectNameFromPath(projectPath);
-    const resolved = resolveSpec(projectPath, options.spec);
+    const resolved = resolveHeadlessSpec(projectPath, options.spec);
     specId = resolved.specId;
     const specDir = resolved.specDir;
     writebackProjectPath = projectPath;
@@ -198,20 +197,20 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     // (2) config and project settings
     const config = options.config ?? loadHeadlessConfig(options.configPath);
     if (options.sendWebhook !== false) {
-      const resolvedWebhook = resolveHeadlessWebhook(config, process.env);
-      if (resolvedWebhook && 'warning' in resolvedWebhook) {
-        rawErr(redact(`warning: ${resolvedWebhook.warning}\n`));
-      } else {
-        webhook = resolvedWebhook;
-        if (resolvedWebhook) {
-          secrets.push(resolvedWebhook.url);
-          if (resolvedWebhook.secret) secrets.push(resolvedWebhook.secret);
-        }
+      webhook = resolveHeadlessWebhook(config, process.env);
+      if (webhook && 'warning' in webhook) {
+        rawErr(`warning: ${webhook.warning}\n`);
+      } else if (webhook) {
+        secrets.push(webhook.url);
+        if (webhook.secret) secrets.push(webhook.secret);
       }
     }
     if (options.sendWriteback !== false) {
       const resolvedWriteback = resolveHeadlessWritebackSettings(config);
       if (isWritebackEnabled(resolvedWriteback)) writebackSettings = resolvedWriteback;
+    }
+    if ((webhook || writebackSettings) && isValidTaskId(specId)) {
+      recorder = createDeliveryReceiptRecorder(resolveDeliveryReceiptRoot(projectPath), specId);
     }
     const settings = resolveProjectSettings(projectPath, config, {
       baseBranch: options.baseBranch,
@@ -311,12 +310,6 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     };
     const bridge = options.createBridge ? options.createBridge(bridgeOptions) : new WorkerBridgeCore(bridgeOptions);
 
-    const info = {
-      spec: specId,
-      branch,
-      worktree: worktreePath,
-      tokenBudget: { limit: tokenBudget.limit ?? null, source: tokenBudget.source },
-    };
     reporter.log(`Running ${specId} in worktree ${worktreePath} (branch ${branch})`);
 
     const runInput = await collectBridgeRun({
@@ -328,9 +321,7 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     });
     const reported = classifyRun(runInput);
 
-    reporter.summary(reported, info);
-    await sendOutcome(reported);
-    return {
+    result = {
       exitCode: reported.exitCode,
       outcome: reported,
       specId,
@@ -338,9 +329,23 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       worktreePath,
       aborted: runInput.abortSignal !== undefined,
     };
+    resultTokenBudget = { limit: tokenBudget.limit ?? null, source: tokenBudget.source };
   } catch (error) {
-    const result = fail(error instanceof Error ? error.message : String(error), specId);
-    if (result.outcome) await sendOutcome(result.outcome);
-    return result;
+    const message = error instanceof Error ? error.message : String(error);
+    reporter.error(message);
+    const outcome: RunOutcome = { kind: 'error', exitCode: EXIT_ERROR, reason: message };
+    result = { exitCode: EXIT_ERROR, outcome, specId, aborted: false };
   }
+
+  // Delivery runs exactly once, outside the build/setup failure path.
+  await sendOutcome(result.outcome);
+  const receipts = recorder?.snapshot();
+  if (specId && receipts?.length) reporter.deliveryReceipts(specId, receipts);
+  reporter.summary(result.outcome, {
+    spec: specId,
+    branch: result.branch,
+    worktree: result.worktreePath,
+    tokenBudget: resultTokenBudget,
+  });
+  return result;
 }

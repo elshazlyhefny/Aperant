@@ -1,7 +1,11 @@
 /**
  * zeenha fork: the Azure Boards writer resolves only after its requests finish.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createDeliveryReceiptRecorder, readDeliveryReceipts } from '../../../delivery-receipts';
 
 const addWorkItemComment = vi.fn();
 const setWorkItemState = vi.fn();
@@ -96,5 +100,55 @@ describe('createAzureBoardsWriter', () => {
       throw new Error('z');
     });
     await expect(Promise.resolve(syncThrow.postOutcome(base))).resolves.toBeUndefined();
+  });
+});
+
+
+describe('Azure Boards receipts', () => {
+  const specId = '001-azure';
+  let root: string;
+  const receipts = async () =>
+    (await readDeliveryReceipts(root, specId)).sort((a, b) => a.operation.localeCompare(b.operation));
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'azure-receipts-'));
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('records typed comment rejection and uncertain transition independently, once and in order', async () => {
+    addWorkItemComment.mockRejectedValueOnce(new AzureDevOpsAPIError(`bad body ${cfg.pat}`, 429));
+    setWorkItemState.mockRejectedValueOnce(new Error('looks like HTTP 403 but no typed status'));
+    await writer().postOutcome({ ...base, recorder: createDeliveryReceiptRecorder(root, specId) });
+    expect(addWorkItemComment).toHaveBeenCalledTimes(1);
+    expect(setWorkItemState).toHaveBeenCalledTimes(1);
+    expect(addWorkItemComment.mock.invocationCallOrder[0]).toBeLessThan(setWorkItemState.mock.invocationCallOrder[0]);
+    const rows = await receipts();
+    expect(rows).toEqual([
+      expect.objectContaining({ operation: 'issue_comment', provider: 'azureboards', status: 'failed', reason: 'rate_limited', httpStatus: 429 }),
+      expect.objectContaining({ operation: 'issue_transition', provider: 'azureboards', status: 'unknown', reason: 'transport_error' })
+    ]);
+    expect(rows[1].httpStatus).toBeUndefined();
+    expect(JSON.stringify(rows)).not.toContain(cfg.pat);
+  });
+
+  it('keeps a successful comment when a typed transition rejection follows', async () => {
+    setWorkItemState.mockRejectedValueOnce(new AzureDevOpsAPIError('invalid state', 400));
+    await writer().postOutcome({ ...base, recorder: createDeliveryReceiptRecorder(root, specId) });
+    expect(await receipts()).toEqual([
+      expect.objectContaining({ operation: 'issue_comment', status: 'delivered', attempts: 1 }),
+      expect.objectContaining({ operation: 'issue_transition', status: 'failed', reason: 'rejected', httpStatus: 400 })
+    ]);
+  });
+
+  it('records both enabled operations as skipped when configuration is missing', async () => {
+    await writer(async () => null).postOutcome({ ...base, recorder: createDeliveryReceiptRecorder(root, specId) });
+    expect(addWorkItemComment).not.toHaveBeenCalled();
+    expect(setWorkItemState).not.toHaveBeenCalled();
+    expect(await receipts()).toEqual([
+      expect.objectContaining({ operation: 'issue_comment', status: 'skipped', reason: 'missing_configuration' }),
+      expect.objectContaining({ operation: 'issue_transition', status: 'skipped', reason: 'missing_configuration' })
+    ]);
   });
 });

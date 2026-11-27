@@ -87,6 +87,7 @@ type StatusResult = {
 };
 type DiffResult = {
   success: boolean;
+  error?: string;
   data?: { files: { path: string; status: string; additions: number; deletions: number }[]; summary: string };
 };
 
@@ -109,8 +110,8 @@ describe('worktree status and diff (async git, zeenha fork)', () => {
     for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
   });
 
-  /** Main repo with one commit plus a worktree on a branch with committed and uncommitted changes. */
-  function setupWorktree() {
+  /** Main repo with one commit plus a clean worktree on a task branch. */
+  function setupCleanWorktree() {
     initRepo(ref.path);
     fs.writeFileSync(path.join(ref.path, 'keep.txt'), 'one\ntwo\n');
     fs.writeFileSync(path.join(ref.path, 'mod.txt'), 'a\nb\nc\n');
@@ -121,6 +122,11 @@ describe('worktree status and diff (async git, zeenha fork)', () => {
     const wt = path.join(mk('wt-async-tree-'), 'tree');
     git(ref.path, 'worktree', 'add', '-q', '-b', 'task/001-x', wt);
     ref.worktree = wt;
+    return wt;
+  }
+
+  function setupWorktree() {
+    const wt = setupCleanWorktree();
 
     // committed addition
     fs.writeFileSync(path.join(wt, 'added.txt'), '1\n2\n3\n');
@@ -239,8 +245,26 @@ describe('worktree status and diff (async git, zeenha fork)', () => {
       expect(diff.data?.summary).toBe(`${filesChanged} files changed, ${additions} insertions(+), ${deletions} deletions(-)`);
     });
 
+    it('returns a failure when the worktree path is not a git repo', async () => {
+      ref.worktree = mk('wt-async-plain-');
+      initRepo(ref.path);
+      const diff = await getHandler<DiffResult>(IPC_CHANNELS.TASK_WORKTREE_DIFF)({}, 't1');
+      expect(diff.success).toBe(false);
+      expect(diff.error).toBeTruthy();
+      expect(diff.data).toBeUndefined();
+    });
+
+    it('returns a successful empty diff for a clean worktree', async () => {
+      setupCleanWorktree();
+      const diff = await getHandler<DiffResult>(IPC_CHANNELS.TASK_WORKTREE_DIFF)({}, 't1');
+      expect(diff).toEqual({
+        success: true,
+        data: { files: [], summary: '0 files changed, 0 insertions(+), 0 deletions(-)' },
+      });
+    });
+
     it('fails clearly when there is no worktree', async () => {
-      const diff = await getHandler<DiffResult & { error?: string }>(IPC_CHANNELS.TASK_WORKTREE_DIFF)({}, 't1');
+      const diff = await getHandler<DiffResult>(IPC_CHANNELS.TASK_WORKTREE_DIFF)({}, 't1');
       expect(diff).toEqual({ success: false, error: 'No worktree found for this task' });
     });
   });

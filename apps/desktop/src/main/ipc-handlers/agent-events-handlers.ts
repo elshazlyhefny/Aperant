@@ -245,7 +245,8 @@ export function registerAgenteventsHandlers(
     if (!task || !project) return;
 
     // zeenha fork: a PR follow-up pushes only after QA approves. The finalizer
-    // does nothing unless the worktree holds a PR_FOLLOWUP.json marker.
+    // checks a running PR_FOLLOWUP.json marker and reports stale publishes
+    // without altering the worktree.
     if (processType === "qa-process") {
       const finalizerDeps = createDefaultFinalizerDeps((id, outcome) => {
         const text =

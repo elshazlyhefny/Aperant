@@ -18,6 +18,7 @@ vi.mock('../../ai/prompts/prompt-loader', () => ({
   tryLoadPrompt: () => 'PLANNER PROMPT',
 }));
 
+import { readDeliveryReceipts } from '../../delivery-receipts';
 import { runHeadlessTask, runHeadlessTaskDetailed } from '../run-task';
 import type { HeadlessBridge } from '../run-task';
 
@@ -384,6 +385,26 @@ describe('runHeadlessTask outcome webhook', () => {
     expect(JSON.stringify(body.blocks)).toContain('Demo');
   });
 
+  it('prints the settled receipt before the final result after a successful retry', async () => {
+    makeSpec();
+    script([{ type: 'QA_PASSED' }]);
+    fetchMock.mockResolvedValueOnce({ status: 429 }).mockImplementationOnce(async () => {
+      expect(await readDeliveryReceipts(projectDir, '001-demo')).toMatchObject([
+        { event: 'review_ready', status: 'unknown', reason: 'unconfirmed' },
+      ]);
+      return { status: 200 };
+    });
+    expect(await runHook({ json: true })).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const records = out.join('').trim().split('\n').map((line) => JSON.parse(line));
+    expect(records.slice(-2)).toMatchObject([
+      { type: 'delivery-receipts', spec: '001-demo', receipts: [{ status: 'delivered', attempts: 2, httpStatus: 200 }] },
+      { type: 'result', kind: 'success', exitCode: 0 },
+    ]);
+    expect(records.at(-2).receipts).toEqual(await readDeliveryReceipts(projectDir, '001-demo'));
+    expect(JSON.stringify(records.at(-2))).not.toContain('SECRETTOKEN');
+  });
+
   it('posts blocked and keeps exit code 2 on QA_MAX_ITERATIONS', async () => {
     makeSpec();
     script([{ type: 'QA_MAX_ITERATIONS' }]);
@@ -403,9 +424,13 @@ describe('runHeadlessTask outcome webhook', () => {
   it('posts failed for a setup failure after the config loaded', async () => {
     makeSpec();
     mockResolveAuth.mockRejectedValue(new Error('No credentials found.'));
-    expect(await runHook()).toBe(1);
+    expect(await runHook({ json: true })).toBe(1);
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(bodies()[0].text.toLowerCase()).toContain('fail');
+    expect(out.map((line) => JSON.parse(line)).slice(-2)).toMatchObject([
+      { type: 'delivery-receipts', spec: '001-demo', receipts: [{ event: 'failed', status: 'delivered' }] },
+      { type: 'result', kind: 'error', exitCode: 1 },
+    ]);
   });
 
   it('sends nothing when the config itself cannot be loaded', async () => {
@@ -445,6 +470,7 @@ describe('runHeadlessTask outcome webhook', () => {
     const [reviewReady] = bodies();
     expect(prLinks(reviewReady)).toEqual([]);
     expect(reviewReady.text.split(' ').at(-1)).not.toBe(PR);
+    expect(out.join('')).toContain('webhook pr_opened skipped reason=event_disabled');
   });
 
   it('keeps exit 0 and warns without the URL when the server returns 500', async () => {
@@ -486,6 +512,8 @@ describe('runHeadlessTask outcome webhook', () => {
     const text = err.join('');
     expect(text).toContain('warning: webhook disabled');
     expect(text).not.toContain('remote.example.com');
+    expect(out.join('')).toContain('webhook review_ready skipped reason=invalid_target');
+    expect(out.join('')).not.toContain('remote.example.com');
   });
 
   it('redacts the webhook secret from stderr warnings', async () => {
@@ -505,6 +533,8 @@ describe('runHeadlessTask outcome webhook', () => {
     script([{ type: 'QA_PASSED' }]);
     expect(await run()).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(out.join('')).not.toContain('DELIVERY');
+    expect(await readDeliveryReceipts(projectDir, '001-demo')).toEqual([]);
   });
 });
 
