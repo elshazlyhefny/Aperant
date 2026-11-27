@@ -3,8 +3,13 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { Project, Task } from '../../shared/types';
-import type { RecurringSchedule } from '../../shared/types/schedule';
-import { createScheduleService, type ScheduleServiceDeps } from '../schedule-service';
+import type { MissedRunPolicy, RecurringSchedule, ScheduleRunRecord } from '../../shared/types/schedule';
+import {
+  createScheduleService,
+  describeMissedRunPolicy,
+  describeScheduleRecord,
+  type ScheduleServiceDeps,
+} from '../schedule-service';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -157,6 +162,109 @@ describe('schedule service', () => {
     expect(tasks[0].status).toBe('in_progress');
   });
 
+  describe('missed-run policy', () => {
+    const makeSkipSchedule = (over: Partial<RecurringSchedule> = {}) =>
+      makeSchedule({ missedRunPolicy: 'skip', ...over });
+
+    it.each([
+      ['absent', makeSchedule()],
+      ['unknown', makeSchedule({ missedRunPolicy: 'unknown' as MissedRunPolicy })],
+    ] as const)('creates one catch-up for a single late occurrence with an %s policy', async (_label, schedule) => {
+      const { deps, service, schedules } = setup({ now: T0 + 10 * 60_000, schedules: [schedule] });
+      await service.tick();
+      expect(deps.createTask).toHaveBeenCalledTimes(1);
+      expect(schedules[0].history.map((entry) => entry.kind)).toEqual(['missed', 'started']);
+      expect(schedules[0].history[0].missedCount).toBe(1);
+      expect(schedules[0].nextRunAt).toBe(T0 + DAY);
+    });
+
+    it('skips a single late occurrence without replacing the last run', async () => {
+      const schedule = makeSkipSchedule({ lastTaskId: 'prior', lastRunAt: T0 - DAY });
+      const { deps, service, schedules } = setup({ now: T0 + 10 * 60_000, schedules: [schedule] });
+      await service.tick();
+      expect(deps.createTask).not.toHaveBeenCalled();
+      expect(deps.notifyChanged).toHaveBeenCalledWith('p1');
+      expect(schedules[0]).toMatchObject({
+        nextRunAt: T0 + DAY,
+        lastTaskId: 'prior',
+        lastRunAt: T0 - DAY,
+        history: [{ kind: 'skipped_missed', missedCount: 1, missedFrom: T0, missedTo: T0 }],
+      });
+    });
+
+    it('skips several missed occurrences in one record and does nothing on a repeated tick', async () => {
+      const { deps, service, schedules } = setup({ now: T0 + 3 * DAY + HOUR, schedules: [makeSkipSchedule()] });
+      await service.tick();
+      await service.tick();
+      expect(deps.createTask).not.toHaveBeenCalled();
+      expect(deps.saveSchedule).toHaveBeenCalledTimes(1);
+      expect(schedules[0]).toMatchObject({
+        nextRunAt: T0 + 4 * DAY,
+        history: [{ kind: 'skipped_missed', missedCount: 4, missedFrom: T0, missedTo: T0 + 3 * DAY }],
+      });
+    });
+
+    it('still creates a task within the grace period', async () => {
+      const schedule = makeSkipSchedule();
+      const { deps, service, schedules } = setup({ now: T0 + 60_000, schedules: [schedule] });
+      await service.tick();
+      expect(deps.createTask).toHaveBeenCalledTimes(1);
+      expect(deps.createTask).toHaveBeenCalledWith('p1', schedule.template, 's1', T0);
+      expect(schedules[0].history.map((entry) => entry.kind)).toEqual(['started']);
+    });
+
+    it.each(['catch_up', 'skip'] as const)('checks for unfinished tasks before missed runs with policy %s', async (missedRunPolicy) => {
+      const schedule = makeSchedule({ missedRunPolicy, lastTaskId: 'prior' });
+      const { deps, service, schedules, tasks } = setup({
+        now: T0 + DAY + HOUR,
+        schedules: [schedule],
+        maxParallel: 0,
+      });
+      tasks.push({ id: 'prior', status: 'queue' } as Task);
+      await service.tick();
+      expect(deps.createTask).not.toHaveBeenCalled();
+      expect(schedules[0]).toMatchObject({
+        nextRunAt: T0 + 2 * DAY,
+        history: [{ kind: 'skipped_unfinished', taskId: 'prior', detail: '2 due' }],
+      });
+    });
+
+    it('advances a skipped interval run to the next occurrence on the original grid', async () => {
+      const schedule = makeSkipSchedule({ cadence: { kind: 'interval', everyMinutes: 60 } });
+      const { deps, service, schedules } = setup({ now: T0 + 3 * HOUR, schedules: [schedule] });
+      await service.tick();
+      expect(deps.createTask).not.toHaveBeenCalled();
+      expect(schedules[0]).toMatchObject({
+        nextRunAt: T0 + 4 * HOUR,
+        history: [{ kind: 'skipped_missed', missedCount: 4, missedFrom: T0, missedTo: T0 + 3 * HOUR }],
+      });
+    });
+
+    it('allows Run now during a missed window without rescheduling the automated run itself', async () => {
+      const schedule = makeSkipSchedule();
+      const now = T0 + 3 * DAY + HOUR;
+      const { deps, service, schedules } = setup({ now, schedules: [schedule], maxParallel: 0 });
+      await expect(service.runNow('s1')).resolves.toEqual({ started: true, taskId: 't1' });
+      expect(deps.createTask).toHaveBeenCalledTimes(1);
+      expect(deps.createTask).toHaveBeenCalledWith('p1', schedule.template, 's1', now);
+      // Run now saves before calling tick(), which handles the overdue occurrence separately.
+      expect(deps.saveSchedule).toHaveBeenNthCalledWith(1, expect.objectContaining({ nextRunAt: T0 }));
+      expect(schedules[0].history.map(({ kind, detail }) => [kind, detail])).toEqual([
+        ['started', 'manual'],
+        ['skipped_unfinished', '4 due'],
+      ]);
+    });
+
+    it('enforces the token budget on a task from a skip schedule', async () => {
+      const { deps, service, schedules, tokens } = setup({ schedules: [makeSkipSchedule()] });
+      await service.tick();
+      tokens.value = 1001;
+      await service.tick();
+      expect(deps.stopTask).toHaveBeenCalledWith('t1');
+      expect(schedules[0].history.at(-1)).toMatchObject({ kind: 'budget_exceeded', detail: '1001/1000' });
+    });
+  });
+
   describe('runNow', () => {
     it('queues exactly one task and records a manual started entry', async () => {
       const { deps, service, schedules, tasks } = setup({ maxParallel: 0, schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
@@ -276,6 +384,43 @@ describe('schedule service', () => {
       await expect(ctx.service.tick()).resolves.toBeUndefined();
       expect(ctx.deps.stopTask).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('schedule history descriptions', () => {
+  const schedule = makeSchedule({ nextRunAt: T0 + DAY });
+  const entry = { id: 'r1', at: T0, acknowledged: false };
+
+  it.each<{ record: Partial<ScheduleRunRecord> & Pick<ScheduleRunRecord, 'kind'>; text: string }>([
+    { record: { kind: 'missed', missedCount: 2 }, text: 'missed 2 runs, created one catch-up task' },
+    {
+      record: { kind: 'skipped_missed', missedCount: 1 },
+      text: `missed 1 run, skipped (missed runs: skip); next run ${new Date(T0 + DAY).toISOString()}`,
+    },
+    {
+      record: { kind: 'skipped_unfinished', taskId: 't1', detail: 'manual' },
+      text: 'skipped, previous task t1 is unfinished (manual)',
+    },
+    { record: { kind: 'started', taskId: 't1', detail: 'manual' }, text: 'created task t1 (manual)' },
+    {
+      record: { kind: 'budget_exceeded', taskId: 't1', detail: '1001/1000' },
+      text: 'token budget exceeded by task t1 (1001/1000)',
+    },
+    { record: { kind: 'failed', detail: 'disk full' }, text: 'failed to create a task: disk full' },
+  ])('formats $record.kind', ({ record, text }) => {
+    expect(describeScheduleRecord(schedule, { ...entry, ...record })).toBe(`Schedule "deps": ${text}`);
+  });
+
+  it('does not include a next run for a paused schedule', () => {
+    expect(
+      describeScheduleRecord({ ...schedule, nextRunAt: null }, { ...entry, kind: 'skipped_missed', missedCount: 1 })
+    ).toBe('Schedule "deps": missed 1 run, skipped (missed runs: skip)');
+  });
+
+  it('labels absent and unknown policies as catch up, and the explicit opt-out as skip', () => {
+    expect(describeMissedRunPolicy(schedule)).toBe('catch up');
+    expect(describeMissedRunPolicy({ ...schedule, missedRunPolicy: 'unknown' as MissedRunPolicy })).toBe('catch up');
+    expect(describeMissedRunPolicy({ ...schedule, missedRunPolicy: 'skip' })).toBe('skip');
   });
 });
 

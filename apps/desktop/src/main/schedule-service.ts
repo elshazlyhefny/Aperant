@@ -1,8 +1,9 @@
 /**
  * zeenha fork: scheduler for recurring tasks. Runs in the main process (the
- * renderer queue may not be mounted). Every 30s it adds one queued task for
- * each due schedule, then starts schedule-owned queued tasks while the project
- * is under its parallel limit. Dependencies are injected so it can be tested.
+ * renderer queue may not be mounted). Every 30s it evaluates due schedules,
+ * then starts schedule-owned queued tasks while the project is under its
+ * parallel limit. Missed occurrences collapse to one catch-up task unless the
+ * schedule opts to skip them. Dependencies are injected for testing.
  */
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -80,6 +81,34 @@ function record(kind: ScheduleRunRecord['kind'], at: number, extra: Partial<Sche
   return { id: randomUUID(), at, kind, acknowledged: false, ...extra };
 }
 
+export function describeMissedRunPolicy(schedule: RecurringSchedule): 'catch up' | 'skip' {
+  return schedule.missedRunPolicy === 'skip' ? 'skip' : 'catch up';
+}
+
+/** zeenha fork: format schedule history for the headless daemon log. */
+export function describeScheduleRecord(schedule: RecurringSchedule, entry: ScheduleRunRecord): string {
+  const prefix = `Schedule "${schedule.name}":`;
+  const manual = entry.detail === 'manual' ? ' (manual)' : '';
+  const count = entry.missedCount ?? 1;
+  const missed = `missed ${count} ${count === 1 ? 'run' : 'runs'}`;
+  switch (entry.kind) {
+    case 'started':
+      return `${prefix} created task ${entry.taskId}${manual}`;
+    case 'missed':
+      return `${prefix} ${missed}, created one catch-up task`;
+    case 'skipped_missed': {
+      const next = schedule.nextRunAt === null ? '' : `; next run ${new Date(schedule.nextRunAt).toISOString()}`;
+      return `${prefix} ${missed}, skipped (missed runs: skip)${next}`;
+    }
+    case 'skipped_unfinished':
+      return `${prefix} skipped, previous task ${entry.taskId} is unfinished${manual}`;
+    case 'budget_exceeded':
+      return `${prefix} token budget exceeded by task ${entry.taskId} (${entry.detail})`;
+    case 'failed':
+      return `${prefix} failed to create a task: ${entry.detail}`;
+  }
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -140,9 +169,17 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     }
 
     if (dueCount > 1 || now - firstDue > MISSED_GRACE_MS) {
-      next.history.push(
-        record('missed', now, { missedCount: dueCount, missedFrom: firstDue, missedTo: lastDue(schedule, firstDue, now, dueCount) })
-      );
+      const window = {
+        missedCount: dueCount,
+        missedFrom: firstDue,
+        missedTo: lastDue(schedule, firstDue, now, dueCount),
+      };
+      if (schedule.missedRunPolicy === 'skip') {
+        next.history.push(record('skipped_missed', now, window));
+        deps.saveSchedule(next);
+        return true;
+      }
+      next.history.push(record('missed', now, window));
     }
 
     try {
