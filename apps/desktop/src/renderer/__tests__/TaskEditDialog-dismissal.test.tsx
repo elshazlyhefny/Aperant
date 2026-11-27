@@ -48,7 +48,7 @@ beforeEach(() => {
     },
     providerAccounts: [{
       id: 'google-fixture', provider: 'google', name: 'Google', createdAt: 0, updatedAt: 0,
-      authType: 'api-key', billingModel: 'pay-per-use'
+      authType: 'api-key', billingModel: 'pay-per-use', hasApiKey: true
     }]
   });
   useProjectStore.setState({ projects: [{
