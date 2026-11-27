@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PRStatusPoller } from '../pr-status-poller';
-import { POLLING_INTERVALS, RATE_LIMIT_THRESHOLDS } from '../../../shared/types/pr-status';
+import { ACTIVITY_THRESHOLD_MS, POLLING_INTERVALS, RATE_LIMIT_THRESHOLDS } from '../../../shared/types/pr-status';
 import type { PRStatusUpdate, PollingMetadata, PRStatus } from '../../../shared/types/pr-status';
 
 // Mock the GitHub utils module
@@ -613,6 +613,143 @@ describe('PRStatusPoller Integration Tests', () => {
 
       expect(project1Updates.length).toBeGreaterThan(0);
       expect(project2Updates.length).toBeGreaterThan(0);
+    });
+  });
+
+  // zeenha fork: Measure overlapping PR status polls before introducing coalescing.
+  describe('Poll coalescing', () => {
+    const delayMs = 100;
+    const refreshDuration = 4 * delayMs;
+    const concurrencyLimit = 5;
+
+    function installDelayedGitHubMock({
+      delayMs,
+      prs,
+      rateLimitRemaining = 4500
+    }: {
+      delayMs: number;
+      prs: Map<number, { updatedAt: Date; mergeable?: boolean | null }>;
+      rateLimitRemaining?: number;
+    }) {
+      const requestsByPr = new Map<number, number>();
+      const prRefreshesStarted = new Map<number, number>();
+      let inFlightRefreshes = 0;
+      let peakInFlightRefreshes = 0;
+
+      mockGithubFetchWithETag.mockImplementation((_token: string, endpoint: string) => {
+        const pull = /^\/repos\/[^/]+\/[^/]+\/pulls\/(\d+)(\/reviews)?$/.exec(endpoint);
+        const commit = /^\/repos\/[^/]+\/[^/]+\/commits\/sha-(\d+)\/(status|check-runs)$/.exec(endpoint);
+        const prNumber = Number(pull?.[1] ?? commit?.[1]);
+        const pr = prs.get(prNumber);
+        if (!pr) {
+          throw new Error(`Unexpected GitHub endpoint: ${endpoint}`);
+        }
+
+        requestsByPr.set(prNumber, (requestsByPr.get(prNumber) ?? 0) + 1);
+        const isReview = pull?.[2] === '/reviews';
+        let data: unknown;
+        if (pull && !isReview) {
+          prRefreshesStarted.set(prNumber, (prRefreshesStarted.get(prNumber) ?? 0) + 1);
+          inFlightRefreshes++;
+          peakInFlightRefreshes = Math.max(peakInFlightRefreshes, inFlightRefreshes);
+          data = {
+            number: prNumber,
+            updated_at: pr.updatedAt.toISOString(),
+            head: { sha: `sha-${prNumber}` },
+            mergeable: pr.mergeable === undefined ? true : pr.mergeable,
+            mergeable_state: pr.mergeable === false ? 'dirty' : 'clean'
+          };
+        } else if (isReview) {
+          data = [];
+        } else if (commit?.[2] === 'status') {
+          data = { state: 'success', statuses: [{ state: 'success' }] };
+        } else {
+          data = { total_count: 1, check_runs: [{ status: 'completed', conclusion: 'success' }] };
+        }
+
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            if (isReview) {
+              inFlightRefreshes--;
+            }
+            resolve({
+              data,
+              fromCache: false,
+              rateLimitInfo: { remaining: rateLimitRemaining, reset: new Date(Date.now() + 3_600_000), limit: 5000 }
+            });
+          }, delayMs);
+        });
+      });
+
+      return {
+        requestsByPr,
+        prRefreshesStarted,
+        get inFlightRefreshes() {
+          return inFlightRefreshes;
+        },
+        get peakInFlightRefreshes() {
+          return peakInFlightRefreshes;
+        },
+        resetCounters() {
+          requestsByPr.clear();
+          prRefreshesStarted.clear();
+          inFlightRefreshes = 0;
+          peakInFlightRefreshes = 0;
+        }
+      };
+    }
+
+    async function startDelayedPolling(activeCount: number, stableCount: number) {
+      vi.setSystemTime(new Date('2026-01-01T12:00:00Z'));
+      const activeUpdatedAt = new Date(); // Still active at the 15-minute tick.
+      const stableUpdatedAt = new Date(Date.now() - ACTIVITY_THRESHOLD_MS);
+      const prs = new Map(Array.from({ length: activeCount + stableCount }, (_, i) => [
+        i + 1,
+        { updatedAt: i < activeCount ? activeUpdatedAt : stableUpdatedAt }
+      ]));
+      const delayedMock = installDelayedGitHubMock({ delayMs, prs });
+
+      const started = poller.startPolling('o/r', [...prs.keys()], 'test-token');
+      await vi.advanceTimersByTimeAsync(Math.ceil(prs.size / concurrencyLimit) * refreshDuration);
+      await started;
+      return { prs, delayedMock };
+    }
+
+    async function measureCollision(activeCount: number, stableCount: number) {
+      const { prs, delayedMock } = await startDelayedPolling(activeCount, stableCount);
+
+      // The active, stable and full-refresh timers all fire at 15 minutes from
+      // the end of the initial pass. Reset after earlier tier-only polls have settled.
+      await vi.advanceTimersByTimeAsync(POLLING_INTERVALS.FULL_REFRESH - 1);
+      delayedMock.resetCounters();
+      const settleTime = Math.ceil(prs.size / concurrencyLimit) * refreshDuration;
+      await vi.advanceTimersByTimeAsync(1 + settleTime + delayMs);
+      return { prs, delayedMock };
+    }
+
+    it('counts four requests for a single initial refresh', async () => {
+      const { delayedMock } = await startDelayedPolling(1, 0);
+
+      expect(delayedMock.requestsByPr).toEqual(new Map([[1, 4]]));
+      expect(delayedMock.prRefreshesStarted).toEqual(new Map([[1, 1]]));
+      expect(delayedMock.peakInFlightRefreshes).toBe(1);
+      expect(delayedMock.inFlightRefreshes).toBe(0);
+    });
+
+    it.fails('refreshes each PR once when the tier and full-refresh timers coincide', async () => {
+      const { prs, delayedMock } = await measureCollision(2, 2);
+
+      // baseline: current code makes 8 requests per PR at the collision.
+      expect(delayedMock.requestsByPr).toEqual(new Map([...prs.keys()].map(pr => [pr, 4])));
+    });
+
+    it.fails('caps concurrent refreshes at five per project when timers coincide', async () => {
+      const { prs, delayedMock } = await measureCollision(6, 6);
+
+      // baseline: current code peaks at 15 in-flight refreshes at the collision.
+      expect(delayedMock.peakInFlightRefreshes).toBeLessThanOrEqual(concurrencyLimit);
+      expect(delayedMock.prRefreshesStarted.size).toBe(prs.size);
+      expect(delayedMock.inFlightRefreshes).toBe(0);
     });
   });
 });
