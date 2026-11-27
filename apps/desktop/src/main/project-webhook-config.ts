@@ -47,6 +47,10 @@ export function parseWebhookFormat(vars: Record<string, string>): WebhookFormat 
   return isWebhookFormat(value) ? value : undefined;
 }
 
+/**
+ * Never contains a signing secret. WEBHOOK_SECRET from the repository .env is
+ * deliberately ignored; project credentials come only from webhook-secret-store.
+ */
 export interface ProjectWebhookDescriptor {
   url: string;
   /** hashWebhookUrl(url), safe to log or send to the renderer */

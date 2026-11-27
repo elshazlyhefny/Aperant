@@ -17,6 +17,7 @@
  * - Memory-aware step limits via calibration factor
  */
 
+import { randomUUID } from 'node:crypto';
 import { stepCountIs, Output } from 'ai';
 import { streamText } from '../claude-code/sdk';
 import { isClaudeCodeModel } from '../claude-code/model';
@@ -349,6 +350,12 @@ async function executeStream(
   const isAnthropicModel = modelId?.startsWith('claude-') ?? false;
   const isClaudeCode = isClaudeCodeModel(config.model);
 
+  // zeenha fork: one prompt cache key per session, as the Codex CLI sends per
+  // conversation, so every step of this session reuses the same OpenAI prompt
+  // cache. Only OpenAI models (including Codex sign-in) receive it.
+  const modelProvider = typeof config.model === 'string' ? undefined : config.model.provider;
+  const promptCacheKey = modelProvider?.startsWith('openai.') ? randomUUID() : undefined;
+
   // Compute thinking/reasoning provider options from session config
   const thinkingOptions = config.thinkingLevel
     ? buildThinkingProviderOptions(modelId, config.thinkingLevel)
@@ -377,18 +384,27 @@ async function executeStream(
     ...(useOutputSchema ? { output: Output.object({ schema: config.outputSchema! }) } : {}),
     stopWhen,
     abortSignal: mergedAbortSignal,
-    ...((thinkingOptions || (useOutputSchema && isAnthropicModel) || isClaudeCode) ? {
+    ...((thinkingOptions || (useOutputSchema && isAnthropicModel) || isClaudeCode || promptCacheKey) ? {
       providerOptions: {
         // Claude Code engine (subscription): run the CLI in the task worktree.
         ...(isClaudeCode ? { 'claude-code': { cwd: config.toolContext.cwd } } : {}),
         ...(thinkingOptions ?? {}),
+        ...(promptCacheKey ? { openai: { ...thinkingOptions?.openai, promptCacheKey } } : {}),
 
         ...(useOutputSchema && isAnthropicModel ? {
           anthropic: { structuredOutputMode: 'outputFormat' },
         } : {}),
       },
     } : {}),
-    prepareStep: async ({ stepNumber }) => {
+    prepareStep: async ({ stepNumber, messages: stepMessages }) => {
+      // zeenha fork: a step note goes in as a trailing user message. Returning
+      // `system` from prepareStep replaces the whole system prompt for that
+      // step, so the agent lost its own prompt (e.g. coder.md) and the provider
+      // prompt cache missed on the changed prefix. Like the old `system` value,
+      // the note applies to this step only.
+      const withNote = (note: string | undefined) =>
+        note ? { messages: [...stepMessages, { role: 'user' as const, content: note }] } : {};
+
       // Hard abort: if we're at 90%+ of context window, stop the session
       // so the continuation wrapper can checkpoint and resume.
       if (
@@ -442,7 +458,7 @@ async function executeStream(
       if (memoryContext && stepMemoryState) {
         if (stepNumber < MEMORY_INJECTION_WARMUP_STEPS) {
           memoryContext.proxy.onStepComplete(stepNumber);
-          return systemMessage ? { system: systemMessage } : {};
+          return withNote(systemMessage);
         }
 
         const recentContext = stepMemoryState.getRecentContext(5);
@@ -454,7 +470,7 @@ async function executeStream(
         memoryContext.proxy.onStepComplete(stepNumber);
 
         if (!injection) {
-          return systemMessage ? { system: systemMessage } : {};
+          return withNote(systemMessage);
         }
 
         stepMemoryState.markInjected(injection.memoryIds);
@@ -463,11 +479,11 @@ async function executeStream(
           ? `${systemMessage}\n\n${injection.content}`
           : injection.content;
 
-        return { system: combinedSystem };
+        return withNote(combinedSystem);
       }
 
       // No memory context — just return system message if applicable
-      return systemMessage ? { system: systemMessage } : {};
+      return withNote(systemMessage);
     },
     onStepFinish: (_stepResult) => {
       // onStepFinish is called after each agentic step.
@@ -615,22 +631,40 @@ async function executeStream(
   }
 
   // Get total usage from AI SDK result
-  // AI SDK v6 uses inputTokens/outputTokens naming
-  // zeenha fork: the Claude Code engine also reports the cache split; other providers leave it unset.
-  let totalUsage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number } | undefined;
+  // AI SDK v6 uses inputTokens/outputTokens naming, with the cache split in inputTokenDetails.
+  // zeenha fork: the Claude Code engine reports the cache split as cacheReadTokens/cacheCreationTokens.
+  let totalUsage:
+    | {
+        inputTokens?: number;
+        outputTokens?: number;
+        inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number };
+        cacheReadTokens?: number;
+        cacheCreationTokens?: number;
+      }
+    | undefined;
   try {
     totalUsage = await withTimeout(result.totalUsage, POST_STREAM_TIMEOUT_MS, 'result.totalUsage');
   } catch {
     // Fall through — use summary usage collected during stream iteration.
   }
+  // zeenha fork: an empty total (no tokens at all) is treated like a missing one,
+  // so the per-step tally from the stream is used instead of recording zero.
+  const sdkUsage =
+    totalUsage && (totalUsage.inputTokens ?? 0) + (totalUsage.outputTokens ?? 0) > 0 ? totalUsage : undefined;
+  const cacheReadTokens = sdkUsage
+    ? (sdkUsage.inputTokenDetails?.cacheReadTokens ?? sdkUsage.cacheReadTokens)
+    : summary.usage.cacheReadTokens;
+  const cacheCreationTokens = sdkUsage
+    ? (sdkUsage.inputTokenDetails?.cacheWriteTokens ?? sdkUsage.cacheCreationTokens)
+    : summary.usage.cacheCreationTokens;
   const usage: TokenUsage = {
-    promptTokens: totalUsage?.inputTokens ?? summary.usage.promptTokens,
-    completionTokens: totalUsage?.outputTokens ?? summary.usage.completionTokens,
-    totalTokens:
-      (totalUsage?.inputTokens ?? 0) + (totalUsage?.outputTokens ?? 0) ||
-      summary.usage.totalTokens,
-    ...(totalUsage?.cacheReadTokens ? { cacheReadTokens: totalUsage.cacheReadTokens } : {}),
-    ...(totalUsage?.cacheCreationTokens ? { cacheCreationTokens: totalUsage.cacheCreationTokens } : {}),
+    promptTokens: sdkUsage?.inputTokens ?? summary.usage.promptTokens,
+    completionTokens: sdkUsage?.outputTokens ?? summary.usage.completionTokens,
+    totalTokens: sdkUsage
+      ? (sdkUsage.inputTokens ?? 0) + (sdkUsage.outputTokens ?? 0)
+      : summary.usage.totalTokens,
+    ...(cacheReadTokens ? { cacheReadTokens } : {}),
+    ...(cacheCreationTokens ? { cacheCreationTokens } : {}),
   };
 
   // zeenha fork: a run cut off by the token budget is never reported as completed.

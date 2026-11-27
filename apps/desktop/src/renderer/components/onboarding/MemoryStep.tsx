@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Database, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useSettingsStore } from '../../stores/settings-store';
-import type { AppSettings } from '../../../shared/types';
+import type { RendererAppSettings } from '../../../shared/types';
 import { MemoryConfigPanel, type MemoryPanelConfig } from '../shared/MemoryConfigPanel';
 
 interface MemoryStepProps {
@@ -80,7 +80,7 @@ export function MemoryStep({ onNext, onBack }: MemoryStepProps) {
       const result = await window.electronAPI.saveSettings(settingsToSave);
 
       if (result?.success) {
-        const storeUpdate: Partial<AppSettings> = {
+        const storeUpdate: Partial<RendererAppSettings> = {
           memoryEnabled: config.enabled,
           memoryEmbeddingProvider: config.embeddingProvider,
           ollamaBaseUrl: config.ollamaBaseUrl || undefined,

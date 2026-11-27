@@ -6,8 +6,10 @@ import {
   prepareTestWebhookDelivery,
   prepareWebhookDelivery,
   sendWebhook,
+  sendWebhookDetailed,
   signWebhookBody,
   validateWebhookUrl,
+  verifyWebhookSignature,
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_TIMESTAMP_HEADER,
   type WebhookEvent
@@ -179,6 +181,38 @@ describe('multi-format payloads', () => {
   });
 });
 
+describe('verifyWebhookSignature', () => {
+  const secret = 'project-test-key';
+  const timestamp = '1700000000';
+  const body = '{"a":1}';
+  const signature = signWebhookBody(secret, timestamp, body);
+
+  it('accepts a valid signature', () => {
+    expect(verifyWebhookSignature(secret, timestamp, body, signature)).toBe(true);
+  });
+
+  it('rejects the wrong key', () => {
+    expect(verifyWebhookSignature('other-test-key', timestamp, body, signature)).toBe(false);
+  });
+
+  it('rejects a tampered body', () => {
+    expect(verifyWebhookSignature(secret, timestamp, '{"a":2}', signature)).toBe(false);
+  });
+
+  it('rejects the wrong timestamp', () => {
+    expect(verifyWebhookSignature(secret, '1700000001', body, signature)).toBe(false);
+  });
+
+  it('rejects a different-length signature', () => {
+    expect(verifyWebhookSignature(secret, timestamp, body, signature.slice(0, -1))).toBe(false);
+  });
+
+  it('rejects an empty secret even if the signature matches it', () => {
+    const emptyKeySignature = signWebhookBody('', timestamp, body);
+    expect(verifyWebhookSignature('', timestamp, body, emptyKeySignature)).toBe(false);
+  });
+});
+
 describe('sendWebhook', () => {
   const payload = buildWebhookPayload({ projectName: 'P', taskTitle: 'T', event: 'failed' });
 
@@ -294,5 +328,55 @@ describe('sendWebhook', () => {
         }
       })
     ).resolves.toBe(false);
+  });
+});
+
+describe('sendWebhookDetailed', () => {
+  const payload = buildWebhookPayload({ projectName: 'P', taskTitle: 'T', event: 'failed' });
+  const delay = () => Promise.resolve();
+
+  it.each([[403, 'rejected'], [429, 'rate_limited']])('classifies exhausted HTTP %i as failed', async (httpStatus, reason) => {
+    fetchMock.mockResolvedValue(res(httpStatus));
+    expect(await sendWebhookDetailed(URL_OK, payload, { delay })).toEqual({
+      status: 'failed', reason, attempts: 3, httpStatus
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    ['TimeoutError', 'timeout'],
+    ['AbortError', 'transport_error'],
+    ['TypeError', 'transport_error']
+  ])('keeps a %s unknown even after two explicit rejections', async (name, reason) => {
+    const error = Object.assign(new Error('private transport detail'), { name });
+    fetchMock.mockRejectedValueOnce(error).mockResolvedValue(res(429));
+    expect(await sendWebhookDetailed(URL_OK, payload, { delay })).toEqual({
+      status: 'unknown', reason, attempts: 3
+    });
+  });
+
+  it.each([[302, 'ambiguous_response'], [502, 'ambiguous_response'], [408, 'timeout']])(
+    'keeps HTTP %i unconfirmed even after explicit rejections', async (httpStatus, reason) => {
+      fetchMock.mockResolvedValueOnce(res(httpStatus)).mockResolvedValue(res(400));
+      expect(await sendWebhookDetailed(URL_OK, payload, { delay })).toEqual({
+        status: 'unknown', reason, attempts: 3, httpStatus
+      });
+    }
+  );
+
+  it('lets a later 2xx confirm delivery and uses a new 10s timeout per attempt', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      fetchMock.mockRejectedValueOnce(new DOMException('check timed out', 'TimeoutError'))
+        .mockResolvedValueOnce(res(429))
+        .mockResolvedValueOnce(res(204));
+      expect(await sendWebhookDetailed(URL_OK, payload, { delay })).toEqual({
+        status: 'delivered', attempts: 3, httpStatus: 204
+      });
+      expect(timeout.mock.calls).toEqual([[10_000], [10_000], [10_000]]);
+      expect(new Set(fetchMock.mock.calls.map(([, init]) => init.signal)).size).toBe(3);
+    } finally {
+      timeout.mockRestore();
+    }
   });
 });

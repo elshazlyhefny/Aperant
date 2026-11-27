@@ -15,6 +15,7 @@ import { failedBeforeAnyWork } from '../shared/utils/task-failure';
 import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
 
 import { appLog } from './app-logger';
+import { createDeliveryReceiptRecorder } from './delivery-receipts';
 import { dispatchTaskOutcomeWebhook, mapOutcomeToWebhookEvent } from './task-webhook';
 import { dispatchIssueOutcome } from './ipc-handlers/issue-writeback/issue-writeback';
 type TaskActor = ActorRefFrom<typeof taskMachine>;
@@ -387,24 +388,30 @@ export class TaskStateManager {
       // message goes out without the link (prUrl is optional).
       const outcomeEvent = isRestoredState ? null : mapOutcomeToWebhookEvent(status, reviewReason);
       if (outcomeEvent) {
+        // zeenha fork: worktree tasks write history at the registered project root too.
+        const recorder = createDeliveryReceiptRecorder(project.path, task.specId);
         if (!(outcomeEvent === 'pr_opened' && this.prFollowUpInProgress.has(taskId))) {
+          const warnWebhook = () => console.warn('[TaskStateManager] Webhook dispatch failed');
           try {
-            dispatchTaskOutcomeWebhook({
+            const delivery = dispatchTaskOutcomeWebhook({
               status,
               reviewReason,
               projectName: project.name,
               taskTitle: task.title || task.specId,
               prUrl: task.metadata?.prUrl,
               project
-            });
-          } catch (error) {
-            console.warn(`[TaskStateManager] Webhook dispatch failed for ${taskId}:`, error);
+            }, recorder);
+            void Promise.resolve(delivery).catch(warnWebhook);
+          } catch {
+            warnWebhook();
           }
         }
+        const warnWriteback = () => console.warn('[TaskStateManager] Issue write-back failed');
         try {
-          dispatchIssueOutcome({ task, project, event: outcomeEvent });
-        } catch (error) {
-          console.warn(`[TaskStateManager] Issue write-back failed for ${taskId}:`, error);
+          const writeback = dispatchIssueOutcome({ task, project, event: outcomeEvent }, recorder);
+          void Promise.resolve(writeback).catch(warnWriteback);
+        } catch {
+          warnWriteback();
         }
       }
     });

@@ -180,4 +180,29 @@ describe('resolveActiveProfile', () => {
       credential: 'lk'
     });
   });
+  it('never returns an undecryptable key envelope as a usage credential', async () => {
+    const envelope = 'aperant-secret:v1:Y2lwaGVydGV4dA==';
+    for (const account of [
+      { id: 'k1', name: 'Key', provider: 'anthropic', authType: 'api-key', apiKey: envelope },
+      { id: 'z1', name: 'Z', provider: 'zai', authType: 'api-key', apiKey: envelope },
+      { id: 'r1', name: 'R', provider: 'openrouter', authType: 'api-key', apiKey: envelope }
+    ]) {
+      mockReadSettings.mockResolvedValue(settingsWith(account));
+      expect(await resolveActiveProfile(makeDeps())).toBeNull();
+    }
+  });
+
+  it('skips a legacy API profile whose key is an undecryptable envelope', async () => {
+    mockReadSettings.mockResolvedValue({ providerAccounts: [], globalPriorityOrder: [] });
+    mockLoadProfilesFile.mockResolvedValue({
+      profiles: [{ id: 'legacy', name: 'Legacy', baseUrl: 'https://legacy', apiKey: 'aperant-secret:v1:Y2lwaGVydGV4dA==' }],
+      activeProfileId: 'legacy',
+      version: 1
+    });
+    mockGetActiveProfile.mockReturnValue(null);
+
+    const result = await resolveActiveProfile(makeDeps());
+
+    expect(result).toBeNull();
+  });
 });

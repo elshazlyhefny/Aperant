@@ -1,4 +1,5 @@
 import type { Task, WorktreeStatus, WorktreeDiff, MergeConflict, MergeStats, GitConflictInfo, ImageAttachment, WorktreeCreatePRResult } from '../../../shared/types';
+import type { WorkspaceCheckState } from './hooks/useTaskDetail';
 import {
   StagedSuccessMessage,
   WorkspaceStatus,
@@ -9,8 +10,11 @@ import {
   LoadingMessage,
   NoWorkspaceMessage,
   StagedInProjectMessage,
+  WorkspaceCheckErrorMessage,
   CreatePRDialog
 } from './task-review';
+
+type WorkspaceCheck = { state: WorkspaceCheckState; error: string | null };
 
 interface TaskReviewProps {
   task: Task;
@@ -18,6 +22,8 @@ interface TaskReviewProps {
   isSubmitting: boolean;
   worktreeStatus: WorktreeStatus | null;
   worktreeDiff: WorktreeDiff | null;
+  worktreeStatusCheck: WorkspaceCheck;
+  worktreeDiffCheck: WorkspaceCheck;
   isLoadingWorktree: boolean;
   isMerging: boolean;
   isDiscarding: boolean;
@@ -44,6 +50,8 @@ interface TaskReviewProps {
   onStageOnlyChange: (value: boolean) => void;
   onShowConflictDialog: (show: boolean) => void;
   onLoadMergePreview: () => void;
+  onRetryWorktreeStatus: () => void;
+  onRetryWorktreeDiff: () => void;
   onClose?: () => void;
   onSwitchToTerminals?: () => void;
   onOpenInbuiltTerminal?: (id: string, cwd: string) => void;
@@ -70,6 +78,8 @@ export function TaskReview({
   isSubmitting,
   worktreeStatus,
   worktreeDiff,
+  worktreeStatusCheck,
+  worktreeDiffCheck,
   isLoadingWorktree,
   isMerging,
   isDiscarding,
@@ -94,6 +104,8 @@ export function TaskReview({
   onStageOnlyChange,
   onShowConflictDialog,
   onLoadMergePreview,
+  onRetryWorktreeStatus,
+  onRetryWorktreeDiff,
   onClose,
   onSwitchToTerminals,
   onOpenInbuiltTerminal,
@@ -103,39 +115,59 @@ export function TaskReview({
   onShowPRDialog,
   onCreatePR
 }: TaskReviewProps) {
+  const statusVerified = worktreeStatusCheck.state === 'success';
+  const hasWorktree = statusVerified && worktreeStatus?.exists === true;
+  const statusError = worktreeStatusCheck.state === 'error' ? (
+    <WorkspaceCheckErrorMessage
+      error={worktreeStatusCheck.error}
+      isRetrying={false}
+      onRetry={onRetryWorktreeStatus}
+    />
+  ) : null;
+
   return (
     <div className="space-y-4">
       {/* Section divider */}
       <div className="section-divider-gradient" />
 
-      {/* Workspace Status - priority: loading > staged fresh > staged persisted > worktree exists > no workspace */}
+      {/* zeenha fork: a failed status check is not proof of absence; only verified status enables workspace actions. */}
       {isLoadingWorktree ? (
         <LoadingMessage />
       ) : stagedSuccess ? (
-        /* Fresh staging success - show commit message and next steps */
-        <StagedSuccessMessage
-          stagedSuccess={stagedSuccess}
-          suggestedCommitMessage={suggestedCommitMessage}
-          task={task}
-          hasWorktree={worktreeStatus?.exists || false}
-          projectPath={stagedProjectPath}
-          onClose={onClose}
-          onReviewAgain={onReviewAgain}
-        />
+        <>
+          {statusError}
+          <StagedSuccessMessage
+            stagedSuccess={stagedSuccess}
+            suggestedCommitMessage={suggestedCommitMessage}
+            task={task}
+            hasWorktree={hasWorktree}
+            isWorktreeVerified={statusVerified}
+            projectPath={stagedProjectPath}
+            onClose={onClose}
+            onReviewAgain={onReviewAgain}
+          />
+        </>
       ) : task.stagedInMainProject ? (
-        /* Previously staged (persisted) - show action buttons */
-        <StagedInProjectMessage
-          task={task}
-          projectPath={stagedProjectPath}
-          hasWorktree={worktreeStatus?.exists || false}
-          onClose={onClose}
-          onReviewAgain={onReviewAgain}
-        />
-      ) : worktreeStatus?.exists ? (
-        /* Worktree exists but not yet staged - show staging UI */
+        <>
+          {statusError}
+          <StagedInProjectMessage
+            task={task}
+            projectPath={stagedProjectPath}
+            hasWorktree={hasWorktree}
+            isWorktreeVerified={statusVerified}
+            onClose={onClose}
+            onReviewAgain={onReviewAgain}
+          />
+        </>
+      ) : statusError ? (
+        statusError
+      ) : hasWorktree ? (
         <WorkspaceStatus
           taskId={task.id}
           worktreeStatus={worktreeStatus}
+          diffCheckState={worktreeDiffCheck.state}
+          diffError={worktreeDiffCheck.error}
+          onRetryDiff={onRetryWorktreeDiff}
           workspaceError={workspaceError}
           stageOnly={stageOnly}
           mergePreview={mergePreview}
@@ -154,8 +186,10 @@ export function TaskReview({
           onSwitchToTerminals={onSwitchToTerminals}
           onOpenInbuiltTerminal={onOpenInbuiltTerminal}
         />
-      ) : (
+      ) : statusVerified && worktreeStatus?.exists === false ? (
         <NoWorkspaceMessage task={task} onClose={onClose} />
+      ) : (
+        <LoadingMessage />
       )}
 
       {/* QA Feedback Section */}
@@ -180,7 +214,7 @@ export function TaskReview({
 
       {/* Diff View Dialog */}
       <DiffViewDialog
-        open={showDiffDialog}
+        open={showDiffDialog && worktreeDiffCheck.state === 'success'}
         worktreeDiff={worktreeDiff}
         onOpenChange={onShowDiffDialog}
       />

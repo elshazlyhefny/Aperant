@@ -1,5 +1,5 @@
 import { debugLog } from '@shared/utils/debug-logger';
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   GitBranch,
@@ -52,14 +52,24 @@ import { useTaskStore } from '../stores/task-store';
 import { useToast } from '../hooks/use-toast';
 import type { WorktreeListItem, WorktreeMergeResult, TerminalWorktreeConfig, WorktreeStatus, Task, WorktreeCreatePROptions, WorktreeCreatePRResult, MergedCleanupOutcome } from '../../shared/types';
 import { CreatePRDialog } from './task-detail/task-review/CreatePRDialog';
-
-// Prefix constants for worktree ID parsing
-const TASK_PREFIX = 'task:';
-const TERMINAL_PREFIX = 'terminal:';
+import {
+  TASK_PREFIX,
+  TERMINAL_PREFIX,
+  buildBulkDeleteReport,
+  parseSelectionId,
+  taskWorktreeDisplayName,
+  type BulkDeleteAttempt,
+  type BulkDeleteReport
+} from './worktree-bulk-delete';
 
 interface WorktreesProps {
   projectId: string;
 }
+
+// zeenha fork: only a refresh of both lists can confirm which failed worktrees still exist.
+type WorktreeRefreshResult =
+  | { ok: true; taskWorktrees: WorktreeListItem[]; terminalWorktrees: TerminalWorktreeConfig[] }
+  | { ok: false; error?: string };
 
 export function Worktrees({ projectId }: WorktreesProps) {
   const { t } = useTranslation(['common', 'dialogs']);
@@ -67,6 +77,9 @@ export function Worktrees({ projectId }: WorktreesProps) {
   const projects = useProjectStore((state) => state.projects);
   const selectedProject = projects.find((p) => p.id === projectId);
   const tasks = useTaskStore((state) => state.tasks);
+  // zeenha fork: an in-flight bulk delete must not restore selection into another project.
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
 
   const [worktrees, setWorktrees] = useState<WorktreeListItem[]>([]);
   const [terminalWorktrees, setTerminalWorktrees] = useState<TerminalWorktreeConfig[]>([]);
@@ -94,6 +107,8 @@ export function Worktrees({ projectId }: WorktreesProps) {
   // Bulk delete confirmation state
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  // zeenha fork: retain per-item outcomes for the summary panel.
+  const [bulkDeleteReport, setBulkDeleteReport] = useState<BulkDeleteReport | null>(null);
 
   // Create PR dialog state
   const [showCreatePRDialog, setShowCreatePRDialog] = useState(false);
@@ -161,8 +176,8 @@ export function Worktrees({ projectId }: WorktreesProps) {
   }, [worktrees, terminalWorktrees, selectedWorktreeIds]);
 
   // Load worktrees (both task and terminal worktrees)
-  const loadWorktrees = useCallback(async () => {
-    if (!projectId || !selectedProject) return;
+  const loadWorktrees = useCallback(async (): Promise<WorktreeRefreshResult> => {
+    if (!projectId || !selectedProject || projectIdRef.current !== projectId) return { ok: false };
 
     // Clear selection when refreshing list to prevent stale selections
     setSelectedWorktreeIds(new Set());
@@ -178,30 +193,40 @@ export function Worktrees({ projectId }: WorktreesProps) {
         window.electronAPI.listTerminalWorktrees(selectedProject.path)
       ]);
 
+      if (projectIdRef.current !== projectId) return { ok: false };
+
       debugLog('[Worktrees] Task worktrees result:', taskResult);
       debugLog('[Worktrees] Terminal worktrees result:', terminalResult);
 
+      const freshTaskWorktrees = taskResult.data?.worktrees ?? [];
       if (taskResult.success) {
         // Always update state when successful, even if data is null/undefined
-        setWorktrees(taskResult.data?.worktrees || []);
+        setWorktrees(freshTaskWorktrees);
       } else {
         setError(taskResult.error || 'Failed to load task worktrees');
       }
 
+      // Keep a new array reference even when the result is empty.
+      const freshTerminalWorktrees = Array.isArray(terminalResult.data) ? [...terminalResult.data] : [];
       if (terminalResult.success) {
-        // Always update state when successful, ensuring a new array reference to force React re-render
-        // This is critical when data is an empty array - we need a new reference to update the UI
-        const newWorktrees = Array.isArray(terminalResult.data) ? [...terminalResult.data] : [];
-        debugLog('[Worktrees] Setting terminal worktrees:', newWorktrees);
-        setTerminalWorktrees(newWorktrees);
+        debugLog('[Worktrees] Setting terminal worktrees:', freshTerminalWorktrees);
+        setTerminalWorktrees(freshTerminalWorktrees);
       } else {
         console.warn('[Worktrees] Terminal worktrees fetch failed:', terminalResult);
       }
+
+      if (!taskResult.success || !terminalResult.success) {
+        return { ok: false, error: !taskResult.success ? taskResult.error : terminalResult.error };
+      }
+      return { ok: true, taskWorktrees: freshTaskWorktrees, terminalWorktrees: freshTerminalWorktrees };
     } catch (err) {
+      if (projectIdRef.current !== projectId) return { ok: false };
       console.error('[Worktrees] Error loading worktrees:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load worktrees');
+      const message = err instanceof Error ? err.message : undefined;
+      setError(message ?? 'Failed to load worktrees');
+      return { ok: false, error: message };
     } finally {
-      setIsLoading(false);
+      if (projectIdRef.current === projectId) setIsLoading(false);
     }
   }, [projectId, selectedProject]);
 
@@ -225,6 +250,7 @@ export function Worktrees({ projectId }: WorktreesProps) {
   // Load on mount and when project changes, then clean up merged worktrees
   useEffect(() => {
     setCleanupOutcomes(null);
+    setBulkDeleteReport(null);
     loadWorktrees();
     cleanUpMerged(false);
   }, [loadWorktrees, cleanUpMerged]);
@@ -371,29 +397,30 @@ export function Worktrees({ projectId }: WorktreesProps) {
     setShowBulkDeleteConfirm(true);
   }, [selectedWorktreeIds]);
 
-  // Execute bulk delete - called when user confirms in dialog
+  // zeenha fork: snapshot the confirmed selection and track every delete outcome for retry.
   const executeBulkDelete = useCallback(async () => {
-    if (selectedWorktreeIds.size === 0 || !selectedProject) return;
+    const selectedIds = [...selectedWorktreeIds];
+    if (selectedIds.length === 0 || !selectedProject) return;
 
+    const startProjectId = projectId;
+    setBulkDeleteReport(null);
     setIsBulkDeleting(true);
-    const errors: string[] = [];
-
-    // Parse selected IDs and separate by type
-    const taskSpecNames: string[] = [];
-    const terminalNames: string[] = [];
-
-    selectedWorktreeIds.forEach((id) => {
-      if (id.startsWith(TASK_PREFIX)) {
-        taskSpecNames.push(id.slice(TASK_PREFIX.length));
-      } else if (id.startsWith(TERMINAL_PREFIX)) {
-        terminalNames.push(id.slice(TERMINAL_PREFIX.length));
-      }
-    });
+    const attempts: BulkDeleteAttempt[] = [];
+    const selections: Record<BulkDeleteAttempt['kind'], { id: string; key: string }[]> = {
+      task: [],
+      terminal: []
+    };
+    for (const id of selectedIds) {
+      const selection = parseSelectionId(id);
+      if (selection) selections[selection.kind].push({ id, key: selection.key });
+    }
 
     // Delete task worktrees
-    for (const specName of taskSpecNames) {
+    for (const { id, key: specName } of selections.task) {
       const task = findTaskForWorktree(specName);
       const worktree = worktrees.find(w => w.specName === specName);
+      const attempt = { id, kind: 'task' as const, name: taskWorktreeDisplayName(specName, task?.title) };
+      const fallback = t('common:errors.failedToDeleteTaskWorktree', { specName });
 
       try {
         let result;
@@ -402,60 +429,76 @@ export function Worktrees({ projectId }: WorktreesProps) {
           result = await window.electronAPI.discardWorktree(task.id);
         } else if (worktree?.isOrphaned) {
           // Orphaned worktree - delete by spec name directly
-          result = await window.electronAPI.discardOrphanedWorktree(projectId, specName);
+          result = await window.electronAPI.discardOrphanedWorktree(startProjectId, specName);
         } else {
-          errors.push(t('common:errors.taskNotFoundForWorktree', { specName }));
+          attempts.push({
+            ...attempt,
+            outcome: 'failed',
+            reason: t('common:errors.taskNotFoundForWorktree', { specName })
+          });
           continue;
         }
 
-        if (!result.success) {
-          errors.push(result.error || t('common:errors.failedToDeleteTaskWorktree', { specName }));
-        }
+        attempts.push(result.success
+          ? { ...attempt, outcome: 'deleted' }
+          : { ...attempt, outcome: 'failed', reason: result.error || fallback });
       } catch (err) {
-        errors.push(err instanceof Error ? err.message : t('common:errors.failedToDeleteTaskWorktree', { specName }));
+        attempts.push({ ...attempt, outcome: 'failed', reason: err instanceof Error ? err.message : fallback });
       }
     }
 
     // Delete terminal worktrees
-    for (const name of terminalNames) {
+    for (const { id, key: name } of selections.terminal) {
       const terminalWt = terminalWorktrees.find((wt) => wt.name === name);
+      const attempt = { id, kind: 'terminal' as const, name };
       if (!terminalWt) {
-        errors.push(t('common:errors.terminalWorktreeNotFound', { name }));
+        attempts.push({
+          ...attempt,
+          outcome: 'failed',
+          reason: t('common:errors.terminalWorktreeNotFound', { name })
+        });
         continue;
       }
 
+      const fallback = t('common:errors.failedToDeleteTerminalWorktree', { name });
       try {
         const result = await window.electronAPI.removeTerminalWorktree(
           selectedProject.path,
           terminalWt.name,
           terminalWt.hasGitBranch // Delete the branch too if it was created
         );
-        if (!result.success) {
-          errors.push(result.error || t('common:errors.failedToDeleteTerminalWorktree', { name }));
-        }
+        attempts.push(result.success
+          ? { ...attempt, outcome: 'deleted' }
+          : { ...attempt, outcome: 'failed', reason: result.error || fallback });
       } catch (err) {
-        errors.push(err instanceof Error ? err.message : t('common:errors.failedToDeleteTerminalWorktree', { name }));
+        attempts.push({ ...attempt, outcome: 'failed', reason: err instanceof Error ? err.message : fallback });
       }
     }
 
-    // Clear selection and refresh list
-    setSelectedWorktreeIds(new Set());
     setShowBulkDeleteConfirm(false);
-    await loadWorktrees();
+    const refresh = await loadWorktrees();
+    setIsBulkDeleting(false);
+    if (projectIdRef.current !== startProjectId) return;
 
-    const deletedCount = taskSpecNames.length + terminalNames.length;
+    const report = buildBulkDeleteReport(attempts, refresh.ok ? {
+      ok: true,
+      taskSpecNames: refresh.taskWorktrees.map((worktree) => worktree.specName),
+      terminalNames: refresh.terminalWorktrees.map((worktree) => worktree.name)
+    } : refresh);
 
-    // Show error if any failures occurred, otherwise show success toast
-    if (errors.length > 0) {
-      setError(`${t('common:errors.bulkDeletePartialFailure')}\n${errors.join('\n')}`);
-    } else {
+    if (!report.refreshFailed && report.failedCount === 0) {
       toast({
         title: t('common:actions.success'),
-        description: t('common:worktrees.bulkDeleteSuccess', { count: deletedCount }),
+        description: t('common:worktrees.bulkDeleteSuccess', { count: report.deletedCount }),
       });
+    } else {
+      setBulkDeleteReport(report);
+      // zeenha fork: loadWorktrees clears the old selection; reselect only verified failures afterward.
+      if (report.retainedFailedIds.length > 0) {
+        setSelectedWorktreeIds(new Set(report.retainedFailedIds));
+        setIsSelectionMode(true);
+      }
     }
-
-    setIsBulkDeleting(false);
   }, [selectedWorktreeIds, selectedProject, worktrees, terminalWorktrees, projectId, findTaskForWorktree, loadWorktrees, t, toast]);
 
   // Handle terminal worktree delete
@@ -597,6 +640,78 @@ export function Worktrees({ projectId }: WorktreesProps) {
             >
               <Trash2 className="h-4 w-4 mr-2" />
               {t('common:buttons.delete')} ({selectedWorktreeIds.size})
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* zeenha fork: explain partial bulk deletes and retry only failures verified by the refresh. */}
+      {bulkDeleteReport && (
+        <div
+          className="mb-4 space-y-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm"
+          role="alert"
+          data-testid="bulk-delete-summary"
+        >
+          <h3 className="font-medium text-destructive">
+            {t('common:worktrees.bulkDeleteResult.title')}
+          </h3>
+          <p data-testid="bulk-delete-summary-counts">
+            {t('common:worktrees.bulkDeleteResult.summary', {
+              deleted: bulkDeleteReport.deletedCount,
+              failed: bulkDeleteReport.failedCount
+            })}
+          </p>
+          {bulkDeleteReport.failedCount > 0 && (
+            <ul className="list-disc pl-5 text-muted-foreground">
+              {bulkDeleteReport.attempts.filter((attempt) => attempt.outcome === 'failed').map((attempt) => (
+                <li key={attempt.id} data-testid="bulk-delete-failed-item">
+                  {t('common:worktrees.bulkDeleteResult.failedItem', {
+                    name: attempt.name,
+                    reason: attempt.reason ?? t('common:worktrees.bulkDeleteResult.unknownReason')
+                  })}
+                </li>
+              ))}
+            </ul>
+          )}
+          {bulkDeleteReport.refreshFailed ? (
+            <div className="text-muted-foreground">
+              <p data-testid="bulk-delete-refresh-failed">
+                {t('common:worktrees.bulkDeleteResult.refreshFailed')}
+              </p>
+              {bulkDeleteReport.refreshError && (
+                <p>
+                  {t('common:worktrees.bulkDeleteResult.refreshFailedDetail', { error: bulkDeleteReport.refreshError })}
+                </p>
+              )}
+            </div>
+          ) : bulkDeleteReport.retainedFailedIds.length > 0 && (
+            <p className="text-muted-foreground">
+              {t('common:worktrees.bulkDeleteResult.retryHint')}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {!bulkDeleteReport.refreshFailed && bulkDeleteReport.retainedFailedIds.length > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                data-testid="bulk-delete-retry-failed"
+                onClick={() => {
+                  setSelectedWorktreeIds(new Set(bulkDeleteReport.retainedFailedIds));
+                  setIsSelectionMode(true);
+                  setShowBulkDeleteConfirm(true);
+                }}
+              >
+                <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                {t('common:worktrees.bulkDeleteResult.retryFailed')}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="bulk-delete-dismiss"
+              onClick={() => setBulkDeleteReport(null)}
+            >
+              {t('common:worktrees.bulkDeleteResult.dismiss')}
             </Button>
           </div>
         </div>
