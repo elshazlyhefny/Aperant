@@ -1,4 +1,6 @@
 name: Release
+# zeenha fork: Pin external actions to full commit SHAs and record their versions.
+# Review the upstream diff before advancing a pin.
 # Triggers on version tags (v*) to build and publish releases
 #
 # IMPORTANT: If branch protection is enabled on 'main', the update-readme job
@@ -27,7 +29,7 @@ jobs:
       notarization_id: ${{ steps.notarize.outputs.notarization-id }}
       dmg_file: ${{ steps.notarize.outputs.dmg-file }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js and install dependencies
         uses: ./.github/actions/setup-node-frontend
@@ -58,7 +60,7 @@ jobs:
           apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-intel-builds
           path: |
@@ -74,7 +76,7 @@ jobs:
       notarization_id: ${{ steps.notarize.outputs.notarization-id }}
       dmg_file: ${{ steps.notarize.outputs.dmg-file }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js and install dependencies
         uses: ./.github/actions/setup-node-frontend
@@ -105,7 +107,7 @@ jobs:
           apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-arm64-builds
           path: |
@@ -123,7 +125,7 @@ jobs:
       # Job-level env so AZURE_CLIENT_ID is available for step-level if conditions
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js and install dependencies
         uses: ./.github/actions/setup-node-frontend
@@ -147,7 +149,7 @@ jobs:
 
       - name: Azure Login (OIDC)
         if: env.AZURE_CLIENT_ID != ''
-        uses: azure/login@v2
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -155,7 +157,7 @@ jobs:
 
       - name: Sign Windows executable with Azure Trusted Signing
         if: env.AZURE_CLIENT_ID != ''
-        uses: azure/trusted-signing-action@v0.5.11
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0.5.11
         with:
           endpoint: https://neu.codesigning.azure.net/
           trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
@@ -257,7 +259,7 @@ jobs:
         run: echo "::warning::Windows signing skipped - AZURE_CLIENT_ID not configured. The .exe will be unsigned."
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-builds
           path: |
@@ -268,7 +270,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node.js and install dependencies
         uses: ./.github/actions/setup-node-frontend
@@ -300,7 +302,7 @@ jobs:
         run: cd apps/desktop && npm run verify:linux
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-builds
           path: |
@@ -315,16 +317,16 @@ jobs:
     needs: [build-macos-intel, build-macos-arm64]
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Download Intel DMG
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: macos-intel-builds
           path: intel
 
       - name: Download ARM64 DMG
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: macos-arm64-builds
           path: arm64
@@ -341,13 +343,13 @@ jobs:
           arm64-dmg-file: ${{ needs.build-macos-arm64.outputs.dmg_file }}
 
       - name: Upload stapled Intel DMG
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-intel-stapled
           path: intel/*.dmg
 
       - name: Upload stapled ARM64 DMG
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-arm64-stapled
           path: arm64/*.dmg
@@ -358,12 +360,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           path: dist
 
@@ -519,7 +521,7 @@ jobs:
 
       - name: Create Release
         if: ${{ github.event_name == 'push' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           body: |
             ${{ steps.changelog.outputs.body }}
@@ -544,7 +546,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: main
           # Use PAT_TOKEN to bypass branch protection rules on main
