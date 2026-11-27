@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CalendarClock, Pause, Pencil, Play, Plus, Trash2, AlertTriangle, Zap, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
@@ -66,10 +66,6 @@ export function Schedules({ projectId, onOpenTask }: SchedulesProps) {
   const [pendingDelete, setPendingDelete] = useState<RecurringSchedule | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  useEffect(() => {
-    void loadSchedules(projectId);
-  }, [projectId, loadSchedules]);
 
   const formatDate = (ms: number) => new Date(ms).toLocaleString(i18n.language);
 
