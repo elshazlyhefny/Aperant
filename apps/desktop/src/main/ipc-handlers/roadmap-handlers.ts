@@ -416,7 +416,8 @@ ${(feature.acceptance_criteria || []).map((c: string) => `- [ ] ${c}`).join("\n"
           { encoding: 'utf-8' }
         );
 
-        // Create spec.md (required by backend spec creation process)
+        // Create a stub spec.md from the feature. launchTask still runs spec creation for a
+        // roadmap task (see needsSpecFromStub), which replaces this stub with a full spec.
         await writeFileWithRetry(path.join(specDir, AUTO_BUILD_PATHS.SPEC_FILE), taskDescription, { encoding: 'utf-8' });
 
         // Build metadata

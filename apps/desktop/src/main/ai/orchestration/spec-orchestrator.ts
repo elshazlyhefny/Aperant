@@ -286,6 +286,7 @@ export class SpecOrchestrator extends EventEmitter {
         };
         this.emitTyped('log', `Complexity heuristic: ${heuristicResult} (skipping AI assessment)`);
         phasesExecuted.push('complexity_assessment');
+        await this.persistAssessment();
       } else if (this.config.complexityOverride) {
         complexity = this.config.complexityOverride;
         this.emitTyped('log', `Complexity override: ${complexity}`);
@@ -623,6 +624,7 @@ export class SpecOrchestrator extends EventEmitter {
     if (sessionResult.structuredOutput) {
       this.assessment = sessionResult.structuredOutput as unknown as ComplexityAssessment;
       this.emitTyped('log', `Complexity assessed (structured output): ${this.assessment.complexity} (confidence: ${(this.assessment.confidence * 100).toFixed(0)}%)`);
+      await this.persistAssessment();
       return { phase: 'complexity_assessment', success: true, errors: [], retries: 0 };
     }
 
@@ -696,6 +698,25 @@ export class SpecOrchestrator extends EventEmitter {
       }
     }
     return null; // No schema for this phase
+  }
+
+  /**
+   * zeenha fork: write the assessment to complexity_assessment.json when it did
+   * not come from that file (heuristic or structured output). launchTask reads
+   * the file as the sign that the spec pipeline already ran for an Ideation or
+   * Roadmap stub spec; without it, "Re-plan" (which empties the plan) would send
+   * such a task through spec creation again instead of planning.
+   */
+  private async persistAssessment(): Promise<void> {
+    if (!this.assessment) return;
+    try {
+      await writeFile(
+        join(this.config.specDir, 'complexity_assessment.json'),
+        JSON.stringify(this.assessment, null, 2),
+      );
+    } catch (err) {
+      this.emitTyped('log', `Failed to write complexity_assessment.json: ${err}`);
+    }
   }
 
   private async capturePhaseOutput(phase: SpecPhase): Promise<void> {
