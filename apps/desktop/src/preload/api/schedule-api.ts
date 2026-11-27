@@ -16,13 +16,18 @@ export interface ScheduleChangedEvent {
 export interface ScheduleAPI {
   listSchedules: (projectId: string) => Promise<IPCResult<RecurringSchedule[]>>;
   createSchedule: (projectId: string, input: ScheduleInput) => Promise<IPCResult<RecurringSchedule>>;
-  updateSchedule: (id: string, input: ScheduleInput) => Promise<IPCResult<RecurringSchedule>>;
-  deleteSchedule: (id: string) => Promise<IPCResult>;
-  setScheduleEnabled: (id: string, enabled: boolean) => Promise<IPCResult<RecurringSchedule>>;
+  // zeenha fork: by-ID calls name the caller's project; main rejects a schedule of another project.
+  updateSchedule: (projectId: string, id: string, input: ScheduleInput) => Promise<IPCResult<RecurringSchedule>>;
+  deleteSchedule: (projectId: string, id: string) => Promise<IPCResult>;
+  setScheduleEnabled: (projectId: string, id: string, enabled: boolean) => Promise<IPCResult<RecurringSchedule>>;
   /** Acknowledge run reports; omit recordIds to acknowledge all. */
-  acknowledgeScheduleReports: (scheduleId: string, recordIds?: string[]) => Promise<IPCResult<RecurringSchedule>>;
+  acknowledgeScheduleReports: (
+    projectId: string,
+    scheduleId: string,
+    recordIds?: string[]
+  ) => Promise<IPCResult<RecurringSchedule>>;
   /** Start the schedule's task now, without changing its next run or paused state. */
-  runScheduleNow: (id: string) => Promise<IPCResult<ScheduleRunNowResult>>;
+  runScheduleNow: (projectId: string, id: string) => Promise<IPCResult<ScheduleRunNowResult>>;
   /** Fired when schedules change in the main process. Returns an unsubscribe function. */
   onSchedulesChanged: (callback: (event: ScheduleChangedEvent) => void) => () => void;
 }
@@ -34,20 +39,24 @@ export const createScheduleAPI = (): ScheduleAPI => ({
   createSchedule: (projectId: string, input: ScheduleInput): Promise<IPCResult<RecurringSchedule>> =>
     ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_CREATE, projectId, input),
 
-  updateSchedule: (id: string, input: ScheduleInput): Promise<IPCResult<RecurringSchedule>> =>
-    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_UPDATE, id, input),
+  updateSchedule: (projectId: string, id: string, input: ScheduleInput): Promise<IPCResult<RecurringSchedule>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_UPDATE, projectId, id, input),
 
-  deleteSchedule: (id: string): Promise<IPCResult> =>
-    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_DELETE, id),
+  deleteSchedule: (projectId: string, id: string): Promise<IPCResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_DELETE, projectId, id),
 
-  setScheduleEnabled: (id: string, enabled: boolean): Promise<IPCResult<RecurringSchedule>> =>
-    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_SET_ENABLED, id, enabled),
+  setScheduleEnabled: (projectId: string, id: string, enabled: boolean): Promise<IPCResult<RecurringSchedule>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_SET_ENABLED, projectId, id, enabled),
 
-  acknowledgeScheduleReports: (scheduleId: string, recordIds?: string[]): Promise<IPCResult<RecurringSchedule>> =>
-    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_ACK_REPORTS, scheduleId, recordIds),
+  acknowledgeScheduleReports: (
+    projectId: string,
+    scheduleId: string,
+    recordIds?: string[]
+  ): Promise<IPCResult<RecurringSchedule>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_ACK_REPORTS, projectId, scheduleId, recordIds),
 
-  runScheduleNow: (id: string): Promise<IPCResult<ScheduleRunNowResult>> =>
-    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_RUN_NOW, id),
+  runScheduleNow: (projectId: string, id: string): Promise<IPCResult<ScheduleRunNowResult>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCHEDULE_RUN_NOW, projectId, id),
 
   onSchedulesChanged: (callback: (event: ScheduleChangedEvent) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: ScheduleChangedEvent) => callback(data);

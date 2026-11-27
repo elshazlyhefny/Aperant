@@ -9,8 +9,9 @@
 3. [Agent Types, Prompts and Tools](#agent-types-prompts-and-tools)
 4. [Providers and Model Resolution](#providers-and-model-resolution)
 5. [Memory System](#memory-system)
-6. [Cross-Platform Development](#cross-platform-development)
-7. [End-to-End Testing](#end-to-end-testing)
+6. [Desktop vs Headless](#desktop-vs-headless)
+7. [Cross-Platform Development](#cross-platform-development)
+8. [End-to-End Testing](#end-to-end-testing)
 
 All paths below are relative to `apps/desktop/src/main/` unless stated otherwise.
 
@@ -343,6 +344,25 @@ Memory is a local, TypeScript implementation under `ai/memory/`. CLAUDE.md descr
 
 - `ipc-handlers/memory-handlers.ts` is not the memory store's API. It registers only the Ollama handlers (status, install check, install, list models, list embedding models, pull model with progress), which serve the embedding setup.
 - `Memory.md` at the repository root is the original design document ("V5"). Treat it as design intent, not as a description of the code.
+
+## Desktop vs Headless
+
+The headless CLI and daemon (`headless/`) run tasks without Electron. Some of its code mirrors desktop code instead of sharing it, and the two copies have drifted before. When you change one side of a pair below, check the other side in the same change.
+
+| Headless | Desktop | What must stay in sync |
+|----------|---------|------------------------|
+| `headless/run-task.ts` (`runHeadlessTask`) | `agent/agent-manager.ts` `startTaskExecution` | Session config, phases, worktree setup |
+| `headless/new-spec.ts` (`createHeadlessSpec`) | `agent/agent-manager.ts` `startSpecCreation` | Spec creation session config |
+| `headless/auth.ts` (`resolveHeadlessAuth`) | `AgentManager.resolveAuthFromProviderQueue` | Account queue order and provider preference |
+| `headless/config.ts` (`mcpOptionsForHeadless`) | `AgentManager.mcpOptionsForProject` | MCP options (headless approves nothing) |
+| `headless/task-store.ts` `setTaskStatus` / `resetStuckSubtasks` | `ipc-handlers/task/plan-file-utils.ts` `persistPlanStatus` / `resetStuckSubtasks` | Plan status writes and the stuck-subtask reset |
+| `headless/serve.ts` `deliverOutcome` / `settle`, `headless/webhook.ts` `eventsForOutcome`, `headless/writeback.ts` | `task-state-manager.ts` outcome subscriber | Which outcomes send a webhook or an issue write-back |
+| `headless/task-store.ts` `createScheduledTaskSpec` | `ipc-handlers/task/create-task.ts` `createTaskSpec` | Scheduled task metadata |
+
+Known differences that are intentional:
+
+- **Schedule file.** The desktop keeps schedules in `userData/schedules.json` (`schedule-store.ts`). The headless daemon keeps them per project in `<project>/.auto-claude/schedules.json` (`headless/serve.ts`). Both use `schedule-file-store.ts`.
+- **Scheduled task spec.** A desktop schedule creates a task without `spec.md`, so the full spec pipeline writes it. `runHeadlessTask` needs `spec.md` up front and cannot run spec creation in an existing spec folder, so `createScheduledTaskSpec` writes a minimal `spec.md` from the template and the headless run skips the spec pipeline.
 
 ## Cross-Platform Development
 

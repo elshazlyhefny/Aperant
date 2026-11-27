@@ -6,18 +6,16 @@
  * folder is removed again on any failure that this run caused.
  */
 
-import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-import { getSpecsDir } from '../../shared/constants';
 import type { AgentExecutorConfig, SerializableSessionConfig } from '../ai/agent/types';
 import { WorkerBridgeCore } from '../ai/agent/worker-bridge-core';
 import type { WorkerBridgeCoreOptions } from '../ai/agent/worker-bridge-core';
 import { serializeSecurityProfile } from '../ai/agent/task-session';
 import { resolveModelId } from '../ai/config/phase-config';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
-import { withSpecNumberLock } from '../utils/spec-number-lock';
-import { buildSpecId } from '../utils/spec-slug';
+import { allocateSpecDir } from '../utils/spec-number-lock';
 import { resolveHeadlessAuth } from './auth';
 import { loadHeadlessConfig, mcpOptionsForHeadless, resolveProjectSettings } from './config';
 import { collectBridgeRun } from './bridge-run';
@@ -99,15 +97,10 @@ export async function createHeadlessSpec(
 
     // (5) allocate the spec folder
     const firstLine = description.split(/\r?\n/)[0] ?? description;
-    const allocated = await withSpecNumberLock(projectPath, (lock) => {
-      const n = lock.getNextSpecNumber(AUTO_BUILD_PATH);
-      const id = buildSpecId(n, firstLine);
-      const dir = path.join(projectPath, getSpecsDir(AUTO_BUILD_PATH), id);
-      mkdirSync(dir, { recursive: true });
-      return { id, dir };
-    });
-    specId = allocated.id;
-    specDir = allocated.dir;
+    // zeenha fork: the shared allocator, like the desktop's create-task path.
+    const allocated = await allocateSpecDir({ path: projectPath, autoBuildPath: AUTO_BUILD_PATH }, firstLine);
+    specId = allocated.specId;
+    specDir = allocated.specDir;
     created = true;
 
     // (6) session config, as in startSpecCreation

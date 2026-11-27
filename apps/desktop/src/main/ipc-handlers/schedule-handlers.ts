@@ -21,6 +21,16 @@ function fail<T = never>(error: unknown): IPCResult<T> {
   return { success: false, error: error instanceof Error ? error.message : String(error) };
 }
 
+// zeenha fork: the renderer scopes schedules by project, but a call that names
+// only an ID could change another project's schedule. Every by-ID handler takes
+// the caller's project and runs this check under the store lock, so the check
+// and the write see the same record.
+const WRONG_PROJECT = 'Schedule belongs to a different project';
+
+function assertProject(current: Readonly<RecurringSchedule>, projectId: string): void {
+  if (current.projectId !== projectId) throw new Error(WRONG_PROJECT);
+}
+
 /** Returns an error message, or null when the input is valid. */
 function validateInput(input: ScheduleInput): string | null {
   if (!input || typeof input !== 'object') return 'Invalid schedule';
@@ -142,9 +152,10 @@ export function registerScheduleHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.SCHEDULE_UPDATE,
-    async (_event, id: string, input: ScheduleInput): Promise<IPCResult<RecurringSchedule>> => {
+    async (_event, projectId: string, id: string, input: ScheduleInput): Promise<IPCResult<RecurringSchedule>> => {
       try {
         const saved = await scheduleStore.updateSchedule(id, (current) => {
+          assertProject(current, projectId);
           const invalid = validateInput(input);
           if (invalid) throw new Error(invalid);
           const now = Date.now();
@@ -167,10 +178,10 @@ export function registerScheduleHandlers(
     }
   );
 
-  ipcMain.handle(IPC_CHANNELS.SCHEDULE_DELETE, async (_event, id: string): Promise<IPCResult> => {
+  ipcMain.handle(IPC_CHANNELS.SCHEDULE_DELETE, async (_event, projectId: string, id: string): Promise<IPCResult> => {
     try {
       // Only the schedule is removed; tasks it already created are untouched
-      const removed = await scheduleStore.deleteSchedule(id);
+      const removed = await scheduleStore.deleteSchedule(id, (current) => assertProject(current, projectId));
       if (!removed) return { success: false, error: 'Schedule not found' };
       notifyChanged(removed.projectId);
       return { success: true };
@@ -181,9 +192,10 @@ export function registerScheduleHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.SCHEDULE_SET_ENABLED,
-    async (_event, id: string, enabled: boolean): Promise<IPCResult<RecurringSchedule>> => {
+    async (_event, projectId: string, id: string, enabled: boolean): Promise<IPCResult<RecurringSchedule>> => {
       try {
         const saved = await scheduleStore.updateSchedule(id, (current) => {
+          assertProject(current, projectId);
           // Pausing clears nextRunAt; resuming counts from now so the paused
           // period is never reported as missed.
           const now = Date.now();
@@ -204,9 +216,15 @@ export function registerScheduleHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.SCHEDULE_ACK_REPORTS,
-    async (_event, scheduleId: string, recordIds?: string[]): Promise<IPCResult<RecurringSchedule>> => {
+    async (
+      _event,
+      projectId: string,
+      scheduleId: string,
+      recordIds?: string[]
+    ): Promise<IPCResult<RecurringSchedule>> => {
       try {
         const saved = await scheduleStore.updateSchedule(scheduleId, (current) => {
+          assertProject(current, projectId);
           const ids = recordIds ? new Set(recordIds) : null;
           return {
             history: current.history.map((r) => (!ids || ids.has(r.id) ? { ...r, acknowledged: true } : r)),
@@ -223,10 +241,14 @@ export function registerScheduleHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.SCHEDULE_RUN_NOW,
-    async (_event, id: string): Promise<IPCResult<ScheduleRunNowResult>> => {
+    async (_event, projectId: string, id: string): Promise<IPCResult<ScheduleRunNowResult>> => {
       try {
         if (typeof id !== 'string' || !id) return { success: false, error: 'Schedule not found' };
-        if (!scheduleStore.getSchedule(id)) return { success: false, error: 'Schedule not found' };
+        const existing = scheduleStore.getSchedule(id);
+        if (!existing) return { success: false, error: 'Schedule not found' };
+        // A schedule's projectId never changes (it is not a mutable field) and
+        // IDs are never reused, so this pre-read check stays valid for the run.
+        if (existing.projectId !== projectId) return { success: false, error: WRONG_PROJECT };
         // The service saves the schedule and notifies the renderer itself
         const result = await service.runNow(id);
         if (result.reason === 'not_found') return { success: false, error: 'Schedule not found' };

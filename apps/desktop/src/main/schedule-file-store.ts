@@ -33,13 +33,16 @@ const MUTABLE_FIELDS = [
 
 export type SchedulePatch = Partial<Pick<RecurringSchedule, (typeof MUTABLE_FIELDS)[number]>>;
 export type ScheduleMutator = (current: Readonly<RecurringSchedule>) => SchedulePatch;
+// zeenha fork: lets a caller check the stored record (e.g. its project) under the lock.
+export type ScheduleGuard = (current: Readonly<RecurringSchedule>) => void;
 
 export interface ScheduleFileStore {
   listSchedules(projectId?: string): RecurringSchedule[];
   getSchedule(id: string): RecurringSchedule | undefined;
   insertSchedule(schedule: RecurringSchedule): Promise<RecurringSchedule>;
   updateSchedule(id: string, mutator: ScheduleMutator): Promise<RecurringSchedule | undefined>;
-  deleteSchedule(id: string): Promise<RecurringSchedule | undefined>;
+  /** guard runs under the lock and may throw to abort the delete. */
+  deleteSchedule(id: string, guard?: ScheduleGuard): Promise<RecurringSchedule | undefined>;
   trimHistory(schedule: RecurringSchedule): RecurringSchedule;
 }
 
@@ -144,10 +147,11 @@ export function createScheduleFileStore(filePath: string | (() => string)): Sche
         return stored;
       });
     },
-    deleteSchedule(id) {
+    deleteSchedule(id, guard) {
       return mutate((data) => {
         const removed = data.schedules.find((s) => s.id === id);
         if (!removed) return undefined;
+        guard?.(structuredClone(removed));
         data.schedules = data.schedules.filter((s) => s.id !== id);
         return removed;
       });
