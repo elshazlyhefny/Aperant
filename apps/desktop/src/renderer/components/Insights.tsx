@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback, isValidElement } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, isValidElement, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MessageSquare,
@@ -67,6 +67,8 @@ import {
   MAX_IMAGE_SIZE,
   MAX_IMAGES_PER_TASK
 } from '../../shared/constants';
+
+const REMARK_PLUGINS = [remarkGfm];
 
 // createSafeLink - factory function that creates a SafeLink component with i18n support
 const createSafeLink = (opensInNewWindowText: string) => {
@@ -428,7 +430,7 @@ export function Insights({ projectId }: InsightsProps) {
     useInsightsStore.getState().setShowArchived(!showArchived);
   };
 
-  const handleCreateTask = async (
+  const handleCreateTask = useCallback(async (
     messageId: string,
     taskIndex: number,
     taskData: { title: string; description: string; metadata?: TaskMetadata }
@@ -455,7 +457,7 @@ export function Insights({ projectId }: InsightsProps) {
         return next;
       });
     }
-  };
+  }, [projectId]);
 
   const handleModelConfigChange = async (config: InsightsModelConfig) => {
     // If we have a session, persist the config
@@ -601,7 +603,7 @@ export function Insights({ projectId }: InsightsProps) {
                   </div>
                   {streamingContent && (
                     <div className="prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
                         {streamingContent}
                       </ReactMarkdown>
                     </div>
@@ -792,7 +794,7 @@ interface MessageBubbleProps {
   supportsImages: boolean;
 }
 
-function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
   message,
   markdownComponents,
   onCreateTask,
@@ -828,7 +830,7 @@ function MessageBubble({
         </div>
         {message.content && (
           <div className="prose prose-sm dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
               {message.content}
             </ReactMarkdown>
           </div>
@@ -949,7 +951,7 @@ function MessageBubble({
       </div>
     </div>
   );
-}
+});
 
 // Tool usage history component for showing tools used in completed messages
 interface ToolUsageHistoryProps {
