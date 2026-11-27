@@ -4,11 +4,11 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
-import type { AppSettings, IssueWritebackProviderKey, IssueWritebackSettings as IssueWritebackConfig } from '../../../shared/types';
+import type { RendererAppSettings, IssueWritebackProviderKey, IssueWritebackSettings as IssueWritebackConfig } from '../../../shared/types';
 
 interface IssueWritebackSettingsProps {
-  settings: AppSettings;
-  onSettingsChange: (settings: AppSettings) => void;
+  settings: RendererAppSettings;
+  onSettingsChange: (settings: RendererAppSettings) => void;
 }
 
 const DEFAULT_ISSUE_WRITEBACK = DEFAULT_APP_SETTINGS.issueWriteback as IssueWritebackConfig;

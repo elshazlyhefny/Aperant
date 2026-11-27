@@ -8,11 +8,11 @@ import { Switch } from '../ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
 import { detectWebhookFormat, isWebhookFormat } from '../../../shared/utils/webhook-format';
-import type { AppSettings, WebhookSettings as WebhookConfig } from '../../../shared/types';
+import type { RendererAppSettings, WebhookSettings as WebhookConfig } from '../../../shared/types';
 
 interface WebhookSettingsProps {
-  settings: AppSettings;
-  onSettingsChange: (settings: AppSettings) => void;
+  settings: RendererAppSettings;
+  onSettingsChange: (settings: RendererAppSettings) => void;
 }
 
 const MAX_URL_LENGTH = 2048;

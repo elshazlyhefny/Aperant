@@ -24,6 +24,7 @@ import { Checkbox } from '../../ui/checkbox';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/tooltip';
 import { cn } from '../../../lib/utils';
 import { MergeProgressOverlay } from './MergeProgressOverlay';
+import { DiffCheckErrorMessage } from './WorkspaceMessages';
 import type { WorktreeStatus, MergeConflict, MergeStats, GitConflictInfo, SupportedIDE, SupportedTerminal, MergeProgress, MergeLogEntry, MergeLogEntryType } from '../../../../shared/types';
 import { useSettingsStore } from '../../../stores/settings-store';
 
@@ -34,6 +35,9 @@ interface WorkspaceStatusProps {
   taskId: string;
   worktreeStatus: WorktreeStatus;
   workspaceError: string | null;
+  diffCheckState?: 'idle' | 'loading' | 'success' | 'error';
+  diffError?: string | null;
+  onRetryDiff?: () => void;
   stageOnly: boolean;
   mergePreview: { files: string[]; conflicts: MergeConflict[]; summary: MergeStats; gitConflicts?: GitConflictInfo; uncommittedChanges?: { hasChanges: boolean; files: string[]; count: number } | null } | null;
   isLoadingPreview: boolean;
@@ -93,6 +97,9 @@ export function WorkspaceStatus({
   taskId,
   worktreeStatus,
   workspaceError,
+  diffCheckState = 'success',
+  diffError,
+  onRetryDiff,
   stageOnly,
   mergePreview,
   isLoadingPreview,
@@ -277,6 +284,9 @@ export function WorkspaceStatus({
   // This triggers AI merge for path-mapped files even without explicit conflicts
   const isBranchBehind = needsRebase && commitsBehind > 0;
 
+  const isLoadingDiff = diffCheckState === 'loading';
+  const loadingDiffLabel = isLoadingDiff ? t('taskReview:workspaceCheck.loadingChangedFiles') : undefined;
+
   // Has path-mapped files that need AI merge
   const hasPathMappedMerges = pathMappedAIMergeCount > 0;
 
@@ -289,13 +299,21 @@ export function WorkspaceStatus({
             <GitBranch className="h-4 w-4 text-purple-400" />
             Build Ready for Review
           </h3>
+          {/* zeenha fork: verified workspace details do not imply the diff is available. */}
           <Button
             variant="ghost"
             size="sm"
             onClick={() => onShowDiffDialog(true)}
+            disabled={diffCheckState !== 'success'}
+            title={loadingDiffLabel}
+            aria-label={loadingDiffLabel}
             className="h-7 px-2 text-xs"
           >
-            <Eye className="h-3.5 w-3.5 mr-1" />
+            {isLoadingDiff ? (
+              <Loader2 aria-hidden="true" className="h-3.5 w-3.5 mr-1 animate-spin" />
+            ) : (
+              <Eye aria-hidden="true" className="h-3.5 w-3.5 mr-1" />
+            )}
             View
           </Button>
         </div>
@@ -363,6 +381,10 @@ export function WorkspaceStatus({
 
       {/* Status/Warnings Section */}
       <div className="px-4 py-3 space-y-3">
+        {diffCheckState === 'error' && (
+          <DiffCheckErrorMessage error={diffError} isRetrying={false} onRetry={onRetryDiff} />
+        )}
+
         {/* Workspace Error */}
         {workspaceError && (
           <div className="flex items-start gap-2 p-2.5 rounded-lg bg-destructive/10 border border-destructive/20">

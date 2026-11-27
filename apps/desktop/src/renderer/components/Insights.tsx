@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback, isValidElement } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, isValidElement, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MessageSquare,
@@ -67,6 +67,8 @@ import {
   MAX_IMAGE_SIZE,
   MAX_IMAGES_PER_TASK
 } from '../../shared/constants';
+
+const REMARK_PLUGINS = [remarkGfm];
 
 // createSafeLink - factory function that creates a SafeLink component with i18n support
 const createSafeLink = (opensInNewWindowText: string) => {
@@ -143,9 +145,10 @@ export function Insights({ projectId }: InsightsProps) {
   const { t } = useTranslation('common');
   const session = useInsightsStore((state) => state.session);
   const sessions = useInsightsStore((state) => state.sessions);
-  const status = useInsightsStore((state) => state.status);
-  const streamingContent = useInsightsStore((state) => state.streamingContent);
-  const currentTool = useInsightsStore((state) => state.currentTool);
+  const statusPhase = useInsightsStore((state) => state.status.phase);
+  const statusError = useInsightsStore((state) => state.status.error);
+  const hasStreamingContent = useInsightsStore((state) => state.streamingContent.length > 0);
+  const hasCurrentTool = useInsightsStore((state) => state.currentTool !== null);
   const isLoadingSessions = useInsightsStore((state) => state.isLoadingSessions);
   const messageCount = session?.messages?.length ?? 0;
 
@@ -170,7 +173,7 @@ export function Insights({ projectId }: InsightsProps) {
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const isLoading = status.phase === 'thinking' || status.phase === 'streaming';
+  const isLoading = statusPhase === 'thinking' || statusPhase === 'streaming';
 
   // Undefined model (no explicit config) is treated as vision-capable, matching the main-process executor
   const supportsImages = modelSupportsVision(session?.modelConfig?.model);
@@ -248,17 +251,15 @@ export function Insights({ projectId }: InsightsProps) {
     loadInsightsSessions(projectId, showArchived);
   }, [showArchived]);
 
-  // Smart auto-scroll: only scroll if user is already at bottom
-  // This allows users to scroll up to read previous messages without being
-  // yanked back down during streaming responses. Re-runs on content changes
-  // (streaming text, new messages, tool activity) so the view follows new output.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: streamingContent, messageCount and currentTool are intentional triggers for re-scrolling when content changes
-  useEffect(() => {
-    if (isUserAtBottom && viewportEl) {
-      const frame = requestAnimationFrame(() => scrollToBottom());
-      return () => cancelAnimationFrame(frame);
-    }
-  }, [isUserAtBottom, viewportEl, streamingContent, messageCount, currentTool, scrollToBottom]);
+  // Only follow new output while the user is already at the bottom.
+  const scheduleScroll = useCallback(() => {
+    if (!isUserAtBottom || !viewportEl) return;
+    const frame = requestAnimationFrame(() => scrollToBottom());
+    return () => cancelAnimationFrame(frame);
+  }, [isUserAtBottom, viewportEl, scrollToBottom]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: messageCount triggers scrolling when messages are added, including when the live reply is finalized
+  useEffect(() => scheduleScroll(), [scheduleScroll, messageCount]);
 
   // Focus textarea on mount
   useEffect(() => {
@@ -428,7 +429,7 @@ export function Insights({ projectId }: InsightsProps) {
     useInsightsStore.getState().setShowArchived(!showArchived);
   };
 
-  const handleCreateTask = async (
+  const handleCreateTask = useCallback(async (
     messageId: string,
     taskIndex: number,
     taskData: { title: string; description: string; metadata?: TaskMetadata }
@@ -455,7 +456,7 @@ export function Insights({ projectId }: InsightsProps) {
         return next;
       });
     }
-  };
+  }, [projectId]);
 
   const handleModelConfigChange = async (config: InsightsModelConfig) => {
     // If we have a session, persist the config
@@ -465,6 +466,7 @@ export function Insights({ projectId }: InsightsProps) {
   };
 
   const messages = session?.messages || [];
+  const showTranscript = messageCount > 0 || hasStreamingContent || hasCurrentTool || statusPhase === 'thinking';
 
   return (
     <div className="flex h-full">
@@ -537,7 +539,7 @@ export function Insights({ projectId }: InsightsProps) {
         className="flex-1 px-6 py-4"
         onViewportRef={setViewportEl}
       >
-        {messages.length === 0 && !streamingContent ? (
+        {!showTranscript ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
               <MessageSquare className="h-8 w-8 text-muted-foreground" />
@@ -584,54 +586,13 @@ export function Insights({ projectId }: InsightsProps) {
               />
             ))}
 
-            {/* Streaming message */}
-            {(streamingContent || currentTool) && (
-              <div className="flex gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                  <Bot className="h-4 w-4 text-primary" />
-                </div>
-                <div className="flex-1">
-                  <div className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
-                    {t('insights.roles.assistant')}
-                    {status.phase === 'error' && streamingContent && (
-                      <span className="text-xs font-normal text-amber-500">
-                        {t('insights.error.incompleteResponse')}
-                      </span>
-                    )}
-                  </div>
-                  {streamingContent && (
-                    <div className="prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                        {streamingContent}
-                      </ReactMarkdown>
-                    </div>
-                  )}
-                  {/* Tool usage indicator */}
-                  {currentTool && (
-                    <ToolIndicator name={currentTool.name} input={currentTool.input} />
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Thinking indicator */}
-            {status.phase === 'thinking' && !streamingContent && !currentTool && (
-              <div className="flex gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                  <Bot className="h-4 w-4 text-primary" />
-                </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t('insights.thinking')}
-                </div>
-              </div>
-            )}
+            <InsightsLiveTail markdownComponents={markdownComponents} scheduleScroll={scheduleScroll} />
 
             {/* Error message */}
-            {status.phase === 'error' && status.error && (
+            {statusPhase === 'error' && statusError && (
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4 shrink-0" />
-                <span className="flex-1">{status.error}</span>
+                <span className="flex-1">{statusError}</span>
                 <Button variant="outline" size="sm" onClick={handleRetry} disabled={isLoading}>
                   <RotateCcw className="mr-1 h-3 w-3" />
                   {t('insights.error.retry')}
@@ -783,6 +744,68 @@ export function Insights({ projectId }: InsightsProps) {
   );
 }
 
+interface InsightsLiveTailProps {
+  markdownComponents: Components;
+  scheduleScroll: () => (() => void) | undefined;
+}
+
+const InsightsLiveTail = memo(function InsightsLiveTail({ markdownComponents, scheduleScroll }: InsightsLiveTailProps) {
+  const { t } = useTranslation('common');
+  const streamingContent = useInsightsStore((state) => state.streamingContent);
+  const currentTool = useInsightsStore((state) => state.currentTool);
+  const statusPhase = useInsightsStore((state) => state.status.phase);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: streamingContent and currentTool trigger scrolling when the live reply or tool indicator changes
+  useEffect(() => scheduleScroll(), [scheduleScroll, streamingContent, currentTool]);
+
+  return (
+    <>
+      {/* Streaming message */}
+      {(streamingContent || currentTool) && (
+        <div className="flex gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <Bot className="h-4 w-4 text-primary" />
+          </div>
+          <div className="flex-1">
+            <div className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
+              {t('insights.roles.assistant')}
+              {statusPhase === 'error' && streamingContent && (
+                <span className="text-xs font-normal text-amber-500">
+                  {t('insights.error.incompleteResponse')}
+                </span>
+              )}
+            </div>
+            {streamingContent && (
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
+                  {streamingContent}
+                </ReactMarkdown>
+              </div>
+            )}
+            {/* Tool usage indicator */}
+            {currentTool && (
+              <ToolIndicator name={currentTool.name} input={currentTool.input} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Thinking indicator */}
+      {statusPhase === 'thinking' && !streamingContent && !currentTool && (
+        <div className="flex gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <Bot className="h-4 w-4 text-primary" />
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t('insights.thinking')}
+          </div>
+        </div>
+      )}
+    </>
+  );
+});
+
 interface MessageBubbleProps {
   message: InsightsChatMessage;
   markdownComponents: Components;
@@ -792,7 +815,7 @@ interface MessageBubbleProps {
   supportsImages: boolean;
 }
 
-function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
   message,
   markdownComponents,
   onCreateTask,
@@ -828,7 +851,7 @@ function MessageBubble({
         </div>
         {message.content && (
           <div className="prose prose-sm dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
               {message.content}
             </ReactMarkdown>
           </div>
@@ -949,7 +972,7 @@ function MessageBubble({
       </div>
     </div>
   );
-}
+});
 
 // Tool usage history component for showing tools used in completed messages
 interface ToolUsageHistoryProps {

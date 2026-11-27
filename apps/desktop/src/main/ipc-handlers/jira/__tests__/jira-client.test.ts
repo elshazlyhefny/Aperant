@@ -247,8 +247,10 @@ describe('jira write calls', () => {
   });
 
   it('posts comment as ADF and rejects invalid keys', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res(201, {})));
-    await addIssueComment(SITE, 'a@b.c', TOKEN, 'PROJ-7', 'hello');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res(201, { id: '10000' })));
+    await expect(addIssueComment(SITE, 'a@b.c', TOKEN, 'PROJ-7', 'hello')).resolves.toEqual({
+      confirmed: true, httpStatus: 201,
+    });
     const [url, init] = mockFetch().mock.calls[0];
     expect(url).toBe('https://acme.atlassian.net/rest/api/3/issue/PROJ-7/comment');
     expect(init.method).toBe('POST');
@@ -265,7 +267,9 @@ describe('jira write calls', () => {
       ] }))
       .mockResolvedValueOnce({ ok: true, status: 204, json: async () => { throw new Error('empty'); } });
     vi.stubGlobal('fetch', f);
-    await expect(transitionIssue(SITE, 'a@b.c', TOKEN, 'PROJ-7', '  done ')).resolves.toEqual({ transitioned: true });
+    await expect(transitionIssue(SITE, 'a@b.c', TOKEN, 'PROJ-7', '  done ')).resolves.toEqual({
+      transitioned: true, httpStatus: 204,
+    });
     expect(f.mock.calls[0][0]).toBe('https://acme.atlassian.net/rest/api/3/issue/PROJ-7/transitions');
     expect(f.mock.calls[0][1].method).toBe('GET');
     expect(f.mock.calls[1][1].method).toBe('POST');

@@ -72,7 +72,7 @@ it('restores a customized draft and replaces all four routes when an existing ta
 // zeenha fork: a profile-based task saves the provider its models came from.
 const editProfileTask = async (pick?: 'pick-model' | 'pick-thinking') => {
   useSettingsStore.setState({ providerAccounts: [{ id: 'oa', provider: 'openai', name: 'OpenAI', createdAt: 0, updatedAt: 0,
-    authType: 'api-key', billingModel: 'pay-per-use', apiKey: 'fixture' }] });
+    authType: 'api-key', billingModel: 'pay-per-use', hasApiKey: true }] });
   const task: Task = { id: 't', projectId: 'p', specId: '001-test', status: 'backlog', title: 'Task',
     description: 'Change the title', subtasks: [], logs: [], createdAt: new Date(), updatedAt: new Date(),
     metadata: { provider: 'anthropic', model: 'sonnet', thinkingLevel: 'medium',

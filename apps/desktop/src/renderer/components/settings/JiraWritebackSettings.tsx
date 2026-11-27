@@ -3,11 +3,11 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
-import type { AppSettings, JiraWritebackSettings as JiraWritebackConfig } from '../../../shared/types';
+import type { RendererAppSettings, JiraWritebackSettings as JiraWritebackConfig } from '../../../shared/types';
 
 interface JiraWritebackSettingsProps {
-  settings: AppSettings;
-  onSettingsChange: (settings: AppSettings) => void;
+  settings: RendererAppSettings;
+  onSettingsChange: (settings: RendererAppSettings) => void;
 }
 
 const MAX_STATUS_NAME_LENGTH = 100;

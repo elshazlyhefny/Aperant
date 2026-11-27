@@ -18,6 +18,7 @@ import type {
   WorktreeCreatePRResult,
   ImageAttachment
 } from '../../shared/types';
+import type { DeliveryReceipt } from '../../shared/types/delivery-receipt';
 import type { TaskRunMetrics, ProjectRunMetrics } from '../../shared/types/run-metrics';
 import type { TaskQueueState, DaemonStopResultEvent } from '../../shared/types/task-queue';
 
@@ -74,7 +75,7 @@ export interface TaskAPI {
   listWorktrees: (projectId: string, options?: { includeStats?: boolean }) => Promise<IPCResult<import('../../shared/types').WorktreeListResult>>;
   cleanupMergedWorktrees: (projectId?: string) => Promise<IPCResult<import('../../shared/types').MergedCleanupOutcome[]>>;
   getPRFeedback: (taskId: string) => Promise<IPCResult<import('../../shared/types').PRFeedbackResult> & { code?: string }>;
-  startPRFollowUp: (taskId: string, itemIds: string[]) => Promise<IPCResult<import('../../shared/types').StartPRFollowUpResult> & { code?: string }>;
+  startPRFollowUp: (taskId: string, itemIds: string[], expectedHeadSha: string) => Promise<IPCResult<import('../../shared/types').StartPRFollowUpResult> & { code?: string }>;
   worktreeOpenInIDE: (worktreePath: string, ide: SupportedIDE, customPath?: string) => Promise<IPCResult<{ opened: boolean }>>;
   worktreeOpenInTerminal: (worktreePath: string, terminal: SupportedTerminal, customPath?: string) => Promise<IPCResult<{ opened: boolean }>>;
   worktreeDetectTools: () => Promise<IPCResult<{ ides: Array<{ id: string; name: string; path: string; installed: boolean }>; terminals: Array<{ id: string; name: string; path: string; installed: boolean }> }>>;
@@ -102,6 +103,7 @@ export interface TaskAPI {
   // Task Phase Logs
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
   getTaskRunMetrics: (projectId: string, specId: string) => Promise<IPCResult<TaskRunMetrics | null>>;
+  getTaskDeliveryReceipts: (projectId: string, specId: string) => Promise<IPCResult<DeliveryReceipt[]>>;
   // zeenha fork: project-wide delivery and token metrics
   getProjectRunMetrics: (projectId: string, periodDays: number | null) => Promise<IPCResult<ProjectRunMetrics | null>>;
   watchTaskLogs: (projectId: string, specId: string) => Promise<IPCResult>;
@@ -210,8 +212,8 @@ export const createTaskAPI = (): TaskAPI => ({
   getPRFeedback: (taskId: string): Promise<IPCResult<import('../../shared/types').PRFeedbackResult> & { code?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_PR_FEEDBACK_GET, taskId),
 
-  startPRFollowUp: (taskId: string, itemIds: string[]): Promise<IPCResult<import('../../shared/types').StartPRFollowUpResult> & { code?: string }> =>
-    ipcRenderer.invoke(IPC_CHANNELS.TASK_PR_FOLLOWUP_START, taskId, itemIds),
+  startPRFollowUp: (taskId: string, itemIds: string[], expectedHeadSha: string): Promise<IPCResult<import('../../shared/types').StartPRFollowUpResult> & { code?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_PR_FOLLOWUP_START, taskId, itemIds, expectedHeadSha),
 
   worktreeOpenInIDE: (worktreePath: string, ide: SupportedIDE, customPath?: string): Promise<IPCResult<{ opened: boolean }>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_WORKTREE_OPEN_IN_IDE, worktreePath, ide, customPath),
@@ -359,6 +361,10 @@ export const createTaskAPI = (): TaskAPI => ({
 
   getTaskRunMetrics: (projectId: string, specId: string): Promise<IPCResult<TaskRunMetrics | null>> =>
     ipcRenderer.invoke(IPC_CHANNELS.TASK_RUN_METRICS_GET, projectId, specId),
+
+  // zeenha fork: history is scoped by the displayed task's project and spec.
+  getTaskDeliveryReceipts: (projectId, specId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_DELIVERY_RECEIPTS_GET, projectId, specId),
 
   // zeenha fork: project-wide delivery and token metrics
   getProjectRunMetrics: (projectId: string, periodDays: number | null): Promise<IPCResult<ProjectRunMetrics | null>> =>

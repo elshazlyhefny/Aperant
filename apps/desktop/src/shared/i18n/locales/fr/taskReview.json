@@ -4,6 +4,15 @@
     "openInbuilt": "Ouvrir dans le terminal intégré",
     "openExternal": "Ouvrir dans le terminal externe"
   },
+  "workspaceCheck": {
+    "statusFailedTitle": "Impossible de vérifier l'espace de travail",
+    "statusFailedDescription": "L'état de l'espace de travail n'a pas pu être lu. Cela ne signifie pas que l'espace de travail est absent. Réessayez pour vérifier à nouveau.",
+    "diffFailedTitle": "Impossible de charger les fichiers modifiés",
+    "diffFailedDescription": "La liste des fichiers modifiés n'a pas pu être chargée. Réessayez pour la charger à nouveau.",
+    "retrying": "Nouvelle tentative...",
+    "actionsUnavailable": "Les actions sur l'espace de travail sont indisponibles tant que la vérification n'a pas réussi.",
+    "loadingChangedFiles": "Chargement des fichiers modifiés..."
+  },
   "merge": {
     "branchHasNewCommits": "La branche {{branch}} a {{count}} nouveau commit.",
     "branchHasNewCommits_other": "La branche {{branch}} a {{count}} nouveaux commits.",

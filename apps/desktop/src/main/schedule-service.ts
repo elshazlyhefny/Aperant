@@ -28,14 +28,16 @@ export const MISSED_GRACE_MS = 5 * 60_000;
 
 const FINISHED_STATUSES = new Set(['done', 'pr_created', 'error']);
 
+type RunBookkeeping = Partial<Pick<RecurringSchedule, 'lastRunAt' | 'lastTaskId' | 'nextRunAt'>>;
+
 export interface ScheduleServiceDeps {
   now(): number;
   listSchedules(): RecurringSchedule[];
-  /**
-   * Synchronously apply `update` to the latest stored schedule. Returns
-   * undefined without writing if the schedule no longer exists.
-   */
-  updateExisting(id: string, update: (current: RecurringSchedule) => RecurringSchedule): RecurringSchedule | undefined;
+  /** Apply a run patch to the current record under lock; false if the ID is gone. */
+  updateSchedule(
+    id: string,
+    mutator: (current: Readonly<RecurringSchedule>) => RunBookkeeping & Pick<RecurringSchedule, 'history'>
+  ): Promise<boolean>;
   getProject(projectId: string): Project | undefined;
   listTasks(projectId: string): Task[];
   /** Create the spec in status 'queue'; returns the new task id. */
@@ -91,27 +93,16 @@ function errorMessage(error: unknown): string {
 
 function sameCadence(a: ScheduleCadence, b: ScheduleCadence): boolean {
   switch (a.kind) {
-    case 'daily':
-      return b.kind === 'daily' && a.time === b.time;
-    case 'weekly':
-      return (
-        b.kind === 'weekly' &&
-        a.time === b.time &&
-        a.days.length === b.days.length &&
-        a.days.every((day, i) => day === b.days[i])
-      );
     case 'interval':
       return b.kind === 'interval' && a.everyMinutes === b.everyMinutes;
+    case 'daily':
+      return b.kind === 'daily' && a.time === b.time;
+    case 'weekly': {
+      if (b.kind !== 'weekly' || a.time !== b.time || !Array.isArray(b.days)) return false;
+      const days = new Set(b.days);
+      return new Set(a.days).size === days.size && a.days.every((day) => days.has(day));
+    }
   }
-}
-
-function canAdvanceTimedCursor(
-  current: RecurringSchedule,
-  startedFrom: Pick<RecurringSchedule, 'nextRunAt' | 'cadence'>
-): boolean {
-  return (
-    current.enabled && current.nextRunAt === startedFrom.nextRunAt && sameCadence(current.cadence, startedFrom.cadence)
-  );
 }
 
 export function createScheduleService(deps: ScheduleServiceDeps): ScheduleService {
@@ -148,6 +139,17 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     return !FINISHED_STATUSES.has(task.status);
   }
 
+  function appendRunRecords(
+    id: string,
+    records: ScheduleRunRecord[],
+    bookkeeping?: (current: Readonly<RecurringSchedule>) => RunBookkeeping
+  ): Promise<boolean> {
+    return deps.updateSchedule(id, (current) => ({
+      ...bookkeeping?.(current),
+      history: [...current.history, ...records],
+    }));
+  }
+
   async function processSchedule(schedule: RecurringSchedule, project: Project, now: number): Promise<boolean> {
     if (inFlight.has(schedule.id)) return false;
     if (!allowed(project.id)) return false;
@@ -166,18 +168,16 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     project: Project,
     now: number
   ): Promise<boolean> {
-    const startedFrom = { nextRunAt: schedule.nextRunAt, cadence: schedule.cadence };
-    const { dueCount, nextRunAt: advancedTo } = advancePast(startedFrom.cadence, firstDue, now);
+    const { dueCount, nextRunAt } = advancePast(schedule.cadence, firstDue, now);
     if (dueCount === 0) return false;
 
-    const newRecords: ScheduleRunRecord[] = [];
-    const runFields: Partial<Pick<RecurringSchedule, 'lastRunAt' | 'lastTaskId'>> = {};
-
+    const records: ScheduleRunRecord[] = [];
+    let taskId: string | undefined;
     if (isUnfinished(project.id, schedule.lastTaskId)) {
-      newRecords.push(record('skipped_unfinished', now, { taskId: schedule.lastTaskId, detail: `${dueCount} due` }));
+      records.push(record('skipped_unfinished', now, { taskId: schedule.lastTaskId, detail: `${dueCount} due` }));
     } else {
       if (dueCount > 1 || now - firstDue > MISSED_GRACE_MS) {
-        newRecords.push(
+        records.push(
           record('missed', now, {
             missedCount: dueCount,
             missedFrom: firstDue,
@@ -185,26 +185,21 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
           })
         );
       }
-
       try {
-        const taskId = await deps.createTask(project.id, schedule.template, schedule.id, firstDue);
-        runFields.lastRunAt = now;
-        runFields.lastTaskId = taskId;
-        newRecords.push(record('started', now, { taskId }));
+        taskId = await deps.createTask(project.id, schedule.template, schedule.id, firstDue);
       } catch (error) {
-        newRecords.push(record('failed', now, { detail: errorMessage(error) }));
+        records.push(record('failed', now, { detail: errorMessage(error) }));
       }
+      if (taskId !== undefined) records.push(record('started', now, { taskId }));
     }
 
-    // zeenha fork: commit onto the latest record so edits during task creation
-    // survive and a deleted schedule stays deleted.
-    deps.updateExisting(schedule.id, (current) => ({
-      ...current,
-      ...runFields,
-      history: [...current.history, ...newRecords],
-      nextRunAt: canAdvanceTimedCursor(current, startedFrom) ? advancedTo : current.nextRunAt,
+    return appendRunRecords(schedule.id, records, (current) => ({
+      ...(taskId !== undefined ? { lastRunAt: now, lastTaskId: taskId } : {}),
+      // Only advance the occurrence we processed, not a concurrent reschedule.
+      ...(current.enabled && current.nextRunAt === firstDue && sameCadence(schedule.cadence, current.cadence)
+        ? { nextRunAt }
+        : {}),
     }));
-    return true;
   }
 
   /** The last occurrence at or before `now`. */
@@ -255,13 +250,15 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
    * run_metrics.json only when an agent session ends, so the ceiling is enforced
    * between sessions, not mid-session.
    */
-  function enforceBudgets(projectIds: Set<string>): void {
+  async function enforceBudgets(projectIds: Set<string>): Promise<void> {
     let schedules: RecurringSchedule[];
     try {
       schedules = deps.listSchedules();
     } catch {
       return;
     }
+    const stops: { projectId: string; report?: { scheduleId: string; entry: ScheduleRunRecord } }[] = [];
+    // Decide stops without yielding so task statuses and usage are checked in the same turn.
     for (const projectId of projectIds) {
       try {
         if (!allowed(projectId)) continue;
@@ -286,19 +283,26 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
           } catch {
             // Still record below; the task is not retried
           }
-          if (schedule) {
-            deps.updateExisting(schedule.id, (current) => ({
-              ...current,
-              history: [
-                ...current.history,
-                record('budget_exceeded', deps.now(), { taskId: task.id, detail: `${used}/${budget}` }),
-              ],
-            }));
-          }
-          deps.notifyChanged(projectId);
+          stops.push({
+            projectId,
+            // Only report to schedules in the daemon's filtered list.
+            report: schedule && {
+              scheduleId: schedule.id,
+              entry: record('budget_exceeded', deps.now(), { taskId: task.id, detail: `${used}/${budget}` }),
+            },
+          });
         }
       } catch {
         // One project failing must not stop the others
+      }
+    }
+
+    for (const { projectId, report } of stops) {
+      try {
+        if (report) await appendRunRecords(report.scheduleId, [report.entry]);
+        deps.notifyChanged(projectId);
+      } catch {
+        // One failed report or notification must not block the others
       }
     }
   }
@@ -330,6 +334,8 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
       }
       for (const entry of schedules) {
         try {
+          // zeenha fork: re-read each schedule, because an earlier schedule's task
+          // creation can take long enough for this one to be paused, edited or deleted.
           const schedule = readSchedule(entry.id);
           if (!schedule) continue;
           const project = deps.getProject(schedule.projectId);
@@ -340,7 +346,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         }
       }
       await promote(scheduledProjectIds());
-      enforceBudgets(scheduledProjectIds());
+      await enforceBudgets(scheduledProjectIds());
       for (const projectId of changed) {
         try {
           deps.notifyChanged(projectId);
@@ -371,31 +377,24 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     let result: ScheduleRunNowResult;
     try {
       const now = deps.now();
+      let entry: ScheduleRunRecord;
       if (isUnfinished(project.id, schedule.lastTaskId)) {
-        deps.updateExisting(schedule.id, (current) => ({
-          ...current,
-          history: [...current.history, record('skipped_unfinished', now, { taskId: schedule.lastTaskId, detail: 'manual' })],
-        }));
+        entry = record('skipped_unfinished', now, { taskId: schedule.lastTaskId, detail: 'manual' });
         result = { started: false, reason: 'unfinished', taskId: schedule.lastTaskId };
       } else {
         try {
           const taskId = await deps.createTask(project.id, schedule.template, schedule.id, now);
-          deps.updateExisting(schedule.id, (current) => ({
-            ...current,
-            lastRunAt: now,
-            lastTaskId: taskId,
-            history: [...current.history, record('started', now, { taskId, detail: 'manual' })],
-          }));
+          entry = record('started', now, { taskId, detail: 'manual' });
           result = { started: true, taskId };
         } catch (error) {
-          deps.updateExisting(schedule.id, (current) => ({
-            ...current,
-            history: [...current.history, record('failed', now, { detail: errorMessage(error) })],
-          }));
+          entry = record('failed', now, { detail: errorMessage(error) });
           result = { started: false };
         }
       }
-      deps.notifyChanged(project.id);
+      const updated = await appendRunRecords(schedule.id, [entry], () =>
+        result.started ? { lastRunAt: now, lastTaskId: result.taskId } : {}
+      );
+      if (updated) deps.notifyChanged(project.id);
     } finally {
       inFlight.delete(schedule.id);
     }
@@ -426,7 +425,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
           return;
         }
         await promote(scheduledProjectIds());
-        enforceBudgets(scheduledProjectIds());
+        await enforceBudgets(scheduledProjectIds());
       })();
     },
   };
