@@ -174,8 +174,6 @@ export class AgentProcessManager {
       hasApiKey: !!profileEnv.ANTHROPIC_API_KEY,
       hasConfigDir: !!profileEnv.CLAUDE_CONFIG_DIR,
       configDir: profileEnv.CLAUDE_CONFIG_DIR || '(not set)',
-      oauthTokenPrefix: profileEnv.CLAUDE_CODE_OAUTH_TOKEN?.substring(0, 8) || '(not set)',
-      apiKeyPrefix: profileEnv.ANTHROPIC_API_KEY?.substring(0, 8) || '(not set)',
     });
 
     // Warn if profile lacks CLAUDE_CONFIG_DIR - this means the profile has no configDir
@@ -249,8 +247,6 @@ export class AgentProcessManager {
       hasApiKey: !!mergedEnv.ANTHROPIC_API_KEY,
       hasConfigDir: !!mergedEnv.CLAUDE_CONFIG_DIR,
       configDir: mergedEnv.CLAUDE_CONFIG_DIR || '(not set)',
-      oauthTokenPrefix: mergedEnv.CLAUDE_CODE_OAUTH_TOKEN?.substring(0, 8) || '(not set)',
-      apiKeyPrefix: mergedEnv.ANTHROPIC_API_KEY?.substring(0, 8) || '(not set)',
     });
 
     return mergedEnv;
@@ -572,7 +568,6 @@ export class AgentProcessManager {
       apiProfileEnv: {
         hasApiKey: !!apiProfileEnv.ANTHROPIC_API_KEY,
         hasBaseUrl: !!apiProfileEnv.ANTHROPIC_BASE_URL,
-        apiKeyPrefix: apiProfileEnv.ANTHROPIC_API_KEY?.substring(0, 8) || '(not set)',
       },
     });
 

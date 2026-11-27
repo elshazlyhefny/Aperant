@@ -28,6 +28,7 @@ import {
   OAUTH_ID_PREFIX
 } from '../../shared/utils/unified-account';
 import { getKeyStatus, failoverTier } from '../../shared/utils/api-key-status';
+import { isSecretEnvelope } from '../../shared/utils/secret-envelope';
 import { isProfileRateLimited } from './rate-limit-manager';
 import { isProfileAuthenticated } from './profile-utils';
 
@@ -292,7 +293,8 @@ export function getBestAvailableUnifiedAccount(
   for (const profile of apiProfiles) {
     const isActive = profile.id === activeAPIId;
     // isAuthenticated means "has a key"; validity is carried by keyStatus.
-    const isAuthenticated = !!profile.apiKey;
+    // zeenha fork: an undecryptable envelope is ciphertext, not a usable key.
+    const isAuthenticated = !!profile.apiKey && !isSecretEnvelope(profile.apiKey);
     unifiedAccounts.push(apiProfileToUnified(profile, isActive, isAuthenticated, getKeyStatus(profile)));
   }
 

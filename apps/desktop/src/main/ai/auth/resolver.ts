@@ -31,6 +31,7 @@ import { resolveCodexOAuthModelId, resolveModelEquivalent } from '../../../share
 import type { AppSettings } from '../../../shared/types/settings';
 import { scoreProviderAccount } from '../../claude-profile/profile-scorer';
 import { getKeyStatus } from '../../../shared/utils/api-key-status';
+import { isSecretEnvelope } from '../../../shared/utils/secret-envelope';
 import type { ClaudeAutoSwitchSettings } from '../../../shared/types/agent';
 
 // ============================================
@@ -116,7 +117,7 @@ async function resolveFromProviderAccount(ctx: AuthResolverContext): Promise<Res
   }
 
   // API key accounts
-  if (account.authType === 'api-key' && account.apiKey) {
+  if (account.authType === 'api-key' && account.apiKey && !isSecretEnvelope(account.apiKey)) {
     // Z.AI: route to correct endpoint based on billing model
     const baseURL = account.provider === 'zai'
       ? (account.baseUrl || (account.billingModel === 'subscription' ? ZAI_CODING_API : ZAI_GENERAL_API))
@@ -220,7 +221,7 @@ function resolveFromProfileApiKey(ctx: AuthResolverContext): ResolvedAuth | null
   if (!settingsKey) return null;
 
   const apiKey = _getSettingsValue(settingsKey);
-  if (!apiKey) return null;
+  if (!apiKey || isSecretEnvelope(apiKey)) return null;
 
   const resolved: ResolvedAuth = {
     apiKey,
@@ -493,8 +494,12 @@ export function buildDefaultQueueConfig(
     }
   }
 
+  // zeenha fork: unreadable saved keys are not credentials; keep the account metadata.
+  const queue = accounts.map((account) => (
+    isSecretEnvelope(account.apiKey) ? { ...account, apiKey: undefined } : account
+  ));
   // Sort accounts by priority order (accounts not in the list go to the end)
-  const sorted = [...accounts].sort((a, b) => {
+  const sorted = queue.sort((a, b) => {
     const idxA = priorityOrder.indexOf(a.id);
     const idxB = priorityOrder.indexOf(b.id);
     const effectiveA = idxA === -1 ? Infinity : idxA;
@@ -580,7 +585,7 @@ async function resolveCredentialsForAccount(
   }
 
   // API key accounts
-  if (account.authType === 'api-key' && account.apiKey) {
+  if (account.authType === 'api-key' && account.apiKey && !isSecretEnvelope(account.apiKey)) {
     // Z.AI: route to correct endpoint based on billing model
     const baseURL = account.provider === 'zai'
       ? resolveZaiBaseUrl(account)

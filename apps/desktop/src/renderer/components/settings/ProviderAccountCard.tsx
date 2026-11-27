@@ -113,6 +113,16 @@ export function ProviderAccountCard({ account, onEdit, onDelete, onReauth }: Pro
               {authBadgeLabel}
             </span>
 
+            {account.apiKeySessionOnly && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 bg-muted text-muted-foreground">
+                    {t('providers.card.sessionOnly')}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{t('providers.card.sessionOnlyTooltip')}</TooltipContent>
+              </Tooltip>
+            )}
           </div>
 
           <span className="text-xs text-muted-foreground truncate block">{identifier}</span>

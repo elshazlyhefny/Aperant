@@ -1,3 +1,4 @@
+import { isSecretEnvelope } from '../../../shared/utils/secret-envelope';
 import { readSettingsFile } from '../../settings-utils';
 
 type SavedKeyResolution =
@@ -21,7 +22,8 @@ export function resolveSavedProviderKey(accountId: string, requestedBaseUrl: str
   if (!account) return { ok: false, error: 'account_not_found' };
 
   const apiKey = typeof account.apiKey === 'string' ? account.apiKey.trim() : '';
-  if (!apiKey) return { ok: false, error: 'no_saved_key' };
+  // zeenha fork: an undecryptable envelope is never sent as a credential.
+  if (!apiKey || isSecretEnvelope(apiKey)) return { ok: false, error: 'no_saved_key' };
 
   // zeenha fork: use the stored endpoint, never a renderer-selected destination, with a saved key.
   const baseUrl = typeof account.baseUrl === 'string' ? normalizeEndpoint(account.baseUrl) : '';

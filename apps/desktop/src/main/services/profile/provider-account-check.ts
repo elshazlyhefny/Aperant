@@ -1,12 +1,15 @@
+import { isSecretEnvelope } from '../../../shared/utils/secret-envelope';
 import { readSettingsFile } from '../../settings-utils';
 
 /**
- * Check if any provider account is configured (API key or OAuth).
+ * Check if any provider account is configured for OAuth, no auth, or a usable API key.
  * Used to bypass the legacy hasValidAuth() check for non-Anthropic providers.
  */
 export function hasAnyProviderAccount(): boolean {
   const accounts = readSettingsFile()?.providerAccounts ?? [];
-  return accounts.length > 0;
+  return accounts.some(({ authType, provider, apiKey }) =>
+    authType !== 'api-key' || provider === 'ollama' || (!!apiKey && !isSecretEnvelope(apiKey))
+  );
 }
 
 /**

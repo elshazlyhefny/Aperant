@@ -12,24 +12,33 @@ import { RetrievalPipeline } from '../../ai/memory/retrieval/pipeline';
 import { Reranker } from '../../ai/memory/retrieval/reranker';
 import { MemoryServiceImpl } from '../../ai/memory/memory-service';
 import { readSettingsFile } from '../../settings-utils';
+import { isSecretEnvelope } from '../../../shared/utils/secret-envelope';
 
 let _instance: MemoryServiceImpl | null = null;
 let _initPromise: Promise<MemoryServiceImpl> | null = null;
 let _embeddingProvider: string | null = null;
 
-function buildEmbeddingConfig(): EmbeddingConfig | undefined {
+/**
+ * zeenha fork: a key that could not be decrypted stays an `aperant-secret:v1:` envelope.
+ * Treat it as missing so ciphertext is never sent to an embedding provider.
+ */
+function usableKey(value: string | undefined): string | undefined {
+  return isSecretEnvelope(value) ? undefined : value;
+}
+
+export function buildEmbeddingConfig(): EmbeddingConfig | undefined {
   const settings = readSettingsFile();
   if (!settings?.memoryEmbeddingProvider) return undefined;
   return {
     provider: settings.memoryEmbeddingProvider,
-    openaiApiKey: settings.globalOpenAIApiKey,
+    openaiApiKey: usableKey(settings.globalOpenAIApiKey),
     openaiEmbeddingModel: settings.memoryOpenaiEmbeddingModel,
-    googleApiKey: settings.globalGoogleApiKey,
+    googleApiKey: usableKey(settings.globalGoogleApiKey),
     googleEmbeddingModel: settings.memoryGoogleEmbeddingModel,
-    azureApiKey: settings.memoryAzureApiKey,
+    azureApiKey: usableKey(settings.memoryAzureApiKey),
     azureBaseUrl: settings.memoryAzureBaseUrl,
     azureDeployment: settings.memoryAzureEmbeddingDeployment,
-    voyageApiKey: settings.memoryVoyageApiKey,
+    voyageApiKey: usableKey(settings.memoryVoyageApiKey),
     voyageModel: settings.memoryVoyageEmbeddingModel,
     ollamaBaseUrl: settings.ollamaBaseUrl,
     ollamaModel: settings.memoryOllamaEmbeddingModel,

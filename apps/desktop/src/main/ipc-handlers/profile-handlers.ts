@@ -26,6 +26,7 @@ import {
   discoverModels
 } from '../services/profile';
 
+import { SecureStorageUnavailableError } from '../secure-storage/secret-storage';
 import { recordApiKeyOutcome, outcomeFromConnectionError } from '../services/api-key-status-recorder';
 import { resolveSavedProviderKey } from '../services/profile/provider-account-key-resolver';
 
@@ -91,6 +92,8 @@ export function registerProfileHandlers(): void {
 
         return { success: true, data: newProfile };
       } catch (error) {
+        // zeenha fork: report refused key persistence without exposing backend errors.
+        if (error instanceof SecureStorageUnavailableError) return { success: false, error: error.code };
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to save profile'
@@ -122,6 +125,7 @@ export function registerProfileHandlers(): void {
 
         return { success: true, data: updatedProfile };
       } catch (error) {
+        if (error instanceof SecureStorageUnavailableError) return { success: false, error: error.code };
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to update profile'

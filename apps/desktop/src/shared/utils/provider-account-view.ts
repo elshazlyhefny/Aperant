@@ -1,5 +1,6 @@
 import type { ProviderAccount, ProviderAccountView } from '../types/provider-account';
 import type { AppSettings, RendererAppSettings } from '../types/settings';
+import { isSecretEnvelope } from './secret-envelope';
 
 export function toProviderAccountView(account: ProviderAccount): ProviderAccountView {
   // zeenha fork: allowlist fields so new credentials cannot cross IPC by default.
@@ -11,7 +12,8 @@ export function toProviderAccountView(account: ProviderAccount): ProviderAccount
     billingModel: account.billingModel,
     createdAt: account.createdAt,
     updatedAt: account.updatedAt,
-    hasApiKey: typeof account.apiKey === 'string' && account.apiKey.trim().length > 0,
+    // zeenha fork: an undecryptable envelope is not a usable key, so the UI asks for a new one.
+    hasApiKey: typeof account.apiKey === 'string' && account.apiKey.trim().length > 0 && !isSecretEnvelope(account.apiKey),
   };
 
   if (account.email !== undefined) view.email = account.email;
@@ -23,6 +25,7 @@ export function toProviderAccountView(account: ProviderAccount): ProviderAccount
   if (account.customModels !== undefined) view.customModels = account.customModels;
   if (account.keyStatus !== undefined) view.keyStatus = account.keyStatus;
   if (account.keyStatusAt !== undefined) view.keyStatusAt = account.keyStatusAt;
+  if (account.apiKeySessionOnly === true) view.apiKeySessionOnly = true;
 
   return view;
 }
