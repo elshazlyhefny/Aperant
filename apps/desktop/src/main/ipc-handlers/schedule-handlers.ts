@@ -56,9 +56,7 @@ export function registerScheduleHandlers(
   const service = createScheduleService({
     now: () => Date.now(),
     listSchedules: () => scheduleStore.listSchedules(),
-    saveSchedule: (schedule) => {
-      scheduleStore.saveSchedule(schedule);
-    },
+    updateExisting: (id, update) => scheduleStore.updateExistingSchedule(id, update),
     getProject: (projectId) => projectStore.getProject(projectId),
     listTasks: (projectId) => projectStore.getTasks(projectId),
     createTask: async (projectId, template, scheduleId, scheduledFor) => {

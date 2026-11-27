@@ -17,6 +17,14 @@ export interface ScheduleFileStore {
   listSchedules(projectId?: string): RecurringSchedule[];
   getSchedule(id: string): RecurringSchedule | undefined;
   saveSchedule(schedule: RecurringSchedule): RecurringSchedule;
+  /**
+   * zeenha fork: Synchronously commit a run's result onto the latest record
+   * without recreating a deleted schedule. Return the current record on no-op.
+   */
+  updateExistingSchedule(
+    id: string,
+    update: (current: RecurringSchedule) => RecurringSchedule | undefined,
+  ): RecurringSchedule | undefined;
   removeSchedule(id: string): boolean;
   trimHistory(schedule: RecurringSchedule): RecurringSchedule;
 }
@@ -83,6 +91,20 @@ export function createScheduleFileStore(filePath: string | (() => string)): Sche
       const index = data.schedules.findIndex((x) => x.id === trimmed.id);
       if (index >= 0) data.schedules[index] = trimmed;
       else data.schedules.push(trimmed);
+      writeFile(data);
+      return trimmed;
+    },
+    updateExistingSchedule(id, update) {
+      const data = readFile();
+      const index = data.schedules.findIndex((s) => s.id === id);
+      if (index < 0) return undefined;
+
+      const current = data.schedules[index];
+      const updated = update(current);
+      if (updated === undefined) return current;
+
+      const trimmed = trimHistory({ ...updated, id });
+      data.schedules[index] = trimmed;
       writeFile(data);
       return trimmed;
     },

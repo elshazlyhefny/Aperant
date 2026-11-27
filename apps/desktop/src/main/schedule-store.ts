@@ -28,6 +28,13 @@ export function saveSchedule(schedule: RecurringSchedule): RecurringSchedule {
   return store.saveSchedule(schedule);
 }
 
+export function updateExistingSchedule(
+  id: string,
+  update: (current: RecurringSchedule) => RecurringSchedule | undefined,
+): RecurringSchedule | undefined {
+  return store.updateExistingSchedule(id, update);
+}
+
 export function removeSchedule(id: string): boolean {
   return store.removeSchedule(id);
 }

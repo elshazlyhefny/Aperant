@@ -24,6 +24,13 @@ vi.mock('../schedule-store', () => ({
     else stored.push(s);
     return s;
   },
+  updateExistingSchedule: (id: string, update: (current: RecurringSchedule) => RecurringSchedule | undefined) => {
+    const i = stored.findIndex((s) => s.id === id);
+    if (i < 0) return undefined;
+    const updated = update(stored[i]);
+    if (updated !== undefined) stored[i] = { ...updated, id };
+    return stored[i];
+  },
   removeSchedule: (id: string) => {
     stored = stored.filter((s) => s.id !== id);
     return true;

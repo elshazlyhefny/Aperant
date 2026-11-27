@@ -37,9 +37,11 @@ function setup(opts: { schedules?: RecurringSchedule[]; maxParallel?: number; no
   const deps: ScheduleServiceDeps = {
     now: () => now,
     listSchedules: () => schedules.map((s) => ({ ...s })),
-    saveSchedule: vi.fn((s: RecurringSchedule) => {
-      const i = schedules.findIndex((x) => x.id === s.id);
-      schedules[i] = s;
+    updateExisting: vi.fn<ScheduleServiceDeps['updateExisting']>((id, update) => {
+      const i = schedules.findIndex((x) => x.id === id);
+      if (i < 0) return undefined;
+      schedules[i] = update({ ...schedules[i], history: [...schedules[i].history] });
+      return schedules[i];
     }),
     getProject: (id) => (id === 'p1' && !opts.noProject ? project : undefined),
     listTasks: () => tasks,
@@ -135,7 +137,7 @@ describe('schedule service', () => {
     const { deps, service } = setup({ noProject: true });
     await service.tick();
     expect(deps.createTask).not.toHaveBeenCalled();
-    expect(deps.saveSchedule).not.toHaveBeenCalled();
+    expect(deps.updateExisting).not.toHaveBeenCalled();
   });
 
   it('records a createTask error, advances, and does not throw', async () => {
@@ -204,7 +206,7 @@ describe('schedule service', () => {
     it('returns not_found for an unknown schedule without saving', async () => {
       const { deps, service } = setup();
       expect(await service.runNow('nope')).toEqual({ started: false, reason: 'not_found' });
-      expect(deps.saveSchedule).not.toHaveBeenCalled();
+      expect(deps.updateExisting).not.toHaveBeenCalled();
       expect(deps.createTask).not.toHaveBeenCalled();
     });
 

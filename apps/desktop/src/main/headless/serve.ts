@@ -376,21 +376,23 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const scheduleStore = createScheduleFileStore(
     options.schedulesPath ?? path.join(projectPath, AUTO_BUILD_PATH, 'schedules.json')
   );
-  const originalProjectIds = new Map<string, string>();
   const listSchedules = (): RecurringSchedule[] =>
     scheduleStore
       .listSchedules()
       .filter((s) => !options.projectId || s.projectId === options.projectId)
-      .map((s) => {
-        originalProjectIds.set(s.id, s.projectId);
-        return { ...s, projectId };
-      });
+      .map((s) => ({ ...s, projectId }));
 
   scheduleService = createScheduleService({
     now,
     listSchedules,
-    saveSchedule: (schedule) => {
-      scheduleStore.saveSchedule({ ...schedule, projectId: originalProjectIds.get(schedule.id) ?? schedule.projectId });
+    updateExisting: (id, update) => {
+      let mapped: RecurringSchedule | undefined;
+      scheduleStore.updateExistingSchedule(id, (stored) => {
+        if (options.projectId && stored.projectId !== options.projectId) return undefined;
+        mapped = update({ ...stored, projectId });
+        return { ...mapped, projectId: stored.projectId };
+      });
+      return mapped;
     },
     getProject: (id) => (id === projectId ? project : undefined),
     listTasks: () => getTasks(),
