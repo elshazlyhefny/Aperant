@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -28,6 +28,31 @@ describe('createScheduleFileStore', () => {
     expect(store.removeSchedule('a')).toBe(true);
     expect(store.removeSchedule('a')).toBe(false);
     expect(store.listSchedules().map((s) => s.id)).toEqual(['b']);
+  });
+
+  it('loads a legacy schedule unchanged and round-trips a skip policy', () => {
+    const legacy: RecurringSchedule = {
+      id: 'legacy',
+      projectId: 'p1',
+      name: 'Daily update',
+      enabled: true,
+      cadence: { kind: 'daily', time: '09:00' },
+      template: { title: 'Update deps', description: 'Update all', tokenBudget: 1000 },
+      createdAt: 0,
+      updatedAt: 0,
+      nextRunAt: 9 * 60 * 60_000,
+      history: [],
+    };
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify({ version: 1, schedules: [legacy] }));
+    const store = createScheduleFileStore(file);
+    const loaded = store.getSchedule(legacy.id);
+    expect(loaded).toStrictEqual(legacy);
+    expect(loaded).not.toHaveProperty('missedRunPolicy');
+
+    const skip: RecurringSchedule = { ...legacy, id: 'skip', missedRunPolicy: 'skip' };
+    store.saveSchedule(skip);
+    expect(createScheduleFileStore(file).listSchedules()).toStrictEqual([legacy, skip]);
   });
 
   it('reads empty from a corrupt file', () => {

@@ -78,7 +78,21 @@ describe('schedule handlers', () => {
     expect(res.success).toBe(true);
     expect(res.data.nextRunAt).toBeGreaterThan(Date.now() - 1000);
     expect(stored).toHaveLength(1);
+    expect(stored[0]).not.toHaveProperty('missedRunPolicy');
     expect(send).toHaveBeenCalledWith(IPC_CHANNELS.SCHEDULE_CHANGED, { projectId: 'p1' });
+  });
+
+  it('creates a schedule with the skip policy', async () => {
+    const res = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input({ missedRunPolicy: 'skip' }));
+    expect(res.success).toBe(true);
+    expect(res.data.missedRunPolicy).toBe('skip');
+    expect(stored[0].missedRunPolicy).toBe('skip');
+  });
+
+  it.each(['replay', '', null])('rejects an invalid missed-run policy (%j) on create', async (missedRunPolicy) => {
+    const res = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', { ...input(), missedRunPolicy });
+    expect(res).toEqual({ success: false, error: 'Missed-run policy must be catch_up or skip' });
+    expect(stored).toHaveLength(0);
   });
 
   it('rejects a bad cadence', async () => {
@@ -132,12 +146,39 @@ describe('schedule handlers', () => {
     );
     expect(edited.success).toBe(true);
     expect(edited.data.cadence).toEqual({ kind: 'interval', everyMinutes: 30 });
+    expect(stored[0]).not.toHaveProperty('missedRunPolicy');
     expect(edited.data.nextRunAt).toBeGreaterThan(Date.now() + 29 * 60_000);
 
     await call(IPC_CHANNELS.SCHEDULE_SET_ENABLED, data.id, false);
     const pausedEdit = await call(IPC_CHANNELS.SCHEDULE_UPDATE, data.id, input({ name: 'Renamed' }));
     expect(pausedEdit.data.nextRunAt).toBeNull();
     expect(pausedEdit.data.name).toBe('Renamed');
+  });
+
+  it('updates the policy from catch_up to skip and back', async () => {
+    const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input({ missedRunPolicy: 'catch_up' }));
+    expect(stored[0].missedRunPolicy).toBe('catch_up');
+
+    for (const missedRunPolicy of ['skip', 'catch_up'] as const) {
+      const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, data.id, input({ missedRunPolicy }));
+      expect(res.success).toBe(true);
+      expect(res.data.missedRunPolicy).toBe(missedRunPolicy);
+      expect(stored[0].missedRunPolicy).toBe(missedRunPolicy);
+    }
+  });
+
+  it('keeps the stored policy when an edit omits it', async () => {
+    const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input({ missedRunPolicy: 'skip' }));
+    const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, data.id, input({ name: 'Renamed' }));
+    expect(res.success).toBe(true);
+    expect(stored[0]).toMatchObject({ name: 'Renamed', missedRunPolicy: 'skip' });
+  });
+
+  it('rejects an invalid policy edit without changing the schedule', async () => {
+    const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input({ missedRunPolicy: 'skip' }));
+    const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, data.id, { ...input(), missedRunPolicy: 'replay' });
+    expect(res).toEqual({ success: false, error: 'Missed-run policy must be catch_up or skip' });
+    expect(stored[0]).toEqual(data);
   });
 
   it('rejects an invalid edit and leaves the schedule unchanged', async () => {
