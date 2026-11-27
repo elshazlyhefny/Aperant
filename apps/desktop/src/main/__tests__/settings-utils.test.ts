@@ -1,17 +1,37 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({ userData: '' }));
+const { state, safeStorage, fakeEncrypt } = vi.hoisted(() => {
+  const transform = (bytes: Buffer) => Buffer.from(bytes.map((byte) => byte ^ 0xff));
+  const fakeEncrypt = (plaintext: string) => transform(Buffer.from(plaintext));
+  return {
+    fakeEncrypt,
+    state: { userData: '' },
+    safeStorage: {
+      isEncryptionAvailable: vi.fn(() => true),
+      getSelectedStorageBackend: () => 'gnome_libsecret',
+      encryptString: vi.fn(fakeEncrypt),
+      decryptString: vi.fn((ciphertext: Buffer) => transform(ciphertext).toString()),
+    },
+  };
+});
 
 vi.mock('electron', () => ({
   app: { getPath: () => state.userData },
+  safeStorage,
 }));
 
+import type { ProviderAccount } from '../../shared/types/provider-account';
+import { isSecretEnvelope, wrapEnvelope } from '../../shared/utils/secret-envelope';
 import { isWindows } from '../platform';
+import { clearSecretCacheForTests, SecureStorageUnavailableError } from '../secure-storage/secret-storage';
+import { clearSessionApiKeys } from '../secure-storage/session-credentials';
 import {
+  migrateSettingsSecrets,
   readSettingsFile,
+  readSettingsFileAsync,
   secureSettingsFilePermissions,
   SettingsUnreadableError,
   updateSettingsFile,
@@ -20,17 +40,32 @@ import {
 
 const mode = (p: string) => statSync(p).mode & 0o777;
 
+const providerAccount = {
+  id: 'test-account',
+  name: 'Test account',
+  provider: 'openai',
+  authType: 'api-key',
+  billingModel: 'pay-per-use',
+  apiKey: 'sk-test-SECRET',
+  createdAt: 1,
+  updatedAt: 1,
+} satisfies ProviderAccount;
+
 describe('settings-utils', () => {
   let root: string;
   let settingsPath: string;
 
   beforeEach(() => {
+    vi.resetAllMocks();
+    clearSecretCacheForTests();
+    clearSessionApiKeys();
     root = mkdtempSync(join(tmpdir(), 'settings-utils-'));
     state.userData = join(root, 'userData');
     settingsPath = join(state.userData, 'settings.json');
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -189,6 +224,116 @@ describe('settings-utils', () => {
         (s as Record<string, unknown>).b = 2;
       });
       expect(readSettingsFile()).toEqual({ foreign: { deep: [1] }, a: 1, b: 2 });
+    });
+  });
+
+  describe('settings secrets', () => {
+    const diskBytes = () => readFileSync(settingsPath, 'utf-8');
+
+    it('encrypts new keys on disk and decodes them for readers and mutators', async () => {
+      await updateSettingsFile((settings) => { settings.providerAccounts = [providerAccount]; });
+
+      expect(diskBytes()).not.toContain(providerAccount.apiKey);
+      expect(isSecretEnvelope(JSON.parse(diskBytes()).providerAccounts[0].apiKey)).toBe(true);
+      expect(readSettingsFile()?.providerAccounts).toEqual([providerAccount]);
+      expect((await readSettingsFileAsync())?.providerAccounts).toEqual([providerAccount]);
+      await updateSettingsFile((settings) => {
+        expect(settings.providerAccounts).toEqual([providerAccount]);
+      });
+    });
+
+    it('migrates legacy provider, global and memory keys', async () => {
+      const legacy = {
+        providerAccounts: [providerAccount],
+        globalAnthropicApiKey: 'old-anthropic-key',
+        globalOpenAIApiKey: 'old-openai-key',
+        memoryVoyageApiKey: 'old-voyage-key',
+      };
+      writeSettingsFile(legacy);
+
+      await expect(migrateSettingsSecrets()).resolves.toBe('migrated');
+      const { providerAccounts, ...legacyKeys } = legacy;
+      for (const key of [providerAccounts[0].apiKey, ...Object.values(legacyKeys)]) {
+        expect(diskBytes()).not.toContain(key);
+      }
+      expect(readSettingsFile()).toEqual(legacy);
+      await expect(migrateSettingsSecrets()).resolves.toBe('unchanged');
+    });
+
+    it('does not rewrite already-encrypted settings during a no-op', async () => {
+      await updateSettingsFile((settings) => { settings.providerAccounts = [providerAccount]; });
+      const before = diskBytes();
+      const oldMtime = new Date('2020-01-01T00:00:00Z');
+      utimesSync(settingsPath, oldMtime, oldMtime);
+      safeStorage.encryptString.mockClear();
+
+      await updateSettingsFile(() => undefined);
+      expect(statSync(settingsPath).mtimeMs).toBe(oldMtime.getTime());
+      expect(diskBytes()).toBe(before);
+      expect(safeStorage.encryptString).not.toHaveBeenCalled();
+    });
+
+    it('leaves the file unchanged and releases the lock after a failed migration', async () => {
+      writeSettingsFile({ providerAccounts: [providerAccount], globalOpenAIApiKey: 'other-test-key' });
+      const before = diskBytes();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      safeStorage.encryptString.mockImplementation((key) => {
+        if (key === providerAccount.apiKey) throw new Error('Keychain failure');
+        return fakeEncrypt(key);
+      });
+
+      await expect(updateSettingsFile(() => undefined)).rejects.toBeInstanceOf(SecureStorageUnavailableError);
+      await expect(migrateSettingsSecrets()).resolves.toBe('unchanged');
+      expect(warn).toHaveBeenCalledExactlyOnceWith('[Settings] Could not migrate stored credentials; settings.json was left unchanged');
+      expect(diskBytes()).toBe(before);
+      expect(readdirSync(state.userData)).toEqual(['settings.json']);
+      safeStorage.encryptString.mockReset();
+      await expect(migrateSettingsSecrets()).resolves.toBe('migrated');
+    });
+
+    it('preserves existing plaintext with no secure backend but refuses new keys', async () => {
+      const legacy = { providerAccounts: [providerAccount], globalOpenAIApiKey: 'old-openai-key' };
+      writeSettingsFile(legacy);
+      const original = diskBytes();
+      safeStorage.isEncryptionAvailable.mockReturnValue(false);
+
+      await expect(migrateSettingsSecrets()).resolves.toBe('skipped-no-backend');
+      expect(diskBytes()).toBe(original);
+      await updateSettingsFile((settings) => { settings.theme = 'dark'; });
+      expect(JSON.parse(diskBytes())).toEqual({ ...legacy, theme: 'dark' });
+
+      const before = diskBytes();
+      await expect(updateSettingsFile((settings) => {
+        settings.providerAccounts?.push({ ...providerAccount, id: 'new-account', apiKey: 'new-test-key' });
+      })).rejects.toBeInstanceOf(SecureStorageUnavailableError);
+      expect(diskBytes()).toBe(before);
+      expect(readdirSync(state.userData)).toEqual(['settings.json']);
+    });
+
+    it('preserves an undecryptable envelope during an unrelated update', async () => {
+      const envelope = wrapEnvelope('dGVzdA==');
+      writeSettingsFile({ providerAccounts: [{ ...providerAccount, apiKey: envelope }] });
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      safeStorage.decryptString.mockImplementation(() => { throw new Error('Keyring changed'); });
+
+      await updateSettingsFile((settings) => { settings.theme = 'dark'; });
+      expect(JSON.parse(diskBytes()).providerAccounts[0].apiKey).toBe(envelope);
+      expect(readSettingsFile()?.providerAccounts?.[0].apiKey).toBe(envelope);
+      expect(safeStorage.encryptString).not.toHaveBeenCalled();
+    });
+
+    it('holds session-only keys in memory even with no secure backend', async () => {
+      const account = { ...providerAccount, apiKeySessionOnly: true };
+      safeStorage.isEncryptionAvailable.mockReturnValue(false);
+      await updateSettingsFile((settings) => { settings.providerAccounts = [account]; });
+
+      const storedAccount = JSON.parse(diskBytes()).providerAccounts[0];
+      expect(storedAccount).not.toHaveProperty('apiKey');
+      expect(storedAccount.apiKeySessionOnly).toBe(true);
+      expect(readSettingsFile()?.providerAccounts).toEqual([account]);
+      expect(safeStorage.encryptString).not.toHaveBeenCalled();
+      clearSessionApiKeys();
+      expect(readSettingsFile()?.providerAccounts?.[0]).not.toHaveProperty('apiKey');
     });
   });
 

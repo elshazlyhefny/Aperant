@@ -8,14 +8,18 @@
  * and is readable/writable by the owner only (0o600), since it may hold
  * credentials such as API keys.
  *
+ * zeenha fork: API keys are encrypted at the persistence boundary. New keys
+ * have no plaintext fallback; existing plaintext is preserved if secure storage
+ * is unavailable, and session-only credentials are never written to disk.
+ *
  * Read-modify-write goes through updateSettingsFile, which serializes callers
  * in-process and takes a cross-process proper-lockfile lock so concurrent
  * updates are never lost. If settings.json exists but is unreadable (corrupt,
  * or not a JSON object) it is never overwritten: SettingsUnreadableError is
  * thrown and the file is left untouched.
  *
- * NOTE: This module intentionally does NOT perform migrations or auto-detection.
- * Those are handled by the IPC handlers where they have full context.
+ * Only at-rest key migration is handled here. Other migrations and
+ * auto-detection are handled by the IPC handlers.
  */
 
 import { app } from 'electron';
@@ -36,6 +40,17 @@ import path from 'path';
 // @ts-expect-error - no types available for proper-lockfile
 import * as lockfile from 'proper-lockfile';
 import type { AppSettings } from '../shared/types/settings';
+import { isSecureStorageAvailable } from './secure-storage/secret-storage';
+import { decodeSettingsSecrets, encodeSettingsSecrets } from './secure-storage/settings-secrets';
+
+function isSettingsObject(value: unknown): value is Partial<AppSettings> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function decodeSettingsFileContent(content: string): Partial<AppSettings> | undefined {
+  const parsed: unknown = JSON.parse(content);
+  return isSettingsObject(parsed) ? decodeSettingsSecrets(parsed).settings : undefined;
+}
 
 /**
  * Get the path to the settings file
@@ -46,7 +61,8 @@ export function getSettingsPath(): string {
 
 /**
  * Read and parse settings from disk.
- * Returns the raw on-disk subset of settings (Partial<AppSettings>, not validated), or undefined if the file doesn't exist or fails to parse.
+ * Returns the settings subset with credentials decoded, or undefined if the
+ * file is missing or invalid.
  *
  * This function does NOT merge with defaults or perform any migrations.
  * Callers are responsible for merging with DEFAULT_APP_SETTINGS.
@@ -60,7 +76,7 @@ export function readSettingsFile(): Partial<AppSettings> | undefined {
 
   try {
     const content = readFileSync(settingsPath, 'utf-8');
-    return JSON.parse(content);
+    return decodeSettingsFileContent(content);
   } catch {
     // Return undefined on parse error - caller will use defaults
     return undefined;
@@ -74,7 +90,8 @@ export function readSettingsFile(): Partial<AppSettings> | undefined {
  * fsynced, then renamed over settings.json. A failed write never leaves a
  * truncated settings.json or a stray temp file behind; the error is rethrown.
  *
- * @param settings - The settings object to write
+ * @param settings - An already-encoded settings object. Call updateSettingsFile
+ * for normal mutations so plaintext credentials never reach this raw writer.
  */
 export function writeSettingsFile(settings: object): void {
   const settingsPath = getSettingsPath();
@@ -132,18 +149,27 @@ let updateQueue: Promise<unknown> = Promise.resolve();
 /**
  * Read-modify-write settings.json under a cross-process lock.
  *
- * The mutator receives the current on-disk settings (or {} if the file does not
- * exist) and may mutate them in place. If the serialized result is unchanged
+ * The mutator receives decoded settings (or {} if the file does not exist)
+ * and may mutate them in place. If the serialized disk representation is unchanged,
  * nothing is written. If settings.json is unreadable, SettingsUnreadableError
- * is thrown and the file is not touched. If the mutator throws, nothing is
- * written. The lock is always released.
+ * is thrown and the file is not touched. If the mutator or the codec throws,
+ * nothing is written. The lock is always released.
  *
  * @returns The mutator's return value
  */
 export async function updateSettingsFile<T = void>(
   mutator: (settings: Partial<AppSettings>) => T | Promise<T>
 ): Promise<T> {
-  const run = async (): Promise<T> => {
+  const { result } = await runSettingsUpdate(mutator);
+  return result;
+}
+
+// Report whether the file changed from inside the lock, so migration doesn't
+// need to do an unlocked read or compare file metadata.
+function runSettingsUpdate<T>(
+  mutator: (settings: Partial<AppSettings>) => T | Promise<T>
+): Promise<{ result: T; written: boolean }> {
+  const run = async () => {
     const settingsPath = getSettingsPath();
     await fsPromises.mkdir(path.dirname(settingsPath), { recursive: true });
 
@@ -152,7 +178,7 @@ export async function updateSettingsFile<T = void>(
       retries: { retries: 10, minTimeout: 50, maxTimeout: 500 },
     });
     try {
-      let settings: Partial<AppSettings> = {};
+      let raw: Partial<AppSettings> = {};
       if (existsSync(settingsPath)) {
         let parsed: unknown;
         try {
@@ -160,18 +186,22 @@ export async function updateSettingsFile<T = void>(
         } catch (error) {
           throw new SettingsUnreadableError(settingsPath, error);
         }
-        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        if (!isSettingsObject(parsed)) {
           throw new SettingsUnreadableError(settingsPath);
         }
-        settings = parsed as Partial<AppSettings>;
+        raw = parsed;
       }
 
-      const before = JSON.stringify(settings);
+      const { settings, legacyPlaintext } = decodeSettingsSecrets(raw);
       const result = await mutator(settings);
-      if (JSON.stringify(settings) !== before) {
-        writeSettingsFile(settings);
-      }
-      return result;
+      let written = false;
+      encodeSettingsSecrets(settings, legacyPlaintext, (encoded) => {
+        if (JSON.stringify(encoded) !== JSON.stringify(raw)) {
+          writeSettingsFile(encoded);
+          written = true;
+        }
+      });
+      return { result, written };
     } finally {
       try {
         await release();
@@ -184,6 +214,19 @@ export async function updateSettingsFile<T = void>(
   const next = updateQueue.then(run, run);
   updateQueue = next.catch(() => undefined);
   return next;
+}
+
+/** Migrate legacy plaintext keys under the normal settings lock. Never throws. */
+export async function migrateSettingsSecrets(): Promise<'migrated' | 'unchanged' | 'skipped-no-backend'> {
+  try {
+    if (!isSecureStorageAvailable()) return 'skipped-no-backend';
+    // Re-encoding the locked snapshot is enough to migrate legacy plaintext.
+    const { written } = await runSettingsUpdate(() => undefined);
+    return written ? 'migrated' : 'unchanged';
+  } catch {
+    console.warn('[Settings] Could not migrate stored credentials; settings.json was left unchanged');
+    return 'unchanged';
+  }
 }
 
 /**
@@ -201,10 +244,10 @@ export function secureSettingsFilePermissions(): void {
 
 /**
  * Read and parse settings from disk asynchronously.
- * Returns the raw on-disk subset of settings (Partial<AppSettings>, not validated), or undefined if the file doesn't exist or fails to parse.
+ * Returns the settings subset with credentials decoded, or undefined if the
+ * file is missing or invalid.
  *
- * This is the non-blocking version of readSettingsFile, safe to use in Electron main process
- * without blocking the event loop.
+ * This version of readSettingsFile uses asynchronous file I/O.
  *
  * This function does NOT merge with defaults or perform any migrations.
  * Callers are responsible for merging with DEFAULT_APP_SETTINGS.
@@ -215,7 +258,7 @@ export async function readSettingsFileAsync(): Promise<Partial<AppSettings> | un
   try {
     // Read directly — no separate access() check to avoid TOCTOU race
     const content = await fsPromises.readFile(settingsPath, 'utf-8');
-    return JSON.parse(content);
+    return decodeSettingsFileContent(content);
   } catch {
     // Return undefined if file doesn't exist or has parse errors — caller will use defaults
     return undefined;

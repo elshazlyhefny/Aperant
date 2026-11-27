@@ -26,6 +26,8 @@ export interface ProviderAccount {
   authType: 'oauth' | 'api-key';
   billingModel: BillingModel;
   apiKey?: string;
+  /** Keep the API key in main-process memory only, until the app exits. */
+  apiKeySessionOnly?: boolean;
   /** Authenticated email (populated from OAuth keychain or provider API) */
   email?: string;
   baseUrl?: string;
