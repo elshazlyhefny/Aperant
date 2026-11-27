@@ -135,6 +135,7 @@ export interface ProjectRunMetrics {
   byPhase: ProjectRunMetricsGroup[];
   byModel: ProjectRunMetricsGroup[];
   trend: ProjectRunMetricsTrendPoint[];
+  deliveryTiming: ProjectDeliveryTiming;
 }
 
 /** zeenha fork: both desktop and daemon record the same local status metadata. */

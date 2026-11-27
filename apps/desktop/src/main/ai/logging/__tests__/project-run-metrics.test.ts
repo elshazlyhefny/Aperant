@@ -8,7 +8,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { SessionMetricsEntry } from '../../../../shared/types/run-metrics';
+import type { DeliveryTimingEvent, SessionMetricsEntry } from '../../../../shared/types/run-metrics';
+import { DELIVERY_TIMING_FILE } from '../delivery-timing';
 import {
   buildProjectRunMetrics,
   loadProjectRunMetricInputs,
@@ -45,6 +46,19 @@ function writeMetrics(specId: string, content: unknown, raw = false): void {
   writeFileSync(
     join(dir, RUN_METRICS_FILE),
     raw ? (content as string) : JSON.stringify({ version: 1, sessions: content })
+  );
+}
+
+function timingEvent(at: string, status: string, extra: Partial<DeliveryTimingEvent> = {}): DeliveryTimingEvent {
+  return { at, status, source: 'desktop', instance: 'test', ...extra };
+}
+
+function writeTiming(specId: string, content: DeliveryTimingEvent[] | string): void {
+  const dir = join(root, specId);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, DELIVERY_TIMING_FILE),
+    typeof content === 'string' ? content : JSON.stringify({ version: 1, events: content })
   );
 }
 
@@ -193,6 +207,132 @@ describe('buildProjectRunMetrics', () => {
     expect(m.trend.map((p) => p.date)).toEqual(['2026-06-25', '2026-06-26']);
     expect(m.trend[0]).toMatchObject({ completedTasks: 2, totalTokens: 220, tokensPerCompletedTask: 110 });
     expect(m.trend[1]).toMatchObject({ completedTasks: 1, totalTokens: 220 });
+  });
+});
+
+describe('project delivery timing', () => {
+  it('sorts measured samples and reports nearest-rank percentiles for the total and each segment', async () => {
+    const tasks = [10, 2, 5, 9, 1, 7, 4, 6, 3, 8].map((n) => {
+      const specId = `sample-${n}`;
+      const at = (offset: number) => new Date(Date.parse(daysAgo(1)) + n * offset).toISOString();
+      writeTiming(specId, [
+        timingEvent(at(0), 'queue'),
+        timingEvent(at(1), 'in_progress'),
+        timingEvent(at(3), 'human_review', { reviewReason: 'account_required' }),
+        timingEvent(at(6), 'human_review', { reviewReason: 'token_budget' }),
+        timingEvent(at(10), 'human_review', { reviewReason: 'qa_rejected' }),
+        timingEvent(at(15), 'human_review', { reviewReason: 'completed' }),
+      ]);
+      return task(specId, 'done');
+    });
+    expect((await build(tasks)).deliveryTiming).toEqual({
+      eligibleTasks: 10,
+      measuredTasks: 10,
+      coverage: 1,
+      unknown: { missing: 0, corrupt: 0, incomplete: 0 },
+      queueToReviewReady: { samples: 10, medianMs: 75, p90Ms: 135 },
+      segments: {
+        queuedMs: { samples: 10, medianMs: 5, p90Ms: 9 },
+        activeMs: { samples: 10, medianMs: 10, p90Ms: 18 },
+        credentialPauseMs: { samples: 10, medianMs: 15, p90Ms: 27 },
+        budgetPauseMs: { samples: 10, medianMs: 20, p90Ms: 36 },
+        otherMs: { samples: 10, medianMs: 25, p90Ms: 45 },
+      },
+    });
+  });
+
+  it('filters complete samples by reviewReadyAt and unknown tasks by the existing task time', async () => {
+    writeMetrics('recent-ready', [session({ startedAt: daysAgo(8) })]);
+    writeTiming('recent-ready', [
+      timingEvent(daysAgo(9), 'queue'),
+      timingEvent(daysAgo(8), 'in_progress'),
+      timingEvent(daysAgo(7), 'human_review', { reviewReason: 'completed' }),
+    ]);
+    writeMetrics('old-ready', [session()]);
+    writeTiming('old-ready', [
+      timingEvent(daysAgo(20), 'in_progress'),
+      timingEvent(daysAgo(8), 'human_review', { reviewReason: 'completed' }),
+    ]);
+    writeMetrics('old-unknown', [session({ startedAt: daysAgo(8) })]);
+    const tasks = [
+      task('recent-ready', 'done', daysAgo(8)),
+      task('old-ready', 'done'),
+      task('old-unknown', 'done'),
+      task('recent-unknown', 'pr_created', daysAgo(7)),
+    ];
+    const m = await build(tasks, 7);
+    expect(m.taskCount).toBe(2);
+    expect(m.included).toBe(1);
+    expect(m.deliveryTiming).toMatchObject({
+      eligibleTasks: 2,
+      measuredTasks: 1,
+      coverage: 0.5,
+      unknown: { missing: 1, corrupt: 0, incomplete: 0 },
+      queueToReviewReady: { samples: 1, medianMs: 2 * DAY, p90Ms: 2 * DAY },
+      segments: { credentialPauseMs: { samples: 1, medianMs: 0, p90Ms: 0 } },
+    });
+    expect((await build(tasks, null)).deliveryTiming).toMatchObject({ eligibleTasks: 4, measuredTasks: 2 });
+  });
+
+  it('counts missing, corrupt, interrupted and open logs as unknown on eligible tasks', async () => {
+    const start = timingEvent(daysAgo(2), 'in_progress');
+    const end = timingEvent(daysAgo(1), 'human_review', { reviewReason: 'completed' });
+    writeTiming('measured', [start, end]);
+    writeTiming('corrupt', '{"events": [');
+    writeTiming('interrupted', [start, { ...end, instance: 'restarted' }]);
+    writeTiming('open', [start]);
+    const m = await build([
+      task('measured', 'done'),
+      task('legacy', 'done'),
+      task('corrupt', 'done'),
+      task('interrupted', 'done'),
+      task('open', 'done'),
+    ]);
+    expect(m.deliveryTiming).toMatchObject({
+      eligibleTasks: 5,
+      measuredTasks: 1,
+      coverage: 1 / 5,
+      unknown: { missing: 1, corrupt: 1, incomplete: 2 },
+      queueToReviewReady: { samples: 1, medianMs: DAY, p90Ms: DAY },
+    });
+  });
+
+  it('does not count active or paused tasks with open logs, and reports null stats when empty', async () => {
+    const start = timingEvent(daysAgo(2), 'in_progress');
+    writeTiming('active', [start]);
+    writeTiming('paused', [start, timingEvent(daysAgo(1), 'human_review', { reviewReason: 'account_required' })]);
+    const m = await build([
+      task('active', 'in_progress'),
+      { ...task('paused', 'human_review'), reviewReason: 'account_required' },
+    ]);
+    const emptyStats = { samples: 0, medianMs: null, p90Ms: null };
+    expect(m.deliveryTiming).toEqual({
+      eligibleTasks: 0,
+      measuredTasks: 0,
+      coverage: null,
+      unknown: { missing: 0, corrupt: 0, incomplete: 0 },
+      queueToReviewReady: emptyStats,
+      segments: {
+        queuedMs: emptyStats,
+        activeMs: emptyStats,
+        credentialPauseMs: emptyStats,
+        budgetPauseMs: emptyStats,
+        otherMs: emptyStats,
+      },
+    });
+  });
+
+  it('treats hand-built inputs without a timing property as missing', () => {
+    const m = buildProjectRunMetrics(
+      [{ ...task('legacy', 'done'), metrics: { state: 'ok', sessions: [session()] } }],
+      { periodDays: 30, now: NOW }
+    );
+    expect(m.deliveryTiming).toMatchObject({
+      eligibleTasks: 1,
+      measuredTasks: 0,
+      coverage: 0,
+      unknown: { missing: 1, corrupt: 0, incomplete: 0 },
+    });
   });
 });
 

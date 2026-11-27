@@ -20,6 +20,7 @@ import { runServe, EXIT_LOCKED } from '../serve';
 import type { ServeOptions } from '../serve';
 import type { HeadlessBridge } from '../run-task';
 import { writeStopRequest } from '../stop-request';
+import { DELIVERY_TIMING_FILE } from '../../ai/logging/delivery-timing';
 import { acquireProjectQueueLock, getQueueLockPath } from '../../utils/project-queue-lock';
 import type { RecurringSchedule } from '../../../shared/types/schedule';
 
@@ -65,6 +66,10 @@ function makeSpec(id: string, status = 'queue', extra: Record<string, unknown> =
 
 function plan(id: string): Record<string, any> {
   return JSON.parse(readFileSync(path.join(specDir(id), 'implementation_plan.json'), 'utf-8'));
+}
+
+function timingEvents(id: string) {
+  return JSON.parse(readFileSync(path.join(specDir(id), DELIVERY_TIMING_FILE), 'utf-8')).events;
 }
 
 function serve(overrides: Partial<ServeOptions> = {}, limit = 2) {
@@ -229,9 +234,16 @@ describe('runServe queue', () => {
     mkdirSync(path.join(projectDir, '.auto-claude', '.locks'), { recursive: true });
     writeFileSync(path.join(projectDir, '.auto-claude', '.locks', 'serve-running.json'), JSON.stringify({ taskIds: ['001-a'] }));
     const p = serve({}, 0);
-    await vi.waitFor(() => expect(plan('001-a').status).toBe('queue'));
-    expect(plan('001-a').phases[0].subtasks[0].status).toBe('pending');
-    await stop(p);
+    await vi.waitFor(() => expect(signalHandler).toBeDefined());
+    try {
+      expect(plan('001-a').status).toBe('queue');
+      expect(plan('001-a').phases[0].subtasks[0].status).toBe('pending');
+      expect(timingEvents('001-a')).toMatchObject([
+        { status: 'queue', from: 'in_progress', interrupted: true, source: 'daemon' },
+      ]);
+    } finally {
+      await stop(p);
+    }
   });
 });
 
@@ -287,18 +299,25 @@ describe('runServe schedules', () => {
   it('stops an over-budget scheduled task; status error and a failed webhook', async () => {
     const file = writeSchedule({ template: { title: 'Nightly check', description: 'do it', tokenBudget: 100 } });
     const p = serve({ now: () => T0, tickIntervalMs: 20 });
-    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
-    const taskId = readSchedule(file).lastTaskId as string;
-    writeFileSync(
-      path.join(specDir(taskId), 'run_metrics.json'),
-      JSON.stringify({ sessions: [{ tokens: { input: 80, output: 60 } }] })
-    );
-    await vi.waitFor(() => expect(webhook).toHaveBeenCalledTimes(1), { timeout: 3000 });
-    expect(spawned()[0].terminate).toHaveBeenCalled();
-    expect(plan(taskId).status).toBe('error');
-    expect(webhook.mock.calls[0][1].status).toBe('error');
-    expect(readSchedule(file).history.map((h) => h.kind)).toContain('budget_exceeded');
-    await stop(p);
+    await vi.waitFor(() => expect(signalHandler).toBeDefined());
+    try {
+      await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+      const taskId = readSchedule(file).lastTaskId as string;
+      writeFileSync(
+        path.join(specDir(taskId), 'run_metrics.json'),
+        JSON.stringify({ sessions: [{ tokens: { input: 80, output: 60 } }] })
+      );
+      await vi.waitFor(() => expect(webhook).toHaveBeenCalledTimes(1), { timeout: 3000 });
+      expect(spawned()[0].terminate).toHaveBeenCalled();
+      expect(plan(taskId).status).toBe('error');
+      expect(webhook.mock.calls[0][1].status).toBe('error');
+      expect(timingEvents(taskId).at(-1)).toMatchObject({
+        status: 'error', from: 'in_progress', pause: 'budget', source: 'daemon',
+      });
+      await vi.waitFor(() => expect(readSchedule(file).history.map((h) => h.kind)).toContain('budget_exceeded'));
+    } finally {
+      await stop(p);
+    }
     expect(webhook).toHaveBeenCalledTimes(1);
   });
 });

@@ -45,7 +45,7 @@ import {
   resetStuckSubtasks,
   setTaskStatus,
 } from './task-store';
-import type { HeadlessProject } from './task-store';
+import type { HeadlessProject, TaskStatusTiming } from './task-store';
 import { AUTO_BUILD_PATH, findGitRoot } from './shared';
 import { resolveServeWebhookSettings } from './webhook';
 import { reportOutcomeToSource, resolveHeadlessWritebackSettings } from './writeback';
@@ -177,10 +177,10 @@ export async function runServe(options: ServeOptions): Promise<number> {
       if (existsSync(planPath)) await resetStuckSubtasks(planPath);
     }
   };
-  const requeue = async (specId: string) => {
+  const requeue = async (specId: string, timing?: TaskStatusTiming) => {
     try {
       await resetPlans(specId);
-      await setTaskStatus(headlessProject, specId, 'queue');
+      await setTaskStatus(headlessProject, specId, 'queue', undefined, timing);
     } catch (error) {
       log(`Could not requeue ${specId}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -191,7 +191,8 @@ export async function runServe(options: ServeOptions): Promise<number> {
     const task = listHeadlessTasks(headlessProject).find((t) => t.id === taskId);
     if (task?.status === 'in_progress') {
       log(`Recovering ${taskId} left running by a previous daemon`);
-      await requeue(taskId);
+      // zeenha fork: the end of the crashed daemon's active segment is unknown.
+      await requeue(taskId, { interrupted: true });
     }
   }
   rmSync(runningFile, { force: true });
@@ -256,7 +257,9 @@ export async function runServe(options: ServeOptions): Promise<number> {
         await requeue(taskId);
         log(`${taskId} interrupted, back in the queue`);
       } else {
-        await setTaskStatus(headlessProject, taskId, status, reviewReason);
+        // zeenha fork: keep the daemon's error status but measure it as a budget pause.
+        const timing: TaskStatusTiming | undefined = run.stopReason === 'budget' ? { pause: 'budget' } : undefined;
+        await setTaskStatus(headlessProject, taskId, status, reviewReason, timing);
         log(`${taskId} finished: ${status}${reviewReason ? ` (${reviewReason})` : ''}${reason ? ` - ${reason}` : ''}`);
       }
     } catch (error) {

@@ -1,6 +1,6 @@
 /**
  * zeenha fork: project-wide delivery and token metrics, aggregated from every
- * task's `run_metrics.json`.
+ * task's `run_metrics.json` and `delivery_timing.json`.
  *
  * Reading is async, bounded and yields to the event loop between batches so a
  * project with hundreds of specs never starves the main process. The
@@ -12,11 +12,20 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type {
+  DeliveryTimingResult,
+  DeliveryTimingStats,
+  ProjectDeliveryTiming,
   ProjectRunMetrics,
   ProjectRunMetricsGroup,
   ProjectRunMetricsTrendPoint,
   SessionMetricsEntry,
 } from '../../../shared/types/run-metrics';
+import {
+  deriveDeliveryTiming,
+  type DeliveryTimingState,
+  percentileNearestRank,
+  readDeliveryTimingState,
+} from './delivery-timing';
 import { emptyTokens, num, RUN_METRICS_FILE } from './run-metrics';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -55,12 +64,14 @@ export async function readRunMetricsState(specDir: string): Promise<RunMetricsSt
 export interface ProjectTaskRef {
   specId: string;
   status: string;
+  reviewReason?: string;
   title?: string;
   updatedAt: Date | string | number;
 }
 
 export interface ProjectRunMetricInput extends ProjectTaskRef {
   metrics: RunMetricsState;
+  timing?: DeliveryTimingState;
 }
 
 const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
@@ -83,7 +94,13 @@ export async function loadProjectRunMetricInputs(
         } catch {
           metrics = { state: 'corrupt' };
         }
-        return { ...task, metrics };
+        let timing: DeliveryTimingState;
+        try {
+          timing = await readDeliveryTimingState(join(specsDir, task.specId));
+        } catch {
+          timing = { state: 'corrupt' };
+        }
+        return { ...task, metrics, timing };
       })
     );
     inputs.push(...results);
@@ -137,6 +154,39 @@ const keyOf = (value: unknown): string => (typeof value === 'string' && value.le
 const byTotalTokens = (a: ProjectRunMetricsGroup, b: ProjectRunMetricsGroup) =>
   b.totalTokens - a.totalTokens || a.key.localeCompare(b.key);
 
+type DeliveryTimingSample = Extract<DeliveryTimingResult, { state: 'complete' }>;
+
+function timingStats(values: number[]): DeliveryTimingStats {
+  values.sort((a, b) => a - b);
+  return {
+    samples: values.length,
+    medianMs: percentileNearestRank(values, 0.5),
+    p90Ms: percentileNearestRank(values, 0.9),
+  };
+}
+
+function summarizeDeliveryTiming(
+  samples: DeliveryTimingSample[],
+  unknown: ProjectDeliveryTiming['unknown']
+): ProjectDeliveryTiming {
+  const measuredTasks = samples.length;
+  const eligibleTasks = measuredTasks + unknown.missing + unknown.corrupt + unknown.incomplete;
+  return {
+    eligibleTasks,
+    measuredTasks,
+    coverage: eligibleTasks > 0 ? measuredTasks / eligibleTasks : null,
+    unknown,
+    queueToReviewReady: timingStats(samples.map((sample) => sample.totalMs)),
+    segments: {
+      queuedMs: timingStats(samples.map((sample) => sample.segments.queuedMs)),
+      activeMs: timingStats(samples.map((sample) => sample.segments.activeMs)),
+      credentialPauseMs: timingStats(samples.map((sample) => sample.segments.credentialPauseMs)),
+      budgetPauseMs: timingStats(samples.map((sample) => sample.segments.budgetPauseMs)),
+      otherMs: timingStats(samples.map((sample) => sample.segments.otherMs)),
+    },
+  };
+}
+
 /** Pure aggregate. Total tokens = input + output; cacheRead is already inside input. */
 export function buildProjectRunMetrics(
   inputs: ProjectRunMetricInput[],
@@ -151,7 +201,10 @@ export function buildProjectRunMetrics(
   const trend = new Map<string, { completedTasks: number; totalTokens: number }>();
   const failed: Array<{ specId: string; title?: string }> = [];
 
-  const result: ProjectRunMetrics = {
+  const timingSamples: DeliveryTimingSample[] = [];
+  const unknownTiming: ProjectDeliveryTiming['unknown'] = { missing: 0, corrupt: 0, incomplete: 0 };
+
+  const result: Omit<ProjectRunMetrics, 'deliveryTiming'> = {
     periodDays,
     generatedAt: now.toISOString(),
     taskCount: 0,
@@ -175,6 +228,20 @@ export function buildProjectRunMetrics(
     const sessions = metrics.state === 'ok' ? metrics.sessions : [];
     const newest = sessions.reduce((max, s) => Math.max(max, startedAtMs(s)), 0);
     const taskTime = newest > 0 ? newest : toMs(input.updatedAt);
+
+    // A known review-ready date takes precedence over the legacy taskTime cutoff.
+    const timing = input.timing ?? { state: 'missing' };
+    const delivery = timing.state === 'ok' ? deriveDeliveryTiming(timing.events) : timing;
+    if (delivery.state === 'complete') {
+      if (Date.parse(delivery.reviewReadyAt) >= cutoff) timingSamples.push(delivery);
+    } else if (
+      taskTime >= cutoff &&
+      (isCompleted(status) || (status === 'human_review' && input.reviewReason === 'completed'))
+    ) {
+      const reason = delivery.state === 'missing' || delivery.state === 'corrupt' ? delivery.state : 'incomplete';
+      unknownTiming[reason] += 1;
+    }
+
     if (taskTime < cutoff) continue;
 
     const failedTask = status === 'error';
@@ -261,5 +328,5 @@ export function buildProjectRunMetrics(
         tokensPerCompletedTask: point.completedTasks > 0 ? point.totalTokens / point.completedTasks : null,
       })
     );
-  return result;
+  return { ...result, deliveryTiming: summarizeDeliveryTiming(timingSamples, unknownTiming) };
 }

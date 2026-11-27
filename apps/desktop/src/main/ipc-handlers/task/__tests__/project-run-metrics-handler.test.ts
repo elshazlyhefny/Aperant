@@ -116,6 +116,23 @@ describe('PROJECT_RUN_METRICS_GET handler', () => {
     expect(result.data.totals.sessions).toBe(3);
   });
 
+  it('only counts completed human reviews as eligible for delivery timing', async () => {
+    await mockProject([
+      task('001-ready', 'human_review', { reviewReason: 'completed' }),
+      task('002-paused', 'human_review', { reviewReason: 'account_required' }),
+      task('003-archived', 'done', { metadata: { archivedAt: '2024-01-01' } })
+    ]);
+
+    const result = await handler({}, 'p1', { periodDays: null });
+    expect(result.success).toBe(true);
+    expect(result.data.deliveryTiming).toMatchObject({
+      eligibleTasks: 1,
+      measuredTasks: 0,
+      coverage: 0,
+      unknown: { missing: 1, corrupt: 0, incomplete: 0 }
+    });
+  });
+
   it('rejects an invalid period', async () => {
     await mockProject([]);
     for (const periodDays of [0, -1, 1.5, 4000, Number.NaN, Infinity, '7']) {

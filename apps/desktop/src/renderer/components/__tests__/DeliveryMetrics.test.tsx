@@ -4,7 +4,7 @@
  * zeenha fork: the project Delivery view renders project-wide run metrics.
  */
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('react-i18next', () => ({
@@ -15,6 +15,7 @@ vi.mock('react-i18next', () => ({
   })
 }));
 
+import type { DeliveryTimingStats, ProjectDeliveryTiming } from '../../../shared/types/run-metrics';
 import { DeliveryMetrics } from '../DeliveryMetrics';
 
 const getProjectRunMetrics = vi.fn();
@@ -34,6 +35,21 @@ const sample = {
   byPhase: [{ key: 'coding', tasks: 2, sessions: 3, durationMs: 60000, tokens, totalTokens: 1297 }],
   byModel: [{ key: 'model-x', tasks: 2, sessions: 3, durationMs: 60000, tokens, totalTokens: 1297 }],
   trend: [{ date: '2026-01-01', completedTasks: 2, totalTokens: 100, tokensPerCompletedTask: 50 }]
+};
+
+const timing: ProjectDeliveryTiming = {
+  eligibleTasks: 9,
+  measuredTasks: 3,
+  coverage: 3 / 9,
+  unknown: { missing: 2, corrupt: 1, incomplete: 3 },
+  queueToReviewReady: { medianMs: 184000, p90Ms: 300000, samples: 3 },
+  segments: {
+    queuedMs: { medianMs: 10000, p90Ms: 20000, samples: 3 },
+    activeMs: { medianMs: 120000, p90Ms: 180000, samples: 3 },
+    credentialPauseMs: { medianMs: 0, p90Ms: 45000, samples: 3 },
+    budgetPauseMs: { medianMs: 0, p90Ms: 30000, samples: 3 },
+    otherMs: { medianMs: 54000, p90Ms: 60000, samples: 3 }
+  }
 };
 
 beforeEach(() => {
@@ -68,6 +84,68 @@ describe('DeliveryMetrics', () => {
     const formatted = new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date('2026-01-01T00:00:00'));
     expect(screen.getByTestId('delivery-trend')).toHaveTextContent(formatted);
     expect(screen.getByTestId('delivery-note')).toBeInTheDocument();
+    expect(screen.queryByTestId('delivery-timing')).not.toBeInTheDocument();
+  });
+
+  it('renders timing percentiles, sample counts and coverage, even without run metrics', async () => {
+    getProjectRunMetrics.mockResolvedValue({
+      success: true,
+      data: { ...sample, included: 0, completedTasks: 0, deliveryTiming: timing }
+    });
+    render(<DeliveryMetrics projectId="p1" />);
+    await screen.findByTestId('delivery-timing');
+    expect(screen.queryByTestId('delivery-empty')).not.toBeInTheDocument();
+    const coverage = screen.getByTestId('delivery-timing-coverage');
+    expect(coverage).toHaveTextContent('measured=3,eligible=9,percent=33.3%');
+    expect(coverage).toHaveTextContent('missing=2,corrupt=1,incomplete=3');
+    expect(screen.getByTestId('delivery-timing-note')).toHaveTextContent('tasks:delivery.timing.note');
+
+    const expected = [
+      ['queueToReviewReady', '3m 4s', '5m 0s'],
+      ['queued', '10s', '20s'],
+      ['active', '2m 0s', '3m 0s'],
+      ['credentialPause', '0ms', '45s'],
+      ['budgetPause', '0ms', '30s'],
+      ['other', '54s', '1m 0s']
+    ];
+    for (const [key, median, p90] of expected) {
+      const row = within(screen.getByTestId(`delivery-timing-row-${key}`));
+      expect(row.getByRole('rowheader')).toHaveTextContent(`tasks:delivery.timing.metrics.${key}`);
+      expect(row.getAllByRole('cell').map((cell) => cell.textContent)).toEqual([median, p90, '3']);
+    }
+  });
+
+  it('updates timing on period change and shows dashes for unknown percentiles and coverage', async () => {
+    const unknownStats: DeliveryTimingStats = { medianMs: null, p90Ms: null, samples: 0 };
+    const noTimingSamples: ProjectDeliveryTiming = {
+      eligibleTasks: 0,
+      measuredTasks: 0,
+      coverage: null,
+      unknown: { missing: 0, corrupt: 0, incomplete: 0 },
+      queueToReviewReady: unknownStats,
+      segments: {
+        queuedMs: unknownStats,
+        activeMs: unknownStats,
+        credentialPauseMs: unknownStats,
+        budgetPauseMs: unknownStats,
+        otherMs: unknownStats
+      }
+    };
+    getProjectRunMetrics
+      .mockResolvedValueOnce({ success: true, data: { ...sample, deliveryTiming: timing } })
+      .mockResolvedValueOnce({ success: true, data: { ...sample, periodDays: 7, deliveryTiming: noTimingSamples } });
+    render(<DeliveryMetrics projectId="p1" />);
+    const coverage = await screen.findByTestId('delivery-timing-coverage');
+    expect(coverage).toHaveTextContent('percent=33.3%');
+
+    fireEvent.change(screen.getByTestId('delivery-period'), { target: { value: '7' } });
+    await waitFor(() => expect(coverage).toHaveTextContent('measured=0,eligible=0,percent=—'));
+    expect(getProjectRunMetrics).toHaveBeenLastCalledWith('p1', 7);
+    const rows = within(screen.getByTestId('delivery-timing')).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(6);
+    for (const row of rows) {
+      expect(within(row).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(['—', '—', '0']);
+    }
   });
 
   it('lists failed tasks, falling back to specId, and opens one on click', async () => {
