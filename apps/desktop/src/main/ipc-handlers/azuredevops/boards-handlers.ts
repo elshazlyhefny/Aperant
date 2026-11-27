@@ -11,6 +11,7 @@ import { IPC_CHANNELS, getSpecsDir } from '../../../shared/constants';
 import type {
   IPCResult,
   AzureBoardsFilter,
+  AzureBoardsImportItemOutcome,
   AzureBoardsImportResult,
   AzureBoardsMetadata,
   AzureBoardsQueryRequest,
@@ -182,39 +183,36 @@ export function registerAzureBoardsHandlers(agentManager: AgentManager): void {
         // Always refetch from Azure; renderer-supplied content is never trusted
         const fetched = new Map((await getWorkItemsByIds(config, ids)).map(item => [item.id, item]));
 
-        const specsDir = path.join(project.path, getSpecsDir(project.autoBuildPath));
-        const existing = findExistingBoardsSpecs(specsDir, config.organization, config.project);
-
         let imported = 0;
         let failed = 0;
         const skipped: AzureBoardsImportResult['skipped'] = [];
         const errors: string[] = [];
+        // zeenha fork: per-item outcomes let the renderer retry only failed ids.
+        const items: AzureBoardsImportItemOutcome[] = [];
 
         for (const id of ids) {
-          const existingSpecId = existing.get(id);
-          if (existingSpecId && !allowDuplicates) {
-            skipped.push({ id, specId: existingSpecId });
-            continue;
-          }
           const item = fetched.get(id);
-          if (!item) {
-            failed++;
-            errors.push(`Failed to import AB#${id}: work item not found in Azure DevOps`);
-            continue;
-          }
           try {
-            const spec = await createSpecFromWorkItem(project, config, item);
+            const spec = await createSpecFromWorkItem(project, config, id, item, allowDuplicates);
+            if (spec.kind === 'existing') {
+              skipped.push({ id, specId: spec.specId });
+              items.push({ id, status: 'skipped', specId: spec.specId, title: item?.title });
+              continue;
+            }
             agentManager.startSpecCreation(spec.specId, project.path, spec.description, spec.specDir, spec.metadata);
             imported++;
+            items.push({ id, status: 'imported', specId: spec.specId, title: item?.title });
           } catch (err) {
             failed++;
-            errors.push(`Failed to import AB#${id}: ${errorMessage(err, 'Unknown error')}`);
+            const reason = errorMessage(err, 'Unknown error');
+            errors.push(`Failed to import AB#${id}: ${reason}`);
+            items.push({ id, status: 'failed', title: item?.title, reason });
           }
         }
 
         return {
           success: true,
-          data: { success: failed === 0, imported, failed, skipped, errors: errors.length > 0 ? errors : undefined }
+          data: { success: failed === 0, imported, failed, skipped, errors: errors.length > 0 ? errors : undefined, items }
         };
       } catch (error) {
         debugLog('Work item import failed');

@@ -1,4 +1,58 @@
 {
+  "deliveryHistory": {
+    "title": "Historique des envois",
+    "refresh": "Actualiser",
+    "loading": "Chargement de l’historique des envois…",
+    "empty": "Aucun envoi enregistré pour cette tâche.",
+    "error": "Impossible de lire l’historique des envois.",
+    "unknownHint": "Un envoi non confirmé est peut-être encore en cours ou a pu être interrompu.",
+    "operations": {
+      "webhook": "Notification par webhook",
+      "issue_comment": "Commentaire sur le ticket",
+      "issue_transition": "Changement d’état du ticket"
+    },
+    "providers": {
+      "slack": "Slack",
+      "teams": "Microsoft Teams",
+      "discord": "Discord",
+      "github": "GitHub",
+      "gitlab": "GitLab",
+      "linear": "Linear",
+      "jira": "Jira",
+      "azureboards": "Azure Boards"
+    },
+    "events": {
+      "review_ready": "Prêt pour la revue",
+      "failed": "Échec de la tâche",
+      "blocked": "Tâche bloquée",
+      "account_required": "Compte requis",
+      "pr_opened": "Demande de fusion ouverte"
+    },
+    "statuses": {
+      "delivered": "Envoyé",
+      "skipped": "Ignoré",
+      "failed": "Échec",
+      "unknown": "Non confirmé"
+    },
+    "reasons": {
+      "event_disabled": "L’envoi est désactivé pour cet événement.",
+      "missing_target": "Aucune destination n’a été configurée.",
+      "invalid_target": "La destination configurée n’est pas valide.",
+      "not_linked": "Aucun ticket associé n’a été trouvé.",
+      "unsupported_source": "La source du ticket associé n’est pas prise en charge.",
+      "invalid_reference": "La référence du ticket n’est pas valide.",
+      "missing_configuration": "Des paramètres d’intégration requis sont manquants.",
+      "target_mismatch": "Le ticket associé ne correspond pas à la destination configurée.",
+      "state_unavailable": "Le changement d’état demandé n’est pas disponible.",
+      "rejected": "La destination a refusé la demande.",
+      "rate_limited": "La destination a limité le débit des demandes.",
+      "lookup_failed": "Les informations requises n’ont pas pu être récupérées avant l’envoi.",
+      "unconfirmed": "Aucune confirmation n’a été enregistrée.",
+      "timeout": "Le délai de la demande a expiré sans confirmation.",
+      "transport_error": "Une erreur de connexion a empêché la confirmation.",
+      "ambiguous_response": "La réponse n’a pas confirmé l’envoi."
+    }
+  },
   "dependencies": {
     "title": "Dépend de",
     "add": "Ajouter la dépendance : {{title}}",
@@ -310,6 +364,12 @@
     "title": "Modifier la tâche",
     "description": "Mettez à jour les détails de la tâche, y compris le titre, la description, la classification, les images et les paramètres. Les modifications seront enregistrées dans les fichiers de spécification.",
     "saveChanges": "Enregistrer les modifications",
+    "discardDialog": {
+      "title": "Abandonner les modifications non enregistrées ?",
+      "description": "Vos modifications non enregistrées seront perdues si vous les abandonnez.",
+      "keepEditing": "Continuer la modification",
+      "discardEdits": "Abandonner les modifications"
+    },
     "errors": {
       "updateFailed": "Échec de la mise à jour de la tâche. Veuillez réessayer."
     }
@@ -540,11 +600,32 @@
       "output": "Sortie",
       "total": "Total"
     },
-    "note": "La reprise après limite de débit n'est pas enregistrée ; le temps perdu à cause des limites n'est donc pas affiché séparément."
+    "timing": {
+      "title": "Répartition des délais de livraison",
+      "coverage": "Couverture des mesures : {{measured}} tâches mesurées sur {{eligible}} admissibles ({{percent}}).",
+      "unknown": "Délais inconnus : {{missing}} anciens dossiers sans données de durée, {{corrupt}} dossiers illisibles, {{incomplete}} exécutions incomplètes ou interrompues.",
+      "columns": {
+        "metric": "Mesure",
+        "median": "Médiane",
+        "p90": "90e centile",
+        "samples": "Nombre de mesures"
+      },
+      "metrics": {
+        "queueToReviewReady": "De la mise en file à la validation qualité",
+        "queued": "Attente en file",
+        "active": "Exécution active",
+        "credentialPause": "Pause liée aux identifiants ou à une limite de débit",
+        "budgetPause": "Pause liée au budget",
+        "other": "Attente de revue ou autre"
+      },
+      "note": "Une tâche est prête pour la revue lorsque les contrôles qualité (QA) sont réussis. Une pause liée aux identifiants ou au budget ne suffit pas. Le délai est inconnu si trop peu d'événements ont été enregistrés. Ces mesures servent de référence, pas d'objectif."
+    },
+    "note": "La durée par session exclut l'attente en file et les pauses. La répartition des délais de livraison les affiche séparément lorsque les données sont disponibles."
   },
   "prFeedback": {
     "title": "Retours de la PR",
     "refresh": "Actualiser",
+    "revision": "Retours pour la révision {{sha}}",
     "failedChecks": "Vérifications en échec",
     "unresolvedComments": "Commentaires de revue non résolus",
     "changeRequests": "Demandes de modifications",
@@ -554,6 +635,11 @@
     "started": "Suivi démarré. L'agent ne poussera vers la pull request qu'après l'approbation de la QA.",
     "sendFailed": "Impossible de démarrer le suivi",
     "loadFailed": "Impossible de charger les retours de la PR : {{error}}",
+    "stale": {
+      "head_changed": "La pull request a changé depuis le chargement de ces retours. Votre sélection a été effacée et rien n’a été démarré. Actualisez les retours et refaites votre sélection.",
+      "head_unverified": "Impossible de vérifier la révision de la pull request. Votre sélection a été effacée et rien n’a été démarré. Actualisez les retours, puis réessayez."
+    },
+    "staleOutcome": "Les commits n’ont pas été poussés, car la pull request a changé pendant la QA. Vos commits locaux sont conservés dans le worktree. Actualisez les retours, examinez la nouvelle révision, puis renvoyez les retours ou poussez les commits manuellement.",
     "blocked": {
       "worktree_missing": "Le worktree de cette tâche n'existe plus (par exemple supprimé après la fusion de la PR, ou par un nettoyage) : aucun suivi ne peut s'exécuter ici. Créez plutôt une nouvelle tâche à partir de la PR.",
       "pr_not_open": "La pull request n'est plus ouverte : les retours ne peuvent pas être envoyés à l'agent.",
@@ -564,7 +650,9 @@
       "no_gitlab_config": "GitLab n'est pas configuré pour ce projet.",
       "no_bitbucket_config": "Bitbucket n'est pas configuré pour ce projet.",
       "no_azuredevops_config": "Azure DevOps n'est pas configuré pour ce projet.",
-      "branch_mismatch": "Le worktree de la tâche n'est pas sur la branche de la pull request : aucun suivi ne peut s'exécuter ici."
+      "branch_mismatch": "Le worktree de la tâche n'est pas sur la branche de la pull request : aucun suivi ne peut s'exécuter ici.",
+      "head_changed": "La pull request a changé depuis le chargement des retours (un nouveau commit a été poussé). Actualisez les retours, vérifiez la nouvelle révision et refaites votre sélection. Rien n’a été démarré.",
+      "head_unverified": "Impossible de vérifier la révision de la pull request. Actualisez les retours, puis réessayez. Aucun suivi n’a été démarré."
     }
   },
   "tokenBudgetBanner": {
@@ -595,6 +683,7 @@
     "hint": "Faites glisser un fichier, ou appuyez sur Entrée, pour l'ajouter comme référence"
   },
   "logs": {
+    "jumpToLatest": "Aller au plus récent",
     "empty": {
       "title": "Aucun journal pour le moment",
       "hint": "Les journaux apparaîtront ici lorsque la tâche s'exécutera"

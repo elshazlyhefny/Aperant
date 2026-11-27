@@ -3,13 +3,15 @@ import { IPC_CHANNELS } from '../../shared/constants';
 import type {
   AppSettings,
   IPCResult,
-  ToolDetectionResult,
-  ProviderAccount
+  ProviderAccount,
+  ProviderAccountView,
+  RendererAppSettings,
+  ToolDetectionResult
 } from '../../shared/types';
 
 export interface SettingsAPI {
   // App Settings
-  getSettings: () => Promise<IPCResult<AppSettings>>;
+  getSettings: () => Promise<IPCResult<RendererAppSettings>>;
   saveSettings: (settings: Partial<AppSettings>) => Promise<IPCResult>;
   sendTestWebhook: (url: string, format?: string, secret?: string) => Promise<IPCResult<{ success: boolean }>>;
 
@@ -36,9 +38,9 @@ export interface SettingsAPI {
   setSpellCheckLanguages: (language: string) => Promise<IPCResult<{ success: boolean }>>;
 
   // Provider Account management (unified multi-provider)
-  getProviderAccounts: () => Promise<IPCResult<{ accounts: ProviderAccount[] }>>;
-  saveProviderAccount: (account: any) => Promise<IPCResult<any>>;
-  updateProviderAccount: (id: string, updates: any) => Promise<IPCResult<any>>;
+  getProviderAccounts: () => Promise<IPCResult<{ accounts: ProviderAccountView[] }>>;
+  saveProviderAccount: (account: Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>) => Promise<IPCResult<ProviderAccountView>>;
+  updateProviderAccount: (id: string, updates: Partial<Omit<ProviderAccount, 'id'>>) => Promise<IPCResult<ProviderAccountView>>;
   deleteProviderAccount: (id: string) => Promise<IPCResult>;
   setProviderAccountQueueOrder: (order: string[]) => Promise<IPCResult>;
   setCrossProviderQueueOrder: (order: string[]) => Promise<IPCResult>;
@@ -53,7 +55,7 @@ export interface SettingsAPI {
 
 export const createSettingsAPI = (): SettingsAPI => ({
   // App Settings
-  getSettings: (): Promise<IPCResult<AppSettings>> =>
+  getSettings: (): Promise<IPCResult<RendererAppSettings>> =>
     ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET),
 
   saveSettings: (settings: Partial<AppSettings>): Promise<IPCResult> =>
@@ -96,11 +98,11 @@ export const createSettingsAPI = (): SettingsAPI => ({
     ipcRenderer.invoke(IPC_CHANNELS.SPELLCHECK_SET_LANGUAGES, language),
 
   // Provider Account management (unified multi-provider)
-  getProviderAccounts: (): Promise<IPCResult<{ accounts: ProviderAccount[] }>> =>
+  getProviderAccounts: (): Promise<IPCResult<{ accounts: ProviderAccountView[] }>> =>
     ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_ACCOUNTS_GET),
-  saveProviderAccount: (account: any): Promise<IPCResult<any>> =>
+  saveProviderAccount: (account: Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>): Promise<IPCResult<ProviderAccountView>> =>
     ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_ACCOUNTS_SAVE, account),
-  updateProviderAccount: (id: string, updates: any): Promise<IPCResult<any>> =>
+  updateProviderAccount: (id: string, updates: Partial<Omit<ProviderAccount, 'id'>>): Promise<IPCResult<ProviderAccountView>> =>
     ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_ACCOUNTS_UPDATE, id, updates),
   deleteProviderAccount: (id: string): Promise<IPCResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_ACCOUNTS_DELETE, id),

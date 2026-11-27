@@ -2,8 +2,13 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import type { AzureBoardsWorkItem } from '../../../../shared/types';
+import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import type {
+  AzureBoardsImportResult,
+  AzureBoardsQueryResult,
+  AzureBoardsWorkItem,
+  IPCResult
+} from '../../../../shared/types';
 
 // Stable references: the hook lists `t` in effect dependencies
 const mockT = (key: string, opts?: { count?: number }) =>
@@ -31,6 +36,16 @@ function makeItem(id: number, alreadyImported = false): AzureBoardsWorkItem {
   };
 }
 
+function deferQuery() {
+  let resolve!: (result: IPCResult<AzureBoardsQueryResult>) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<IPCResult<AzureBoardsQueryResult>>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 const api = {
   getAzureBoardsSavedQueries: vi.fn(),
   getAzureBoardsMetadata: vi.fn(),
@@ -38,20 +53,61 @@ const api = {
   importAzureBoardsWorkItems: vi.fn()
 };
 
-function renderModal() {
+const mixedImportResult: AzureBoardsImportResult = {
+  success: false,
+  imported: 1,
+  failed: 1,
+  skipped: [{ id: 2, specId: '002-b' }],
+  errors: ['Failed to import AB#3: boom'],
+  items: [
+    { id: 1, status: 'imported', specId: '001-a', title: 'Title 1' },
+    { id: 2, status: 'skipped', specId: '002-b', title: 'Title 2' },
+    { id: 3, status: 'failed', title: 'Title 3', reason: 'boom' }
+  ]
+};
+
+function renderModal(onImportComplete = vi.fn()) {
   return render(
-    <AzureBoardsImportModal projectId="p1" open onOpenChange={vi.fn()} onImportComplete={vi.fn()} />
+    <AzureBoardsImportModal projectId="p1" open onOpenChange={vi.fn()} onImportComplete={onImportComplete} />
   );
 }
 
 async function runQuery() {
-  fireEvent.click(screen.getByRole('button', { name: /boards\.run/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'boards.run' }));
   await screen.findByText('Title 2');
+}
+
+async function importMixedBatch() {
+  api.queryAzureBoardsWorkItems.mockResolvedValueOnce({
+    success: true,
+    data: { items: [makeItem(1), makeItem(2), makeItem(3)], totalCount: 3, truncated: false }
+  });
+  api.importAzureBoardsWorkItems.mockResolvedValueOnce({ success: true, data: mixedImportResult });
+  await runQuery();
+  fireEvent.click(screen.getByRole('button', { name: 'boards.selectAll' }));
+  fireEvent.click(screen.getByRole('button', { name: 'boards.importButton|3' }));
+}
+
+function importButton() {
+  return screen.getByRole<HTMLButtonElement>('button', { name: /boards\.importButton/ });
+}
+
+function expectNoImportableResult() {
+  expect(screen.queryByRole('listbox')).toBeNull();
+  expect(screen.queryByText(/boards\.selectedCount/)).toBeNull();
+  expect(screen.queryByText('boards.truncated')).toBeNull();
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'boards.duplicateWarning.confirm' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'boards.duplicateWarning.skip' })).toBeNull();
+  const button = importButton();
+  expect(button.disabled).toBe(true);
+  fireEvent.click(button);
+  expect(api.importAzureBoardsWorkItems).not.toHaveBeenCalled();
 }
 
 describe('AzureBoardsImportModal', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     (window as unknown as { electronAPI: unknown }).electronAPI = api;
     api.getAzureBoardsSavedQueries.mockResolvedValue({ success: true, data: [] });
     api.getAzureBoardsMetadata.mockResolvedValue({
@@ -64,7 +120,13 @@ describe('AzureBoardsImportModal', () => {
     });
     api.importAzureBoardsWorkItems.mockResolvedValue({
       success: true,
-      data: { success: true, imported: 1, failed: 0, skipped: [] }
+      data: {
+        success: true,
+        imported: 1,
+        failed: 0,
+        skipped: [],
+        items: [{ id: 1, status: 'imported', specId: '001-a', title: 'Title 1' }]
+      }
     });
   });
 
@@ -91,7 +153,7 @@ describe('AzureBoardsImportModal', () => {
     await waitFor(() =>
       expect(api.importAzureBoardsWorkItems).toHaveBeenCalledWith('p1', [1], false)
     );
-    expect(await screen.findByText('boards.successImported|1')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'boards.summary.allImported|1' })).toBeTruthy();
   });
 
   it('selects all with Ctrl+A', async () => {
@@ -128,10 +190,184 @@ describe('AzureBoardsImportModal', () => {
     );
   });
 
-  it('shows an error when the query fails', async () => {
-    api.queryAzureBoardsWorkItems.mockResolvedValue({ success: false, error: 'WIQL exploded' });
+  it('shows a partial summary with failed rows and retries only the failed id', async () => {
+    const onImportComplete = vi.fn();
+    renderModal(onImportComplete);
+    await importMixedBatch();
+
+    expect(await screen.findByRole('heading', { name: 'boards.summary.partial' })).toBeTruthy();
+    expect(screen.getByText('boards.summary.importedCount|1')).toBeTruthy();
+    expect(screen.getByText('boards.summary.skippedCount|1')).toBeTruthy();
+    expect(screen.getByText('boards.summary.failedCount|1')).toBeTruthy();
+    const failedList = screen.getByRole('list', { name: 'boards.summary.failedListLabel' });
+    expect(within(failedList).getByRole('listitem').textContent).toContain('boom');
+    expect(api.importAzureBoardsWorkItems).toHaveBeenNthCalledWith(1, 'p1', [1, 2, 3], false);
+
+    let resolveRetry!: (result: IPCResult<AzureBoardsImportResult>) => void;
+    const pendingRetry = new Promise<IPCResult<AzureBoardsImportResult>>((resolve) => {
+      resolveRetry = resolve;
+    });
+    api.importAzureBoardsWorkItems.mockReturnValueOnce(pendingRetry);
+    const retryButton = screen.getByRole<HTMLButtonElement>('button', { name: 'boards.retryFailed|1' });
+    // Batch both clicks so the ref guard is exercised before the button re-renders.
+    act(() => {
+      fireEvent.click(retryButton);
+      fireEvent.click(retryButton);
+    });
+    expect(retryButton.disabled).toBe(true);
+    expect(retryButton.getAttribute('aria-busy')).toBe('true');
+    expect(api.importAzureBoardsWorkItems).toHaveBeenCalledTimes(2);
+    expect(api.importAzureBoardsWorkItems).toHaveBeenNthCalledWith(2, 'p1', [3], false);
+
+    const retryResult: AzureBoardsImportResult = {
+      success: true,
+      imported: 1,
+      failed: 0,
+      skipped: [],
+      items: [{ id: 3, status: 'imported', specId: '003-c', title: 'Title 3' }]
+    };
+    await act(async () => {
+      resolveRetry({ success: true, data: retryResult });
+    });
+
+    const status = within(screen.getByRole('status'));
+    expect(status.getByRole('heading', { name: 'boards.summary.allImported|2' })).toBeTruthy();
+    expect(status.getByText('boards.summary.importedCount|2')).toBeTruthy();
+    expect(status.getByText('boards.summary.skippedCount|1')).toBeTruthy();
+    expect(status.getByText('boards.summary.failedCount|0')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^boards\.retry/ })).toBeNull();
+    expect(onImportComplete).toHaveBeenCalledTimes(2);
+    expect(onImportComplete).toHaveBeenNthCalledWith(2, retryResult);
+  });
+
+  it('keeps the summary and shows an error when the retry fails', async () => {
     renderModal();
-    fireEvent.click(screen.getByRole('button', { name: /boards\.run/ }));
-    expect((await screen.findByRole('alert')).textContent).toContain('WIQL exploded');
+    await importMixedBatch();
+    const retryButton = await screen.findByRole<HTMLButtonElement>('button', { name: 'boards.retryFailed|1' });
+    api.importAzureBoardsWorkItems.mockResolvedValueOnce({ success: false, error: 'network down' });
+
+    fireEvent.click(retryButton);
+
+    expect((await screen.findByRole('alert')).textContent).toContain('network down');
+    expect(screen.getByRole('heading', { name: 'boards.summary.partial' })).toBeTruthy();
+    const failedList = screen.getByRole('list', { name: 'boards.summary.failedListLabel' });
+    expect(within(failedList).getByRole('listitem').textContent).toContain('boom');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'boards.retryFailed|1' }).disabled).toBe(false);
+  });
+
+  it('shows the zero-imports state', async () => {
+    const result: AzureBoardsImportResult = {
+      success: false,
+      imported: 0,
+      failed: 1,
+      skipped: [],
+      items: [{ id: 1, status: 'failed', title: 'Title 1', reason: 'boom' }]
+    };
+    api.importAzureBoardsWorkItems.mockResolvedValueOnce({ success: true, data: result });
+    renderModal();
+    await runQuery();
+    fireEvent.click(screen.getAllByRole('option')[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'boards.importButton|1' }));
+
+    expect(await screen.findByRole('heading', { name: 'boards.summary.noneImported' })).toBeTruthy();
+  });
+
+  it('closes the prompt without importing when all selected items are duplicates', async () => {
+    renderModal();
+    await runQuery();
+    fireEvent.click(screen.getByRole('option', { name: /Title 2/ }));
+    fireEvent.click(importButton());
+    fireEvent.click(screen.getByRole('button', { name: 'boards.duplicateWarning.skip' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(api.importAzureBoardsWorkItems).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      failure: 'resolved failure',
+      settle: (query: ReturnType<typeof deferQuery>) =>
+        query.resolve({ success: false, error: 'WIQL exploded' }),
+      error: 'WIQL exploded'
+    },
+    {
+      failure: 'rejected query',
+      settle: (query: ReturnType<typeof deferQuery>) => query.reject(new Error('IPC failed')),
+      error: 'boards.errors.query'
+    }
+  ])('blocks stale imports through $failure and requires a fresh selection', async ({ settle, error }) => {
+    const failedQuery = deferQuery();
+    api.queryAzureBoardsWorkItems
+      .mockResolvedValueOnce({
+        success: true,
+        data: { items: [makeItem(1), makeItem(2, true)], totalCount: 5, truncated: true }
+      })
+      .mockReturnValueOnce(failedQuery.promise)
+      .mockResolvedValueOnce({
+        success: true,
+        data: { items: [makeItem(3), makeItem(4)], totalCount: 2, truncated: false }
+      });
+
+    renderModal();
+    await selectDuplicateAndImport();
+    expect(screen.getByText('boards.truncated')).toBeTruthy();
+    expect(screen.getAllByRole('option', { selected: true })).toHaveLength(2);
+    expect(screen.getByRole('alertdialog')).toBeTruthy();
+    expect(api.importAzureBoardsWorkItems).not.toHaveBeenCalled();
+
+    const runButton = screen.getByRole('button', { name: 'boards.run' });
+    fireEvent.click(runButton);
+    expect(screen.getByText('boards.loading')).toBeTruthy();
+    expectNoImportableResult();
+
+    await act(async () => settle(failedQuery));
+    expect(screen.getByRole('alert').textContent).toContain(error);
+    expect(screen.queryByText('boards.loading')).toBeNull();
+    expectNoImportableResult();
+
+    fireEvent.click(runButton);
+    const freshOption = await screen.findByRole('option', { name: /Title 3/ });
+    expect(screen.getAllByRole('option', { selected: false })).toHaveLength(2);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(importButton().disabled).toBe(true);
+
+    fireEvent.click(freshOption);
+    expect(importButton().disabled).toBe(false);
+    fireEvent.keyDown(freshOption, { key: 'Enter' });
+    expect(await screen.findByRole('heading', { name: 'boards.summary.allImported|1' })).toBeTruthy();
+    expect(api.importAzureBoardsWorkItems).toHaveBeenCalledTimes(1);
+    expect(api.importAzureBoardsWorkItems).toHaveBeenCalledWith('p1', [3], false);
+  });
+
+  it('ignores a superseded success while a newer Area Path query is pending', async () => {
+    const supersededQuery = deferQuery();
+    const currentQuery = deferQuery();
+    api.queryAzureBoardsWorkItems
+      .mockReturnValueOnce(supersededQuery.promise)
+      .mockReturnValueOnce(currentQuery.promise);
+
+    renderModal();
+    const runButton = screen.getByRole<HTMLButtonElement>('button', { name: 'boards.run' });
+    fireEvent.click(runButton);
+    expect(runButton.disabled).toBe(true);
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'boards.areaPath.label' }), { key: 'Enter' });
+    expect(api.queryAzureBoardsWorkItems).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      supersededQuery.resolve({
+        success: true,
+        data: { items: [makeItem(1)], totalCount: 3, truncated: true }
+      });
+    });
+    expect(screen.getByText('boards.loading')).toBeTruthy();
+    expect(runButton.disabled).toBe(true);
+    expectNoImportableResult();
+
+    await act(async () => {
+      currentQuery.resolve({ success: true, data: { items: [], totalCount: 0, truncated: false } });
+    });
+    expect(screen.getByText('boards.empty')).toBeTruthy();
+    expect(screen.queryByText('boards.loading')).toBeNull();
+    expect(runButton.disabled).toBe(false);
+    expectNoImportableResult();
   });
 });

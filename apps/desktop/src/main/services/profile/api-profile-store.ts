@@ -8,6 +8,7 @@
  *
  * Provides graceful handling for missing or corrupted files.
  * Uses file locking and atomic modify to prevent race conditions in concurrent operations.
+ * zeenha fork: encrypt API keys at the disk boundary without a plaintext fallback for new keys.
  */
 
 import { promises as fs } from 'fs';
@@ -16,6 +17,13 @@ import { app } from 'electron';
 // @ts-expect-error - no types available for proper-lockfile
 import * as lockfile from 'proper-lockfile';
 import type { APIProfile, ProfilesFile } from '@shared/types/profile';
+import { isSecretEnvelope } from '../../../shared/utils/secret-envelope';
+import {
+  decryptSecret,
+  encryptSecret,
+  isSecureStorageAvailable,
+  SecureStorageUnavailableError
+} from '../../secure-storage/secret-storage';
 
 /**
  * Get the path to profiles.json in the auto-claude directory
@@ -88,51 +96,95 @@ function getDefaultProfilesFile(): ProfilesFile {
   };
 }
 
-/**
- * Load profiles.json from disk
- * Returns default empty profiles file if file doesn't exist or is corrupted
- */
-export async function loadProfilesFile(): Promise<ProfilesFile> {
-  const filePath = getProfilesFilePath();
+type OriginalKey = { plaintext: string; onDisk: string };
 
+function transformProfileKeys(
+  file: ProfilesFile,
+  transform: (apiKey: string, slot: string) => string
+): ProfilesFile {
+  const occurrences = new Map<string, number>();
+  return {
+    ...file,
+    profiles: file.profiles.map((profile) => {
+      const occurrence = occurrences.get(profile.id) ?? 0;
+      occurrences.set(profile.id, occurrence + 1);
+      return { ...profile, apiKey: transform(profile.apiKey, JSON.stringify([profile.id, occurrence])) };
+    })
+  };
+}
+
+function decodeProfilesSecrets(raw: ProfilesFile): {
+  file: ProfilesFile;
+  originals: Map<string, OriginalKey>;
+} {
+  // Track the original slot so equal plaintext keys don't swap envelopes or
+  // allow a legacy plaintext key to be copied to a new profile without a backend.
+  const originals = new Map<string, OriginalKey>();
+  const file = transformProfileKeys(raw, (apiKey, slot) => {
+    const plaintext = isSecretEnvelope(apiKey) ? decryptSecret(apiKey) : apiKey;
+    if (plaintext === null) return apiKey;
+    originals.set(slot, { plaintext, onDisk: apiKey });
+    return plaintext;
+  });
+  return { file, originals };
+}
+
+function encodeProfilesSecrets(
+  file: ProfilesFile,
+  originals: Map<string, OriginalKey>,
+  storageAvailable: boolean
+): ProfilesFile {
+  return transformProfileKeys(file, (apiKey, slot) => {
+    const original = originals.get(slot);
+    if (original?.plaintext === apiKey && isSecretEnvelope(original.onDisk)) return original.onDisk;
+    if (!apiKey || isSecretEnvelope(apiKey)) return apiKey;
+    if (storageAvailable) return encryptSecret(apiKey);
+    if (original?.plaintext === apiKey) return original.onDisk;
+    throw new SecureStorageUnavailableError();
+  });
+}
+
+async function loadRawProfilesFile(): Promise<ProfilesFile | null> {
   try {
-    const content = await fs.readFile(filePath, 'utf-8');
+    const content = await fs.readFile(getProfilesFilePath(), 'utf-8');
     const data = JSON.parse(content);
-
-    // Validate parsed data structure
-    if (isValidProfilesFile(data)) {
-      return data;
-    }
-
-    // Validation failed - return default
-    return getDefaultProfilesFile();
-  } catch {
-    // File doesn't exist or read/parse error - return default
-    return getDefaultProfilesFile();
+    return isValidProfilesFile(data) ? data : null;
+  } catch (error) {
+    if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
   }
 }
 
 /**
- * Save profiles.json to disk
- * Creates the auto-claude directory if it doesn't exist
- * Ensures secure file permissions (user read/write only)
+ * Load profiles.json from disk, decrypting any keys that can be decrypted.
+ * Returns default empty profiles file if file doesn't exist or is corrupted.
  */
+export async function loadProfilesFile(): Promise<ProfilesFile> {
+  try {
+    const raw = await loadRawProfilesFile();
+    return raw ? decodeProfilesSecrets(raw).file : getDefaultProfilesFile();
+  } catch {
+    return getDefaultProfilesFile();
+  }
+}
+
+/** Replace profiles.json using the same lock and owner-only write as a profile edit. */
 export async function saveProfilesFile(data: ProfilesFile): Promise<void> {
-  const filePath = getProfilesFilePath();
-  const dir = path.dirname(filePath);
+  await atomicModifyProfiles(() => data);
+}
 
-  // Ensure directory exists
-  // mkdir with recursive: true resolves successfully if dir already exists
-  await fs.mkdir(dir, { recursive: true });
+function hasLegacyPlaintext(raw: ProfilesFile | null): boolean {
+  return raw?.profiles.some(({ apiKey }) => !!apiKey && !isSecretEnvelope(apiKey)) ?? false;
+}
 
-  // Write file with formatted JSON
-  const content = JSON.stringify(data, null, 2);
-  await fs.writeFile(filePath, content, 'utf-8');
-
-  // Set secure file permissions (user read/write only - 0600)
-  const permissionsValid = await validateFilePermissions(filePath);
-  if (!permissionsValid) {
-    throw new Error('Failed to set secure file permissions on profiles file');
+/** Attempt to encrypt legacy plaintext without disturbing the file on failure. */
+export async function migrateProfilesSecrets(): Promise<void> {
+  try {
+    if (!isSecureStorageAvailable() || !hasLegacyPlaintext(await loadRawProfilesFile())) return;
+    await atomicModifyProfiles((file) => file, { migrateOnly: true });
+  } catch {
+    // Never log the cause: it may contain sensitive data.
+    console.warn('[ProfileStore] Failed to migrate API profile secrets');
   }
 }
 
@@ -248,29 +300,34 @@ export async function setActiveAPIProfile(profileId: string | null): Promise<Pro
  * Loads, modifies, and saves the file within an exclusive lock
  *
  * @param modifier Function that modifies the ProfilesFile
+ * @param options Restrict a migration to files that still have legacy keys under the lock
  * @returns The modified ProfilesFile
  */
 export async function atomicModifyProfiles(
-  modifier: (file: ProfilesFile) => ProfilesFile | Promise<ProfilesFile>
+  modifier: (file: ProfilesFile) => ProfilesFile | Promise<ProfilesFile>,
+  { migrateOnly = false }: { migrateOnly?: boolean } = {}
 ): Promise<ProfilesFile> {
   return await withProfilesLock(async () => {
-    // Load current state
-    const file = await loadProfilesFile();
+    const raw = await loadRawProfilesFile();
+    const { file, originals } = decodeProfilesSecrets(raw ?? getDefaultProfilesFile());
 
-    // Apply modification
+    // Recheck on the locked snapshot in case the file changed after preflight.
+    if (migrateOnly && !hasLegacyPlaintext(raw)) return file;
     const modifiedFile = await modifier(file);
+    const storageAvailable = isSecureStorageAvailable();
+    if (migrateOnly && !storageAvailable) return file;
+    const content = JSON.stringify(encodeProfilesSecrets(modifiedFile, originals, storageAvailable), null, 2);
 
     // Save atomically (write to temp file and rename)
     const filePath = getProfilesFilePath();
     const tempPath = `${filePath}.tmp`;
 
     try {
-      // Write to temp file
-      const content = JSON.stringify(modifiedFile, null, 2);
-      await fs.writeFile(tempPath, content, 'utf-8');
+      await fs.writeFile(tempPath, content, { encoding: 'utf-8', mode: 0o600 });
 
-      // Set permissions on temp file
-      await fs.chmod(tempPath, 0o600);
+      if (!(await validateFilePermissions(tempPath))) {
+        throw new Error('Failed to set secure file permissions on profiles file');
+      }
 
       // Atomically replace original file
       await fs.rename(tempPath, filePath);

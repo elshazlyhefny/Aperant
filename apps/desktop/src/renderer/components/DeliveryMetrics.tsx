@@ -1,5 +1,6 @@
 /**
  * zeenha fork: project-wide delivery and token metrics view.
+ * See guides/delivery-metrics.md for how to read this view.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +9,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 import { formatDuration, formatTokens } from './task-detail/usage-format';
-import type { ProjectRunMetrics, ProjectRunMetricsGroup } from '../../shared/types/run-metrics';
+import type { ProjectDeliveryTiming, ProjectRunMetrics, ProjectRunMetricsGroup } from '../../shared/types/run-metrics';
 
 interface DeliveryMetricsProps {
   projectId: string;
@@ -26,6 +27,66 @@ const PERIODS: Array<{ value: Period; key: string }> = [
 
 const th = 'text-left font-medium text-muted-foreground px-2 py-1';
 const td = 'px-2 py-1';
+
+// zeenha fork: show observed delivery delays separately from per-session usage.
+function DeliveryTimingBreakdown({ timing }: { timing: ProjectDeliveryTiming }) {
+  const { t, i18n } = useTranslation(['tasks']);
+  const fmt = (n: number) => formatTokens(n, i18n.language);
+  const duration = (ms: number | null) => (ms === null ? '—' : formatDuration(ms));
+  const percent =
+    timing.coverage === null
+      ? '—'
+      : new Intl.NumberFormat(i18n.language, { style: 'percent', maximumFractionDigits: 1 }).format(timing.coverage);
+  const rows = [
+    ['queueToReviewReady', timing.queueToReviewReady],
+    ['queued', timing.segments.queuedMs],
+    ['active', timing.segments.activeMs],
+    ['credentialPause', timing.segments.credentialPauseMs],
+    ['budgetPause', timing.segments.budgetPauseMs],
+    ['other', timing.segments.otherMs]
+  ] as const;
+
+  return (
+    <section data-testid="delivery-timing">
+      <h3 className="text-sm font-semibold mb-2">{t('tasks:delivery.timing.title')}</h3>
+      <p className="text-xs text-muted-foreground mb-2" data-testid="delivery-timing-coverage">
+        {t('tasks:delivery.timing.coverage', {
+          measured: fmt(timing.measuredTasks),
+          eligible: fmt(timing.eligibleTasks),
+          percent
+        })}{' '}
+        {t('tasks:delivery.timing.unknown', {
+          missing: fmt(timing.unknown.missing),
+          corrupt: fmt(timing.unknown.corrupt),
+          incomplete: fmt(timing.unknown.incomplete)
+        })}
+      </p>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border">
+            <th scope="col" className={th}>{t('tasks:delivery.timing.columns.metric')}</th>
+            <th scope="col" className={th}>{t('tasks:delivery.timing.columns.median')}</th>
+            <th scope="col" className={th}>{t('tasks:delivery.timing.columns.p90')}</th>
+            <th scope="col" className={th}>{t('tasks:delivery.timing.columns.samples')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([key, stats]) => (
+            <tr key={key} className="border-b border-border/50" data-testid={`delivery-timing-row-${key}`}>
+              <th scope="row" className={th}>{t(`tasks:delivery.timing.metrics.${key}`)}</th>
+              <td className={td}>{duration(stats.medianMs)}</td>
+              <td className={td}>{duration(stats.p90Ms)}</td>
+              <td className={td}>{fmt(stats.samples)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-xs text-muted-foreground mt-2" data-testid="delivery-timing-note">
+        {t('tasks:delivery.timing.note')}
+      </p>
+    </section>
+  );
+}
 
 export function DeliveryMetrics({ projectId, onOpenTask }: DeliveryMetricsProps) {
   const { t, i18n } = useTranslation(['tasks']);
@@ -120,7 +181,8 @@ export function DeliveryMetrics({ projectId, onOpenTask }: DeliveryMetricsProps)
     </div>
   );
 
-  if (!metrics || (metrics.completedTasks === 0 && metrics.included === 0)) {
+  const deliveryTiming = metrics?.deliveryTiming;
+  if (!metrics || (metrics.completedTasks === 0 && metrics.included === 0 && (deliveryTiming?.eligibleTasks ?? 0) === 0)) {
     return (
       <div className="h-full p-4 space-y-6" data-testid="delivery-metrics">
         {header}
@@ -246,6 +308,8 @@ export function DeliveryMetrics({ projectId, onOpenTask }: DeliveryMetricsProps)
             })}
           </p>
         )}
+
+        {deliveryTiming && <DeliveryTimingBreakdown timing={deliveryTiming} />}
 
         {failedTasks.length > 0 && (
           <section data-testid="delivery-failed">

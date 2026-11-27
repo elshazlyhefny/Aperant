@@ -144,6 +144,9 @@
     "importButton_one": "Import {{count}} work item",
     "importButton_other": "Import {{count}} work items",
     "importing": "Importing...",
+    "retryFailed_one": "Retry failed item ({{count}})",
+    "retryFailed_other": "Retry failed items ({{count}})",
+    "retrying": "Retrying...",
     "done": "Done",
     "cancel": "Cancel",
     "alreadyImported": "Already imported",
@@ -160,6 +163,23 @@
     "skippedDuplicates_one": "{{count}} duplicate skipped",
     "skippedDuplicates_other": "{{count}} duplicates skipped",
     "partialFailure": "Some work items could not be imported:",
+    "summary": {
+      "allImported_one": "{{count}} work item imported",
+      "allImported_other": "{{count}} work items imported",
+      "partial": "Import partly completed",
+      "noneImported": "No work items were imported",
+      "nothingNew": "No new work items to import",
+      "importedCount_one": "{{count}} imported",
+      "importedCount_other": "{{count}} imported",
+      "skippedCount_one": "{{count}} skipped (already imported)",
+      "skippedCount_other": "{{count}} skipped (already imported)",
+      "failedCount_one": "{{count}} failed",
+      "failedCount_other": "{{count}} failed",
+      "failedListLabel": "Work items that failed to import",
+      "failedRow": "#{{id}} {{title}}",
+      "failedRowNoTitle": "#{{id}}",
+      "unknownReason": "Unknown error"
+    },
     "truncated": "Showing {{shown}} of {{total}} work items. Narrow the query to see the rest.",
     "empty": "No work items match this query.",
     "notRun": "Run a query to list work items.",
@@ -168,7 +188,8 @@
       "loadMetadata": "Failed to load Azure Boards filters",
       "loadQueries": "Failed to load saved queries",
       "query": "Failed to run the query",
-      "import": "Failed to import work items"
+      "import": "Failed to import work items",
+      "retry": "Failed to retry work items"
     },
     "keyboardHint": "Arrow keys move, Space selects, Ctrl+A selects all, Enter imports.",
     "settings": {

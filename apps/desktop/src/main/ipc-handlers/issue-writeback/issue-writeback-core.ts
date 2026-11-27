@@ -10,6 +10,7 @@
 import type { Project } from '../../../shared/types';
 import type { AppSettings, IssueWritebackSettings } from '../../../shared/types/settings';
 import { normalizeIssueWritebackSettings } from '../../../shared/utils/issue-writeback-settings';
+import type { DeliveryReceiptRecorder } from '../../delivery-receipts';
 import type { WebhookEvent } from '../../task-webhook-core';
 import type { OutcomeWriter } from '../forge/types';
 import { buildOutcomeComment, isIssueOutcomeEvent } from './common';
@@ -38,17 +39,26 @@ export async function dispatchIssueOutcomeWith(input: {
   /** The raw settings object (desktop settings file, or one built from the headless config). */
   raw: Partial<AppSettings>;
   writers: readonly OutcomeWriter[];
+  recorder?: DeliveryReceiptRecorder;
 }): Promise<void> {
   try {
-    const { title, prUrl, project, event, meta, raw, writers } = input;
+    const { title, prUrl, project, event, meta, raw, writers, recorder } = input;
     // zeenha fork: pr_opened and account pauses are never written back (see OutcomeEvent).
-    if (!isIssueOutcomeEvent(event) || !meta) return;
-    const writer = writers.find((w) => w.sourceType === String(meta.sourceType));
-    if (!writer) return;
+    if (!isIssueOutcomeEvent(event)) return;
+    const sourceType = meta ? String(meta.sourceType) : undefined;
+    const writer = writers.find((w) => w.sourceType === sourceType);
+    if (!writer || !meta) {
+      // zeenha fork: enabled write-back without a registered source has no provider to report.
+      if (recorder && anyWriterEnabled(writers, raw)) {
+        const reason = meta?.sourceType == null || !sourceType?.trim() ? 'not_linked' : 'unsupported_source';
+        await recorder.skip({ operation: 'issue_comment', event }, reason);
+      }
+      return;
+    }
     const settings = normalizeIssueWritebackSettings(raw.issueWriteback);
     if (!isWriterEnabled(writer, raw, settings)) return;
     const text = buildOutcomeComment(event, title, prUrl);
-    await writer.postOutcome({ meta, project, event, text, settings });
+    await writer.postOutcome({ meta, project, event, text, settings, ...(recorder && { recorder }) });
   } catch {
     // never let write-back problems affect task flow
   }

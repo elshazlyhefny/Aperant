@@ -93,6 +93,64 @@ describe('runAgentSession', () => {
   });
 
   // ===========================================================================
+  // Usage when result.totalUsage is unavailable (zeenha fork)
+  // ===========================================================================
+
+  describe('usage fallback', () => {
+    const v6Steps = [
+      { type: 'finish-step', usage: { inputTokens: 1000, outputTokens: 40, inputTokenDetails: { cacheReadTokens: 900 } } },
+      { type: 'finish-step', usage: { inputTokens: 1100, outputTokens: 60, inputTokenDetails: { cacheReadTokens: 1000 } } },
+    ];
+
+    it('uses the per-step tally when result.totalUsage rejects', async () => {
+      const rejecting = Promise.reject(new Error('stream closed without a finish event'));
+      rejecting.catch(() => {}); // the runner awaits it later; avoid an unhandled-rejection warning first
+      mockStreamText.mockReturnValue({ ...createMockStreamResult(v6Steps, { text: 'done' }), totalUsage: rejecting });
+
+      const result = await runAgentSession(createMockConfig());
+
+      expect(result.usage).toEqual({
+        promptTokens: 2100,
+        completionTokens: 100,
+        totalTokens: 2200,
+        cacheReadTokens: 1900,
+      });
+    });
+
+    it('uses the per-step tally when result.totalUsage is empty', async () => {
+      mockStreamText.mockReturnValue(
+        createMockStreamResult(v6Steps, { text: 'done', totalUsage: { inputTokens: 0, outputTokens: 0 } }),
+      );
+
+      const result = await runAgentSession(createMockConfig());
+
+      expect(result.usage.promptTokens).toBe(2100);
+      expect(result.usage.completionTokens).toBe(100);
+    });
+
+    it('reads the cache split from the AI SDK v6 total', async () => {
+      mockStreamText.mockReturnValue({
+        ...createMockStreamResult(v6Steps, { text: 'done' }),
+        totalUsage: Promise.resolve({
+          inputTokens: 2100,
+          outputTokens: 100,
+          inputTokenDetails: { cacheReadTokens: 1900, cacheWriteTokens: 50 },
+        }),
+      });
+
+      const result = await runAgentSession(createMockConfig());
+
+      expect(result.usage).toEqual({
+        promptTokens: 2100,
+        completionTokens: 100,
+        totalTokens: 2200,
+        cacheReadTokens: 1900,
+        cacheCreationTokens: 50,
+      });
+    });
+  });
+
+  // ===========================================================================
   // Max steps outcome
   // ===========================================================================
 
@@ -311,5 +369,80 @@ describe('runAgentSession', () => {
 
     const callArgs = mockStreamText.mock.calls[0][0];
     expect(callArgs.stopWhen).toEqual({ type: 'stepCount', count: 500 });
+  });
+
+  // ===========================================================================
+  // Step notes and prompt caching (zeenha fork)
+  // ===========================================================================
+
+  describe('step notes', () => {
+    const history = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Working on it' },
+    ];
+
+    async function prepareStepFor(config: SessionConfig, parts: Array<Record<string, unknown>> = []) {
+      mockStreamText.mockReturnValue(createMockStreamResult(parts, { text: 'done' }));
+      await runAgentSession(config);
+      return mockStreamText.mock.calls[0][0].prepareStep as (args: {
+        stepNumber: number;
+        messages: unknown[];
+      }) => Promise<Record<string, unknown>>;
+    }
+
+    it('adds the convergence nudge as a trailing user message and keeps the system prompt', async () => {
+      const prepareStep = await prepareStepFor(createMockConfig({ agentType: 'qa_reviewer', maxSteps: 10 }));
+
+      expect(await prepareStep({ stepNumber: 1, messages: history })).toEqual({});
+
+      const result = await prepareStep({ stepNumber: 8, messages: history });
+      expect(result.system).toBeUndefined();
+      expect(result.messages).toEqual([
+        ...history,
+        { role: 'user', content: expect.stringContaining('You have used 8 of 10 steps') },
+      ]);
+    });
+
+    it('adds the context window warning as a trailing user message', async () => {
+      const prepareStep = await prepareStepFor(createMockConfig({ contextWindowLimit: 1000 }), [
+        { type: 'finish-step', usage: { inputTokens: 870, outputTokens: 10 } },
+      ]);
+
+      const result = await prepareStep({ stepNumber: 2, messages: history });
+      expect(result.system).toBeUndefined();
+      expect(result.messages).toEqual([
+        ...history,
+        { role: 'user', content: expect.stringContaining('approaching the context window limit (87% used') },
+      ]);
+    });
+  });
+
+  describe('prompt cache key', () => {
+    const run = async (model: Record<string, unknown>) => {
+      mockStreamText.mockClear();
+      mockStreamText.mockReturnValue(createMockStreamResult([], { text: 'done' }));
+      await runAgentSession(createMockConfig({ model: model as unknown as SessionConfig['model'] }));
+      return mockStreamText.mock.calls[0][0].providerOptions;
+    };
+
+    it('sends one key per session to OpenAI models, alongside the reasoning effort', async () => {
+      mockStreamText.mockReturnValue(createMockStreamResult([], { text: 'done' }));
+      await runAgentSession(
+        createMockConfig({
+          model: { provider: 'openai.responses', modelId: 'gpt-6.2-sol' } as unknown as SessionConfig['model'],
+          thinkingLevel: 'high',
+        }),
+      );
+      const first = mockStreamText.mock.calls[0][0].providerOptions;
+      expect(first.openai).toEqual({ reasoningEffort: 'high', promptCacheKey: expect.any(String) });
+
+      const second = await run({ provider: 'openai.responses', modelId: 'gpt-6.2-sol' });
+      expect(second.openai.promptCacheKey).not.toBe(first.openai.promptCacheKey);
+    });
+
+    it('sends no key to other providers', async () => {
+      const options = await run({ provider: 'anthropic.messages', modelId: 'claude-opus-5-5' });
+      expect(options?.openai).toBeUndefined();
+    });
   });
 });

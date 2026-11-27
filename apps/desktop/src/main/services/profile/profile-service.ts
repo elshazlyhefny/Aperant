@@ -10,6 +10,7 @@
 
 import { loadProfilesFile, generateProfileId, atomicModifyProfiles } from './api-profile-store';
 import { withKeyStatusReset } from '../../../shared/utils/api-key-status';
+import { isSecretEnvelope } from '../../../shared/utils/secret-envelope';
 import type { APIProfile, TestConnectionResult, ModelInfo, DiscoverModelsResult } from '@shared/types/profile';
 
 /** Error categories shared by testConnection and discoverModels */
@@ -359,7 +360,9 @@ export async function getAPIProfileEnv(): Promise<Record<string, string>> {
   // Map profile fields to SDK env vars
   const envVars: Record<string, string> = {
     ANTHROPIC_BASE_URL: profile.baseUrl || '',
-    ANTHROPIC_AUTH_TOKEN: profile.apiKey || '',
+    // zeenha fork: an envelope that could not be decrypted is ciphertext, not a key.
+    // Leave it empty so the filter below drops it instead of sending it as a token.
+    ANTHROPIC_AUTH_TOKEN: isSecretEnvelope(profile.apiKey) ? '' : profile.apiKey || '',
     ANTHROPIC_MODEL: profile.models?.default || '',
     ANTHROPIC_DEFAULT_HAIKU_MODEL: profile.models?.haiku || '',
     ANTHROPIC_DEFAULT_SONNET_MODEL: profile.models?.sonnet || '',

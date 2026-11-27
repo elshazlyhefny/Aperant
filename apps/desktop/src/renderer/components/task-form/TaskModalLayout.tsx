@@ -19,7 +19,7 @@ import type { ReactNode } from 'react';
 interface TaskModalLayoutProps {
   /** Whether the modal is open */
   open: boolean;
-  /** Callback when open state changes */
+  /** Forward a user dismissal request to the caller */
   onOpenChange: (open: boolean) => void;
   /** Modal title */
   title: string;
@@ -50,14 +50,14 @@ export function TaskModalLayout({
 }: TaskModalLayoutProps) {
   const { t } = useTranslation('common');
 
-  const handleClose = () => {
-    if (!disabled) {
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && !disabled) {
       onOpenChange(false);
     }
   };
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={handleClose}>
+    <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
         {/* Semi-transparent overlay */}
         <DialogPrimitive.Overlay

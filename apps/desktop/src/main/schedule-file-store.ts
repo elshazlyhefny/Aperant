@@ -1,23 +1,45 @@
 /**
  * zeenha fork: Electron-free file store for recurring task schedules. A missing
  * or corrupt file reads as empty (fail closed: nothing runs), and writes are
- * atomic. schedule-store.ts binds this to userData/schedules.json.
+ * locked and atomic. schedule-store.ts binds this to userData/schedules.json.
  */
-import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
+import { mkdir } from 'fs/promises';
 import path from 'path';
+// @ts-expect-error - no types available for proper-lockfile
+import * as lockfile from 'proper-lockfile';
 import { MAX_SCHEDULE_HISTORY, type RecurringSchedule } from '../shared/types/schedule';
 import { writeFileAtomicSync } from './utils/atomic-file';
+import { withFileLock } from './utils/file-lock';
 
 interface ScheduleFile {
   version: 1;
   schedules: RecurringSchedule[];
 }
 
+const MUTABLE_FIELDS = [
+  'name',
+  'enabled',
+  'cadence',
+  // zeenha fork: editing a schedule can change how it treats missed runs.
+  'missedRunPolicy',
+  'template',
+  'updatedAt',
+  'nextRunAt',
+  'lastRunAt',
+  'lastTaskId',
+  'history',
+] as const;
+
+export type SchedulePatch = Partial<Pick<RecurringSchedule, (typeof MUTABLE_FIELDS)[number]>>;
+export type ScheduleMutator = (current: Readonly<RecurringSchedule>) => SchedulePatch;
+
 export interface ScheduleFileStore {
   listSchedules(projectId?: string): RecurringSchedule[];
   getSchedule(id: string): RecurringSchedule | undefined;
-  saveSchedule(schedule: RecurringSchedule): RecurringSchedule;
-  removeSchedule(id: string): boolean;
+  insertSchedule(schedule: RecurringSchedule): Promise<RecurringSchedule>;
+  updateSchedule(id: string, mutator: ScheduleMutator): Promise<RecurringSchedule | undefined>;
+  deleteSchedule(id: string): Promise<RecurringSchedule | undefined>;
   trimHistory(schedule: RecurringSchedule): RecurringSchedule;
 }
 
@@ -43,10 +65,10 @@ export function trimHistory(schedule: RecurringSchedule): RecurringSchedule {
 export function createScheduleFileStore(filePath: string | (() => string)): ScheduleFileStore {
   const getStorePath = (): string => (typeof filePath === 'function' ? filePath() : filePath);
 
-  function readFile(): ScheduleFile {
+  function readFile(resolvedPath?: string): ScheduleFile {
     const empty: ScheduleFile = { version: 1, schedules: [] };
     try {
-      const storePath = getStorePath();
+      const storePath = resolvedPath ?? getStorePath();
       if (!existsSync(storePath)) return empty;
       const parsed = JSON.parse(readFileSync(storePath, 'utf-8'));
       if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.schedules)) return empty;
@@ -61,10 +83,30 @@ export function createScheduleFileStore(filePath: string | (() => string)): Sche
     }
   }
 
-  function writeFile(data: ScheduleFile): void {
-    const storePath = getStorePath();
-    mkdirSync(path.dirname(storePath), { recursive: true });
-    writeFileAtomicSync(storePath, JSON.stringify(data, null, 2));
+  /** A mutator returns undefined to skip the write (e.g. when the ID is absent). */
+  async function mutate<T>(mutator: (data: ScheduleFile) => T): Promise<T> {
+    const storePath = path.resolve(getStorePath());
+    await mkdir(path.dirname(storePath), { recursive: true });
+    return withFileLock(storePath, async () => {
+      const release: () => Promise<void> = await lockfile.lock(storePath, {
+        realpath: false,
+        retries: { retries: 10, minTimeout: 50, maxTimeout: 500 },
+      });
+      try {
+        const data = readFile(storePath);
+        const result = mutator(data);
+        if (result !== undefined) {
+          writeFileAtomicSync(storePath, JSON.stringify(data, null, 2));
+        }
+        return result;
+      } finally {
+        try {
+          await release();
+        } catch {
+          // The lock may already be gone. Preserve any mutation error.
+        }
+      }
+    });
   }
 
   return {
@@ -76,22 +118,39 @@ export function createScheduleFileStore(filePath: string | (() => string)): Sche
     getSchedule(id: string): RecurringSchedule | undefined {
       return readFile().schedules.find((s) => s.id === id);
     },
-    /** Insert or replace by id. Returns the stored (history-trimmed) schedule. */
-    saveSchedule(schedule: RecurringSchedule): RecurringSchedule {
-      const data = readFile();
-      const trimmed = trimHistory(schedule);
-      const index = data.schedules.findIndex((x) => x.id === trimmed.id);
-      if (index >= 0) data.schedules[index] = trimmed;
-      else data.schedules.push(trimmed);
-      writeFile(data);
-      return trimmed;
+    insertSchedule(schedule) {
+      return mutate((data) => {
+        if (data.schedules.some((s) => s.id === schedule.id)) {
+          throw new Error(`Schedule already exists: ${schedule.id}`);
+        }
+        const stored = trimHistory(schedule);
+        data.schedules.push(stored);
+        return stored;
+      });
     },
-    removeSchedule(id: string): boolean {
-      const data = readFile();
-      const next = data.schedules.filter((x) => x.id !== id);
-      if (next.length === data.schedules.length) return false;
-      writeFile({ version: 1, schedules: next });
-      return true;
+    updateSchedule(id, mutator) {
+      return mutate((data) => {
+        const index = data.schedules.findIndex((s) => s.id === id);
+        if (index < 0) return undefined;
+        const current = data.schedules[index];
+        // Only changes returned in the patch can affect the stored record.
+        const patch = mutator(structuredClone(current));
+        const updated = { ...current };
+        for (const field of MUTABLE_FIELDS) {
+          if (Object.hasOwn(patch, field)) Object.assign(updated, { [field]: patch[field] });
+        }
+        const stored = trimHistory(updated);
+        data.schedules[index] = stored;
+        return stored;
+      });
+    },
+    deleteSchedule(id) {
+      return mutate((data) => {
+        const removed = data.schedules.find((s) => s.id === id);
+        if (!removed) return undefined;
+        data.schedules = data.schedules.filter((s) => s.id !== id);
+        return removed;
+      });
     },
   };
 }

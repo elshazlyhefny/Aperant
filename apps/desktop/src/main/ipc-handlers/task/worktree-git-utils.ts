@@ -41,9 +41,9 @@ export function getUtilitySettings(): { model: string; modelId: string; thinking
         thinkingBudget: thinkingLevel in THINKING_BUDGET_MAP ? THINKING_BUDGET_MAP[thinkingLevel] : THINKING_BUDGET_MAP.low
       };
     }
-  } catch (error) {
-    // Log parse errors to help diagnose corrupted settings
-    console.warn('[getUtilitySettings] Failed to parse settings.json:', error);
+  } catch {
+    // Do not log JSON parse errors, which can include credential values.
+    console.warn('[getUtilitySettings] Failed to parse settings.json');
   }
 
   // Return defaults if settings file doesn't exist or fails to parse

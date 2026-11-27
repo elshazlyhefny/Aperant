@@ -13,6 +13,7 @@ import { findTaskWorktree } from './worktree-paths';
 import type { Project, Task } from '../shared/types';
 import type {
   RecurringSchedule,
+  ScheduleCadence,
   ScheduleRunNowResult,
   ScheduleRunRecord,
   ScheduleTemplate,
@@ -28,10 +29,16 @@ export const MISSED_GRACE_MS = 5 * 60_000;
 
 const FINISHED_STATUSES = new Set(['done', 'pr_created', 'error']);
 
+type RunBookkeeping = Partial<Pick<RecurringSchedule, 'lastRunAt' | 'lastTaskId' | 'nextRunAt'>>;
+
 export interface ScheduleServiceDeps {
   now(): number;
   listSchedules(): RecurringSchedule[];
-  saveSchedule(schedule: RecurringSchedule): void;
+  /** Apply a run patch to the current record under lock; false if the ID is gone. */
+  updateSchedule(
+    id: string,
+    mutator: (current: Readonly<RecurringSchedule>) => RunBookkeeping & Pick<RecurringSchedule, 'history'>
+  ): Promise<boolean>;
   getProject(projectId: string): Project | undefined;
   listTasks(projectId: string): Task[];
   /** Create the spec in status 'queue'; returns the new task id. */
@@ -113,6 +120,20 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function sameCadence(a: ScheduleCadence, b: ScheduleCadence): boolean {
+  switch (a.kind) {
+    case 'interval':
+      return b.kind === 'interval' && a.everyMinutes === b.everyMinutes;
+    case 'daily':
+      return b.kind === 'daily' && a.time === b.time;
+    case 'weekly': {
+      if (b.kind !== 'weekly' || a.time !== b.time || !Array.isArray(b.days)) return false;
+      const days = new Set(b.days);
+      return new Set(a.days).size === days.size && a.days.every((day) => days.has(day));
+    }
+  }
+}
+
 export function createScheduleService(deps: ScheduleServiceDeps): ScheduleService {
   let timer: ReturnType<typeof setInterval> | null = null;
   let firstTimer: ReturnType<typeof setTimeout> | null = null;
@@ -122,6 +143,14 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
   const budgetStopped = new Set<string>();
   /** Schedule ids with a manual run in progress; processSchedule skips them. */
   const inFlight = new Set<string>();
+
+  function readSchedule(id: string): RecurringSchedule | undefined {
+    try {
+      return deps.listSchedules().find((s) => s.id === id);
+    } catch {
+      return undefined;
+    }
+  }
 
   function allowed(projectId: string): boolean {
     try {
@@ -137,6 +166,17 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     if (!task) return false;
     if (task.metadata?.archivedAt) return false;
     return !FINISHED_STATUSES.has(task.status);
+  }
+
+  function appendRunRecords(
+    id: string,
+    records: ScheduleRunRecord[],
+    bookkeeping?: (current: Readonly<RecurringSchedule>) => RunBookkeeping
+  ): Promise<boolean> {
+    return deps.updateSchedule(id, (current) => ({
+      ...bookkeeping?.(current),
+      history: [...current.history, ...records],
+    }));
   }
 
   async function processSchedule(schedule: RecurringSchedule, project: Project, now: number): Promise<boolean> {
@@ -160,38 +200,35 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     const { dueCount, nextRunAt } = advancePast(schedule.cadence, firstDue, now);
     if (dueCount === 0) return false;
 
-    const next: RecurringSchedule = { ...schedule, nextRunAt, history: [...schedule.history] };
-
+    const records: ScheduleRunRecord[] = [];
+    let taskId: string | undefined;
     if (isUnfinished(project.id, schedule.lastTaskId)) {
-      next.history.push(record('skipped_unfinished', now, { taskId: schedule.lastTaskId, detail: `${dueCount} due` }));
-      deps.saveSchedule(next);
-      return true;
-    }
-
-    if (dueCount > 1 || now - firstDue > MISSED_GRACE_MS) {
-      const window = {
-        missedCount: dueCount,
-        missedFrom: firstDue,
-        missedTo: lastDue(schedule, firstDue, now, dueCount),
-      };
-      if (schedule.missedRunPolicy === 'skip') {
-        next.history.push(record('skipped_missed', now, window));
-        deps.saveSchedule(next);
-        return true;
+      records.push(record('skipped_unfinished', now, { taskId: schedule.lastTaskId, detail: `${dueCount} due` }));
+    } else {
+      const missedWindow =
+        dueCount > 1 || now - firstDue > MISSED_GRACE_MS
+          ? { missedCount: dueCount, missedFrom: firstDue, missedTo: lastDue(schedule, firstDue, now, dueCount) }
+          : undefined;
+      if (missedWindow && schedule.missedRunPolicy === 'skip') {
+        records.push(record('skipped_missed', now, missedWindow));
+      } else {
+        if (missedWindow) records.push(record('missed', now, missedWindow));
+        try {
+          taskId = await deps.createTask(project.id, schedule.template, schedule.id, firstDue);
+        } catch (error) {
+          records.push(record('failed', now, { detail: errorMessage(error) }));
+        }
+        if (taskId !== undefined) records.push(record('started', now, { taskId }));
       }
-      next.history.push(record('missed', now, window));
     }
 
-    try {
-      const taskId = await deps.createTask(project.id, schedule.template, schedule.id, firstDue);
-      next.lastRunAt = now;
-      next.lastTaskId = taskId;
-      next.history.push(record('started', now, { taskId }));
-    } catch (error) {
-      next.history.push(record('failed', now, { detail: errorMessage(error) }));
-    }
-    deps.saveSchedule(next);
-    return true;
+    return appendRunRecords(schedule.id, records, (current) => ({
+      ...(taskId !== undefined ? { lastRunAt: now, lastTaskId: taskId } : {}),
+      // Only advance the occurrence we processed, not a concurrent reschedule.
+      ...(current.enabled && current.nextRunAt === firstDue && sameCadence(schedule.cadence, current.cadence)
+        ? { nextRunAt }
+        : {}),
+    }));
   }
 
   /** The last occurrence at or before `now`. */
@@ -242,13 +279,15 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
    * run_metrics.json only when an agent session ends, so the ceiling is enforced
    * between sessions, not mid-session.
    */
-  function enforceBudgets(projectIds: Set<string>): void {
+  async function enforceBudgets(projectIds: Set<string>): Promise<void> {
     let schedules: RecurringSchedule[];
     try {
       schedules = deps.listSchedules();
     } catch {
       return;
     }
+    const stops: { projectId: string; report?: { scheduleId: string; entry: ScheduleRunRecord } }[] = [];
+    // Decide stops without yielding so task statuses and usage are checked in the same turn.
     for (const projectId of projectIds) {
       try {
         if (!allowed(projectId)) continue;
@@ -273,17 +312,26 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
           } catch {
             // Still record below; the task is not retried
           }
-          if (schedule) {
-            const fresh = deps.listSchedules().find((s) => s.id === schedule.id) ?? schedule;
-            deps.saveSchedule({
-              ...fresh,
-              history: [...fresh.history, record('budget_exceeded', deps.now(), { taskId: task.id, detail: `${used}/${budget}` })],
-            });
-          }
-          deps.notifyChanged(projectId);
+          stops.push({
+            projectId,
+            // Only report to schedules in the daemon's filtered list.
+            report: schedule && {
+              scheduleId: schedule.id,
+              entry: record('budget_exceeded', deps.now(), { taskId: task.id, detail: `${used}/${budget}` }),
+            },
+          });
         }
       } catch {
         // One project failing must not stop the others
+      }
+    }
+
+    for (const { projectId, report } of stops) {
+      try {
+        if (report) await appendRunRecords(report.scheduleId, [report.entry]);
+        deps.notifyChanged(projectId);
+      } catch {
+        // One failed report or notification must not block the others
       }
     }
   }
@@ -313,8 +361,12 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
       } catch {
         return;
       }
-      for (const schedule of schedules) {
+      for (const entry of schedules) {
         try {
+          // zeenha fork: re-read each schedule, because an earlier schedule's task
+          // creation can take long enough for this one to be paused, edited or deleted.
+          const schedule = readSchedule(entry.id);
+          if (!schedule) continue;
           const project = deps.getProject(schedule.projectId);
           if (!project) continue;
           if (await processSchedule(schedule, project, now)) changed.add(project.id);
@@ -323,7 +375,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
         }
       }
       await promote(scheduledProjectIds());
-      enforceBudgets(scheduledProjectIds());
+      await enforceBudgets(scheduledProjectIds());
       for (const projectId of changed) {
         try {
           deps.notifyChanged(projectId);
@@ -343,12 +395,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
   }
 
   async function runNow(scheduleId: string): Promise<ScheduleRunNowResult> {
-    let schedule: RecurringSchedule | undefined;
-    try {
-      schedule = deps.listSchedules().find((s) => s.id === scheduleId);
-    } catch {
-      return { started: false, reason: 'not_found' };
-    }
+    const schedule = readSchedule(scheduleId);
     if (!schedule) return { started: false, reason: 'not_found' };
     const project = deps.getProject(schedule.projectId);
     if (!project) return { started: false, reason: 'not_found' };
@@ -359,24 +406,24 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
     let result: ScheduleRunNowResult;
     try {
       const now = deps.now();
-      const history = [...schedule.history];
+      let entry: ScheduleRunRecord;
       if (isUnfinished(project.id, schedule.lastTaskId)) {
-        history.push(record('skipped_unfinished', now, { taskId: schedule.lastTaskId, detail: 'manual' }));
-        deps.saveSchedule({ ...schedule, history });
+        entry = record('skipped_unfinished', now, { taskId: schedule.lastTaskId, detail: 'manual' });
         result = { started: false, reason: 'unfinished', taskId: schedule.lastTaskId };
       } else {
         try {
           const taskId = await deps.createTask(project.id, schedule.template, schedule.id, now);
-          history.push(record('started', now, { taskId, detail: 'manual' }));
-          deps.saveSchedule({ ...schedule, lastRunAt: now, lastTaskId: taskId, history });
+          entry = record('started', now, { taskId, detail: 'manual' });
           result = { started: true, taskId };
         } catch (error) {
-          history.push(record('failed', now, { detail: errorMessage(error) }));
-          deps.saveSchedule({ ...schedule, history });
+          entry = record('failed', now, { detail: errorMessage(error) });
           result = { started: false };
         }
       }
-      deps.notifyChanged(project.id);
+      const updated = await appendRunRecords(schedule.id, [entry], () =>
+        result.started ? { lastRunAt: now, lastTaskId: result.taskId } : {}
+      );
+      if (updated) deps.notifyChanged(project.id);
     } finally {
       inFlight.delete(schedule.id);
     }
@@ -407,7 +454,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
           return;
         }
         await promote(scheduledProjectIds());
-        enforceBudgets(scheduledProjectIds());
+        await enforceBudgets(scheduledProjectIds());
       })();
     },
   };

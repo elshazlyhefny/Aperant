@@ -87,7 +87,18 @@ export const useInsightsStore = create<InsightsState>((set, _get) => ({
 
   setSessions: (sessions) => set({ sessions }),
 
-  setStatus: (status) => set({ status }),
+  setStatus: (status) =>
+    set((state) => {
+      // Each text chunk sets the status; skip unchanged values to avoid re-rendering status subscribers.
+      if (
+        status.phase === state.status.phase &&
+        status.message === state.status.message &&
+        status.error === state.status.error
+      ) {
+        return state;
+      }
+      return { status };
+    }),
 
   setLoadingSessions: (loading) => set({ isLoadingSessions: loading }),
 

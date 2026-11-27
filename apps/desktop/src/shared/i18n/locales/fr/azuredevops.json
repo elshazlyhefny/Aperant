@@ -144,6 +144,9 @@
     "importButton_one": "Importer {{count}} élément de travail",
     "importButton_other": "Importer {{count}} éléments de travail",
     "importing": "Importation...",
+    "retryFailed_one": "Réessayer l'élément en échec ({{count}})",
+    "retryFailed_other": "Réessayer les éléments en échec ({{count}})",
+    "retrying": "Nouvelle tentative en cours...",
     "done": "Terminé",
     "cancel": "Annuler",
     "alreadyImported": "Déjà importé",
@@ -160,6 +163,23 @@
     "skippedDuplicates_one": "{{count}} doublon ignoré",
     "skippedDuplicates_other": "{{count}} doublons ignorés",
     "partialFailure": "Certains éléments de travail n'ont pas pu être importés :",
+    "summary": {
+      "allImported_one": "{{count}} élément de travail importé",
+      "allImported_other": "{{count}} éléments de travail importés",
+      "partial": "Importation partiellement terminée",
+      "noneImported": "Aucun élément de travail n'a été importé",
+      "nothingNew": "Aucun nouvel élément de travail à importer",
+      "importedCount_one": "{{count}} importé",
+      "importedCount_other": "{{count}} importés",
+      "skippedCount_one": "{{count}} ignoré (déjà importé)",
+      "skippedCount_other": "{{count}} ignorés (déjà importés)",
+      "failedCount_one": "{{count}} en échec",
+      "failedCount_other": "{{count}} en échec",
+      "failedListLabel": "Éléments de travail dont l'importation a échoué",
+      "failedRow": "#{{id}} {{title}}",
+      "failedRowNoTitle": "#{{id}}",
+      "unknownReason": "Erreur inconnue"
+    },
     "truncated": "Affichage de {{shown}} éléments sur {{total}}. Affinez la requête pour voir le reste.",
     "empty": "Aucun élément de travail ne correspond à cette requête.",
     "notRun": "Lancez une requête pour lister les éléments de travail.",
@@ -168,7 +188,8 @@
       "loadMetadata": "Échec du chargement des filtres Azure Boards",
       "loadQueries": "Échec du chargement des requêtes enregistrées",
       "query": "Échec de l'exécution de la requête",
-      "import": "Échec de l'importation des éléments de travail"
+      "import": "Échec de l'importation des éléments de travail",
+      "retry": "Échec de la nouvelle tentative d'importation des éléments de travail"
     },
     "keyboardHint": "Flèches pour naviguer, Espace pour sélectionner, Ctrl+A pour tout sélectionner, Entrée pour importer.",
     "settings": {

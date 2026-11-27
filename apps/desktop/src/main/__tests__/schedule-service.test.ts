@@ -42,9 +42,12 @@ function setup(opts: { schedules?: RecurringSchedule[]; maxParallel?: number; no
   const deps: ScheduleServiceDeps = {
     now: () => now,
     listSchedules: () => schedules.map((s) => ({ ...s })),
-    saveSchedule: vi.fn((s: RecurringSchedule) => {
-      const i = schedules.findIndex((x) => x.id === s.id);
-      schedules[i] = s;
+    updateSchedule: vi.fn<ScheduleServiceDeps['updateSchedule']>(async (id, mutate) => {
+      const index = schedules.findIndex((schedule) => schedule.id === id);
+      if (index < 0) return false;
+      const current = schedules[index];
+      schedules[index] = { ...current, ...mutate(structuredClone(current)) };
+      return true;
     }),
     getProject: (id) => (id === 'p1' && !opts.noProject ? project : undefined),
     listTasks: () => tasks,
@@ -79,6 +82,203 @@ function setup(opts: { schedules?: RecurringSchedule[]; maxParallel?: number; no
     },
   };
 }
+
+function deferred() {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function deferTaskCreation(deps: ScheduleServiceDeps) {
+  const entered = deferred();
+  const release = deferred();
+  const createTask = deps.createTask;
+  deps.createTask = vi.fn<ScheduleServiceDeps['createTask']>(async (...args) => {
+    entered.resolve();
+    await release.promise;
+    return createTask(...args);
+  });
+  return { entered: entered.promise, release: release.resolve, fail: release.reject };
+}
+
+describe('in-flight schedule writeback', () => {
+  it('merges a timed success after pause without losing an acknowledgement or a new report', async () => {
+    const originalReport = { id: 'report1', kind: 'missed', at: T0 - DAY, acknowledged: false } as const;
+    const newReport = { id: 'report2', kind: 'budget_exceeded', at: T0, acknowledged: false } as const;
+    const { deps, schedules, service, setNow } = setup({ schedules: [makeSchedule({ history: [originalReport] })] });
+    const creation = deferTaskCreation(deps);
+    const tick = service.tick();
+    await creation.entered;
+    const paused = {
+      ...schedules[0],
+      name: 'Edited',
+      template: { ...schedules[0].template, title: 'New template' },
+      enabled: false,
+      nextRunAt: null,
+      updatedAt: T0 + 1,
+      history: [{ ...originalReport, acknowledged: true }, newReport],
+    };
+    schedules[0] = paused;
+    setNow(T0 + 1);
+    creation.release();
+    await tick;
+
+    expect(schedules[0]).toEqual({
+      ...paused,
+      lastRunAt: T0,
+      lastTaskId: 't1',
+      history: [...paused.history, expect.objectContaining({ kind: 'started', taskId: 't1', at: T0 })],
+    });
+    expect(deps.notifyChanged).toHaveBeenCalledExactlyOnceWith('p1');
+  });
+
+  const timedEdits: [string, Partial<RecurringSchedule>][] = [
+    ['cadence', { cadence: { kind: 'daily', time: '10:00' } }],
+    ['due time', { nextRunAt: T0 + HOUR }],
+  ];
+  it.each(timedEdits)('keeps a changed %s when timed creation fails', async (_field, edit) => {
+    const { deps, schedules, service } = setup({
+      schedules: [makeSchedule({ lastRunAt: T0 - DAY, lastTaskId: 'previous' })],
+    });
+    const creation = deferTaskCreation(deps);
+    const tick = service.tick();
+    await creation.entered;
+    const edited = { ...schedules[0], ...edit };
+    schedules[0] = edited;
+    creation.fail(new Error('disk full'));
+    await tick;
+
+    expect(schedules[0]).toEqual({
+      ...edited,
+      history: [expect.objectContaining({ kind: 'failed', detail: 'disk full' })],
+    });
+  });
+
+  it('advances a weekly cadence with the same time and days in a different order', async () => {
+    const { deps, schedules, service } = setup({
+      schedules: [makeSchedule({ cadence: { kind: 'weekly', days: [3, 4], time: '09:00' } })],
+    });
+    const creation = deferTaskCreation(deps);
+    const tick = service.tick();
+    await creation.entered;
+    const cadence: RecurringSchedule['cadence'] = { time: '09:00', days: [4, 3], kind: 'weekly' };
+    schedules[0] = { ...schedules[0], cadence };
+    creation.release();
+    await tick;
+
+    expect(schedules[0].cadence).toEqual(cadence);
+    expect(schedules[0].nextRunAt).toBe(T0 + DAY);
+  });
+
+  it.each([T0 + 2 * DAY, null])('preserves a manual run’s new nextRunAt (%s)', async (nextRunAt) => {
+    const { deps, schedules, service } = setup({ schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
+    const creation = deferTaskCreation(deps);
+    const run = service.runNow('s1');
+    await creation.entered;
+    const edited = { ...schedules[0], nextRunAt, enabled: nextRunAt !== null };
+    schedules[0] = edited;
+    creation.release();
+
+    await expect(run).resolves.toEqual({ started: true, taskId: 't1' });
+    expect(schedules[0]).toEqual({
+      ...edited,
+      lastRunAt: T0,
+      lastTaskId: 't1',
+      history: [expect.objectContaining({ kind: 'started', detail: 'manual', taskId: 't1' })],
+    });
+  });
+
+  it.each(['timed', 'manual'])('does not restore a schedule deleted during a %s run', async (kind) => {
+    const { deps, schedules, service, tasks } = setup();
+    const creation = deferTaskCreation(deps);
+    const run = kind === 'timed' ? service.tick() : service.runNow('s1');
+    await creation.entered;
+    schedules.pop();
+    creation.release();
+
+    expect(await run).toEqual(kind === 'timed' ? undefined : { started: true, taskId: 't1' });
+    expect(schedules).toEqual([]);
+    expect(tasks.map((task) => task.id)).toEqual(['t1']);
+    expect(deps.notifyChanged).not.toHaveBeenCalled();
+  });
+
+  it.each(['timed', 'manual'])('keeps a cadence edit and its rescheduled cursor after a %s success', async (kind) => {
+    const manual = kind === 'manual';
+    const { deps, schedules, service } = setup({
+      schedules: [makeSchedule({ nextRunAt: manual ? T0 + DAY : T0 })],
+    });
+    const creation = deferTaskCreation(deps);
+    const run = manual ? service.runNow('s1') : service.tick();
+    await creation.entered;
+    const edited: RecurringSchedule = {
+      ...schedules[0],
+      cadence: { kind: 'interval', everyMinutes: 30 },
+      nextRunAt: T0 + HOUR / 2,
+      name: 'Updated schedule',
+      template: { ...schedules[0].template, title: 'Updated task title' },
+      updatedAt: T0,
+    };
+    schedules[0] = edited;
+    creation.release();
+    await run;
+
+    expect(schedules[0]).toEqual({
+      ...edited,
+      lastRunAt: T0,
+      lastTaskId: 't1',
+      history: [expect.objectContaining({ kind: 'started', taskId: 't1' })],
+    });
+  });
+
+  it('keeps an acknowledgement made during a manual run', async () => {
+    const prior = { id: 'previous', at: T0 - DAY, kind: 'failed', acknowledged: false } as const;
+    const { deps, schedules, service } = setup({
+      schedules: [makeSchedule({ nextRunAt: T0 + DAY, history: [prior] })],
+    });
+    const creation = deferTaskCreation(deps);
+    const run = service.runNow('s1');
+    await creation.entered;
+    schedules[0] = { ...schedules[0], history: [{ ...prior, acknowledged: true }] };
+    creation.release();
+    await run;
+
+    expect(schedules[0].history).toEqual([
+      { ...prior, acknowledged: true },
+      expect.objectContaining({ kind: 'started', taskId: 't1', detail: 'manual', acknowledged: false }),
+    ]);
+  });
+
+  it.each(['paused', 'deleted'])('re-reads a later schedule %s while an earlier one is being created', async (edit) => {
+    const { deps, schedules, service, tasks } = setup({ schedules: [makeSchedule(), makeSchedule({ id: 's2' })] });
+    const creation = deferTaskCreation(deps);
+    const tick = service.tick();
+    await creation.entered;
+    const paused = { ...schedules[1], enabled: false, nextRunAt: null };
+    if (edit === 'paused') schedules[1] = paused;
+    else schedules.pop();
+    creation.release();
+    await tick;
+
+    expect(deps.createTask).toHaveBeenCalledExactlyOnceWith('p1', schedules[0].template, 's1', T0);
+    expect(tasks.map((task) => task.id)).toEqual(['t1']);
+    expect(schedules.slice(1)).toEqual(edit === 'paused' ? [paused] : []);
+  });
+
+  it('does not retry a failed manual writeback as a task creation failure', async () => {
+    const { deps, schedules, service, tasks } = setup({ schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
+    vi.mocked(deps.updateSchedule).mockRejectedValueOnce(new Error('write failed'));
+    await expect(service.runNow('s1')).rejects.toThrow('write failed');
+    expect(tasks.map((task) => task.id)).toEqual(['t1']);
+    expect(deps.updateSchedule).toHaveBeenCalledTimes(1);
+    expect(schedules[0].history).toEqual([]);
+    expect(deps.notifyChanged).not.toHaveBeenCalled();
+    await expect(service.runNow('s1')).resolves.toEqual({ started: true, taskId: 't2' });
+  });
+});
 
 describe('schedule service', () => {
   it('a due schedule adds exactly one queued task', async () => {
@@ -140,7 +340,7 @@ describe('schedule service', () => {
     const { deps, service } = setup({ noProject: true });
     await service.tick();
     expect(deps.createTask).not.toHaveBeenCalled();
-    expect(deps.saveSchedule).not.toHaveBeenCalled();
+    expect(deps.updateSchedule).not.toHaveBeenCalled();
   });
 
   it('records a createTask error, advances, and does not throw', async () => {
@@ -197,7 +397,7 @@ describe('schedule service', () => {
       await service.tick();
       await service.tick();
       expect(deps.createTask).not.toHaveBeenCalled();
-      expect(deps.saveSchedule).toHaveBeenCalledTimes(1);
+      expect(deps.updateSchedule).toHaveBeenCalledTimes(1);
       expect(schedules[0]).toMatchObject({
         nextRunAt: T0 + 4 * DAY,
         history: [{ kind: 'skipped_missed', missedCount: 4, missedFrom: T0, missedTo: T0 + 3 * DAY }],
@@ -248,7 +448,8 @@ describe('schedule service', () => {
       expect(deps.createTask).toHaveBeenCalledTimes(1);
       expect(deps.createTask).toHaveBeenCalledWith('p1', schedule.template, 's1', now);
       // Run now saves before calling tick(), which handles the overdue occurrence separately.
-      expect(deps.saveSchedule).toHaveBeenNthCalledWith(1, expect.objectContaining({ nextRunAt: T0 }));
+      const runNowPatch = vi.mocked(deps.updateSchedule).mock.calls[0][1](schedule);
+      expect(runNowPatch).not.toHaveProperty('nextRunAt');
       expect(schedules[0].history.map(({ kind, detail }) => [kind, detail])).toEqual([
         ['started', 'manual'],
         ['skipped_unfinished', '4 due'],
@@ -312,7 +513,7 @@ describe('schedule service', () => {
     it('returns not_found for an unknown schedule without saving', async () => {
       const { deps, service } = setup();
       expect(await service.runNow('nope')).toEqual({ started: false, reason: 'not_found' });
-      expect(deps.saveSchedule).not.toHaveBeenCalled();
+      expect(deps.updateSchedule).not.toHaveBeenCalled();
       expect(deps.createTask).not.toHaveBeenCalled();
     });
 
@@ -359,6 +560,70 @@ describe('schedule service', () => {
       const kinds = ctx.schedules[0].history.map((h) => h.kind);
       expect(kinds.filter((k) => k === 'budget_exceeded')).toHaveLength(1);
       expect(ctx.schedules[0].history.at(-1)?.detail).toBe('1000/1000');
+    });
+
+    it('does not stop a task that finishes while another budget report is being written', async () => {
+      const { deps, schedules, service, tasks } = setup({
+        schedules: ['s1', 's2'].map((id) => makeSchedule({ id, enabled: false, nextRunAt: null })),
+      });
+      for (const [id, scheduleId] of [['a', 's1'], ['b', 's2']]) {
+        tasks.push({
+          id,
+          specId: id,
+          projectId: 'p1',
+          title: id,
+          description: '',
+          status: 'in_progress',
+          metadata: { sourceType: 'schedule', scheduleId, tokenBudget: 100 },
+          subtasks: [],
+          logs: [],
+          createdAt: new Date(T0),
+          updatedAt: new Date(T0),
+        });
+      }
+      deps.listTasks = () => [...tasks];
+      let taskBTokens = 99;
+      vi.mocked(deps.readTaskTokens).mockImplementation((_projectId, specId) => (specId === 'a' ? 140 : taskBTokens));
+      const entered = deferred();
+      const release = deferred();
+      const updateSchedule = deps.updateSchedule;
+      deps.updateSchedule = vi.fn<ScheduleServiceDeps['updateSchedule']>(async (id, mutate) => {
+        if (id === 's1') {
+          entered.resolve();
+          await release.promise;
+        }
+        return updateSchedule(id, mutate);
+      });
+
+      const tick = service.tick();
+      await entered.promise;
+      tasks[1] = { ...tasks[1], status: 'done' };
+      taskBTokens = 140;
+      release.resolve();
+      await tick;
+
+      expect(deps.stopTask).toHaveBeenCalledExactlyOnceWith('a');
+      expect(deps.updateSchedule).toHaveBeenCalledExactlyOnceWith('s1', expect.any(Function));
+      expect(schedules[0].history.map(({ kind, taskId, detail }) => [kind, taskId, detail])).toEqual([
+        ['budget_exceeded', 'a', '140/100'],
+      ]);
+      expect(schedules[1].history).toEqual([]);
+    });
+
+    it('still stops and notifies if the schedule is deleted before the budget append', async () => {
+      const { deps, schedules, service, tokens } = await runOne();
+      vi.mocked(deps.notifyChanged).mockClear();
+      vi.mocked(deps.stopTask).mockImplementationOnce(() => {
+        schedules.pop();
+      });
+      tokens.value = 1000;
+
+      await service.tick();
+
+      expect(deps.stopTask).toHaveBeenCalledExactlyOnceWith('t1');
+      expect(deps.updateSchedule).toHaveBeenLastCalledWith('s1', expect.any(Function));
+      expect(schedules).toEqual([]);
+      expect(deps.notifyChanged).toHaveBeenCalledExactlyOnceWith('p1');
     });
 
     it('falls back to the template budget when the task has none', async () => {

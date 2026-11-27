@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, assert, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, readFileSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -43,10 +43,10 @@ describe('Azure Boards end-to-end consistency', () => {
       url: 'https://dev.azure.com/acme/Proj/_workitems/edit/77',
     };
     const config = { organization: 'acme', project: 'Proj', pat: 'x' } as never;
-    const r = await createSpecFromWorkItem({ path: projectDir, autoBuildPath: '.auto-claude' }, config, workItem);
-    const specDir = path.join(projectDir, '.auto-claude', 'specs', r.specId);
+    const r = await createSpecFromWorkItem({ path: projectDir, autoBuildPath: '.auto-claude' }, config, workItem.id, workItem);
+    assert(r.kind === 'created');
 
-    expect(readIssueRefs(specDir)).toEqual([{ kind: 'azure_boards', ref: '77' }]);
+    expect(readIssueRefs(r.specDir)).toEqual([{ kind: 'azure_boards', ref: '77' }]);
     expect(readSourceIssueLines(projectDir, projectDir, r.specId)).toEqual(['AB#77']);
     expect(readSourceIssueLines(projectDir, projectDir, r.specId, 'azuredevops')).toEqual(['AB#77']);
   });
