@@ -309,6 +309,12 @@
     "title": "Edit Task",
     "description": "Update task details including title, description, classification, images, and settings. Changes will be saved to the spec files.",
     "saveChanges": "Save Changes",
+    "discardDialog": {
+      "title": "Discard unsaved changes?",
+      "description": "Your unsaved changes will be lost if you discard them.",
+      "keepEditing": "Keep editing",
+      "discardEdits": "Discard edits"
+    },
     "errors": {
       "updateFailed": "Failed to update task. Please try again."
     }
