@@ -2,7 +2,8 @@
 import { execFile, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync,
+  closeSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { get as httpGet, request as httpRequest } from 'node:http';
 import { get as httpsGet, request as httpsRequest } from 'node:https';
@@ -102,15 +103,25 @@ const SPEC_ID = `001-safety-${ENV.ANTHROPIC_API_KEY}`;
 
 function snapshot(root: string) {
   function walk(dir: string): unknown[] {
-    return readdirSync(dir).sort().flatMap((name) => {
-      const file = path.join(dir, name);
+    const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    return entries.flatMap((dirent) => {
+      const file = path.join(dir, dirent.name);
+      const relative = path.relative(root, file);
+      if (dirent.isFile()) {
+        // Stat and hash through one descriptor, so both describe the same file.
+        const fd = openSync(file, 'r');
+        try {
+          const stat = fstatSync(fd);
+          const sha1 = createHash('sha1').update(readFileSync(fd)).digest('hex');
+          return [{ path: relative, type: 'file', size: stat.size, mtimeMs: stat.mtimeMs, sha1 }];
+        } finally {
+          closeSync(fd);
+        }
+      }
       const stat = lstatSync(file);
-      const type = stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : 'other';
-      const entry = {
-        path: path.relative(root, file), type, size: stat.size, mtimeMs: stat.mtimeMs,
-        sha1: stat.isFile() ? createHash('sha1').update(readFileSync(file)).digest('hex') : null,
-      };
-      return stat.isDirectory() ? [entry, ...walk(file)] : [entry];
+      const type = dirent.isDirectory() ? 'directory' : 'other';
+      const entry = { path: relative, type, size: stat.size, mtimeMs: stat.mtimeMs, sha1: null };
+      return dirent.isDirectory() ? [entry, ...walk(file)] : [entry];
     });
   }
   return walk(root);
