@@ -17,8 +17,8 @@ This table covers AI review, issue import and outcome write-back. For separate w
 | Bitbucket Cloud | Desktop | Unsupported | Unsupported | Unsupported | None | [Project setup](project-configuration.md#bitbucket) · [AI review](project-configuration.md#ai-review) |
 | Bitbucket Server | Unsupported | Unsupported | Unsupported | Unsupported | None | [Edition limits](project-configuration.md#bitbucket) |
 | Bitbucket Data Center | Unsupported | Unsupported | Unsupported | Unsupported | None | [Edition limits](project-configuration.md#bitbucket) |
-| Azure DevOps Services | Desktop | Unsupported | Unsupported | Unsupported | None | [Project setup](project-configuration.md#azure-devops) |
-| Azure Boards (Services) | Unsupported | Desktop | Comment | Comment | State — Desktop, Headless run/serve | [Project setup](project-configuration.md#azure-devops) · [Write-back](issue-writeback.md#turn-it-on) |
+| Azure DevOps Services | Desktop | Unsupported | Unsupported | Unsupported | None | [Project setup](project-configuration.md#azure-devops) · [AI review](project-configuration.md#azure-devops-ai-review) |
+| Azure Boards (Services) | Unsupported | Desktop | Comment | Comment | State — Desktop, Headless run/serve | [Project setup](project-configuration.md#azure-devops) · [Import](project-configuration.md#import-work-items-from-azure-boards) · [Write-back](issue-writeback.md#turn-it-on) |
 | Azure DevOps Server | Unsupported | Unsupported | Unsupported | Unsupported | None | [Edition limits](project-configuration.md#azure-devops) |
 
 **Legend:** Desktop means the desktop app only. Unsupported means the feature is not available on the listed edition or surface.
@@ -43,6 +43,7 @@ Status/state moves are optional and only available on the surfaces listed.
 | **[recurring-tasks.md](recurring-tasks.md)** | Recurring task schedules: cadences, when they run, and what missed and skipped runs mean |
 | **[token-budgets.md](token-budgets.md)** | Project default and per-task token budgets, what counts, what happens at the limit, schedules, and how the CLI differs |
 | **[pr-follow-ups.md](pr-follow-ups.md)** | Sending a task's failing CI checks and unresolved review comments back to the agent: when the panel shows, what is listed, how QA checks the fix and Aperant pushes it, and why the panel can be disabled |
+| **[delivery-metrics.md](delivery-metrics.md)** | How to read the Delivery cards, including which tasks the period selects, how missing or unreadable metrics and errored tasks count, and how to check a task's contribution in its Usage tab |
 | **[usage-and-account-switching.md](usage-and-account-switching.md)** | The usage monitor, what each provider reports, the automatic account switching settings and their defaults, proactive versus reactive switching, the pending-auth indicator and troubleshooting |
 | **[creating-pull-requests.md](creating-pull-requests.md)** | How **Create PR** picks the forge, builds the title and body, and handles existing pull requests |
 

@@ -201,6 +201,8 @@ Otherwise, scan `implementation_plan.json` in order:
 
 Start services only if this work needs them, and only the way the project instructions above say. Most checks here (tests, static analysis, lint) need no running dev server.
 
+**Stop only what you started.** To stop a process, kill the PIDs you recorded when you started it. Never kill by process group, name pattern (`pkill`, `killall`) or PID range: those can match the desktop session or the app running you. Stop every dev server or app instance you started before you finish.
+
 ---
 
 ## STEP 5: READ SUBTASK CONTEXT

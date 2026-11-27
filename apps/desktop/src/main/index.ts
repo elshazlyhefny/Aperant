@@ -57,7 +57,8 @@ import { initializeUsageMonitorForwarding } from './ipc-handlers/terminal-handle
 import { initializeAppUpdater, stopPeriodicUpdates } from './app-updater';
 import { DEFAULT_APP_SETTINGS, IPC_CHANNELS, SPELL_CHECK_LANGUAGE_MAP, DEFAULT_SPELL_CHECK_LANGUAGE, ADD_TO_DICTIONARY_LABELS } from '../shared/constants';
 import { getAppLanguage, initAppLanguage } from './app-language';
-import { readSettingsFile, updateSettingsFile, secureSettingsFilePermissions } from './settings-utils';
+import { migrateSettingsSecrets, readSettingsFile, updateSettingsFile, secureSettingsFilePermissions } from './settings-utils';
+import { migrateProfilesSecrets } from './services/profile/api-profile-store';
 import { projectStore } from './project-store';
 import { taskQueueManager } from './task-queue-manager';
 import { ensureQueueLock, releaseAllQueueLocks } from './desktop-queue-lock';
@@ -456,6 +457,14 @@ app.whenReady().then(() => {
   } catch {
     // Best effort; a missing file or unsupported platform is fine
   }
+  // zeenha fork: migrate stored keys in the background once Linux safeStorage is ready.
+  void migrateSettingsSecrets()
+    .then((outcome) => appLog.info('[main] Settings credential migration:', outcome))
+    .catch(() => appLog.warn('[main] Settings credential migration failed'));
+  void migrateProfilesSecrets()
+    .then(() => appLog.info('[main] API profile credential migration check finished'))
+    .catch(() => appLog.warn('[main] API profile credential migration failed'));
+
   const settingsPath = join(app.getPath('userData'), 'settings.json');
   try {
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
@@ -539,7 +548,8 @@ app.whenReady().then(() => {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
       // No settings file, use defaults - this is expected on first run
     } else {
-      console.warn('[main] Failed to load settings for agent configuration:', error);
+      // JSON parse errors can quote the contents of settings.json.
+      console.warn('[main] Failed to load settings for agent configuration');
     }
   }
 

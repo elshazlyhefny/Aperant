@@ -1,4 +1,5 @@
 // zeenha fork: board banner shown while the serve daemon holds the queue lock
+// User docs: guides/CLI-USAGE.md, "Using the desktop app while serve runs". Update it when this behaviour changes.
 import { ServerCog } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { Task } from '../../shared/types';

@@ -1,6 +1,9 @@
 /**
  * Token Encryption Module
  * Handles OAuth token encryption/decryption using OS keychain
+ *
+ * zeenha fork: This OAuth helper falls back to plaintext. Do not use it for
+ * provider API keys; use ../secure-storage/secret-storage.ts instead.
  */
 
 import { safeStorage } from 'electron';

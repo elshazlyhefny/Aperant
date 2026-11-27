@@ -3,11 +3,11 @@
  *
  * Security: payloads are built from an allow-list of fields only; the URL,
  * request body and response body are never logged; nothing here throws.
- * Only type imports and the dependency-free sanitizer are allowed here so the
- * module can be loaded outside Electron.
+ * Keep this module free of Electron and desktop settings/logging dependencies.
  */
 
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { DeliveryResult } from '../shared/types/delivery-receipt';
 import { sanitizeUrl } from './ipc-handlers/shared/sanitize';
 import {
   detectWebhookFormat,
@@ -330,25 +330,49 @@ export function signWebhookBody(secret: string, timestamp: string, body: string)
   return `sha256=${createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')}`;
 }
 
+/** zeenha fork: check HMAC authenticity; callers must check timestamp freshness separately. */
+export function verifyWebhookSignature(secret: string, timestamp: string, body: string, signature: string): boolean {
+  if (!secret) return false;
+  try {
+    const expected = Buffer.from(signWebhookBody(secret, timestamp, body));
+    const received = Buffer.from(signature);
+    return expected.length === received.length && timingSafeEqual(expected, received);
+  } catch {
+    return false;
+  }
+}
+
 function defaultDelay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface WebhookSendOptions {
+  delay?: (ms: number) => Promise<void>;
+  eventName?: string;
+  warn?: (message: string) => void;
+  secret?: string;
+  now?: () => number;
+}
+
+type WebhookSendResult = Exclude<DeliveryResult, { status: 'skipped' }>;
+
 export async function sendWebhook(
   url: string,
   payload: WebhookPayload,
-  options: {
-    delay?: (ms: number) => Promise<void>;
-    eventName?: string;
-    warn?: (message: string) => void;
-    secret?: string;
-    now?: () => number;
-  } = {}
+  options: WebhookSendOptions = {}
 ): Promise<boolean> {
+  return (await sendWebhookDetailed(url, payload, options)).status === 'delivered';
+}
+
+/** zeenha fork: classify the existing retry loop without exposing response bodies or errors. */
+export async function sendWebhookDetailed(
+  url: string,
+  payload: WebhookPayload,
+  options: WebhookSendOptions = {}
+): Promise<WebhookSendResult> {
   const delay = options.delay ?? defaultDelay;
   const now = options.now ?? Date.now;
   const secret = typeof options.secret === 'string' && options.secret.length > 0 ? options.secret : '';
-  const body = JSON.stringify(payload);
   const eventName = options.eventName ?? 'unknown';
   const warn = (message: string): void => {
     try {
@@ -357,8 +381,13 @@ export async function sendWebhook(
       // never throw from logging
     }
   };
+  let ambiguous: Extract<WebhookSendResult, { status: 'unknown' }> | undefined;
+  let lastRejection: Extract<WebhookSendResult, { status: 'failed' }> | undefined;
+  let attempts = 0;
   try {
+    const body = JSON.stringify(payload);
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      attempts = attempt;
       let detail: string;
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -375,10 +404,27 @@ export async function sendWebhook(
           signal: AbortSignal.timeout(TIMEOUT_MS),
           redirect: 'error'
         });
-        if (res.status >= 200 && res.status < 300) return true;
-        detail = `HTTP ${res.status}`;
+        const status = res.status;
+        detail = `HTTP ${status}`;
+        const httpStatus = Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined;
+        if (httpStatus !== undefined && httpStatus >= 200 && httpStatus < 300) {
+          return { status: 'delivered', attempts, httpStatus };
+        }
+        if (httpStatus === 408) {
+          ambiguous ??= { status: 'unknown', reason: 'timeout', httpStatus };
+        } else if (httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500) {
+          lastRejection = { status: 'failed', reason: httpStatus === 429 ? 'rate_limited' : 'rejected', httpStatus };
+        } else {
+          // A server/proxy error or unexpected response need not mean the receiver rejected the POST.
+          ambiguous ??= {
+            status: 'unknown',
+            reason: 'ambiguous_response',
+            ...(httpStatus !== undefined && { httpStatus })
+          };
+        }
       } catch (err) {
         detail = err instanceof Error ? err.name : 'UnknownError';
+        ambiguous ??= { status: 'unknown', reason: detail === 'TimeoutError' ? 'timeout' : 'transport_error' };
       }
       warn(`[Webhook] delivery failed event=${eventName} attempt=${attempt}/${MAX_ATTEMPTS} reason=${detail}`);
       if (attempt < MAX_ATTEMPTS) {
@@ -390,7 +436,9 @@ export async function sendWebhook(
       }
     }
   } catch {
-    // never throw
+    ambiguous ??= { status: 'unknown', reason: 'unconfirmed' };
   }
-  return false;
+  // A refusal on a later attempt does not disprove an earlier ambiguous send.
+  const result: WebhookSendResult = ambiguous ?? lastRejection ?? { status: 'unknown', reason: 'unconfirmed' };
+  return attempts > 0 ? { ...result, attempts } : result;
 }

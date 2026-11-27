@@ -86,8 +86,8 @@ This table covers AI review, issue import and outcome write-back. For separate w
 | Bitbucket Cloud | Desktop | Unsupported | Unsupported | Unsupported | None | [Project setup](guides/project-configuration.md#bitbucket) · [AI review](guides/project-configuration.md#ai-review) |
 | Bitbucket Server | Unsupported | Unsupported | Unsupported | Unsupported | None | [Edition limits](guides/project-configuration.md#bitbucket) |
 | Bitbucket Data Center | Unsupported | Unsupported | Unsupported | Unsupported | None | [Edition limits](guides/project-configuration.md#bitbucket) |
-| Azure DevOps Services | Desktop | Unsupported | Unsupported | Unsupported | None | [Project setup](guides/project-configuration.md#azure-devops) |
-| Azure Boards (Services) | Unsupported | Desktop | Comment | Comment | State — Desktop, Headless run/serve | [Project setup](guides/project-configuration.md#azure-devops) · [Write-back](guides/issue-writeback.md#turn-it-on) |
+| Azure DevOps Services | Desktop | Unsupported | Unsupported | Unsupported | None | [Project setup](guides/project-configuration.md#azure-devops) · [AI review](guides/project-configuration.md#azure-devops-ai-review) |
+| Azure Boards (Services) | Unsupported | Desktop | Comment | Comment | State — Desktop, Headless run/serve | [Project setup](guides/project-configuration.md#azure-devops) · [Import](guides/project-configuration.md#import-work-items-from-azure-boards) · [Write-back](guides/issue-writeback.md#turn-it-on) |
 | Azure DevOps Server | Unsupported | Unsupported | Unsupported | Unsupported | None | [Edition limits](guides/project-configuration.md#azure-devops) |
 
 **Legend:** Desktop means the desktop app only. Unsupported means the feature is not available on the listed edition or surface.

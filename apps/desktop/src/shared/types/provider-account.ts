@@ -26,6 +26,8 @@ export interface ProviderAccount {
   authType: 'oauth' | 'api-key';
   billingModel: BillingModel;
   apiKey?: string;
+  /** Keep the API key in main-process memory only, until the app exits. */
+  apiKeySessionOnly?: boolean;
   /** Authenticated email (populated from OAuth keychain or provider API) */
   email?: string;
   baseUrl?: string;
@@ -42,6 +44,10 @@ export interface ProviderAccount {
   /** Ms timestamp of the last keyStatus change */
   keyStatusAt?: number;
 }
+
+// zeenha fork: keep saved credentials in the main process.
+/** The only provider account shape sent to the renderer (CWE-201). */
+export type ProviderAccountView = Omit<ProviderAccount, 'apiKey'> & { hasApiKey: boolean };
 
 export type ProviderCategory = 'popular' | 'infrastructure' | 'local';
 

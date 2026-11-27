@@ -4,7 +4,8 @@
 # platform-specific bugs before they merge. Linux gates CI Complete; macOS and
 # Windows are advisory (see test-frontend-macos and test-frontend-windows).
 #
-# Path filters include published docs so capability changes run the Linux fixtures.
+# Path filters skip unrelated changes, but CLI guide and published docs changes
+# still run CI, so capability changes run the Linux fixtures.
 
 name: CI
 
@@ -13,6 +14,7 @@ on:
     branches: [main, develop, zeenha]
     paths:
       - 'apps/**'
+      - 'guides/CLI-USAGE.md'
       - 'package*.json'
       - 'tsconfig*.json'
       - 'biome.jsonc'
@@ -26,6 +28,7 @@ on:
     branches: [main, develop, zeenha]
     paths:
       - 'apps/**'
+      - 'guides/CLI-USAGE.md'
       - 'package*.json'
       - 'tsconfig*.json'
       - 'biome.jsonc'
@@ -244,12 +247,128 @@ jobs:
         run: npm run audit:gate
 
   # --------------------------------------------------------------------------
+  # Headless CLI - Clean source build
+  # --------------------------------------------------------------------------
+  # zeenha fork: keep the install and build steps copyable from guides/CLI-USAGE.md.
+  # No cache or composite setup: the guide must work on a clean runner.
+  cli-build:
+    name: cli-build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up source Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Check source toolchain versions
+        run: |
+          node_version=$(node --version)
+          npm_version=$(npm --version)
+          printf 'Node.js %s\nnpm %s\n' "$node_version" "$npm_version"
+          node_version=${node_version#v}
+          if (( ${node_version%%.*} < 24 || ${npm_version%%.*} < 10 )); then
+            echo '::error::Building the CLI requires Node.js 24+ and npm 10+.'
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build application
+        working-directory: apps/desktop
+        run: npm run build
+
+      - name: Check and hash build output
+        working-directory: apps/desktop/out
+        shell: bash
+        run: |
+          test -f main/cli.js
+          test -f main/ai/agent/worker.js
+          find . -type f ! -path './SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+
+      - name: Upload CLI build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-out
+          path: apps/desktop/out/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 3
+
+  # --------------------------------------------------------------------------
+  # Headless CLI - Runtime smoke
+  # --------------------------------------------------------------------------
+  # zeenha fork: test the same build under each Node runtime. Dependencies are
+  # installed on the source toolchain before selecting the runtime Node version.
+  cli-runtime:
+    name: cli-runtime (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    needs: cli-build
+    # Node 22 is informational until the smoke passes; the guide must not advertise it yet.
+    continue-on-error: ${{ matrix.node == '22' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24', '22']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up source Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Download CLI build output
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-out
+          path: apps/desktop/out/
+
+      - name: Verify CLI build checksums
+        working-directory: apps/desktop/out
+        run: sha256sum -c SHA256SUMS
+
+      - name: Select runtime Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Check runtime Node.js version
+        env:
+          EXPECTED_NODE_MAJOR: ${{ matrix.node }}
+        run: |
+          node_version=$(node --version)
+          echo "Node.js $node_version"
+          if [[ "${node_version%%.*}" != "v$EXPECTED_NODE_MAJOR" ]]; then
+            echo "::error::Expected Node.js $EXPECTED_NODE_MAJOR, got $node_version."
+            exit 1
+          fi
+
+      - name: Smoke-test built CLI
+        working-directory: apps/desktop
+        run: node scripts/cli-runtime-smoke.mjs out/main/cli.js
+
+  # --------------------------------------------------------------------------
   # Gate Job - Single check for branch protection
   # --------------------------------------------------------------------------
   ci-complete:
     name: CI Complete
     runs-on: ubuntu-latest
-    needs: [test-frontend, dependency-audit, docs-check]
+    needs: [test-frontend, dependency-audit, cli-build, cli-runtime, docs-check]
     if: always()
     steps:
       - name: Check all CI jobs passed
@@ -257,11 +376,15 @@ jobs:
           echo "CI Job Results:"
           echo "  test-frontend: ${{ needs.test-frontend.result }}"
           echo "  dependency-audit: ${{ needs.dependency-audit.result }}"
+          echo "  cli-build: ${{ needs.cli-build.result }}"
+          echo "  cli-runtime: ${{ needs.cli-runtime.result }}"
           echo "  docs-check: ${{ needs.docs-check.result }}"
           echo ""
 
           if [[ "${{ needs.test-frontend.result }}" != "success" ||
                 "${{ needs.dependency-audit.result }}" != "success" ||
+                "${{ needs.cli-build.result }}" != "success" ||
+                "${{ needs.cli-runtime.result }}" != "success" ||
                 "${{ needs.docs-check.result }}" != "success" ]]; then
             echo "❌ One or more CI jobs failed"
             exit 1

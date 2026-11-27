@@ -47,6 +47,7 @@ import { TaskSubtasks } from './TaskSubtasks';
 import { TaskLogs } from './TaskLogs';
 import { TaskFiles } from './TaskFiles';
 import { TaskUsage } from './TaskUsage';
+import { TaskDeliveryReceipts } from './TaskDeliveryReceipts';
 import { TokenBudgetBanner } from './TokenBudgetBanner';
 import { TaskReview } from './TaskReview';
 import { FailedTaskPanel } from './FailedTaskPanel';
@@ -619,6 +620,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                             isSubmitting={state.isSubmitting}
                             worktreeStatus={state.worktreeStatus}
                             worktreeDiff={state.worktreeDiff}
+                            worktreeStatusCheck={state.worktreeStatusCheck}
+                            worktreeDiffCheck={state.worktreeDiffCheck}
                             isLoadingWorktree={state.isLoadingWorktree}
                             isMerging={state.isMerging}
                             isDiscarding={state.isDiscarding}
@@ -643,6 +646,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                             onStageOnlyChange={state.setStageOnly}
                             onShowConflictDialog={state.setShowConflictDialog}
                             onLoadMergePreview={state.loadMergePreview}
+                            onRetryWorktreeStatus={state.retryWorktreeStatus}
+                            onRetryWorktreeDiff={state.retryWorktreeDiff}
                             onClose={handleClose}
                             onSwitchToTerminals={onSwitchToTerminals}
                             onOpenInbuiltTerminal={onOpenInbuiltTerminal}
@@ -654,6 +659,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                           />
                         </>
                       )}
+                      <Separator />
+                      <TaskDeliveryReceipts task={task} open={open} />
                     </div>
                   </ScrollArea>
                 </TabsContent>
@@ -673,6 +680,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                     isStuck={isStuck}
                     logsEndRef={state.logsEndRef}
                     logsContainerRef={state.logsContainerRef}
+                    isAwayFromLatest={state.isUserScrolledUp}
+                    onJumpToLatest={state.jumpToLatestLogs}
                     onLogsScroll={state.handleLogsScroll}
                     onTogglePhase={state.togglePhase}
                   />

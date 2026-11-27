@@ -98,6 +98,14 @@ describe('getProjectWebhookConfig', () => {
     expect(getProjectWebhookConfig(project(), { urls: ['other'] })?.status).toBe('unapproved');
   });
 
+  it('never exposes a WEBHOOK_SECRET from the project .env', () => {
+    const url = 'https://hooks.example.com/x';
+    writeEnv(`WEBHOOK_URL=${url}\nWEBHOOK_SECRET=x\n`);
+    const descriptor = getProjectWebhookConfig(project(), { urls: [hashWebhookUrl(url)] });
+    expect(descriptor?.status).toBe('approved');
+    expect(descriptor).not.toHaveProperty('secret');
+  });
+
   it('refuses loopback and plain http', () => {
     writeEnv('WEBHOOK_URL=http://localhost:8080/hook\n');
     expect(getProjectWebhookConfig(project())?.status).toBe('refused');

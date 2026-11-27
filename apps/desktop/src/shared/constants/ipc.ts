@@ -38,7 +38,7 @@ export const IPC_CHANNELS = {
   TASK_RESET_PLAN: 'task:resetPlan',  // zeenha fork: discard a failed task's plan (Re-plan)
   // zeenha fork: send a PR's failing CI / review feedback back to the task's agent
   TASK_PR_FEEDBACK_GET: 'task:prFeedback:get',
-  TASK_PR_FOLLOWUP_START: 'task:prFollowUp:start',  // (taskId, itemIds) - IDs only, never text
+  TASK_PR_FOLLOWUP_START: 'task:prFollowUp:start',  // (taskId, itemIds, expectedHeadSha) - IDs and a revision only, never text
 
   // Workspace management (for human review)
   // Per-spec architecture: Each spec has its own worktree at .worktrees/{spec-name}/
@@ -72,6 +72,7 @@ export const IPC_CHANNELS = {
 
   // Task phase logs (persistent, collapsible logs by phase)
   TASK_LOGS_GET: 'task:logsGet',           // Load logs from spec dir
+  TASK_DELIVERY_RECEIPTS_GET: 'task:deliveryReceiptsGet', // zeenha fork: read project-local delivery history
   TASK_RUN_METRICS_GET: 'task:runMetricsGet', // Load per-session run metrics from spec dir
   // zeenha fork: project-wide delivery and token metrics
   PROJECT_RUN_METRICS_GET: 'project:runMetricsGet',
@@ -639,6 +640,9 @@ export const IPC_CHANNELS = {
   MCP_TEST_CONNECTION: 'mcp:testConnection',     // Full MCP protocol test
   MCP_APPROVE_SERVER: 'mcp:approveServer',       // Approve a project-declared custom server
   WEBHOOK_APPROVE_PROJECT: 'webhook:approveProject', // Approve the project-declared webhook URL
+  WEBHOOK_PROJECT_SECRET_GENERATE: 'webhook:projectSecretGenerate',
+  WEBHOOK_PROJECT_SIGNING_UNSIGNED: 'webhook:projectSigningUnsigned',
+  WEBHOOK_PROJECT_SEND_TEST: 'webhook:projectSendTest',
   MCP_APPROVE_CHROME_EXECUTABLE: 'mcp:approveChromeExecutable', // Approve CHROME_DEVTOOLS_EXECUTABLE
 
   // Sentry error reporting

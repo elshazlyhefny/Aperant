@@ -94,7 +94,10 @@
     "aiReview": "desktop",
     "issueImport": "unsupported",
     "outcomeComments": { "desktop": "unsupported", "headless": "unsupported" },
-    "setupLinks": [{ "label": "Project setup", "href": "project-configuration.md#azure-devops" }]
+    "setupLinks": [
+      { "label": "Project setup", "href": "project-configuration.md#azure-devops" },
+      { "label": "AI review", "href": "project-configuration.md#azure-devops-ai-review" }
+    ]
   },
   {
     "id": "azure-boards-services",
@@ -107,6 +110,7 @@
     "transition": { "type": "state", "event": "review_ready", "surfaces": ["desktop", "headless"] },
     "setupLinks": [
       { "label": "Project setup", "href": "project-configuration.md#azure-devops" },
+      { "label": "Import", "href": "project-configuration.md#import-work-items-from-azure-boards" },
       { "label": "Write-back", "href": "issue-writeback.md#turn-it-on" }
     ]
   },

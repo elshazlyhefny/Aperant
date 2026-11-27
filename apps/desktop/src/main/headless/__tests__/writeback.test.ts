@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import integrationCapabilities from '../../../../../../guides/integration-capabilities.json';
+import { createDeliveryReceiptRecorder } from '../../delivery-receipts';
 import type { Project } from '../../../shared/types';
 import { loadHeadlessConfig } from '../config';
 import type { RunOutcome } from '../outcome';
@@ -101,12 +102,14 @@ describe('reportOutcomeToSource', () => {
     writeFileSync(path.join(b, 'task_metadata.json'), JSON.stringify({ sourceType: 'github', n: 'b' }));
     const dispatchIssue = vi.fn<NonNullable<Parameters<typeof reportOutcomeToSource>[0]['dispatchIssue']>>()
       .mockResolvedValue(undefined);
+    const recorder = createDeliveryReceiptRecorder(dir, '001-demo');
     await reportOutcomeToSource({
-      settings: on, project, specDirs: [a, b], event: 'blocked', title: 'T', prUrl: 'u',
+      recorder, settings: on, project, specDirs: [a, b], event: 'blocked', title: 'T', prUrl: 'u',
       env: {}, dispatchIssue
     });
     expect(dispatchIssue).toHaveBeenCalledTimes(1);
     const arg = dispatchIssue.mock.calls[0][0];
+    expect(arg.recorder).toBe(recorder);
     expect(arg.meta).toEqual({ sourceType: 'github', n: 'b' });
     expect(arg.event).toBe('blocked');
     expect(arg.title).toBe('T');

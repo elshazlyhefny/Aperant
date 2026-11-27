@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '../ui/alert-dialog';
-import type { BillingModel, BuiltinProvider, ProviderAccount, ProviderCategory } from '@shared/types/provider-account';
+import type { BillingModel, BuiltinProvider, ProviderAccountView, ProviderCategory } from '@shared/types/provider-account';
 
 export function ProviderAccountsList() {
   const { t } = useTranslation('settings');
@@ -40,7 +40,7 @@ export function ProviderAccountsList() {
     provider: BuiltinProvider;
     authType: 'oauth' | 'api-key';
     billingModel?: BillingModel;
-    editAccount?: ProviderAccount;
+    editAccount?: ProviderAccountView;
   }>({
     open: false,
     provider: 'anthropic',
@@ -60,7 +60,7 @@ export function ProviderAccountsList() {
   const allAccounts = providerAccounts;
 
   // Group accounts by provider, preserving PROVIDER_REGISTRY order
-  const accountsByProvider = PROVIDER_REGISTRY.reduce<Map<BuiltinProvider, ProviderAccount[]>>(
+  const accountsByProvider = PROVIDER_REGISTRY.reduce<Map<BuiltinProvider, ProviderAccountView[]>>(
     (map, p) => {
       map.set(p.id, allAccounts.filter(a => a.provider === p.id));
       return map;
@@ -92,7 +92,7 @@ export function ProviderAccountsList() {
     setDialogState({ open: true, provider, authType, billingModel });
   };
 
-  const handleEditAccount = (account: ProviderAccount) => {
+  const handleEditAccount = (account: ProviderAccountView) => {
     setDialogState({
       open: true,
       provider: account.provider,
@@ -105,7 +105,7 @@ export function ProviderAccountsList() {
     setDeleteTarget(id);
   };
 
-  const handleReauthAccount = useCallback(async (account: ProviderAccount) => {
+  const handleReauthAccount = useCallback(async (account: ProviderAccountView) => {
     if (account.authType !== 'oauth') return;
 
     const isCodex = account.provider === 'openai';

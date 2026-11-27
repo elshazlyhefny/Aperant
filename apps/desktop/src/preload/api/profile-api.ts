@@ -29,7 +29,7 @@ export interface ProfileAPI {
   // Set active profile (null to switch to OAuth)
   setActiveAPIProfile: (profileId: string | null) => Promise<IPCResult>;
 
-  // Test API profile connection
+  // Test API profile connection; pass a blank key and provider account ID to use its saved key.
   testConnection: (
     baseUrl: string,
     apiKey: string,
@@ -41,7 +41,8 @@ export interface ProfileAPI {
   discoverModels: (
     baseUrl: string,
     apiKey: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    accountId?: string
   ) => Promise<IPCResult<DiscoverModelsResult>>;
 }
 
@@ -107,7 +108,8 @@ export const createProfileAPI = (): ProfileAPI => ({
   discoverModels: (
     baseUrl: string,
     apiKey: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    accountId?: string
   ): Promise<IPCResult<DiscoverModelsResult>> => {
     const requestId = ++discoverModelsRequestId;
 
@@ -129,8 +131,6 @@ export const createProfileAPI = (): ProfileAPI => ({
       console.warn('[preload/profile-api] signal provided but addEventListener not available - signal may have been serialized');
     }
 
-    const channel = 'profiles:discover-models';
-    const promise = ipcRenderer.invoke(channel, baseUrl, apiKey, requestId);
-    return promise;
+    return ipcRenderer.invoke(IPC_CHANNELS.PROFILES_DISCOVER_MODELS, baseUrl, apiKey, requestId, accountId);
   }
 });

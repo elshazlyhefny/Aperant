@@ -172,6 +172,16 @@ describe('resolveAuth — Stage 2: Profile API Key', () => {
     expect(auth?.source).toBe('profile-api-key');
   });
 
+  it('skips an undecryptable global API key in favor of the environment', async () => {
+    registerSettingsAccessor((key) => (key === 'globalOpenAIApiKey' ? 'aperant-secret:v1:YQ==' : undefined));
+    process.env.OPENAI_API_KEY = 'openai-env-fixture';
+
+    expect(await resolveAuth({ provider: 'openai' })).toMatchObject({
+      apiKey: 'openai-env-fixture',
+      source: 'environment',
+    });
+  });
+
   it('includes base URL from environment even for settings-based keys', async () => {
     process.env.ANTHROPIC_BASE_URL = 'https://custom.proxy.io';
     mockEnsureValidToken.mockResolvedValueOnce({ token: null, wasRefreshed: false });
@@ -311,6 +321,23 @@ describe('resolveAuth — Stage 0: Provider Account', () => {
 
     expect(auth?.apiKey).toBe('sk-provider-account-key');
     expect(auth?.source).toBe('profile-api-key');
+  });
+
+  it('ignores the envelope and base URL of an unreadable active provider account', async () => {
+    const accounts = [{
+      provider: 'openai',
+      isActive: true,
+      authType: 'api-key',
+      apiKey: 'aperant-secret:v1:YQ==',
+      baseUrl: 'https://proxy.example.com',
+    }];
+    registerSettingsAccessor((key) => (key === 'providerAccounts' ? JSON.stringify(accounts) : undefined));
+    process.env.OPENAI_API_KEY = 'openai-env-fixture';
+
+    expect(await resolveAuth({ provider: 'openai' })).toEqual({
+      apiKey: 'openai-env-fixture',
+      source: 'environment',
+    });
   });
 
   it('routes z.ai subscription to coding API endpoint', async () => {
@@ -498,6 +525,13 @@ describe('resolveAuthFromQueue', () => {
     expect(result?.accountId).toBe('acc-2');
   });
 
+  it('skips an envelope key in an explicitly supplied queue', async () => {
+    const unreadable = { ...baseAccount, id: 'acc-unreadable', apiKey: 'aperant-secret:v1:YQ==' };
+
+    expect(await resolveAuthFromQueue('sonnet', [unreadable, baseAccount]))
+      .toMatchObject({ accountId: baseAccount.id, apiKey: baseAccount.apiKey });
+  });
+
   it('skips a rejected api-key account and picks the next one', async () => {
     mockScoreProviderAccount.mockImplementation((a: { keyStatus?: string }) =>
       a.keyStatus === 'rejected' ? { available: false, score: 0 } : { available: true, score: 100 },
@@ -560,6 +594,21 @@ describe('buildDefaultQueueConfig', () => {
     expect(result).not.toBeUndefined();
     expect(result?.queue[0].id).toBe('a');
     expect(result?.queue[1].id).toBe('b');
+  });
+
+  it('treats undecryptable saved keys as absent in queue config', () => {
+    const accounts = [
+      { id: 'a', apiKey: 'aperant-secret:v1:YQ==' },
+      { id: 'b', apiKey: 'plaintext-fixture' },
+    ];
+    registerSettingsAccessor((key) => (key === 'providerAccounts' ? JSON.stringify(accounts) : undefined));
+
+    const result = buildDefaultQueueConfig('sonnet');
+
+    expect(result?.queue.map(({ id, apiKey }) => [id, apiKey])).toEqual([
+      ['a', undefined],
+      ['b', 'plaintext-fixture'],
+    ]);
   });
 
   it('returns undefined when providerAccounts is empty array', () => {

@@ -30,6 +30,8 @@ Each provider also has guards. All of them must hold, or nothing is posted:
 | Jira | `jiraIssueKey`, a valid issue key, and `jiraSiteUrl` | The site must equal the project's configured Jira site. |
 | Azure Boards | `azureBoardsWorkItemId`, a positive integer, `azureBoardsOrganization` and `azureBoardsProject` | The organization and project must equal `AZURE_DEVOPS_ORGANIZATION` and `AZURE_DEVOPS_PROJECT` (compared case-insensitively). |
 
+Azure Boards tasks get these fields when imported with **Import from Azure Boards** (see [Import work items from Azure Boards](project-configuration.md#import-work-items-from-azure-boards)).
+
 A task imported while the project pointed at a different repository, instance or site than it does now is skipped.
 
 ## When it fires
@@ -81,9 +83,13 @@ Moves are opt-in and do not run for `failed` or `blocked`. On desktop, the **Lin
 
 Linear move rules (desktop only):
 
-- Enable **Linear issues**, turn on the move switch, and enter a non-empty target name.
-- Aperant matches the name against workflow states belonging to the imported issue's team, ignoring case and surrounding spaces. If no state matches, the issue is not moved and no error is reported.
-- The move is attempted even if the comment fails. A move failure is logged and does not affect the task.
+- The move controls take effect only while **Linear issues** is on. The target name can be edited only while the move switch is on.
+- The move happens only on `review_ready` and requires a non-empty target state name. If the saved value is missing, is not text, or is empty after cleanup, Aperant uses `In Review`.
+- The name is matched against the workflow states of the issue's own team, ignoring case and surrounding spaces. States from other teams are not considered. Unlike Jira, matching is not limited to states reachable from the current state.
+- If no state on the team has that name, Aperant skips the move without logging a warning. The comment is not affected.
+- Aperant always attempts the comment first. If the move is enabled and the event is `review_ready`, it attempts the move even if the comment failed. Unlike Jira, there is no switch to move without commenting.
+- If the state lookup or update fails, or Linear rejects the update, the app logs `[IssueWriteback] linear transition failed event=review_ready issue=<id> reason=...`. A failed comment is logged as `[IssueWriteback] linear comment failed ...`. Neither failure undoes the other action or affects the task.
+- Moving Linear issues is available only in the desktop app. See [headless write-back](notifications-and-webhooks.md#reporting-back-to-the-issue-tracker-write-back).
 
 Azure Boards move rules:
 
@@ -161,12 +167,12 @@ Write-back reuses the credentials the project already uses to import issues, fro
 
 See [Per-Project Configuration](project-configuration.md), in particular the [Jira](project-configuration.md#jira) section and [Secrets](project-configuration.md#secrets). No extra credentials are requested.
 
-The token must be allowed to comment on issues. For Jira, moving an issue also needs permission to transition it. The Azure DevOps PAT needs the Work Items (Read & write) scope, which is more than the scopes needed for pull requests. The comment appears under the account that owns the token, so teammates see it as posted by that user.
+The token must be allowed to comment on issues. For Jira, moving an issue also needs permission to transition it. For Linear, the API key must also be allowed to update issues. The Azure DevOps PAT needs the Work Items (Read & write) scope for write-back, which is more than the scopes needed for pull requests. Import alone needs only Work Items (Read). The comment appears under the account that owns the token, so teammates see it as posted by that user.
 
 Logging:
 
 - The text of the comment is not logged. The token, the request body and the response text are never logged.
-- When a post fails, one warning line is written to the app log with the provider, the event, the issue reference and the reason. The reason is an error name, with the HTTP status added for GitLab and Jira API errors (for Jira API errors the error message is used in place of the name). The formats are:
+- When a comment or move fails, one warning line is written to the app log with the provider, the event, the issue reference and the reason. The reason is an error name, with the HTTP status added for GitLab and Jira API errors (for Jira API errors the error message is used in place of the name). The formats are:
 
 ```
 [IssueWriteback] <provider> comment failed event=<event> issue=<ref> reason=<...>
@@ -183,8 +189,10 @@ For GitHub, GitLab and Azure Boards the issue reference is `#<number>`. For Line
 - Write-back runs in the background after the status change. It is fire-and-forget.
 - There is one attempt. There is no retry and no queue. A comment that fails is dropped.
 - It never changes a task's status and never blocks the app.
-- Errors are swallowed on purpose, so task flow is never affected. The app shows no message in the UI when a comment fails. The only trace is the warning line in the app log.
+- Delivery errors do not affect task flow. **Task Detail → Overview → Delivery history** shows the comment result separately from the result of any enabled issue state change. A failed comment does not stop an eligible state change, and a state-change failure does not alter the comment receipt.
 - For headless delivery and failure behavior, see [headless write-back configuration](notifications-and-webhooks.md#reporting-back-to-the-issue-tracker-write-back).
+
+The [delivery history guide](notifications-and-webhooks.md#delivery-history) explains each status and the local retention limit. Use the [read-only CLI history command](CLI-USAGE.md#delivery-receipts) after a headless run. An unconfirmed write may already have reached the tracker; check the issue before posting manually. Neither receipt reads nor restarts replay a comment or state change.
 
 ## Troubleshooting
 
@@ -199,6 +207,9 @@ For GitHub, GitLab and Azure Boards the issue reference is `#<number>`. For Line
 | Jira comment appears but the issue does not move | The target status name matches no transition available to the issue right now. Nothing is logged for this case. | Use a status name the issue can reach from its current status, and check the spelling. |
 | Azure Boards comment fails with an authorization error | The PAT lacks the Work Items (Read & write) scope. | Create a PAT with that scope and update `AZURE_DEVOPS_PAT`. |
 | Azure Boards comment appears but the work item does not move | The target state is unknown or not allowed for the work item type. A `transition failed` line is in the app log. | Use a state the work item can reach, and check the spelling. |
+| Linear comment appears but the issue does not move | **Move issue when ready for review** is off, the event was not `review_ready`, or the issue's team has no workflow state with the target name. Nothing is logged for a missing match. | Turn on the move setting, confirm the task was ready for review, and check the spelling of the state name against the issue's team workflow. |
+| Linear issue does not move, and a `linear transition failed` line is in the app log | The state lookup or update failed, or the API key cannot update the issue. | Read the `reason=` and check the key's permissions. |
+| Linear issue does not move in a `cli.js run` or `serve` run | Headless write-back posts Linear comments only. The workflow-state option is desktop-only. | Move the issue manually or use the desktop app. |
 | No comment when the PR is opened | `pr_opened` is webhook-only. | Expect the comment when the task is ready for review. The link is in that comment. |
 
 What to check first: the toggle, then the task's metadata, then the credentials, then the app log.

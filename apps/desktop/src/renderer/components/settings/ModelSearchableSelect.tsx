@@ -94,7 +94,6 @@ export function ModelSearchableSelect({
    * Uses store's discoverModels action which has built-in caching.
    */
   const fetchModels = async () => {
-    debugLog('[ModelSearchableSelect] fetchModels called with:', { baseUrl, apiKey: `${apiKey.slice(-4)}` });
     // Fetch from API
     setIsLoading(true);
     setError(null);
@@ -103,7 +102,7 @@ export function ModelSearchableSelect({
 
     try {
       const result = await discoverModels(baseUrl, apiKey, abortControllerRef.current.signal);
-      debugLog('[ModelSearchableSelect] discoverModels result:', result);
+      debugLog('[ModelSearchableSelect] Discovered model count:', result?.length ?? 0);
 
       if (result && Array.isArray(result)) {
         setModels(result);

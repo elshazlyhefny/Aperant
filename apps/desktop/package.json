@@ -1,6 +1,6 @@
 {
   "name": "aperant",
-  "version": "2.8.0-beta.6.zeenha.55",
+  "version": "2.8.0-beta.6.zeenha.58",
   "type": "module",
   "description": "Autonomous multi-agent coding framework",
   "homepage": "https://github.com/elshazlyhefny/Aperant",
@@ -22,6 +22,7 @@
     "postinstall": "node scripts/postinstall.cjs",
     "audit:gate": "node scripts/audit-gate.cjs",
     "cli": "node out/main/cli.js",
+    "smoke:cli": "node scripts/cli-runtime-smoke.mjs out/main/cli.js",
     "dev": "electron-vite dev",
     "dev:debug": "cross-env DEBUG=true electron-vite dev",
     "dev:mcp": "electron-vite dev -- --remote-debugging-port=9222",
@@ -37,6 +38,7 @@
     "package:flatpak": "electron-builder --linux flatpak",
     "verify:linux": "node scripts/verify-linux-packages.cjs dist",
     "test:verify-linux": "node --test scripts/verify-linux-packages.test.mjs",
+    "test:cli-smoke": "node --test scripts/cli-smoke/cli-smoke.test.mjs",
     "start:packaged:mac": "open dist/mac-arm64/Aperant.app || open dist/mac/Aperant.app",
     "start:packaged:win": "start \"\" \"dist\\win-unpacked\\Aperant.exe\"",
     "start:packaged:linux": "./dist/linux-unpacked/aperant",

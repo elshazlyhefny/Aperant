@@ -94,7 +94,7 @@ describe('webhook secret', () => {
   });
 
   it('notifyHeadlessOutcome passes the secret to send', async () => {
-    const send = vi.fn().mockResolvedValue(true);
+    const send = vi.fn().mockResolvedValue({ status: 'delivered' });
     await notifyHeadlessOutcome({
       webhook: { url: URL_OK, secret: 'abc', events: allOn },
       outcome: success,
@@ -107,7 +107,7 @@ describe('webhook secret', () => {
   });
 
   it('sends the formatted body with the secret when both are set', async () => {
-    const send = vi.fn().mockResolvedValue(true);
+    const send = vi.fn().mockResolvedValue({ status: 'delivered' });
     await notifyHeadlessOutcome({
       webhook: { url: URL_OK, format: 'discord', secret: 'abc', events: allOn },
       outcome: success,
@@ -253,7 +253,7 @@ describe('notifyHeadlessOutcome', () => {
 
   it('builds the body for the configured format and sends it through the injected send', async () => {
     const run = async (hook: ResolvedHeadlessWebhook) => {
-      const send = vi.fn().mockResolvedValue(true);
+      const send = vi.fn().mockResolvedValue({ status: 'delivered' });
       await notifyHeadlessOutcome({
         webhook: hook,
         outcome: success,
@@ -280,7 +280,7 @@ describe('notifyHeadlessOutcome', () => {
   });
 
   it('auto-detects a Teams url when no format is set', async () => {
-    const send = vi.fn().mockResolvedValue(true);
+    const send = vi.fn().mockResolvedValue({ status: 'delivered' });
     await notifyHeadlessOutcome({
       webhook: { url: 'https://prod-1.westus.logic.azure.com/workflows/abc', events: allOn },
       outcome: success,

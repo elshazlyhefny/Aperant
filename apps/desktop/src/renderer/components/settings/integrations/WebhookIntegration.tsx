@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, Send, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Button } from '../../ui/button';
+import { CopyButton } from '../../ui/copy-button';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { Switch } from '../../ui/switch';
@@ -49,6 +50,114 @@ const EVENT_ITEMS: Array<{ key: EventKey; labelKey: string; descriptionKey: stri
   { key: 'prOpened', labelKey: 'notifications.webhook.events.prOpened', descriptionKey: 'notifications.webhook.events.prOpenedDescription' }
 ];
 
+type SigningStatus = NonNullable<ProjectEnvConfig['webhookSigning']>;
+type TestResult = 'success' | 'failure' | 'signing_choice_required' | 'secret_unavailable';
+
+interface WebhookSigningProps {
+  projectId: string;
+  approvalHash: string;
+  signing: SigningStatus;
+  onSigningChange: (signing: SigningStatus) => void;
+}
+
+// zeenha fork: keep the one-time secret in the UI for this approved destination only.
+function WebhookSigning({ projectId, approvalHash, signing, onSigningChange }: WebhookSigningProps) {
+  const { t, i18n } = useTranslation('settings', { keyPrefix: 'projectSections.webhook.signing' });
+  const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<'generateFailed' | 'unsignedFailed' | null>(null);
+  const mounted = useRef(false);
+
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  const changeSigning = async (mode: 'signed' | 'unsigned') => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setError(null);
+    const failure = mode === 'signed' ? 'generateFailed' : 'unsignedFailed';
+    try {
+      if (mode === 'signed') {
+        const result = await window.electronAPI.generateProjectWebhookSecret(projectId, approvalHash);
+        if (!mounted.current) return;
+        if (!result.success || !result.data) {
+          setError(failure);
+          return;
+        }
+        setRevealedSecret(result.data.secret);
+        onSigningChange({ status: 'signed', createdAt: result.data.createdAt });
+      } else {
+        const result = await window.electronAPI.setProjectWebhookUnsigned(projectId, approvalHash);
+        if (!mounted.current) return;
+        if (!result.success) {
+          setError(failure);
+          return;
+        }
+        setRevealedSecret(null);
+        onSigningChange({ status: 'unsigned' });
+      }
+    } catch {
+      if (mounted.current) setError(failure);
+    } finally {
+      if (mounted.current) setIsSaving(false);
+    }
+  };
+
+  const { status, createdAt } = signing;
+  const generateLabel = status === 'signed' ? 'rotate' : status === 'secret_unavailable' ? 'generateNew' : 'generate';
+  const panelStyle = status === 'choice_required'
+    ? 'rounded-md border border-warning/40 bg-warning/10 p-3'
+    : status === 'secret_unavailable' ? 'rounded-md border border-destructive/40 bg-destructive/10 p-3' : '';
+
+  return (
+    <div className={`space-y-2 ${panelStyle}`}>
+      {status === 'choice_required' && (
+        <p className="text-xs text-foreground">{t('choiceRequired')}</p>
+      )}
+      {status === 'secret_unavailable' && (
+        <p role="alert" className="text-xs text-destructive">{t('secretUnavailable')}</p>
+      )}
+      {status === 'signed' && (
+        <>
+          <p className="text-sm font-medium text-foreground">{t('signed')}</p>
+          {createdAt && (
+            <p className="text-xs text-muted-foreground">
+              {t('createdAt', { date: new Date(createdAt).toLocaleDateString(i18n.resolvedLanguage) })}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">{t('rotationNote')}</p>
+        </>
+      )}
+      {status === 'unsigned' && (
+        <p className="text-sm text-foreground">{t('unsigned')}</p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant="outline" onClick={() => changeSigning('signed')} disabled={isSaving}>
+          {t(generateLabel)}
+        </Button>
+        {(status === 'choice_required' || status === 'signed') && (
+          <Button type="button" size="sm" variant="outline" onClick={() => changeSigning('unsigned')} disabled={isSaving}>
+            {t(status === 'signed' ? 'stopSigning' : 'sendUnsigned')}
+          </Button>
+        )}
+      </div>
+      {error && <p role="alert" className="text-xs text-destructive">{t(error)}</p>}
+      {revealedSecret && (
+        <div className="space-y-2 rounded-md border border-border p-3">
+          <Label htmlFor="project-webhook-revealed-secret">{t('secretLabel')}</Label>
+          <div className="flex gap-2">
+            <Input id="project-webhook-revealed-secret" className="font-mono" value={revealedSecret} readOnly autoComplete="off" spellCheck={false} />
+            <CopyButton text={revealedSecret} label={t('copySecret')} variant="outline" />
+          </div>
+          <p className="text-xs text-muted-foreground">{t('revealNote')}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Per-project task-outcome webhook settings. Overrides the app-wide webhook.
  */
@@ -58,7 +167,7 @@ export function WebhookIntegration({ projectId, envConfig, updateEnvConfig }: We
   const [approveError, setApproveError] = useState<string | null>(null);
   const [showUrl, setShowUrl] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<'success' | 'failure' | null>(null);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
 
   if (!envConfig) return null;
 
@@ -98,8 +207,17 @@ export function WebhookIntegration({ projectId, envConfig, updateEnvConfig }: We
     setIsTesting(true);
     setTestResult(null);
     try {
-      const result = await window.electronAPI.sendTestWebhook(trimmedUrl, selectedFormat);
-      setTestResult(result.success ? 'success' : 'failure');
+      // An omitted secret on the generic endpoint would fall back to the app-wide key.
+      const result = isApproved && approval
+        ? await window.electronAPI.sendProjectTestWebhook(projectId, approval.hash, selectedFormat)
+        : await window.electronAPI.sendTestWebhook(trimmedUrl, selectedFormat, '');
+      if (result.success) {
+        setTestResult('success');
+      } else if (result.error === 'signing_choice_required' || result.error === 'secret_unavailable') {
+        setTestResult(result.error);
+      } else {
+        setTestResult('failure');
+      }
     } catch {
       setTestResult('failure');
     } finally {
@@ -179,8 +297,23 @@ export function WebhookIntegration({ projectId, envConfig, updateEnvConfig }: We
         {isApproved && (
           <p role="status" className="text-xs text-success">{t('projectSections.webhook.approved')}</p>
         )}
+        {isApproved && approval && envConfig.webhookSigning && (
+          <WebhookSigning
+            key={`${projectId}:${approval.hash}`}
+            projectId={projectId}
+            approvalHash={approval.hash}
+            signing={envConfig.webhookSigning}
+            onSigningChange={(webhookSigning) => {
+              setTestResult(null);
+              updateEnvConfig({ webhookSigning });
+            }}
+          />
+        )}
         {isEdited && (
-          <p className="text-xs text-muted-foreground">{t('projectSections.webhook.fallbackNote')}</p>
+          <>
+            <p className="text-xs text-muted-foreground">{t('projectSections.webhook.fallbackNote')}</p>
+            <p className="text-xs text-muted-foreground">{t('projectSections.webhook.signing.changedUrlNote')}</p>
+          </>
         )}
 
         <div className="space-y-1 pt-2">
@@ -226,10 +359,14 @@ export function WebhookIntegration({ projectId, envConfig, updateEnvConfig }: We
               {t('projectSections.webhook.testSuccess')}
             </span>
           )}
-          {testResult === 'failure' && (
-            <span role="status" className="flex items-center gap-1 text-sm text-destructive">
+          {testResult && testResult !== 'success' && (
+            <span role="alert" className="flex items-center gap-1 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />
-              {t('projectSections.webhook.testFailed')}
+              {testResult === 'signing_choice_required'
+                ? t('projectSections.webhook.signing.testChoiceRequired')
+                : testResult === 'secret_unavailable'
+                  ? t('projectSections.webhook.signing.testSecretUnavailable')
+                  : t('projectSections.webhook.testFailed')}
             </span>
           )}
         </div>

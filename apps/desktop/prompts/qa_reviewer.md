@@ -162,6 +162,8 @@ Check the PROJECT CAPABILITIES section above for available startup commands.
    ```
    Wait 15 seconds, then retry `get_electron_window_info`.
 
+**Stop only what you started.** To stop a process, kill the PIDs you recorded when you started it. Never kill by process group, name pattern (`pkill`, `killall`) or PID range: those can match the desktop session or the app running you. Stop every dev server or app instance you started before you finish your review.
+
 **For web frontends** (if Chrome DevTools tools such as `navigate_page` are available):
 1. Start dev server using the dev_command from the startup commands above
 2. Wait for the server to be listening on the expected port
