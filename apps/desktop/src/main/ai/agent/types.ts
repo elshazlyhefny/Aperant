@@ -128,6 +128,9 @@ export interface SerializableSessionConfig {
 /** Discriminated union of all messages posted from worker to main thread */
 export type WorkerMessage =
   | { type: 'phase-key-outcome'; outcome: 'valid' | 'rejected' }
+  // zeenha fork: a routed phase's account hit a rate limit (resetAt: ms, when the
+  // error named one), so the main process can record it on the account.
+  | { type: 'phase-rate-limit'; resetAt: number | null }
   // zeenha fork: a routed phase asks the main process for its account. excludeAccountIds
   // lists the accounts this run must skip (e.g. one that just hit a rate limit).
   | { type: 'phase-connection'; phase: Phase; requestId: number; excludeAccountIds?: string[] }

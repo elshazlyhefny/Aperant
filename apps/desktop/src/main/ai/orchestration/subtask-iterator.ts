@@ -17,9 +17,8 @@ import type { SessionResult } from '../session/types';
 import type { SubtaskInfo } from './build-orchestrator';
 import {
   writeAuthPauseFile,
-  writeRateLimitPauseFile,
   waitForAuthResume,
-  waitForRateLimitResume,
+  pauseForRateLimit,
 } from './pause-handler';
 
 // =============================================================================
@@ -191,17 +190,15 @@ export async function iterateSubtasks(
     }
 
     if (result.outcome === 'rate_limited') {
-      // Write pause file so the frontend can show a countdown
+      // Write pause file so the frontend can show a countdown, then wait for the
+      // rate limit to reset (or user to resume early)
+      // zeenha fork: the pause file now carries the reset time when the error names one
       const errorMessage = result.error?.message ?? 'Rate limit reached';
-      writeRateLimitPauseFile(config.specDir, errorMessage, null);
-
-      // Wait for the rate limit to reset (or user to resume early)
-      await waitForRateLimitResume(
-        config.specDir,
-        MAX_RATE_LIMIT_WAIT_MS_DEFAULT,
-        config.sourceSpecDir,
-        config.abortSignal,
-      );
+      await pauseForRateLimit(config.specDir, errorMessage, {
+        maxWaitMs: MAX_RATE_LIMIT_WAIT_MS_DEFAULT,
+        sourceSpecDir: config.sourceSpecDir,
+        signal: config.abortSignal,
+      });
 
       // Re-check abort after waiting
       if (config.abortSignal?.aborted) {

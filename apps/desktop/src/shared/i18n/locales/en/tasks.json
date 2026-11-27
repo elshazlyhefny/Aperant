@@ -147,6 +147,10 @@
     "error": "Failed"
   },
   "kanban": {
+    "capacityWait": {
+      "until": "Waiting for account capacity until {{time}}",
+      "retryingSoon": "Waiting for account capacity, retrying soon"
+    },
     "daemonQueue": {
       "title": "Queue is run by {{holder}}",
       "paused": "The desktop queue and schedules are paused for it until it stops.",

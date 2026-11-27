@@ -26,6 +26,7 @@ import {
 } from '../../ipc-handlers/context/memory-service-factory';
 import { projectStore } from '../../project-store';
 import { recordApiKeyOutcome } from '../../services/api-key-status-recorder';
+import { recordAccountRateLimit } from '../../services/rate-limit-recorder';
 import { WorkerBridgeCore, WORKER_EXIT_GRACE_MS } from './worker-bridge-core';
 
 export { WORKER_EXIT_GRACE_MS };
@@ -63,7 +64,7 @@ function resolveWorkerPath(): string {
  */
 export class WorkerBridge extends WorkerBridgeCore {
   constructor() {
-    super({ resolveWorkerPath, startMemory, recordKeyOutcome: recordApiKeyOutcome });
+    super({ resolveWorkerPath, startMemory, recordKeyOutcome: recordApiKeyOutcome, recordRateLimit: recordAccountRateLimit });
   }
 }
 

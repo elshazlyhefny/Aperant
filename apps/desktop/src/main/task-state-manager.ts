@@ -19,6 +19,14 @@ import { createDeliveryReceiptRecorder } from './delivery-receipts';
 import { dispatchTaskOutcomeWebhook, mapOutcomeToWebhookEvent } from './task-webhook';
 import { dispatchIssueOutcome } from './ipc-handlers/issue-writeback/issue-writeback';
 type TaskActor = ActorRefFrom<typeof taskMachine>;
+/** zeenha fork: reviewReason / failureReason let the queue see capacity stops (account_required, rate limits). */
+type StatusListener = (
+  taskId: string,
+  status: TaskStatus,
+  projectId?: string,
+  reviewReason?: ReviewReason,
+  failureReason?: string
+) => void;
 
 interface TaskContextEntry {
   task: Task;
@@ -48,23 +56,29 @@ export class TaskStateManager {
   private prFollowUpInProgress = new Set<string>();
   private getMainWindow: (() => BrowserWindow | null) | null = null;
 
-  private statusListeners = new Set<(taskId: string, status: TaskStatus, projectId?: string) => void>();
+  private statusListeners = new Set<StatusListener>();
 
   /**
    * zeenha fork: lets the main-process task queue react to every emitted status,
    * including when no window exists. Returns an unsubscribe function.
    */
-  onStatusEmitted(listener: (taskId: string, status: TaskStatus, projectId?: string) => void): () => void {
+  onStatusEmitted(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
     return () => {
       this.statusListeners.delete(listener);
     };
   }
 
-  private notifyStatusListeners(taskId: string, status: TaskStatus, projectId?: string): void {
+  private notifyStatusListeners(
+    taskId: string,
+    status: TaskStatus,
+    projectId?: string,
+    reviewReason?: ReviewReason,
+    failureReason?: string
+  ): void {
     for (const listener of this.statusListeners) {
       try {
-        listener(taskId, status, projectId);
+        listener(taskId, status, projectId, reviewReason, failureReason);
       } catch (error) {
         appLog.error('[TaskStateManager] Status listener failed:', error);
       }
@@ -486,7 +500,7 @@ export class TaskStateManager {
   ): void {
     if (!this.getMainWindow) {
       console.warn(`[TaskStateManager] emitStatus: No main window, cannot emit status ${status} for ${taskId}`);
-      this.notifyStatusListeners(taskId, status, projectId);
+      this.notifyStatusListeners(taskId, status, projectId, reviewReason, failureReason);
       return;
     }
     console.debug(`[TaskStateManager] emitStatus: Sending TASK_STATUS_CHANGE for ${taskId}:`, { status, reviewReason, projectId });
@@ -500,7 +514,7 @@ export class TaskStateManager {
       // zeenha fork: only a Failed task carries a reason (keeps the 4-argument event otherwise)
       ...(failureReason !== undefined ? [failureReason] : [])
     );
-    this.notifyStatusListeners(taskId, status, projectId);
+    this.notifyStatusListeners(taskId, status, projectId, reviewReason, failureReason);
   }
 
   private isNewSequence(taskId: string, sequence: number): boolean {

@@ -199,6 +199,22 @@ describe('runServe queue', () => {
     expect(await stop(p)).toBe(0);
   });
 
+  // zeenha fork: an account pause frees the slot, but the next task must not start into the same limit
+  it('cools down after an account pause instead of starting the next queued task', async () => {
+    makeSpec('001-a');
+    makeSpec('002-b');
+    const p = serve({ safetyIntervalMs: 20 }, 1);
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    spawned()[0].finish([{ type: 'PHASE_ACCOUNT_UNAVAILABLE', error: 'no account for anthropic' }], 3);
+    await vi.waitFor(() => expect(plan('001-a').reviewReason).toBe('account_required'));
+    // Several safety passes run during the cooldown; none starts the next task
+    await new Promise((r) => setTimeout(r, 150));
+    expect(spawned()).toHaveLength(1);
+    expect(plan('002-b').status).toBe('queue');
+    expect(out.join('')).toContain('lack of account capacity');
+    expect(await stop(p)).toBe(0);
+  });
+
   it('starts a dependent only after its dependency is done', async () => {
     makeSpec('001-base');
     makeSpec('002-dep', 'queue', {}, { taskDependencies: ['001-base'] });

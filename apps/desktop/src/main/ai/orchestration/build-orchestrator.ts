@@ -35,6 +35,7 @@ import { safeParseJson } from '../../utils/json-repair';
 import type { SessionResult } from '../session/types';
 import { waitForHostLoad } from './host-load';
 import { delay, iterateSubtasks } from './subtask-iterator';
+import { pauseForRateLimit } from './pause-handler';
 import type { SubtaskIteratorConfig, SubtaskResult } from './subtask-iterator';
 
 // =============================================================================
@@ -366,7 +367,22 @@ export class BuildOrchestrator extends EventEmitter {
         continue;
       }
 
-      if (result.outcome === 'error' || result.outcome === 'auth_failure' || result.outcome === 'rate_limited') {
+      // zeenha fork: a rate limit used to fail the whole task here. Wait for the
+      // reset like the coder does, then run the planner again; the wait does not
+      // use up a validation attempt.
+      if (result.outcome === 'rate_limited') {
+        const message = result.error?.message ?? 'Rate limit reached';
+        this.emitTyped('log', `Planning hit a rate limit. Waiting for it to reset before planning again. ${message}`);
+        await pauseForRateLimit(this.config.specDir, message, {
+          sourceSpecDir: this.config.sourceSpecDir,
+          signal: this.config.abortSignal,
+        });
+        if (this.aborted) return { success: false, error: 'Build cancelled' };
+        attempt--;
+        continue;
+      }
+
+      if (result.outcome === 'error' || result.outcome === 'auth_failure') {
         return { success: false, error: result.error?.message ?? 'Planning session failed' };
       }
 

@@ -11,12 +11,14 @@ import { parseResetTime, classifyRateLimitType } from './usage-parser';
  */
 export function recordRateLimitEvent(
   profile: ClaudeProfile,
-  resetTimeStr: string
+  resetTimeStr: string,
+  resetAt?: Date
 ): ClaudeRateLimitEvent {
+  // zeenha fork: agent sessions know the reset as a timestamp, not Claude's display string
   const event: ClaudeRateLimitEvent = {
-    type: classifyRateLimitType(resetTimeStr),
+    type: resetAt ? rateLimitTypeFor(resetAt) : classifyRateLimitType(resetTimeStr),
     hitAt: new Date(),
-    resetAt: parseResetTime(resetTimeStr),
+    resetAt: resetAt ?? parseResetTime(resetTimeStr),
     resetTimeString: resetTimeStr
   };
 
@@ -27,6 +29,11 @@ export function recordRateLimitEvent(
   ];
 
   return event;
+}
+
+/** zeenha fork: a reset more than a day away can only be the weekly limit. */
+export function rateLimitTypeFor(resetAt: Date, now: number = Date.now()): 'session' | 'weekly' {
+  return resetAt.getTime() - now > 24 * 60 * 60 * 1000 ? 'weekly' : 'session';
 }
 
 /**

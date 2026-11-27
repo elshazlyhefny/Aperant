@@ -675,15 +675,16 @@ export class ClaudeProfileManager {
   }
 
   /**
-   * Record a rate limit event for a profile
+   * Record a rate limit event for a profile.
+   * zeenha fork: `resetAt` overrides parsing `resetTimeStr` when the reset time is known.
    */
-  recordRateLimitEvent(profileId: string, resetTimeStr: string): ClaudeRateLimitEvent {
+  recordRateLimitEvent(profileId: string, resetTimeStr: string, resetAt?: Date): ClaudeRateLimitEvent {
     const profile = this.getProfile(profileId);
     if (!profile) {
       throw new Error('Profile not found');
     }
 
-    const event = recordRateLimitEventImpl(profile, resetTimeStr);
+    const event = recordRateLimitEventImpl(profile, resetTimeStr, resetAt);
     this.save();
     return event;
   }

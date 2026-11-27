@@ -25,6 +25,7 @@ import type {
 import { PHASE_ACCOUNT_PAUSE_EXIT } from './types';
 import { TOKEN_BUDGET_ERROR_CODE, type SessionResult } from '../session/types';
 import { ProgressTracker } from '../session/progress-tracker';
+import { extractRateLimitResetAt } from '../../../shared/utils/rate-limit-reset';
 import type { SessionOutcome as MemorySessionOutcome } from '../memory/types';
 
 /** The part of the memory handler the bridge needs. */
@@ -42,6 +43,12 @@ export interface WorkerBridgeCoreOptions {
    * or was rejected, so failover can skip bad keys. Must never throw.
    */
   recordKeyOutcome?: (accountId: string, outcome: 'valid' | 'rejected') => Promise<unknown> | void;
+  /**
+   * zeenha fork: optional hook that records a rate limit on the account (resetAt
+   * in ms when the error named one), so scoring and the task queue stop treating
+   * an exhausted account as available. Must never throw.
+   */
+  recordRateLimit?: (accountId: string, resetAt: number | null) => unknown;
 }
 
 /** zeenha fork: how long a finished worker may run its own cleanup before it is terminated. */
@@ -102,6 +109,10 @@ export class WorkerBridgeCore extends EventEmitter {
     worker.on('message', async (message: WorkerMessage) => {
       if (message.type === 'phase-key-outcome') {
         if (worker === this.worker && this.accountId) void this.options.recordKeyOutcome?.(this.accountId, message.outcome);
+        return;
+      }
+      if (message.type === 'phase-rate-limit') {
+        if (worker === this.worker && this.accountId) void this.options.recordRateLimit?.(this.accountId, message.resetAt);
         return;
       }
       if (message.type === 'phase-connection') {
@@ -186,7 +197,9 @@ export class WorkerBridgeCore extends EventEmitter {
   // Message Handling
   // ===========================================================================
 
-  private handleWorkerMessage(message: Exclude<WorkerMessage, { type: 'phase-connection' | 'phase-key-outcome' }>): void {
+  private handleWorkerMessage(
+    message: Exclude<WorkerMessage, { type: 'phase-connection' | 'phase-key-outcome' | 'phase-rate-limit' }>
+  ): void {
     switch (message.type) {
       case 'log':
         this.emitTyped('log', message.taskId, message.data, message.projectId);
@@ -291,6 +304,12 @@ export class WorkerBridgeCore extends EventEmitter {
       } else if (result.outcome === 'completed') {
         void record(this.accountId, 'valid');
       }
+    }
+
+    // zeenha fork: remember that this account is exhausted (until its reset when
+    // the error names one). Fire and forget; the recorder never throws.
+    if (this.accountId && result.outcome === 'rate_limited') {
+      void this.options.recordRateLimit?.(this.accountId, extractRateLimitResetAt(result.error?.message));
     }
 
     // Emit exit and cleanup
