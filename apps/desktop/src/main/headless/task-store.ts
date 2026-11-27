@@ -2,18 +2,15 @@
  * zeenha fork: Electron-free task store for the headless daemon (`cli.js serve`).
  *
  * The desktop reads tasks through `ProjectStore` (project-store.ts), which imports
- * `electron`. The daemon cannot, so this module re-implements the small part it
- * needs: list tasks from the spec directories, persist a task status, reset stuck
- * subtasks and create a scheduled task spec.
+ * `electron`. The daemon uses its own filesystem adapter and shares persisted
+ * field interpretation with ProjectStore through `../task-record-fields.ts`.
  *
- * KEEP IN SYNC with project-store.ts: `ProjectStore.loadTasksFromSpecsDir` and
- * `determineTaskStatusAndReason` (status map, reviewReason only for human_review,
- * description fallbacks, title rules, createdAt/updatedAt) and with
- * ipc-handlers/task/plan-file-utils.ts `resetStuckSubtasks`. Differences, on
- * purpose: no file cache, no stale-status auto-correction write, no failed-run
- * classification, and a worktree copy of a spec wins over the main copy because
- * the agent writes the live plan there.
+ * Deliberate differences: uncached reads, no stale-status correction writes,
+ * no failed-run classification, no JSON-error display markers, and different
+ * executionProgress inference. A worktree copy of a spec wins over the main
+ * copy because the agent writes the live plan there.
  *
+ * Keep resetStuckSubtasks in sync with ipc-handlers/task/plan-file-utils.ts.
  * Do not import electron, project-store, app-logger or plan-file-utils here.
  */
 
@@ -22,7 +19,6 @@ import path from 'path';
 import type {
   ExecutionPhase,
   ImplementationPlan,
-  PlanSubtask,
   ReviewReason,
   Task,
   TaskMetadata,
@@ -30,9 +26,9 @@ import type {
 } from '../../shared/types';
 import type { ScheduleTemplate } from '../../shared/types/schedule';
 import { AUTO_BUILD_PATHS, getSpecsDir } from '../../shared/constants';
-import { extractPlannedFiles } from '../../shared/utils/file-overlap';
 import { mapStatusToPlanStatus } from '../../shared/utils/plan-status';
 import { normalizeTaskTokenBudget } from '../../shared/utils/token-budget';
+import { mapPersistedTaskFields, type ParsedSpecMarkdown, parseSpecMarkdown } from '../task-record-fields';
 import { writeFileAtomicSync } from '../utils/atomic-file';
 import { withFileLock } from '../utils/file-lock';
 import { safeParseJson } from '../utils/json-repair';
@@ -49,36 +45,12 @@ export interface HeadlessProject {
 
 const METADATA_FILE = 'task_metadata.json';
 
-/** Mirrors ProjectStore.determineTaskStatusAndReason. */
-const STATUS_MAP: Record<string, TaskStatus> = {
-  pending: 'backlog',
-  planning: 'in_progress',
-  in_progress: 'in_progress',
-  coding: 'in_progress',
-  review: 'ai_review',
-  completed: 'done',
-  done: 'done',
-  human_review: 'human_review',
-  ai_review: 'ai_review',
-  pr_created: 'pr_created',
-  backlog: 'backlog',
-  error: 'error',
-  queue: 'queue',
-  queued: 'queue'
-};
-
 function readJson<T>(file: string): T | null {
   try {
     return safeParseJson<T>(readFileSync(file, 'utf-8'));
   } catch {
     return null;
   }
-}
-
-function determineStatus(plan: ImplementationPlan | null): { status: TaskStatus; reviewReason?: ReviewReason } {
-  if (!plan?.status) return { status: 'backlog' };
-  const status = STATUS_MAP[plan.status] || 'backlog';
-  return { status, reviewReason: status === 'human_review' ? plan.reviewReason : undefined };
 }
 
 function inferPhase(planStatus: string | undefined): ExecutionPhase | undefined {
@@ -102,34 +74,33 @@ function inferPhase(planStatus: string | undefined): ExecutionPhase | undefined 
 
 function loadTaskFromSpecDir(specPath: string, projectId: string): Task | null {
   const name = path.basename(specPath);
-  const plan = readJson<ImplementationPlan>(path.join(specPath, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN));
-  const hasJsonError =
-    existsSync(path.join(specPath, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN)) && plan === null;
-
-  let description = '';
-  const requirements = readJson<{ task_description?: unknown }>(path.join(specPath, AUTO_BUILD_PATHS.REQUIREMENTS));
-  if (typeof requirements?.task_description === 'string' && requirements.task_description.trim()) {
-    description = requirements.task_description.trim();
-  }
-  if (!description && plan?.description) description = plan.description;
-
+  const planPath = path.join(specPath, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN);
+  const plan = readJson<ImplementationPlan>(planPath);
+  const hasJsonError = existsSync(planPath) && plan === null;
+  const requirements = readJson<unknown>(path.join(specPath, AUTO_BUILD_PATHS.REQUIREMENTS));
   const metadata = readJson<TaskMetadata>(path.join(specPath, METADATA_FILE)) ?? undefined;
 
-  const { status, reviewReason } = hasJsonError
-    ? { status: 'human_review' as TaskStatus, reviewReason: 'errors' as ReviewReason }
-    : determineStatus(plan);
-
-  const subtasks =
-    plan?.phases?.flatMap((phase) => {
-      const items = phase.subtasks || (phase as { chunks?: PlanSubtask[] }).chunks || [];
-      return items.map((subtask) => ({
-        id: subtask.id,
-        title: subtask.title,
-        description: subtask.description,
-        status: subtask.status,
-        files: extractPlannedFiles(subtask)
-      }));
-    }) || [];
+  let specMarkdown: ParsedSpecMarkdown | undefined;
+  let specMarkdownLoaded = false;
+  const getSpecMarkdown = (): ParsedSpecMarkdown | undefined => {
+    if (!specMarkdownLoaded) {
+      specMarkdownLoaded = true;
+      try {
+        specMarkdown = parseSpecMarkdown(readFileSync(path.join(specPath, AUTO_BUILD_PATHS.SPEC_FILE), 'utf-8'));
+      } catch {
+        // spec.md may be missing or unreadable; keep the persisted fallbacks.
+      }
+    }
+    return specMarkdown;
+  };
+  const { reviewReason, ...fields } = mapPersistedTaskFields({
+    specId: name,
+    plan,
+    planUnreadable: hasJsonError,
+    requirements,
+    getSpecMarkdown,
+    now: Date.now()
+  });
 
   const persistedPhase = (plan as { executionPhase?: string } | null)?.executionPhase as ExecutionPhase | undefined;
   const phase = persistedPhase ?? inferPhase(plan?.status);
@@ -138,18 +109,13 @@ function loadTaskFromSpecDir(specPath: string, projectId: string): Task | null {
     id: name,
     specId: name,
     projectId,
-    title: plan?.feature || plan?.title || name,
-    description,
-    status,
-    subtasks,
+    ...fields,
     logs: [],
     metadata,
     ...(reviewReason !== undefined && { reviewReason }),
     ...(phase && { executionProgress: { phase, phaseProgress: 50, overallProgress: 50 } }),
-    specsPath: specPath,
-    createdAt: new Date(plan?.created_at || Date.now()),
-    updatedAt: new Date(plan?.updated_at || Date.now())
-  } as Task;
+    specsPath: specPath
+  };
 }
 
 function listSpecDirs(specsDir: string): string[] {

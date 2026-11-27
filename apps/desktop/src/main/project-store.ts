@@ -2,7 +2,7 @@ import { app } from 'electron';
 import { readFileSync, existsSync, mkdirSync, readdirSync, Dirent } from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import type { Project, ProjectSettings, Task, TaskStatus, TaskMetadata, ImplementationPlan, ReviewReason, PlanSubtask, KanbanPreferences, ExecutionPhase } from '../shared/types';
+import type { Project, ProjectSettings, Task, TaskStatus, TaskMetadata, ImplementationPlan, ReviewReason, KanbanPreferences, ExecutionPhase } from '../shared/types';
 import { DEFAULT_PROJECT_SETTINGS, AUTO_BUILD_PATHS, getSpecsDir, JSON_ERROR_PREFIX, JSON_ERROR_TITLE_SUFFIX, TASK_STATUS_PRIORITY } from '../shared/constants';
 import { getAutoBuildPath, isAutoBuildEnvTrackedByGit, isInitialized } from './project-initializer';
 import { getTaskWorktreeDir } from './worktree-paths';
@@ -13,7 +13,7 @@ import { updateRoadmapFeatureOutcome, revertRoadmapFeatureOutcome } from './util
 import { safeParseJson } from './utils/json-repair';
 import { FileParseCache } from './utils/file-parse-cache';
 import { readProjectRepoConfig } from './ai/worktree/project-repo-config';
-import { extractPlannedFiles } from '../shared/utils/file-overlap';
+import { mapPersistedTaskFields, parseSpecMarkdown, type ParsedSpecMarkdown } from './task-record-fields';
 import { parseTokenBudget } from '../shared/utils/token-budget';
 import { failedRunStatus, isFailedRun } from '../shared/utils/task-failure';
 import { readFailureReason, readSubtaskStatuses, taskHasCodeChanges, taskSpecDirs } from './task-failure-facts';
@@ -45,32 +45,6 @@ interface TasksCacheEntry {
 function applyDeclaredBaseBranch(project: Project): void {
   const declared = readProjectRepoConfig(project.path).baseBranch;
   if (declared && project.settings) project.settings.mainBranch = declared;
-}
-
-interface ParsedSpecMarkdown {
-  overview?: string;
-  title?: string;
-}
-
-/** Extract the Overview section and the heading title from spec.md content. */
-function parseSpecMarkdown(content: string): ParsedSpecMarkdown {
-  const result: ParsedSpecMarkdown = {};
-  // Extract full Overview section until next heading or end of file
-  // Use \n#{1,6}\s to match valid markdown headings (# to ######) with required space
-  // This avoids truncating at # in code blocks (e.g., Python comments)
-  const overviewMatch = content.match(/## Overview\s*\n+([\s\S]*?)(?=\n#{1,6}\s|$)/);
-  if (overviewMatch) {
-    result.overview = overviewMatch[1].trim();
-  }
-  // Extract title from first # line, handling patterns like:
-  // "# Quick Spec: Title" -> "Title"
-  // "# Specification: Title" -> "Title"
-  // "# Title" -> "Title"
-  const titleMatch = content.match(/^#\s+(?:Quick Spec:|Specification:)?\s*(.+)$/m);
-  if (titleMatch?.[1]) {
-    result.title = titleMatch[1].trim();
-  }
-  return result;
 }
 
 /**
@@ -622,31 +596,11 @@ export class ProjectStore {
           }
         }
 
-        let description = '';
-        // PRIORITY 1: Read original user task description from requirements.json
-        {
-          try {
-            const requirements = this.fileCache.read(requirementsPath, (raw) => JSON.parse(raw));
-            if (typeof requirements?.task_description === 'string' && requirements.task_description.trim()) {
-              // Use the full task description that the user entered
-              description = requirements.task_description.trim();
-            }
-          } catch {
-            // Ignore parse errors
-          }
-        }
-
-        // PRIORITY 2: Fallback to plan description if user requirement text is missing
-        if (!description && plan?.description) {
-          description = plan.description;
-        }
-
-        // PRIORITY 3: Final fallback to spec.md Overview (AI-synthesized content)
-        if (!description) {
-          const overview = getSpecMd()?.overview;
-          if (overview !== undefined) {
-            description = overview;
-          }
+        let requirements: unknown;
+        try {
+          requirements = this.fileCache.read(requirementsPath, (raw) => JSON.parse(raw));
+        } catch {
+          // Ignore parse errors
         }
 
         // Try to read task metadata
@@ -661,31 +615,14 @@ export class ProjectStore {
           }
         }
 
-        // Determine task status and review reason from plan
-        // For JSON errors, store just the raw error - renderer will use i18n to format
-        const finalDescription = hasJsonError
-          ? `${JSON_ERROR_PREFIX}${jsonErrorMessage}`
-          : description;
-        // Tasks with JSON errors go to human_review with errors reason
-        const { status: finalStatus, reviewReason: finalReviewReason } = hasJsonError
-          ? { status: 'human_review' as TaskStatus, reviewReason: 'errors' as ReviewReason }
-          : this.determineTaskStatusAndReason(plan);
-
-        // Extract subtasks from plan (handle both 'subtasks' and 'chunks' naming)
-        const subtasks = plan?.phases?.flatMap((phase) => {
-          const items = phase.subtasks || (phase as { chunks?: PlanSubtask[] }).chunks || [];
-          return items.map((subtask) => {
-            const title = subtask.title;
-            const description = subtask.description;
-            return {
-              id: subtask.id,
-              title,
-              description,
-              status: subtask.status,
-              files: extractPlannedFiles(subtask)
-            };
-          });
-        }) || [];
+        const fields = mapPersistedTaskFields({
+          specId: dir.name,
+          plan,
+          planUnreadable: hasJsonError,
+          requirements,
+          getSpecMarkdown: getSpecMd,
+          now: Date.now()
+        });
 
         // Auto-correct status to human_review if all subtasks are completed
         // This handles cases where task completed but app restarted before XState persisted the status
@@ -695,7 +632,7 @@ export class ProjectStore {
           reviewReason: correctedReviewReason,
           plan: correctedPlan
         } = this.correctStaleTaskStatus(
-          subtasks, hasJsonError, finalStatus, finalReviewReason, plan, planPath, dir.name
+          fields.subtasks, hasJsonError, fields.status, fields.reviewReason, plan, planPath, dir.name
         );
         // The corrected plan is a copy; the cached plan object is left untouched
         if (correctedPlan) plan = correctedPlan;
@@ -704,17 +641,6 @@ export class ProjectStore {
         const planWithStaged = plan as unknown as { stagedInMainProject?: boolean; stagedAt?: string } | null;
         const stagedInMainProject = planWithStaged?.stagedInMainProject;
         const stagedAt = planWithStaged?.stagedAt;
-
-        // Determine title - check if feature looks like a spec ID (e.g., "054-something-something")
-        // For JSON error tasks, use directory name with marker for i18n suffix
-        let title = hasJsonError ? `${dir.name}${JSON_ERROR_TITLE_SUFFIX}` : (plan?.feature || plan?.title || dir.name);
-        const looksLikeSpecId = /^\d{3}-/.test(title) && !hasJsonError;
-        if (looksLikeSpecId) {
-          const specTitle = getSpecMd()?.title;
-          if (specTitle) {
-            title = specTitle;
-          }
-        }
 
         // Use persisted executionPhase (from text parser) or xstateState for exact restoration
         // Priority: executionPhase > xstateState > inferred from status
@@ -730,10 +656,11 @@ export class ProjectStore {
           id: dir.name, // Use spec directory name as ID
           specId: dir.name,
           projectId,
-          title,
-          description: finalDescription,
+          // Store JSON-error markers so the renderer can localize the display.
+          title: hasJsonError ? `${dir.name}${JSON_ERROR_TITLE_SUFFIX}` : fields.title,
+          description: hasJsonError ? `${JSON_ERROR_PREFIX}${jsonErrorMessage}` : fields.description,
           status: correctedStatus,
-          subtasks,
+          subtasks: fields.subtasks,
           logs: [],
           metadata,
           ...(correctedReviewReason !== undefined && { reviewReason: correctedReviewReason }),
@@ -743,8 +670,8 @@ export class ProjectStore {
           stagedAt,
           location, // Add location metadata (main vs worktree)
           specsPath: specPath, // Add full path to specs directory
-          createdAt: new Date(plan?.created_at || Date.now()),
-          updatedAt: new Date(plan?.updated_at || Date.now())
+          createdAt: fields.createdAt,
+          updatedAt: correctedPlan ? new Date(correctedPlan.updated_at) : fields.updatedAt
         });
       } catch (error) {
         // Log error but continue processing other specs
@@ -835,43 +762,6 @@ export class ProjectStore {
     }
 
     return { status: 'human_review', reviewReason: 'completed' };
-  }
-
-  /**
-   * Determine task status and review reason from the plan file.
-   *
-   * With the XState refactor, status and reviewReason are authoritative fields
-   * written by the TaskStateManager. The renderer should not recompute status
-   * from subtasks or QA files.
-   */
-  private determineTaskStatusAndReason(
-    plan: ImplementationPlan | null
-  ): { status: TaskStatus; reviewReason?: ReviewReason } {
-    if (!plan?.status) {
-      return { status: 'backlog' };
-    }
-
-    const statusMap: Record<string, TaskStatus> = {
-      'pending': 'backlog',
-      'planning': 'in_progress',
-      'in_progress': 'in_progress',
-      'coding': 'in_progress',
-      'review': 'ai_review',
-      'completed': 'done',
-      'done': 'done',
-      'human_review': 'human_review',
-      'ai_review': 'ai_review',
-      'pr_created': 'pr_created',
-      'backlog': 'backlog',
-      'error': 'error',
-      'queue': 'queue',
-      'queued': 'queue'
-    };
-
-    const storedStatus = statusMap[plan.status] || 'backlog';
-    const reviewReason = storedStatus === 'human_review' ? plan.reviewReason : undefined;
-
-    return { status: storedStatus, reviewReason };
   }
 
   /**
