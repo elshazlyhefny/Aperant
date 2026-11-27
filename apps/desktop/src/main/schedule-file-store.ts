@@ -21,6 +21,8 @@ const MUTABLE_FIELDS = [
   'name',
   'enabled',
   'cadence',
+  // zeenha fork: editing a schedule can change how it treats missed runs.
+  'missedRunPolicy',
   'template',
   'updatedAt',
   'nextRunAt',

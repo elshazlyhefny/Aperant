@@ -35,6 +35,10 @@ function validateInput(input: ScheduleInput): string | null {
   if (!input.cadence || typeof input.cadence !== 'object') return 'Cadence is required';
   const cadence = validateCadence(input.cadence);
   if (!cadence.ok) return cadence.reason;
+  const { missedRunPolicy } = input;
+  if (missedRunPolicy !== undefined && missedRunPolicy !== 'catch_up' && missedRunPolicy !== 'skip') {
+    return 'Missed-run policy must be catch_up or skip';
+  }
   return null;
 }
 
@@ -121,6 +125,7 @@ export function registerScheduleHandlers(
           enabled,
           cadence: input.cadence,
           template: { ...input.template, title: input.template.title.trim() },
+          ...(input.missedRunPolicy ? { missedRunPolicy: input.missedRunPolicy } : {}),
           createdAt: now,
           updatedAt: now,
           nextRunAt: enabled ? computeNextRun(input.cadence, now) : null,
@@ -147,6 +152,8 @@ export function registerScheduleHandlers(
             name: input.name.trim(),
             cadence: input.cadence,
             template: { ...input.template, title: input.template.title.trim() },
+            // zeenha fork: Older clients omit the policy, so preserve the stored choice.
+            ...(input.missedRunPolicy ? { missedRunPolicy: input.missedRunPolicy } : {}),
             updatedAt: now,
             nextRunAt: current.enabled ? computeNextRun(input.cadence, now) : null,
           };

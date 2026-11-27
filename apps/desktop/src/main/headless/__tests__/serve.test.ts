@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { execFileSync } from 'child_process';
 import {
-  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
+  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync,
   renameSync, rmSync, symlinkSync, utimesSync, writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
@@ -40,10 +40,13 @@ import type { HeadlessBridge } from '../run-task';
 import { writeStopRequest } from '../stop-request';
 import { DELIVERY_TIMING_FILE } from '../../ai/logging/delivery-timing';
 import type { AgentExecutorConfig } from '../../ai/agent/types';
-import { createHeadlessTaskReader, createScheduledTaskSpec } from '../task-store';
+import { createHeadlessTaskReader, createScheduledTaskSpec, listHeadlessTasks, setTaskStatus } from '../task-store';
 import { createScheduleFileStore } from '../../schedule-file-store';
-import { acquireProjectQueueLock, getQueueLockPath } from '../../utils/project-queue-lock';
+import { createScheduleService, type ScheduleServiceDeps } from '../../schedule-service';
+import { acquireProjectQueueLock, getQueueLockPath, readLockHolder, type ProjectQueueLock } from '../../utils/project-queue-lock';
 import { getServeRunningPath } from '../../utils/serve-running-file';
+import { DEFAULT_PROJECT_SETTINGS } from '../../../shared/constants/config';
+import type { Project } from '../../../shared/types';
 import type { RecurringSchedule } from '../../../shared/types/schedule';
 
 class FakeBridge extends EventEmitter implements HeadlessBridge {
@@ -61,7 +64,8 @@ class FakeBridge extends EventEmitter implements HeadlessBridge {
 }
 
 const T0 = new Date(2026, 5, 10, 9, 0, 0).getTime();
-const DAY = 24 * 3_600_000;
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
 
 let projectDir: string;
 let bridges: FakeBridge[];
@@ -408,6 +412,27 @@ describe('runServe queue', () => {
   });
 });
 
+function writeSchedule(over: Partial<RecurringSchedule> = {}) {
+  const file = path.join(projectDir, '.auto-claude', 'schedules.json');
+  const schedule: RecurringSchedule = {
+    id: 's1',
+    projectId: 'whatever',
+    name: 'nightly',
+    enabled: true,
+    cadence: { kind: 'daily', time: '09:00' },
+    template: { title: 'Nightly check', description: 'do it', tokenBudget: 1000 },
+    createdAt: 0,
+    updatedAt: 0,
+    nextRunAt: T0,
+    history: [],
+    ...over,
+  };
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify({ version: 1, schedules: [schedule] }));
+  return file;
+}
+const readSchedule = (file: string): RecurringSchedule => JSON.parse(readFileSync(file, 'utf-8')).schedules[0];
+
 describe('runServe schedules', () => {
   let daemon: Promise<number> | undefined;
 
@@ -552,6 +577,43 @@ describe('runServe schedules', () => {
     await vi.waitFor(() => expect(spawned()).toHaveLength(1));
     expect(schedule.history[0].missedCount).toBe(4);
     expect(createScheduledTaskSpec).toHaveBeenCalledTimes(1);
+    expect(out.join('')).toContain('daily at 09:00, missed runs: catch up');
+    await vi.waitFor(() => expect(out.filter((line) => line.includes('created one catch-up task'))).toHaveLength(1));
+  });
+
+  it('skips a missed window without creating a task and logs the next run', async () => {
+    const { store } = await seedSchedules([makeSchedule({ missedRunPolicy: 'skip' })]);
+    serveSchedules({ now: () => T0 + 3 * DAY + 1000 }, 5);
+    const schedule = await waitForHistory(store, 's1', ['skipped_missed']);
+    expect(schedule.history[0].missedCount).toBe(4);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(spawned()).toHaveLength(0);
+    expect(createScheduledTaskSpec).not.toHaveBeenCalled();
+    const specsDir = path.join(projectDir, '.auto-claude', 'specs');
+    expect(existsSync(specsDir) ? readdirSync(specsDir) : []).toEqual([]);
+    expect(store.getSchedule('s1')?.nextRunAt).toBe(T0 + 4 * DAY);
+    expect(out.join('')).toContain(`Schedule "nightly": daily at 09:00, missed runs: skip, next run ${new Date(T0).toISOString()}`);
+    await vi.waitFor(() =>
+      expect(out.join('')).toContain(`missed 4 runs, skipped (missed runs: skip); next run ${new Date(T0 + 4 * DAY).toISOString()}`)
+    );
+  });
+
+  it('runs a skip schedule on time without logging previously saved history', async () => {
+    const { store } = await seedSchedules([
+      makeSchedule({
+        missedRunPolicy: 'skip',
+        history: [{ id: 'old-skip', at: T0 - DAY, kind: 'skipped_missed', missedCount: 1, acknowledged: false }],
+      }),
+    ]);
+    serveSchedules();
+    const schedule = await waitForHistory(store, 's1', ['skipped_missed', 'started']);
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    expect(schedule.nextRunAt).toBe(T0 + DAY);
+    const taskId = spawned()[0].taskId;
+    expect(schedule.lastTaskId).toBe(taskId);
+    expect(plan(taskId).status).toBe('in_progress');
+    await vi.waitFor(() => expect(out.join('')).toContain(`Schedule "nightly": created task ${taskId}`));
+    expect(out.join('')).not.toContain('missed 1 run, skipped');
   });
 
   it('stops an over-budget scheduled task; status error and a failed webhook', async () => {
@@ -608,6 +670,200 @@ describe('runServe schedules', () => {
     expect(spawned()[0].terminate).toHaveBeenCalledTimes(1);
     expect(store.getSchedule(excluded.id)).toEqual(excluded);
     expect(store.getSchedule(selected.id)).toEqual(selected);
+  });
+});
+
+// zeenha fork: schedule history and the next due time must survive a queue-lock handoff.
+describe('schedule handoff between desktop and daemon', () => {
+  const projectId = 'desktop-project';
+  const schedulesPath = () => path.join(projectDir, '.auto-claude', 'schedules.json');
+  const serveSchedules = (now: () => number) => serve({
+    schedulesPath: schedulesPath(),
+    projectId,
+    now,
+    tickIntervalMs: 20,
+    // Queue-lock heartbeats use wall time on both sides, not the simulated schedule clock.
+    lockOptions: { now: Date.now },
+  });
+
+  function desktopSide(nowRef: { now: number }) {
+    const store = createScheduleFileStore(schedulesPath());
+    const project: Project = {
+      id: projectId,
+      path: projectDir,
+      name: 'desktop project',
+      autoBuildPath: '.auto-claude',
+      settings: { ...DEFAULT_PROJECT_SETTINGS, maxParallelTasks: 0 },
+      createdAt: new Date(T0),
+      updatedAt: new Date(T0),
+    };
+    let lock: ProjectQueueLock | undefined;
+    const canRun = vi.fn(() => {
+      if (lock) return true;
+      const acquired = acquireProjectQueueLock(projectDir, 'desktop');
+      if (!acquired.ok) return false;
+      lock = acquired.lock;
+      lock.startHeartbeat();
+      return true;
+    });
+    const createTask = vi.fn<ScheduleServiceDeps['createTask']>(async (_id, template, scheduleId, scheduledFor) => {
+      const task = await createScheduledTaskSpec(project, template, scheduleId, scheduledFor);
+      await setTaskStatus(project, task.id, 'queue');
+      return task.id;
+    });
+    const service = createScheduleService({
+      now: () => nowRef.now,
+      listSchedules: store.listSchedules,
+      updateSchedule: async (id, mutator) => (await store.updateSchedule(id, mutator)) !== undefined,
+      getProject: (id) => (id === projectId ? project : undefined),
+      listTasks: () => listHeadlessTasks(project),
+      createTask,
+      startTask: vi.fn().mockResolvedValue(undefined),
+      isRunning: () => false,
+      stopTask: vi.fn(),
+      readTaskTokens: () => 0,
+      notifyChanged: vi.fn(),
+      canRun,
+    });
+    return {
+      tick: service.tick,
+      canRun,
+      createTask,
+      release() {
+        lock?.release();
+        lock = undefined;
+      },
+    };
+  }
+
+  function scheduledTaskIds() {
+    const specs = specDir('');
+    if (!existsSync(specs)) return [];
+    return readdirSync(specs, { withFileTypes: true })
+      .filter((entry) => {
+        if (!entry.isDirectory()) return false;
+        const metaPath = path.join(specDir(entry.name), 'task_metadata.json');
+        return existsSync(metaPath) && JSON.parse(readFileSync(metaPath, 'utf-8')).scheduleId === 's1';
+      })
+      .map((entry) => entry.name)
+      .sort();
+  }
+
+  it.each([
+    { policy: 'default', skip: false },
+    { policy: 'skip', skip: true },
+  ])('dispatches each run only once across a desktop → daemon → desktop handoff ($policy policy)', async ({ skip }) => {
+    const file = writeSchedule({ projectId, ...(skip ? { missedRunPolicy: 'skip' } : {}) });
+    const desktop = desktopSide({ now: T0 });
+    try {
+      await desktop.tick();
+      expect(readLockHolder(projectDir)?.kind).toBe('desktop');
+      expect(desktop.createTask).toHaveBeenCalledTimes(1);
+      const initialTaskIds = scheduledTaskIds();
+      expect(initialTaskIds).toHaveLength(1);
+      const [taskId] = initialTaskIds;
+      expect(readSchedule(file)).toMatchObject({
+        lastTaskId: taskId,
+        nextRunAt: T0 + DAY,
+        history: [{ kind: 'started', taskId }],
+      });
+      expect(plan(taskId).status).toBe('queue');
+      // Finish the original task so the unfinished-task rule does not take precedence.
+      writeFileSync(
+        path.join(specDir(taskId), 'implementation_plan.json'),
+        JSON.stringify({ ...plan(taskId), status: 'done' })
+      );
+    } finally {
+      desktop.release();
+    }
+
+    const daemon = serveSchedules(() => T0 + 3 * DAY + HOUR);
+    const missedWindow = { missedCount: 3, missedFrom: T0 + DAY, missedTo: T0 + 3 * DAY };
+    try {
+      await vi.waitFor(() => {
+        expect(readSchedule(file)).toMatchObject({
+          projectId,
+          nextRunAt: T0 + 4 * DAY,
+          history: [
+            { kind: 'started' },
+            ...(skip ? [{ kind: 'skipped_missed', ...missedWindow }] : [{ kind: 'missed', ...missedWindow }, { kind: 'started' }]),
+          ],
+        });
+        if (!skip) expect(spawned().map((bridge) => bridge.taskId)).toEqual([readSchedule(file).lastTaskId]);
+      });
+    } finally {
+      await stop(daemon);
+    }
+    expect(readLockHolder(projectDir)).toBeNull();
+    expect(spawned()).toHaveLength(skip ? 0 : 1);
+    const afterDaemon = readSchedule(file);
+    const afterDaemonTaskIds = scheduledTaskIds();
+    expect(afterDaemonTaskIds).toHaveLength(skip ? 1 : 2);
+
+    const restartTime = { now: T0 + 3 * DAY + 2 * HOUR };
+    const restarted = desktopSide(restartTime);
+    try {
+      await restarted.tick();
+      expect(readLockHolder(projectDir)?.kind).toBe('desktop');
+      expect(restarted.createTask).not.toHaveBeenCalled();
+      expect(readSchedule(file)).toEqual(afterDaemon);
+      expect(scheduledTaskIds()).toEqual(afterDaemonTaskIds);
+
+      if (skip) {
+        restartTime.now = T0 + 4 * DAY + 60_000;
+        await restarted.tick();
+        expect(restarted.createTask).toHaveBeenCalledTimes(1);
+        const next = readSchedule(file);
+        expect(next.nextRunAt).toBe(T0 + 5 * DAY);
+        expect(next.history.map((record) => record.kind)).toEqual(['started', 'skipped_missed', 'started']);
+        expect(next.history.at(-1)).toMatchObject({ taskId: next.lastTaskId, at: restartTime.now });
+      }
+      expect(scheduledTaskIds()).toHaveLength(2);
+    } finally {
+      restarted.release();
+    }
+  });
+
+  it('blocks a due desktop tick while the daemon holds the lock, then does not replay the daemon run', async () => {
+    const file = writeSchedule({ projectId });
+    const initial = readSchedule(file);
+    const desktop = desktopSide({ now: T0 });
+    // Hold the daemon just before the due time so the desktop sees a still-due schedule.
+    let daemonTime = T0 - 1;
+    try {
+      const daemon = serveSchedules(() => daemonTime);
+      try {
+        await vi.waitFor(() => expect(signalHandler).toBeDefined());
+        const holder = readLockHolder(projectDir);
+        expect(holder?.kind).toBe('daemon');
+        await desktop.tick();
+        expect(desktop.canRun).toHaveReturnedWith(false);
+        expect(desktop.canRun).not.toHaveReturnedWith(true);
+        expect(desktop.createTask).not.toHaveBeenCalled();
+        expect(readLockHolder(projectDir)?.token).toBe(holder?.token);
+        expect(readSchedule(file)).toEqual(initial);
+        expect(scheduledTaskIds()).toEqual([]);
+
+        daemonTime = T0;
+        await vi.waitFor(() => {
+          expect(readSchedule(file)).toMatchObject({ nextRunAt: T0 + DAY, history: [{ kind: 'started' }] });
+          expect(spawned().map((bridge) => bridge.taskId)).toEqual([readSchedule(file).lastTaskId]);
+        });
+      } finally {
+        await stop(daemon);
+      }
+      expect(readLockHolder(projectDir)).toBeNull();
+      const afterDaemon = readSchedule(file);
+      await desktop.tick();
+      expect(desktop.canRun).toHaveReturnedWith(true);
+      expect(readLockHolder(projectDir)?.kind).toBe('desktop');
+      expect(desktop.createTask).not.toHaveBeenCalled();
+      expect(readSchedule(file)).toEqual(afterDaemon);
+      expect(scheduledTaskIds()).toEqual([afterDaemon.lastTaskId]);
+      expect(spawned()).toHaveLength(1);
+    } finally {
+      desktop.release();
+    }
   });
 });
 

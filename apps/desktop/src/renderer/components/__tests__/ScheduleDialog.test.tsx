@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import type { RecurringSchedule } from '../../../shared/types/schedule';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -15,9 +16,26 @@ import { ScheduleDialog } from '../ScheduleDialog';
 import { useScheduleStore } from '../../stores/schedule-store';
 
 const createSchedule = vi.fn();
+const updateSchedule = vi.fn();
 
-function renderDialog() {
-  return render(<ScheduleDialog open onOpenChange={vi.fn()} projectId="p1" />);
+const skipSchedule: RecurringSchedule = {
+  id: 's1',
+  projectId: 'p1',
+  name: 'Nightly audit',
+  enabled: true,
+  cadence: { kind: 'daily', time: '09:00' },
+  template: { title: 'Audit deps', description: 'Check deps', tokenBudget: 1000 },
+  missedRunPolicy: 'skip',
+  createdAt: 1,
+  updatedAt: 1,
+  nextRunAt: 2_000_000_000_000,
+  history: []
+};
+
+function renderDialog(schedule?: RecurringSchedule) {
+  const onOpenChange = vi.fn();
+  render(<ScheduleDialog open onOpenChange={onOpenChange} projectId="p1" schedule={schedule} />);
+  return onOpenChange;
 }
 
 const byId = (id: string) => document.getElementById(id) as HTMLInputElement;
@@ -40,7 +58,7 @@ describe('ScheduleDialog accessibility', () => {
       isLoading: false,
       error: null,
       createSchedule,
-      updateSchedule: vi.fn()
+      updateSchedule
     });
   });
 
@@ -112,6 +130,36 @@ describe('ScheduleDialog accessibility', () => {
     expect(pressed('schedules:form.cadenceWeekly')).toBe('true');
     expect(pressed('schedules:form.cadenceDaily')).toBe('false');
     expect(screen.getByRole('group', { name: 'schedules:form.weekdays' })).toBeTruthy();
+  });
+
+  it('defaults to catch-up and saves skip when selected', async () => {
+    createSchedule.mockResolvedValue(skipSchedule);
+    const onOpenChange = renderDialog();
+    const group = screen.getByRole('group', { name: 'schedules:form.missedRuns' });
+    const catchUp = within(group).getByRole('button', { name: 'schedules:form.missedRunsCatchUp' });
+    const skip = within(group).getByRole('button', { name: 'schedules:form.missedRunsSkip' });
+    expect(group.getAttribute('aria-describedby')).toBe('schedule-missed-policy-hint');
+    expect(screen.getByText('schedules:form.missedRunsHint').id).toBe('schedule-missed-policy-hint');
+    expect(catchUp.getAttribute('aria-pressed')).toBe('true');
+    expect(skip.getAttribute('aria-pressed')).toBe('false');
+
+    fillText();
+    fireEvent.click(skip);
+    expect(catchUp.getAttribute('aria-pressed')).toBe('false');
+    expect(skip.getAttribute('aria-pressed')).toBe('true');
+    save();
+    expect(createSchedule).toHaveBeenCalledWith('p1', expect.objectContaining({ missedRunPolicy: 'skip' }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it('loads the saved skip policy when editing and allows switching back to catch-up', async () => {
+    updateSchedule.mockResolvedValue({ ...skipSchedule, missedRunPolicy: 'catch_up' });
+    const onOpenChange = renderDialog(skipSchedule);
+    expect(screen.getByRole('button', { name: 'schedules:form.missedRunsSkip', pressed: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'schedules:form.missedRunsCatchUp', pressed: false }));
+    save();
+    expect(updateSchedule).toHaveBeenCalledWith('s1', expect.objectContaining({ missedRunPolicy: 'catch_up' }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
   it('renders the store save error in the same alert element', async () => {

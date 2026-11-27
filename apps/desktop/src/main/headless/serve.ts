@@ -9,6 +9,9 @@
  * run the same queue at once. SIGTERM/SIGINT stop the runs, put the tasks back to
  * 'queue' with stuck subtasks reset (resumable) and release the lock.
  *
+ * Schedules catch up once after a missed window by default, or can opt to skip
+ * it. The daemon logs each schedule's policy at startup and new history as it is saved.
+ *
  * `stop-spec` drops a request file in .auto-claude/.locks/; the daemon polls it on
  * its safety timer and stops that one run, leaving the task in human_review
  * ('stopped') or, with requeue, back in the queue. Other runs are not touched.
@@ -26,7 +29,12 @@ import type { RecurringSchedule } from '../../shared/types/schedule';
 import type { WorkerBridgeCoreOptions } from '../ai/agent/worker-bridge-core';
 import { createDeliveryReceiptRecorder } from '../delivery-receipts';
 import { createScheduleFileStore } from '../schedule-file-store';
-import { createScheduleService, readTaskTokensFromDisk } from '../schedule-service';
+import {
+  createScheduleService,
+  describeMissedRunPolicy,
+  describeScheduleRecord,
+  readTaskTokensFromDisk,
+} from '../schedule-service';
 import { TaskQueueManager } from '../task-queue-manager';
 import { writeFileAtomicSync } from '../utils/atomic-file';
 import { acquireProjectQueueLock, formatLockHolder } from '../utils/project-queue-lock';
@@ -423,7 +431,23 @@ export async function runServe(options: ServeOptions): Promise<number> {
   scheduleService = createScheduleService({
     now,
     listSchedules,
-    updateSchedule: async (id, mutator) => (await scheduleStore.updateSchedule(id, mutator)) !== undefined,
+    updateSchedule: async (id, mutator) => {
+      // zeenha fork: compare by id because history trimming can shift old records.
+      let previousIds = new Set<string | undefined>();
+      const saved = await scheduleStore.updateSchedule(id, (current) => {
+        previousIds = new Set(current.history.map((entry) => entry?.id));
+        return mutator(current);
+      });
+      if (!saved) return false;
+      for (const entry of saved.history) {
+        try {
+          if (!previousIds.has(entry.id)) log(describeScheduleRecord(saved, entry));
+        } catch {
+          // Best effort: logging must not affect a successful save.
+        }
+      }
+      return true;
+    },
     getProject: (id) => (id === projectId ? project : undefined),
     listTasks: () => getTasks(),
     createTask: async (_projectId, template, scheduleId, scheduledFor) => {
@@ -449,6 +473,16 @@ export async function runServe(options: ServeOptions): Promise<number> {
   const budgetSuffix = defaultTokenBudget === undefined ? '' : `, default token budget ${defaultTokenBudget} tokens`;
   log(`Serving ${project.name} (${projectPath}), up to ${limit()} parallel task(s)${budgetSuffix}`);
   await queue.requestProcess();
+  for (const schedule of listSchedules()) {
+    try {
+      const { cadence, enabled, name, nextRunAt } = schedule;
+      const summary = cadence.kind === 'interval' ? `every ${cadence.everyMinutes} min` : `${cadence.kind} at ${cadence.time}`;
+      const next = enabled && nextRunAt !== null ? new Date(nextRunAt).toISOString() : 'paused';
+      log(`Schedule "${name}": ${summary}, missed runs: ${describeMissedRunPolicy(schedule)}, next run ${next}`);
+    } catch {
+      // An invalid schedule timestamp or a logging error must not block startup.
+    }
+  }
   scheduleService.start();
   const timers: Array<ReturnType<typeof setInterval>> = [];
   if (options.tickIntervalMs !== undefined) {

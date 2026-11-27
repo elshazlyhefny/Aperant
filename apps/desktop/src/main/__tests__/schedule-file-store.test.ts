@@ -1,4 +1,4 @@
-import fs, { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs';
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 // @ts-expect-error - no types available for proper-lockfile
@@ -47,6 +47,37 @@ describe('createScheduleFileStore', () => {
     await store.insertSchedule(make('b', 'p2'));
     expect(store.getSchedule('a')).toEqual(first);
     expect(store.listSchedules('p2').map((s) => s.id)).toEqual(['b']);
+  });
+
+  it('loads a legacy schedule unchanged and round-trips a skip policy', async () => {
+    const legacy: RecurringSchedule = {
+      id: 'legacy',
+      projectId: 'p1',
+      name: 'Daily update',
+      enabled: true,
+      cadence: { kind: 'daily', time: '09:00' },
+      template: { title: 'Update deps', description: 'Update all', tokenBudget: 1000 },
+      createdAt: 0,
+      updatedAt: 0,
+      nextRunAt: 9 * 60 * 60_000,
+      history: [],
+    };
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify({ version: 1, schedules: [legacy] }));
+    const store = createScheduleFileStore(file);
+    const loaded = store.getSchedule(legacy.id);
+    expect(loaded).toStrictEqual(legacy);
+    expect(loaded).not.toHaveProperty('missedRunPolicy');
+
+    const skip: RecurringSchedule = { ...legacy, id: 'skip', missedRunPolicy: 'skip' };
+    await store.insertSchedule(skip);
+    expect(createScheduleFileStore(file).listSchedules()).toStrictEqual([legacy, skip]);
+
+    // zeenha fork: an edit can switch the policy through the patch allowlist.
+    expect(await store.updateSchedule(skip.id, () => ({ missedRunPolicy: 'catch_up' }))).toStrictEqual({
+      ...skip,
+      missedRunPolicy: 'catch_up',
+    });
   });
 
   it('rejects duplicate inserts without replacing the stored record', async () => {

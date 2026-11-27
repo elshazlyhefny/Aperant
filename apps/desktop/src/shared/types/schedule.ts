@@ -10,6 +10,9 @@ export const MIN_INTERVAL_MINUTES = 15;
 export const DEFAULT_SCHEDULE_TOKEN_BUDGET = 2_000_000;
 export const MAX_SCHEDULE_HISTORY = 50;
 
+export type MissedRunPolicy = 'catch_up' | 'skip';
+export const DEFAULT_MISSED_RUN_POLICY: MissedRunPolicy = 'catch_up';
+
 export type ScheduleCadence =
   | { kind: 'daily'; time: string }
   /** days: 0 = Sunday .. 6 = Saturday */
@@ -26,7 +29,14 @@ export interface ScheduleTemplate {
   tokenBudget: number;
 }
 
-export type ScheduleRunKind = 'started' | 'skipped_unfinished' | 'missed' | 'budget_exceeded' | 'failed';
+export type ScheduleRunKind =
+  | 'started'
+  | 'skipped_unfinished'
+  | 'missed'
+  /** Opted out of catching up after a missed window. No task created; carries missedCount/missedFrom/missedTo. */
+  | 'skipped_missed'
+  | 'budget_exceeded'
+  | 'failed';
 
 export interface ScheduleRunRecord {
   id: string;
@@ -53,6 +63,8 @@ export interface RecurringSchedule {
   name: string;
   enabled: boolean;
   cadence: ScheduleCadence;
+  /** Defaults to 'catch_up' when absent. 'skip' drops occurrences the scheduler classifies as missed. */
+  missedRunPolicy?: MissedRunPolicy;
   template: ScheduleTemplate;
   createdAt: number;
   updatedAt: number;
@@ -69,5 +81,6 @@ export interface ScheduleInput {
   name: string;
   enabled?: boolean;
   cadence: ScheduleCadence;
+  missedRunPolicy?: MissedRunPolicy;
   template: ScheduleTemplate;
 }

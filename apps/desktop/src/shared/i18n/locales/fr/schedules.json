@@ -22,6 +22,10 @@
     "weekdays": "Jours de la semaine",
     "everyMinutes": "Toutes les N minutes",
     "everyMinutesHint": "Minimum {{min}} minutes.",
+    "missedRuns": "Exécutions manquées",
+    "missedRunsCatchUp": "Lancer une tâche de rattrapage",
+    "missedRunsSkip": "Attendre la prochaine exécution",
+    "missedRunsHint": "Une exécution est considérée comme manquée si elle a plus de 5 minutes de retard, par exemple si l’application était fermée. Attendez la prochaine exécution si la tâche n’est utile qu’à l’heure prévue.",
     "tokenBudget": "Budget de tokens par exécution",
     "tokenBudgetHint": "Le plafond est vérifié après chaque session d'agent : une exécution peut donc le dépasser légèrement avant d'être arrêtée."
   },
@@ -56,12 +60,17 @@
   "lastRun": "Dernière exécution : {{date}}",
   "never": "Jamais",
   "tokenBudgetSummary": "Budget : {{count}} tokens",
+  "missedPolicySummary": {
+    "catch_up": "Exécutions manquées : un rattrapage",
+    "skip": "Exécutions manquées : ignorées"
+  },
   "history": {
     "title": "Historique des exécutions",
     "empty": "Aucune exécution",
     "started": "Tâche démarrée",
     "skipped_unfinished": "Ignorée car la tâche précédente n'est pas terminée",
     "missed": "{{count}} exécutions manquées, une exécution de rattrapage a été lancée",
+    "skipped_missed": "Exécutions manquées ({{count}}) : ignorées selon le réglage de cette planification",
     "budget_exceeded": "Budget de tokens dépassé",
     "failed": "Échec du démarrage",
     "startedManual": "Tâche démarrée manuellement",

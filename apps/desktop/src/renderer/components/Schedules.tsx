@@ -352,6 +352,9 @@ export function Schedules({ projectId, onOpenTask }: SchedulesProps) {
                 )}
                 <div className="flex flex-wrap gap-x-6 gap-y-1 text-muted-foreground">
                   <span>
+                    {t(`schedules:missedPolicySummary.${schedule.missedRunPolicy === 'skip' ? 'skip' : 'catch_up'}`)}
+                  </span>
+                  <span>
                     {t('schedules:tokenBudgetSummary', {
                       count: schedule.template.tokenBudget
                     })}

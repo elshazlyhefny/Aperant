@@ -22,6 +22,10 @@
     "weekdays": "Days of the week",
     "everyMinutes": "Every N minutes",
     "everyMinutesHint": "Minimum {{min}} minutes.",
+    "missedRuns": "Missed runs",
+    "missedRunsCatchUp": "Run one catch-up task",
+    "missedRunsSkip": "Skip and wait for the next run",
+    "missedRunsHint": "A run is missed when it is more than 5 minutes late, for example because the app was closed. Skipping suits jobs that only make sense at their scheduled time.",
     "tokenBudget": "Token budget per run",
     "tokenBudgetHint": "The ceiling is checked after each agent session, so a run can slightly exceed it before it is stopped."
   },
@@ -56,12 +60,17 @@
   "lastRun": "Last run: {{date}}",
   "never": "Never",
   "tokenBudgetSummary": "Budget: {{count}} tokens",
+  "missedPolicySummary": {
+    "catch_up": "Missed runs: one catch-up",
+    "skip": "Missed runs: skipped"
+  },
   "history": {
     "title": "Run history",
     "empty": "No runs yet",
     "started": "Started a task",
     "skipped_unfinished": "Skipped because the previous task is unfinished",
     "missed": "Missed {{count}} runs, one catch-up run was started",
+    "skipped_missed": "Missed {{count}} runs, skipped as set for this schedule",
     "budget_exceeded": "Token budget exceeded",
     "failed": "Failed to start",
     "startedManual": "Started a task manually",
