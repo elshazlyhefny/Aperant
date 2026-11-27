@@ -11,6 +11,8 @@ on:
       - '.github/actions/**'
       - 'scripts/check-action-pins*.mjs'
       - 'apps/desktop/biome.jsonc'
+      - 'scripts/release-signing-gate*'
+      - 'scripts/verify-windows-signatures.ps1'
   pull_request:
     branches: [main, develop, zeenha]
     paths:
@@ -21,6 +23,8 @@ on:
       - '.github/actions/**'
       - 'scripts/check-action-pins*.mjs'
       - 'apps/desktop/biome.jsonc'
+      - 'scripts/release-signing-gate*'
+      - 'scripts/verify-windows-signatures.ps1'
 
 concurrency:
   group: lint-${{ github.event.pull_request.number || github.ref }}
@@ -37,6 +41,10 @@ jobs:
 
       - name: Test owner comment workflow safeguards
         run: python3 -B -m unittest discover -s .github/actions/comment-agent
+
+      # zeenha fork: Guard the release signing checks without installing dependencies.
+      - name: Test release signing gate
+        run: node --test scripts/release-signing-gate.test.mjs
 
       # zeenha fork: prevent mutable actions from re-entering the release path.
       - name: Check release workflows pin actions to commit SHAs
