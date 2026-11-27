@@ -7,12 +7,12 @@ import '@testing-library/jest-dom';
 import '../../../shared/i18n';
 import { IssueWritebackSettings } from './IssueWritebackSettings';
 import { DEFAULT_APP_SETTINGS } from '../../../shared/constants/config';
-import type { AppSettings } from '../../../shared/types';
+import type { RendererAppSettings } from '../../../shared/types';
 import en from '../../../shared/i18n/locales/en/settings.json';
 import fr from '../../../shared/i18n/locales/fr/settings.json';
 
-function makeSettings(issueWriteback?: AppSettings['issueWriteback']): AppSettings {
-  return { ...(DEFAULT_APP_SETTINGS as unknown as AppSettings), issueWriteback };
+function makeSettings(issueWriteback?: RendererAppSettings['issueWriteback']): RendererAppSettings {
+  return { ...(DEFAULT_APP_SETTINGS as unknown as RendererAppSettings), issueWriteback };
 }
 
 function flatKeys(obj: Record<string, unknown>, prefix = ''): string[] {
@@ -55,7 +55,7 @@ describe('IssueWritebackSettings', () => {
         <IssueWritebackSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />
       );
       fireEvent.click(container.querySelector(`#issue-writeback-${key}`) as HTMLElement);
-      const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+      const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
       expect(next.issueWriteback).toEqual({ ...DEFAULTS, [key]: true });
     }
   );
@@ -68,7 +68,7 @@ describe('IssueWritebackSettings', () => {
       />
     );
     fireEvent.click(container.querySelector('#issue-writeback-gitlab') as HTMLElement);
-    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
     expect(next.issueWriteback).toEqual({ ...DEFAULTS, github: true, gitlab: true, linear: true });
   });
 
@@ -77,7 +77,7 @@ describe('IssueWritebackSettings', () => {
       <IssueWritebackSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />
     );
     fireEvent.click(container.querySelector('#issue-writeback-linearTransitionOnReview') as HTMLElement);
-    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
     expect(next.issueWriteback).toEqual({ ...DEFAULTS, linearTransitionOnReview: true });
   });
 
@@ -91,7 +91,7 @@ describe('IssueWritebackSettings', () => {
     fireEvent.change(container.querySelector('#issue-writeback-linear-state-name') as HTMLElement, {
       target: { value: 'Done' }
     });
-    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
     expect(next.issueWriteback).toEqual({
       ...DEFAULTS,
       linearTransitionOnReview: true,
@@ -118,7 +118,7 @@ describe('IssueWritebackSettings', () => {
       <IssueWritebackSettings settings={makeSettings(undefined)} onSettingsChange={onSettingsChange} />
     );
     fireEvent.click(container.querySelector('#issue-writeback-azureBoardsTransitionOnReview') as HTMLElement);
-    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
     expect(next.issueWriteback).toEqual({ ...DEFAULTS, azureBoardsTransitionOnReview: true });
   });
 
@@ -132,7 +132,7 @@ describe('IssueWritebackSettings', () => {
     fireEvent.change(container.querySelector('#issue-writeback-azureboards-state-name') as HTMLElement, {
       target: { value: 'Closed' }
     });
-    const next = onSettingsChange.mock.calls[0][0] as AppSettings;
+    const next = onSettingsChange.mock.calls[0][0] as RendererAppSettings;
     expect(next.issueWriteback).toEqual({
       ...DEFAULTS,
       azureBoardsTransitionOnReview: true,

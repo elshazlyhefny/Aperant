@@ -166,8 +166,10 @@ For GitHub, GitLab and Azure Boards the issue reference is `#<number>`. For Line
 - Write-back runs in the background after the status change. It is fire-and-forget.
 - There is one attempt. There is no retry and no queue. A comment that fails is dropped.
 - It never changes a task's status and never blocks the app.
-- Errors are swallowed on purpose, so task flow is never affected. The app shows no message in the UI when a comment fails. The only trace is the warning line in the app log.
+- Delivery errors do not affect task flow. **Task Detail → Overview → Delivery history** shows the comment result separately from the result of any enabled issue state change. A failed comment does not stop an eligible state change, and a state-change failure does not alter the comment receipt.
 - The headless commands (`cli.js run` and `cli.js serve`) also post issue comments, when their `--config` file turns write-back on. See [CLI-USAGE.md](CLI-USAGE.md).
+
+The [delivery history guide](notifications-and-webhooks.md#delivery-history) explains each status and the local retention limit. Use the [read-only CLI history command](CLI-USAGE.md#delivery-receipts) after a headless run. An unconfirmed write may already have reached the tracker; check the issue before posting manually. Neither receipt reads nor restarts replay a comment or state change.
 
 ## Troubleshooting
 

@@ -1,30 +1,22 @@
 import type { ComponentType } from 'react';
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Pencil,
   Trash2,
   Clock,
   TrendingUp,
-  Eye,
-  EyeOff,
   RefreshCw,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { cn } from '../../lib/utils';
-import type { ProviderAccount } from '@shared/types/provider-account';
+import type { ProviderAccountView } from '@shared/types/provider-account';
 
 interface ProviderAccountCardProps {
-  account: ProviderAccount;
-  onEdit: (account: ProviderAccount) => void;
+  account: ProviderAccountView;
+  onEdit: (account: ProviderAccountView) => void;
   onDelete: (id: string) => void;
-  onReauth?: (account: ProviderAccount) => void;
-}
-
-function maskKey(key: string): string {
-  if (!key || key.length < 8) return '••••••••';
-  return `${key.slice(0, 4)}${'•'.repeat(Math.max(8, key.length - 8))}${key.slice(-4)}`;
+  onReauth?: (account: ProviderAccountView) => void;
 }
 
 function UsageBar({ percent, icon: Icon, tooltipKey }: {
@@ -67,7 +59,6 @@ function UsageBar({ percent, icon: Icon, tooltipKey }: {
 
 export function ProviderAccountCard({ account, onEdit, onDelete, onReauth }: ProviderAccountCardProps) {
   const { t } = useTranslation('settings');
-  const [showKey, setShowKey] = useState(false);
 
   const isOAuth = account.authType === 'oauth';
   const isCodex = isOAuth && account.provider === 'openai';
@@ -90,15 +81,15 @@ export function ProviderAccountCard({ account, onEdit, onDelete, onReauth }: Pro
             ? t('providers.card.zaiUsageBased')
             : t('providers.card.apiKey');
 
-  const identifier = isCodex
-    ? (account.email || t('providers.card.codexSubscription'))
-    : isClaudeCode
-      ? (account.email || t('providers.card.claudeCodeSubscription'))
-      : isZaiCodingPlan
-        ? (account.email || t('providers.card.zaiCodingPlanSubscription'))
-        : isOAuth
-          ? (account.email || (account.usage ? t('providers.card.oauthLinked') : t('providers.card.oauthAccount')))
-          : account.baseUrl ?? t('providers.card.noEndpoint');
+  const identifier = !isOAuth
+    ? (account.baseUrl || t('providers.card.noEndpoint'))
+    : isCodex
+      ? (account.email || t('providers.card.codexSubscription'))
+      : isClaudeCode
+        ? (account.email || t('providers.card.claudeCodeSubscription'))
+        : isZaiCodingPlan
+          ? (account.email || t('providers.card.zaiCodingPlanSubscription'))
+          : (account.email || (account.usage ? t('providers.card.oauthLinked') : t('providers.card.oauthAccount')));
 
   return (
     <div
@@ -124,23 +115,12 @@ export function ProviderAccountCard({ account, onEdit, onDelete, onReauth }: Pro
 
           </div>
 
-          {/* Identifier row */}
-          {!isOAuth && account.apiKey ? (
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground font-mono">
-                {showKey ? account.apiKey : maskKey(account.apiKey)}
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowKey(!showKey)}
-                className="text-muted-foreground hover:text-foreground"
-                aria-label={showKey ? t('providers.card.hideKey') : t('providers.card.showKey')}
-              >
-                {showKey ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-              </button>
-            </div>
-          ) : (
-            <span className="text-xs text-muted-foreground truncate block">{identifier}</span>
+          <span className="text-xs text-muted-foreground truncate block">{identifier}</span>
+          {/* zeenha fork: show key presence only; saved keys stay in the main process. */}
+          {!isOAuth && (
+            <span className="text-[10px] text-muted-foreground mt-1 block">
+              {t(account.hasApiKey ? 'providers.card.keySaved' : 'providers.card.noKeySaved')}
+            </span>
           )}
 
           {/* Custom models count for openai-compatible */}

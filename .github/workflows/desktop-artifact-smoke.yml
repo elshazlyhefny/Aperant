@@ -1,0 +1,262 @@
+# zeenha fork: opt-in extract/copy-and-run checks, not release or distribution validation.
+name: Desktop Artifact Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Native artifact to smoke-test
+        type: choice
+        required: true
+        default: all
+        options: [all, windows-x64, macos-arm64, macos-x64]
+
+permissions:
+  contents: read
+
+# Keep the complete target list available even if matrix planning or a runner fails.
+env:
+  TARGETS: >-
+    [{"id":"windows-x64","runner":"windows-latest","platform":"win32","arch":"x64","format":"zip"},
+     {"id":"macos-arm64","runner":"macos-15","platform":"darwin","arch":"arm64","format":"dmg"},
+     {"id":"macos-x64","runner":"macos-15-intel","platform":"darwin","arch":"x64","format":"dmg"}]
+  SELECTED: ${{ inputs.target }}
+
+jobs:
+  select-targets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        run: |
+          matrix=$(jq -ce --arg target "$SELECTED" \
+            'map(select($target == "all" or .id == $target)) | select(length > 0) | {include: .}' <<< "$TARGETS")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  native-smoke:
+    name: Smoke (${{ matrix.id }})
+    needs: select-targets
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
+    env:
+      TARGET_ID: ${{ matrix.id }}
+      TARGET_PLATFORM: ${{ matrix.platform }}
+      TARGET_ARCH: ${{ matrix.arch }}
+      ARTIFACT_FORMAT: ${{ matrix.format }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js and workspace dependencies
+        id: setup
+        uses: ./.github/actions/setup-node-frontend
+        with:
+          node-version: '24'
+
+      - name: Read build identity and check native toolchain
+        id: identity
+        working-directory: apps/desktop
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          native=$(node -p '`${require("node:os").platform()}-${require("node:os").arch()}`')
+          if [[ "$native" == "$TARGET_PLATFORM-$TARGET_ARCH" ]]; then
+            echo 'matches=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build application
+        id: build
+        if: steps.identity.outputs.matches == 'true'
+        working-directory: apps/desktop
+        timeout-minutes: 15
+        run: npm run build
+
+      - name: Package only the selected distribution artifact
+        id: package
+        if: steps.identity.outputs.matches == 'true'
+        working-directory: apps/desktop
+        timeout-minutes: 20
+        run: |
+          case "$TARGET_ID" in
+            windows-x64) args=(--win zip) ;;
+            # Apple Silicon requires executable signatures. Use only local ad-hoc signing.
+            macos-arm64) args=(--mac dmg -c.mac.identity=- -c.mac.notarize=false) ;;
+            macos-x64) args=(--mac dmg -c.mac.identity=null -c.mac.notarize=false) ;;
+            *) exit 1 ;;
+          esac
+          npm run package -- "${args[@]}" "--$TARGET_ARCH" --publish never -c.directories.output=dist/native-smoke
+
+      # This step needs no source checkout or project Node install to report an early failure.
+      - name: Probe packaged application and record evidence
+        if: ${{ !cancelled() }}
+        uses: actions/github-script@v8
+        timeout-minutes: 15
+        env:
+          CHECKOUT: ${{ steps.checkout.outcome }}
+          SETUP: ${{ steps.setup.outcome }}
+          IDENTITY: ${{ steps.identity.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          PACKAGE: ${{ steps.package.outcome }}
+          EXPECTED_VERSION: ${{ steps.identity.outputs.version }}
+          HOST_MATCHES: ${{ steps.identity.outputs.matches }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const execFile = require('node:util').promisify(require('node:child_process').execFile);
+            const env = process.env;
+            const version = value => typeof value === 'string' && value.length <= 128 &&
+              /^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(value) ? value : null;
+            const result = {
+              target: env.TARGET_ID, source: context.sha, expectedVersion: version(env.EXPECTED_VERSION),
+              artifact: 'not-produced', status: 'fail', stage: 'checkout', reason: 'Stage did not complete',
+            };
+
+            async function probe() {
+              for (const [stage, outcome] of [['checkout', env.CHECKOUT], ['setup', env.SETUP], ['identity', env.IDENTITY]]) {
+                result.stage = stage;
+                if (outcome !== 'success') return;
+              }
+              if (env.HOST_MATCHES !== 'true') {
+                Object.assign(result, { status: 'not run', reason: 'Requires a matching native toolchain' });
+                return;
+              }
+              result.stage = 'build';
+              if (env.BUILD !== 'success') return;
+              result.stage = 'package';
+              if (env.PACKAGE !== 'success') return;
+
+              result.stage = 'artifact';
+              const desktop = path.resolve('apps/desktop');
+              const dist = path.join(desktop, 'dist', 'native-smoke');
+              const entries = fs.readdirSync(dist, { withFileTypes: true })
+                .filter(entry => entry.name.endsWith(`.${env.ARTIFACT_FORMAT}`));
+              if (entries.length !== 1 || !entries[0].isFile() ||
+                  fs.statSync(path.join(dist, entries[0].name)).size === 0) {
+                result.reason = 'Expected exactly one nonempty built distribution artifact';
+                return;
+              }
+              const artifact = entries[0].name;
+              result.artifact = artifact.replace(/[^A-Za-z0-9_.+ -]/g, '_').slice(0, 160);
+              result.stage = 'probe';
+              const args = ['scripts/smoke-desktop-native.mjs', '--run', '--target', result.target,
+                '--artifact', path.join(dist, artifact), '--version', result.expectedVersion, '--source', result.source];
+              // macOS RUNNER_TEMP can be under the account home, which the probe disallows.
+              if (env.TARGET_PLATFORM === 'darwin') args.push('--temp-parent', '/private/tmp');
+              let stdout;
+              let code = 0;
+              try {
+                ({ stdout } = await execFile('node', args, { cwd: desktop, maxBuffer: 16 * 1024 }));
+              } catch (error) {
+                ({ code, stdout } = error);
+              }
+              // Do not publish stdout/stderr. Accept only bounded, structured evidence for this build.
+              const proof = JSON.parse(stdout);
+              if (proof.target !== result.target || proof.source !== result.source ||
+                  proof.expectedVersion !== result.expectedVersion || proof.artifact !== result.artifact ||
+                  !/^[a-z-]{1,40}$/.test(proof.stage)) return;
+              result.stage = proof.stage;
+              if (version(proof.observed?.version) && ['x64', 'arm64'].includes(proof.observed.arch)) {
+                result.observed = proof.observed.version + ' / ' + proof.observed.arch;
+              }
+              if (code === 2 && proof.status === 'not run') {
+                Object.assign(result, { status: 'not run', reason: 'Requires an interactive matching native runner' });
+              } else if (code === 0 && proof.status === 'pass' && proof.stage === 'complete' &&
+                         result.observed === `${result.expectedVersion} / ${env.TARGET_ARCH}` &&
+                         proof.diagnostics?.startup === 'passed' && proof.diagnostics.cleanup === 'closed' &&
+                         ['fixture-before', 'profile-before', 'ipc-version', 'project', 'pty', 'libsql', 'fixture-after']
+                           .every(check => proof.diagnostics.checks?.[check] === 'passed')) {
+                Object.assign(result, { status: 'pass', reason: 'Packaged startup, fixture, PTY and libSQL verified' });
+              }
+            }
+
+            try { await probe(); } catch { /* Keep the bounded fallback for the current stage. */ }
+            const record = JSON.stringify(result);
+            core.info(record);
+            fs.writeFileSync(path.join(env.RUNNER_TEMP, 'desktop-smoke-result.json'), record + '\n');
+            if (result.status === 'fail') core.setFailed(`Desktop artifact smoke failed at ${result.stage}`);
+
+      - name: Upload result only
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-smoke-${{ github.run_attempt }}-${{ matrix.id }}
+          path: ${{ runner.temp }}/desktop-smoke-result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  summary:
+    name: Desktop artifact smoke summary
+    needs: [select-targets, native-smoke]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Collect available results for this attempt
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          pattern: desktop-smoke-${{ github.run_attempt }}-*
+          path: smoke-results
+
+      - name: Summarize all supported artifacts
+        if: ${{ always() }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          selected = os.environ['SELECTED']
+          source = os.environ['GITHUB_SHA']
+          attempt = os.environ['GITHUB_RUN_ATTEMPT']
+          lines = [
+              '## Desktop artifact smoke (advisory)',
+              'Extract/copy-and-run only; does not verify NSIS, signing, notarization or Gatekeeper.',
+              '',
+              '| Target | Status | Artifact | Source / expected version | Observed version / arch | Stage / reason |',
+              '| --- | --- | --- | --- | --- | --- |',
+          ]
+
+          def cell(value):
+              # Do not propagate Markdown/HTML or multiline values from downloaded records.
+              return ''.join(c if c.isascii() and (c.isalnum() or c in ' ._+/-') else '_' for c in str(value)[:160])
+
+          for target in json.loads(os.environ['TARGETS']):
+              key = target['id']
+              result = {}
+              if selected not in ('all', key):
+                  reason = 'Not selected'
+              else:
+                  reason = 'No completed evidence in this attempt (runner unavailable, interrupted, or result missing)'
+                  path = Path('smoke-results') / f'desktop-smoke-{attempt}-{key}' / 'desktop-smoke-result.json'
+                  try:
+                      with path.open('rb') as record:
+                          candidate = json.loads(record.read(4097))
+                      if (candidate.get('target') == key and candidate.get('source') == source
+                              and candidate.get('status') in ('pass', 'fail', 'not run')):
+                          result = candidate
+                          reason = result['stage'] + ' / ' + result['reason']
+                  except (OSError, ValueError, AttributeError, KeyError, TypeError):
+                      result = {}
+              row = [f"{key} {target['format'].upper()}", result.get('status', 'not run'),
+                     result.get('artifact', 'not-produced'), f"{source} / {result.get('expectedVersion') or '-'}",
+                     result.get('observed', '-'), reason]
+              lines.append('| ' + ' | '.join(map(cell, row)) + ' |')
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write('\n'.join(lines) + '\n')
+          PY

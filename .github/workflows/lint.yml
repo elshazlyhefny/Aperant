@@ -6,23 +6,25 @@ on:
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/lint.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/beta-release.yml'
       - '.github/actions/**'
+      - 'scripts/check-action-pins*.mjs'
       - 'apps/desktop/biome.jsonc'
       - 'scripts/release-signing-gate*'
       - 'scripts/verify-windows-signatures.ps1'
-      - '.github/workflows/release.yml'
-      - '.github/workflows/beta-release.yml'
   pull_request:
     branches: [main, develop, zeenha]
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/lint.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/beta-release.yml'
       - '.github/actions/**'
+      - 'scripts/check-action-pins*.mjs'
       - 'apps/desktop/biome.jsonc'
       - 'scripts/release-signing-gate*'
       - 'scripts/verify-windows-signatures.ps1'
-      - '.github/workflows/release.yml'
-      - '.github/workflows/beta-release.yml'
 
 concurrency:
   group: lint-${{ github.event.pull_request.number || github.ref }}
@@ -43,6 +45,12 @@ jobs:
       # zeenha fork: Guard the release signing checks without installing dependencies.
       - name: Test release signing gate
         run: node --test scripts/release-signing-gate.test.mjs
+
+      # zeenha fork: prevent mutable actions from re-entering the release path.
+      - name: Check release workflows pin actions to commit SHAs
+        run: |
+          node --test scripts/check-action-pins.test.mjs
+          node scripts/check-action-pins.mjs
 
       # Pin version to match package.json for consistent behavior
       - name: Setup Biome
