@@ -83,6 +83,14 @@ describe('createScheduleFileStore', () => {
     expect(store.listSchedules()).toEqual([second]);
   });
 
+  it('does not create the file when updating a missing ID', async () => {
+    const store = createScheduleFileStore(file);
+    const mutator = vi.fn(() => ({ name: 'missing' }));
+    expect(await store.updateSchedule('a', mutator)).toBeUndefined();
+    expect(mutator).not.toHaveBeenCalled();
+    expect(() => readFileSync(file)).toThrow(/ENOENT/);
+  });
+
   it('reads empty from a corrupt file', async () => {
     const store = createScheduleFileStore(file);
     await store.insertSchedule(make('a'));

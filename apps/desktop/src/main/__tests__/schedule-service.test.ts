@@ -201,6 +201,68 @@ describe('in-flight schedule writeback', () => {
     expect(deps.notifyChanged).not.toHaveBeenCalled();
   });
 
+  it.each(['timed', 'manual'])('keeps a cadence edit and its rescheduled cursor after a %s success', async (kind) => {
+    const manual = kind === 'manual';
+    const { deps, schedules, service } = setup({
+      schedules: [makeSchedule({ nextRunAt: manual ? T0 + DAY : T0 })],
+    });
+    const creation = deferTaskCreation(deps);
+    const run = manual ? service.runNow('s1') : service.tick();
+    await creation.entered;
+    const edited: RecurringSchedule = {
+      ...schedules[0],
+      cadence: { kind: 'interval', everyMinutes: 30 },
+      nextRunAt: T0 + HOUR / 2,
+      name: 'Updated schedule',
+      template: { ...schedules[0].template, title: 'Updated task title' },
+      updatedAt: T0,
+    };
+    schedules[0] = edited;
+    creation.release();
+    await run;
+
+    expect(schedules[0]).toEqual({
+      ...edited,
+      lastRunAt: T0,
+      lastTaskId: 't1',
+      history: [expect.objectContaining({ kind: 'started', taskId: 't1' })],
+    });
+  });
+
+  it('keeps an acknowledgement made during a manual run', async () => {
+    const prior = { id: 'previous', at: T0 - DAY, kind: 'failed', acknowledged: false } as const;
+    const { deps, schedules, service } = setup({
+      schedules: [makeSchedule({ nextRunAt: T0 + DAY, history: [prior] })],
+    });
+    const creation = deferTaskCreation(deps);
+    const run = service.runNow('s1');
+    await creation.entered;
+    schedules[0] = { ...schedules[0], history: [{ ...prior, acknowledged: true }] };
+    creation.release();
+    await run;
+
+    expect(schedules[0].history).toEqual([
+      { ...prior, acknowledged: true },
+      expect.objectContaining({ kind: 'started', taskId: 't1', detail: 'manual', acknowledged: false }),
+    ]);
+  });
+
+  it.each(['paused', 'deleted'])('re-reads a later schedule %s while an earlier one is being created', async (edit) => {
+    const { deps, schedules, service, tasks } = setup({ schedules: [makeSchedule(), makeSchedule({ id: 's2' })] });
+    const creation = deferTaskCreation(deps);
+    const tick = service.tick();
+    await creation.entered;
+    const paused = { ...schedules[1], enabled: false, nextRunAt: null };
+    if (edit === 'paused') schedules[1] = paused;
+    else schedules.pop();
+    creation.release();
+    await tick;
+
+    expect(deps.createTask).toHaveBeenCalledExactlyOnceWith('p1', schedules[0].template, 's1', T0);
+    expect(tasks.map((task) => task.id)).toEqual(['t1']);
+    expect(schedules.slice(1)).toEqual(edit === 'paused' ? [paused] : []);
+  });
+
   it('does not retry a failed manual writeback as a task creation failure', async () => {
     const { deps, schedules, service, tasks } = setup({ schedules: [makeSchedule({ nextRunAt: T0 + DAY })] });
     vi.mocked(deps.updateSchedule).mockRejectedValueOnce(new Error('write failed'));

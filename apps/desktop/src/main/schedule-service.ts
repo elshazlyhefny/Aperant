@@ -115,6 +115,14 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
   /** Schedule ids with a manual run in progress; processSchedule skips them. */
   const inFlight = new Set<string>();
 
+  function readSchedule(id: string): RecurringSchedule | undefined {
+    try {
+      return deps.listSchedules().find((s) => s.id === id);
+    } catch {
+      return undefined;
+    }
+  }
+
   function allowed(projectId: string): boolean {
     try {
       return deps.canRun ? deps.canRun(projectId) : true;
@@ -324,8 +332,12 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
       } catch {
         return;
       }
-      for (const schedule of schedules) {
+      for (const entry of schedules) {
         try {
+          // zeenha fork: re-read each schedule, because an earlier schedule's task
+          // creation can take long enough for this one to be paused, edited or deleted.
+          const schedule = readSchedule(entry.id);
+          if (!schedule) continue;
           const project = deps.getProject(schedule.projectId);
           if (!project) continue;
           if (await processSchedule(schedule, project, now)) changed.add(project.id);
@@ -354,12 +366,7 @@ export function createScheduleService(deps: ScheduleServiceDeps): ScheduleServic
   }
 
   async function runNow(scheduleId: string): Promise<ScheduleRunNowResult> {
-    let schedule: RecurringSchedule | undefined;
-    try {
-      schedule = deps.listSchedules().find((s) => s.id === scheduleId);
-    } catch {
-      return { started: false, reason: 'not_found' };
-    }
+    const schedule = readSchedule(scheduleId);
     if (!schedule) return { started: false, reason: 'not_found' };
     const project = deps.getProject(schedule.projectId);
     if (!project) return { started: false, reason: 'not_found' };
