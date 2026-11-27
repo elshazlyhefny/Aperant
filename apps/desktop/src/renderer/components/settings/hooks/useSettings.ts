@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSettingsStore, saveSettings as saveSettingsToStore, loadSettings as loadSettingsFromStore } from '../../../stores/settings-store';
-import type { AppSettings } from '../../../../shared/types';
+import type { AppSettings, RendererAppSettings } from '../../../../shared/types';
 import { UI_SCALE_DEFAULT } from '../../../../shared/constants';
 
 /**
@@ -13,7 +13,7 @@ import { UI_SCALE_DEFAULT } from '../../../../shared/constants';
 export function useSettings() {
   const currentSettings = useSettingsStore((state) => state.settings);
   const updateStoreSettings = useSettingsStore((state) => state.updateSettings);
-  const [settings, setSettings] = useState<AppSettings>(currentSettings);
+  const [settings, setSettings] = useState<RendererAppSettings>(currentSettings);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,7 +85,7 @@ export function useSettings() {
     }
   };
 
-  const updateSettings = (partial: Partial<AppSettings>) => {
+  const updateSettings = (partial: Partial<RendererAppSettings>) => {
     setSettings((prev) => ({ ...prev, ...partial }));
   };
 

@@ -615,22 +615,40 @@ async function executeStream(
   }
 
   // Get total usage from AI SDK result
-  // AI SDK v6 uses inputTokens/outputTokens naming
-  // zeenha fork: the Claude Code engine also reports the cache split; other providers leave it unset.
-  let totalUsage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number } | undefined;
+  // AI SDK v6 uses inputTokens/outputTokens naming, with the cache split in inputTokenDetails.
+  // zeenha fork: the Claude Code engine reports the cache split as cacheReadTokens/cacheCreationTokens.
+  let totalUsage:
+    | {
+        inputTokens?: number;
+        outputTokens?: number;
+        inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number };
+        cacheReadTokens?: number;
+        cacheCreationTokens?: number;
+      }
+    | undefined;
   try {
     totalUsage = await withTimeout(result.totalUsage, POST_STREAM_TIMEOUT_MS, 'result.totalUsage');
   } catch {
     // Fall through — use summary usage collected during stream iteration.
   }
+  // zeenha fork: an empty total (no tokens at all) is treated like a missing one,
+  // so the per-step tally from the stream is used instead of recording zero.
+  const sdkUsage =
+    totalUsage && (totalUsage.inputTokens ?? 0) + (totalUsage.outputTokens ?? 0) > 0 ? totalUsage : undefined;
+  const cacheReadTokens = sdkUsage
+    ? (sdkUsage.inputTokenDetails?.cacheReadTokens ?? sdkUsage.cacheReadTokens)
+    : summary.usage.cacheReadTokens;
+  const cacheCreationTokens = sdkUsage
+    ? (sdkUsage.inputTokenDetails?.cacheWriteTokens ?? sdkUsage.cacheCreationTokens)
+    : summary.usage.cacheCreationTokens;
   const usage: TokenUsage = {
-    promptTokens: totalUsage?.inputTokens ?? summary.usage.promptTokens,
-    completionTokens: totalUsage?.outputTokens ?? summary.usage.completionTokens,
-    totalTokens:
-      (totalUsage?.inputTokens ?? 0) + (totalUsage?.outputTokens ?? 0) ||
-      summary.usage.totalTokens,
-    ...(totalUsage?.cacheReadTokens ? { cacheReadTokens: totalUsage.cacheReadTokens } : {}),
-    ...(totalUsage?.cacheCreationTokens ? { cacheCreationTokens: totalUsage.cacheCreationTokens } : {}),
+    promptTokens: sdkUsage?.inputTokens ?? summary.usage.promptTokens,
+    completionTokens: sdkUsage?.outputTokens ?? summary.usage.completionTokens,
+    totalTokens: sdkUsage
+      ? (sdkUsage.inputTokens ?? 0) + (sdkUsage.outputTokens ?? 0)
+      : summary.usage.totalTokens,
+    ...(cacheReadTokens ? { cacheReadTokens } : {}),
+    ...(cacheCreationTokens ? { cacheCreationTokens } : {}),
   };
 
   // zeenha fork: a run cut off by the token budget is never reported as completed.

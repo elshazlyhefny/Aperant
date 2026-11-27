@@ -11,7 +11,7 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
 import { AuthStatusIndicator } from './AuthStatusIndicator';
 import { useSettingsStore } from '../stores/settings-store';
-import type { ProviderAccount } from '../../shared/types/provider-account';
+import type { ProviderAccountView } from '../../shared/types/provider-account';
 
 // Mock the settings store
 vi.mock('../stores/settings-store', () => ({
@@ -62,12 +62,13 @@ vi.mock('react-i18next', () => ({
 }));
 
 // Test provider accounts
-const testAccounts: ProviderAccount[] = [
+const testAccounts: ProviderAccountView[] = [
   {
     id: 'account-anthropic',
     provider: 'anthropic',
     name: 'Claude Pro',
     authType: 'oauth',
+    hasApiKey: false,
     billingModel: 'subscription',
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -78,7 +79,7 @@ const testAccounts: ProviderAccount[] = [
     name: 'OpenAI API',
     authType: 'api-key',
     billingModel: 'pay-per-use',
-    apiKey: 'sk-openai-xxx',
+    hasApiKey: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -88,7 +89,7 @@ const testAccounts: ProviderAccount[] = [
     name: 'Google AI Key',
     authType: 'api-key',
     billingModel: 'pay-per-use',
-    apiKey: 'AIza-xxx',
+    hasApiKey: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -98,7 +99,7 @@ const testAccounts: ProviderAccount[] = [
  * Creates a mock settings store with provider accounts model
  */
 function createStoreMock(overrides?: {
-  providerAccounts?: ProviderAccount[];
+  providerAccounts?: ProviderAccountView[];
   globalPriorityOrder?: string[];
   customMixedProfileActive?: boolean;
   customMixedPhaseConfig?: Record<string, { provider: string }>;

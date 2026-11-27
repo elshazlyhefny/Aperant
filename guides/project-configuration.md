@@ -197,6 +197,38 @@ What works:
 - **Detect** reads the `origin` remote and matches the five remote formats of Azure DevOps Services.
 - **Create PR** opens a pull request on Azure DevOps. Drafts are real drafts. The description is capped at 4000 characters. Issue lines are worded without `#`, because Azure DevOps links `#123` to work items. See [Creating pull requests](creating-pull-requests.md).
 - **PR feedback** sends failed build validations and active threads to the task's agent. See [PR Follow-ups](pr-follow-ups.md).
+- **AI review** of an open pull request, with selected findings posted back to it. See [Azure DevOps AI review](#azure-devops-ai-review).
+
+#### Azure DevOps AI review
+
+1. Open **Azure DevOps PRs** in the sidebar, select an open pull request and click **Start AI review**. Once a result exists, the button reads **Re-run review**. For other pull requests, the button is disabled (`AI review is only available for open pull requests`). Progress and logs update live.
+2. Click **Cancel** to stop the review. The run ends with `Review cancelled`.
+3. Starting a review on the same pull request while one is running reconnects to it: `Review is already in progress. Reconnecting to ongoing review...`
+
+The review reads a detached Git worktree of the pull request head under `.auto-claude/pr-review/` and removes it when the run ends. The fetch uses the local repository's `origin` and configured Git credentials; Aperant does not pass `AZURE_DEVOPS_PAT` to Git. No branch is created, nothing is pushed, and running the review does not change the pull request. If the source branch name is unusable, the head SHA is invalid, the pull request is from a fork, or the fetch fails, the review reads the local base branch files and logs a `WARNING`. It still uses the pull request diff to review changed lines. Forks are not fetched, and no credentials are sent to their repositories.
+
+Results and logs are stored locally:
+
+- Result: `<project>/.auto-claude/azuredevops/pr/review_<id>.json`. The snake_case JSON includes `findings`, `summary`, `overall_status`, `reviewed_commit_sha`, `posted_finding_ids` and, after posting, `posted_at`.
+- Logs: `<project>/.auto-claude/azuredevops/pr/logs_<id>.json`.
+
+Do not commit `.auto-claude`. A successful re-run replaces the result for that pull request.
+
+Running a review does not publish its results to Azure DevOps. To publish findings:
+
+1. Tick the findings you want to share.
+2. To add inline threads, tick **Also post selected findings as inline comments**.
+3. Click **Post selected findings to Azure DevOps**, then click **Post** in the confirmation dialog.
+
+With the inline option on, Aperant first creates one active comment thread for each selected finding that has a file and a line number, anchored to that file and line. Each inline comment ends with `_Aperant PR Review_` unless truncated. Aperant then creates exactly one summary thread headed `Aperant PR Review`, with the review summary and a `Findings (N)` list. Findings without a line number appear only in the summary. Inline threads that fail are reported as `could not be placed`; their findings stay in full in the summary, subject to the length cap. Severity markers, ordering and the 32768-character cap work as described in the Bitbucket [AI review](#ai-review) section.
+
+Posting skips findings already recorded in `posted_finding_ids`. If all selected findings were already posted, the error is `No unposted findings among the selection`.
+
+If the summary thread fails after inline threads were posted, those threads stay on the pull request and their findings are marked posted. The error ends with `N inline comment(s) were already posted (findings: ...)`. Check the pull request before retrying and delete any stray threads in Azure DevOps if needed. A retry sends only findings not yet marked posted.
+
+Listing pull requests, viewing the diff and running a review need a PAT with **Code (Read)** scope and an account with the repository **Read** permission. Posting creates pull request threads: use **Code (Read & write)** and make sure the account has the repository **Contribute to pull requests** permission. Without that scope or permission, **Post** fails with the Azure DevOps error, but the review can still run with read access. **Build (Read)** is for PR follow-ups, not AI review.
+
+Sending reviewer feedback back to a task's agent is a separate workflow. See [PR Follow-ups](pr-follow-ups.md#azure-devops).
 
 #### Troubleshooting
 

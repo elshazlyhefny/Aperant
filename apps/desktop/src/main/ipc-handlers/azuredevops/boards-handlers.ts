@@ -183,9 +183,6 @@ export function registerAzureBoardsHandlers(agentManager: AgentManager): void {
         // Always refetch from Azure; renderer-supplied content is never trusted
         const fetched = new Map((await getWorkItemsByIds(config, ids)).map(item => [item.id, item]));
 
-        const specsDir = path.join(project.path, getSpecsDir(project.autoBuildPath));
-        const existing = findExistingBoardsSpecs(specsDir, config.organization, config.project);
-
         let imported = 0;
         let failed = 0;
         const skipped: AzureBoardsImportResult['skipped'] = [];
@@ -194,29 +191,22 @@ export function registerAzureBoardsHandlers(agentManager: AgentManager): void {
         const items: AzureBoardsImportItemOutcome[] = [];
 
         for (const id of ids) {
-          const existingSpecId = existing.get(id);
           const item = fetched.get(id);
-          if (existingSpecId && !allowDuplicates) {
-            skipped.push({ id, specId: existingSpecId });
-            items.push({ id, status: 'skipped', specId: existingSpecId, title: item?.title });
-            continue;
-          }
-          if (!item) {
-            failed++;
-            errors.push(`Failed to import AB#${id}: work item not found in Azure DevOps`);
-            items.push({ id, status: 'failed', reason: 'Work item not found in Azure DevOps' });
-            continue;
-          }
           try {
-            const spec = await createSpecFromWorkItem(project, config, item);
+            const spec = await createSpecFromWorkItem(project, config, id, item, allowDuplicates);
+            if (spec.kind === 'existing') {
+              skipped.push({ id, specId: spec.specId });
+              items.push({ id, status: 'skipped', specId: spec.specId, title: item?.title });
+              continue;
+            }
             agentManager.startSpecCreation(spec.specId, project.path, spec.description, spec.specDir, spec.metadata);
             imported++;
-            items.push({ id, status: 'imported', specId: spec.specId, title: item.title });
+            items.push({ id, status: 'imported', specId: spec.specId, title: item?.title });
           } catch (err) {
             failed++;
             const reason = errorMessage(err, 'Unknown error');
             errors.push(`Failed to import AB#${id}: ${reason}`);
-            items.push({ id, status: 'failed', title: item.title, reason });
+            items.push({ id, status: 'failed', title: item?.title, reason });
           }
         }
 

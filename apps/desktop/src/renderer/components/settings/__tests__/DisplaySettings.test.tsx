@@ -6,7 +6,7 @@ import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import '../../../../shared/i18n';
 import { DisplaySettings } from '../DisplaySettings';
-import type { AppSettings } from '../../../../shared/types';
+import type { RendererAppSettings } from '../../../../shared/types';
 
 // Mock the settings store
 vi.mock('../../../stores/settings-store', () => ({
@@ -45,14 +45,14 @@ vi.mock('../../ui/select', () => {
   };
 });
 
-const defaultSettings: AppSettings = {
+const defaultSettings: RendererAppSettings = {
   uiScale: 100,
   logOrder: 'chronological',
   gpuAcceleration: 'auto'
-} as AppSettings;
+} as RendererAppSettings;
 
 describe('DisplaySettings - GPU Acceleration Dropdown', () => {
-  let mockOnSettingsChange: (settings: AppSettings) => void;
+  let mockOnSettingsChange: (settings: RendererAppSettings) => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -83,7 +83,7 @@ describe('DisplaySettings - GPU Acceleration Dropdown', () => {
   });
 
   it('should display the current GPU acceleration value from settings', () => {
-    const settingsWithOn: AppSettings = { ...defaultSettings, gpuAcceleration: 'on' };
+    const settingsWithOn: RendererAppSettings = { ...defaultSettings, gpuAcceleration: 'on' };
 
     render(
       <DisplaySettings settings={settingsWithOn} onSettingsChange={mockOnSettingsChange} />
@@ -96,7 +96,7 @@ describe('DisplaySettings - GPU Acceleration Dropdown', () => {
   });
 
   it('should default to "off" when gpuAcceleration is not set', () => {
-    const settingsWithoutGpu: AppSettings = { ...defaultSettings, gpuAcceleration: undefined };
+    const settingsWithoutGpu: RendererAppSettings = { ...defaultSettings, gpuAcceleration: undefined };
 
     render(
       <DisplaySettings settings={settingsWithoutGpu} onSettingsChange={mockOnSettingsChange} />
@@ -132,7 +132,7 @@ describe('DisplaySettings - GPU Acceleration Dropdown', () => {
   });
 
   it('should call onSettingsChange with gpuAcceleration "auto" when selected', () => {
-    const settingsWithOff: AppSettings = { ...defaultSettings, gpuAcceleration: 'off' };
+    const settingsWithOff: RendererAppSettings = { ...defaultSettings, gpuAcceleration: 'off' };
 
     render(
       <DisplaySettings settings={settingsWithOff} onSettingsChange={mockOnSettingsChange} />

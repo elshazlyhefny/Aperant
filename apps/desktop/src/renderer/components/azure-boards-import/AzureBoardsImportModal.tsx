@@ -114,11 +114,9 @@ export function AzureBoardsImportModal({
       boards.selectAll();
       return;
     }
-    if (e.key === 'Enter') {
-      if (selectedIds.size > 0) {
-        e.preventDefault();
-        boards.handleImport();
-      }
+    if (e.key === 'Enter' && boards.canImport) {
+      e.preventDefault();
+      boards.handleImport();
     }
   };
 
@@ -401,7 +399,7 @@ export function AzureBoardsImportModal({
           {!done && (
             <Button
               onClick={boards.handleImport}
-              disabled={selectedIds.size === 0 || boards.isImporting}
+              disabled={!boards.canImport}
             >
               {boards.isImporting ? (
                 <>

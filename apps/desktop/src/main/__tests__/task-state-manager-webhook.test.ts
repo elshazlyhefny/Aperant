@@ -35,6 +35,12 @@ vi.mock('../ipc-handlers/issue-writeback/issue-writeback', () => ({
   dispatchIssueOutcome: (...args: unknown[]) => issueDispatch(...args),
 }));
 
+const recorder = { skip: vi.fn(), track: vi.fn(), snapshot: vi.fn() };
+const createRecorder = vi.fn(() => recorder);
+vi.mock('../delivery-receipts', () => ({
+  createDeliveryReceiptRecorder: (...args: []) => createRecorder(...args)
+}));
+
 import { TaskStateManager } from '../task-state-manager';
 
 const task = { id: 't1', specId: '001-x', projectId: 'p1', title: 'My task', description: '', status: 'backlog', subtasks: [], logs: [], createdAt: new Date(), updatedAt: new Date() } as Task;
@@ -56,6 +62,7 @@ beforeEach(() => {
   seq = 0;
   dispatch.mockReset();
   issueDispatch.mockReset();
+  createRecorder.mockClear();
 });
 
 describe('TaskStateManager webhook dispatch', () => {
@@ -64,7 +71,7 @@ describe('TaskStateManager webhook dispatch', () => {
     send(manager, { type: 'PLANNING_STARTED' });
     send(manager, { type: 'PLANNING_FAILED', error: 'boom', recoverable: true });
     expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(dispatch).toHaveBeenCalledWith({ status: 'error', reviewReason: undefined, projectName: 'Proj', taskTitle: 'My task', project });
+    expect(dispatch).toHaveBeenCalledWith({ status: 'error', reviewReason: undefined, projectName: 'Proj', taskTitle: 'My task', project }, recorder);
   });
 
   it('dispatches review_ready on completed human_review', () => {
@@ -73,6 +80,49 @@ describe('TaskStateManager webhook dispatch', () => {
     send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(dispatch.mock.calls[0][0]).toMatchObject({ status: 'human_review', reviewReason: 'completed' });
+  });
+
+  it('shares a project-root recorder only after persisting and emitting the outcome', () => {
+    const manager = make();
+    createRecorder.mockImplementationOnce(() => {
+      expect(persisted.at(-1)?.[1]).toBe('human_review');
+      expect(sends.at(-1)?.[2]).toBe('human_review');
+      return recorder;
+    });
+    send(manager, { type: 'PLANNING_STARTED' });
+    send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
+
+    expect(createRecorder).toHaveBeenCalledExactlyOnceWith(project.path, task.specId);
+    expect(dispatch.mock.calls[0][1]).toBe(recorder);
+    expect(issueDispatch.mock.calls[0][1]).toBe(recorder);
+  });
+
+  it('handles both delivery promise rejections without waiting or changing status', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      dispatch.mockRejectedValueOnce(new Error('private webhook failure'));
+      issueDispatch.mockRejectedValueOnce(new Error('private issue failure'));
+      const manager = make();
+      send(manager, { type: 'PLANNING_STARTED' });
+      send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
+
+      expect(persisted.at(-1)?.[1]).toBe('human_review');
+      expect(sends.at(-1)?.[2]).toBe('human_review');
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      expect(issueDispatch).toHaveBeenCalledTimes(1);
+      expect(warn).not.toHaveBeenCalled();
+      const writes = persisted.length;
+      const events = sends.length;
+      await Promise.resolve();
+      expect(warn.mock.calls).toEqual([
+        ['[TaskStateManager] Webhook dispatch failed'],
+        ['[TaskStateManager] Issue write-back failed']
+      ]);
+      expect(persisted).toHaveLength(writes);
+      expect(sends).toHaveLength(events);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('dispatches blocked on qa_rejected', () => {
@@ -180,7 +230,7 @@ describe('TaskStateManager issue write-back dispatch', () => {
     send(manager, { type: 'PLANNING_STARTED' });
     send(manager, { type: 'PLANNING_FAILED', error: 'boom', recoverable: true });
     expect(issueDispatch).toHaveBeenCalledTimes(1);
-    expect(issueDispatch).toHaveBeenCalledWith({ task, project, event: 'failed' });
+    expect(issueDispatch).toHaveBeenCalledWith({ task, project, event: 'failed' }, recorder);
   });
 
   it('dispatches review_ready on completed human_review', () => {
@@ -188,7 +238,7 @@ describe('TaskStateManager issue write-back dispatch', () => {
     send(manager, { type: 'PLANNING_STARTED' });
     send(manager, { type: 'QA_PASSED', iteration: 1, testsRun: {} });
     expect(issueDispatch).toHaveBeenCalledTimes(1);
-    expect(issueDispatch).toHaveBeenCalledWith({ task, project, event: 'review_ready' });
+    expect(issueDispatch).toHaveBeenCalledWith({ task, project, event: 'review_ready' }, recorder);
   });
 
   it('dispatches blocked on qa_rejected', () => {
@@ -198,7 +248,7 @@ describe('TaskStateManager issue write-back dispatch', () => {
     send(manager, { type: 'QA_FAILED', iteration: 1, issueCount: 1, issues: ['x'] });
     send(manager, { type: 'QA_FAILED', iteration: 2, issueCount: 1, issues: ['x'] });
     expect(issueDispatch).toHaveBeenCalledTimes(1);
-    expect(issueDispatch).toHaveBeenCalledWith({ task, project, event: 'blocked' });
+    expect(issueDispatch).toHaveBeenCalledWith({ task, project, event: 'blocked' }, recorder);
   });
 
   it('does not dispatch for in_progress, plan_review or stopped', () => {
@@ -237,6 +287,7 @@ describe('TaskStateManager rebuilt actor', () => {
     expect(manager.getCurrentState('t1')).toBe('coding');
     expect(dispatch).not.toHaveBeenCalled();
     expect(issueDispatch).not.toHaveBeenCalled();
+    expect(createRecorder).not.toHaveBeenCalled();
     // The restored state is still persisted and sent to the renderer as before
     expect(sends.some((args) => args[2] === 'human_review')).toBe(true);
   });

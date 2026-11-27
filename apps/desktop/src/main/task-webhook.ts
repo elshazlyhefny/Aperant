@@ -5,23 +5,23 @@
  * request body and response body are never logged; nothing here throws.
  */
 
-import type { TaskStatus, ReviewReason, Project } from '../shared/types';
+import type { Project } from '../shared/types';
+import type { DeliveryResult } from '../shared/types/delivery-receipt';
 import type { WebhookSettings } from '../shared/types/settings';
 import { DEFAULT_APP_SETTINGS } from '../shared/constants/config';
 import { appLog } from './app-logger';
+import type { DeliveryReceiptRecorder } from './delivery-receipts';
 import { readSettingsFile } from './settings-utils';
 import { getProjectWebhookConfig } from './project-webhook-config';
 import { getWebhookApprovals } from './webhook-approval-store';
 import {
   sendWebhook as sendWebhookCore,
   validateWebhookUrl,
-  buildWebhookPayload,
-  prepareWebhookDelivery,
   prepareTestWebhookDelivery,
-  type WebhookEvent,
+  type WebhookSendOptions,
   type WebhookPayload
 } from './task-webhook-core';
-import { mapOutcomeToWebhookEvent } from './webhook-core';
+import { dispatchTaskOutcomeWebhookWith, mapOutcomeToWebhookEvent, type TaskOutcomeWebhookInput } from './webhook-core';
 import { isWebhookFormat } from '../shared/utils/webhook-format';
 
 export { validateWebhookUrl, buildWebhookPayload } from './task-webhook-core';
@@ -39,13 +39,7 @@ function safeWarn(message: string): void {
 export function sendWebhook(
   url: string,
   payload: WebhookPayload,
-  options: {
-    delay?: (ms: number) => Promise<void>;
-    eventName?: string;
-    warn?: (message: string) => void;
-    secret?: string;
-    now?: () => number;
-  } = {}
+  options: WebhookSendOptions = {}
 ): Promise<boolean> {
   return sendWebhookCore(url, payload, { ...options, warn: options.warn ?? safeWarn });
 }
@@ -65,23 +59,10 @@ function loadWebhookSettings(): WebhookSettings {
   };
 }
 
-const EVENT_TOGGLE: Record<WebhookEvent, keyof WebhookSettings['events']> = {
-  review_ready: 'reviewReady',
-  failed: 'failed',
-  blocked: 'blocked',
-  // zeenha fork: an account pause needs attention, so it shares the blocked toggle (no new setting).
-  account_required: 'blocked',
-  pr_opened: 'prOpened'
-};
-
-export function dispatchTaskOutcomeWebhook(input: {
-  status: TaskStatus | string;
-  reviewReason?: ReviewReason | string | null;
-  projectName: string;
-  taskTitle: string;
-  prUrl?: string;
-  project?: Pick<Project, 'path' | 'autoBuildPath'>;
-}): void {
+export async function dispatchTaskOutcomeWebhook(
+  input: TaskOutcomeWebhookInput & { project?: Pick<Project, 'path' | 'autoBuildPath'> },
+  recorder?: DeliveryReceiptRecorder
+): Promise<DeliveryResult | undefined> {
   try {
     const event = mapOutcomeToWebhookEvent(input.status, input.reviewReason);
     if (!event) return;
@@ -93,36 +74,17 @@ export function dispatchTaskOutcomeWebhook(input: {
     if (projectConfig && projectConfig.status !== 'approved') {
       safeWarn('[Webhook] project webhook not approved, using app-wide webhook');
     }
-    if (projectConfig?.status === 'approved') {
-      if (!projectConfig.events[EVENT_TOGGLE[event]]) return;
-      const projectDelivery = prepareWebhookDelivery({
-        url: projectConfig.url,
-        format: projectConfig.format,
-        projectName: input.projectName,
-        taskTitle: input.taskTitle,
-        event,
-        prUrl: input.prUrl
-      });
-      void sendWebhook(projectDelivery.url, projectDelivery.payload, {
-        eventName: event,
-        secret: loadWebhookSettings().secret
-      }).catch(() => undefined);
-      return;
-    }
-    const settings = loadWebhookSettings();
-    if (!settings.enabled || !settings.events[EVENT_TOGGLE[event]]) return;
-    if (!validateWebhookUrl(settings.url).ok) return;
-    const delivery = prepareWebhookDelivery({
-      url: settings.url,
-      format: settings.format,
-      projectName: input.projectName,
-      taskTitle: input.taskTitle,
-      event,
-      prUrl: input.prUrl
-    });
-    void sendWebhook(delivery.url, delivery.payload, { eventName: event, secret: settings.secret }).catch(
-      () => undefined
-    );
+    const settings: WebhookSettings = projectConfig?.status === 'approved'
+      ? {
+          enabled: true,
+          url: projectConfig.url,
+          format: projectConfig.format,
+          events: projectConfig.events,
+          // As before, only load the signing secret if the project route will send.
+          get secret() { return loadWebhookSettings().secret; }
+        }
+      : loadWebhookSettings();
+    return await dispatchTaskOutcomeWebhookWith(settings, input, { recorder, warn: safeWarn });
   } catch {
     // never let webhook problems affect task flow
   }

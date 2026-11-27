@@ -157,7 +157,7 @@ describe('createStreamHandler', () => {
   });
 
   // ===========================================================================
-  // Step Finish (AI SDK v6: type='finish-step', usage.promptTokens/completionTokens)
+  // Step Finish (AI SDK v6: type='finish-step', usage.inputTokens/outputTokens)
   // ===========================================================================
 
   describe('finish-step', () => {
@@ -197,6 +197,48 @@ describe('createStreamHandler', () => {
         promptTokens: 300,
         completionTokens: 130,
         totalTokens: 430,
+      });
+    });
+
+    it('reads the AI SDK v6 inputTokens/outputTokens names and the cache split', () => {
+      const handler = createStreamHandler(onEvent);
+
+      handler.processPart({
+        type: 'finish-step',
+        usage: { inputTokens: 1000, outputTokens: 40, inputTokenDetails: { cacheReadTokens: 800 } },
+      });
+      handler.processPart({
+        type: 'finish-step',
+        usage: { inputTokens: 1200, outputTokens: 60, inputTokenDetails: { cacheReadTokens: 1000, cacheWriteTokens: 150 } },
+      });
+
+      expect(events[0]).toMatchObject({
+        type: 'step-finish',
+        usage: { promptTokens: 1000, completionTokens: 40, totalTokens: 1040, cacheReadTokens: 800 },
+      });
+      expect(handler.getSummary().usage).toEqual({
+        promptTokens: 2200,
+        completionTokens: 100,
+        totalTokens: 2300,
+        cacheReadTokens: 1800,
+        cacheCreationTokens: 150,
+      });
+    });
+
+    it('reads the cache split under the names the Claude Code engine sends', () => {
+      const handler = createStreamHandler(onEvent);
+
+      handler.processPart({
+        type: 'finish-step',
+        usage: { promptTokens: 500, completionTokens: 20, cacheReadTokens: 450, cacheCreationTokens: 30 },
+      });
+
+      expect(handler.getSummary().usage).toEqual({
+        promptTokens: 500,
+        completionTokens: 20,
+        totalTokens: 520,
+        cacheReadTokens: 450,
+        cacheCreationTokens: 30,
       });
     });
 
