@@ -136,3 +136,48 @@ export interface ProjectRunMetrics {
   byModel: ProjectRunMetricsGroup[];
   trend: ProjectRunMetricsTrendPoint[];
 }
+
+/** zeenha fork: both desktop and daemon record the same local status metadata. */
+export type DeliveryTimingSource = 'desktop' | 'daemon';
+
+export interface DeliveryTimingEvent {
+  at: string;
+  status: string;
+  reviewReason?: string;
+  from?: string;
+  pause?: 'budget' | 'credential';
+  interrupted?: true;
+  source: DeliveryTimingSource;
+  instance: string;
+}
+
+/** zeenha fork: wall time split into disjoint segments of the first delivery cycle. */
+export interface DeliveryTimingSegments {
+  queuedMs: number;
+  activeMs: number;
+  credentialPauseMs: number;
+  budgetPauseMs: number;
+  otherMs: number;
+}
+
+export type DeliveryTimingResult =
+  | { state: 'complete'; startedAt: string; reviewReadyAt: string; totalMs: number; segments: DeliveryTimingSegments }
+  | { state: 'incomplete'; reason: 'interrupted' | 'started_mid_run' | 'invalid_event' }
+  | { state: 'open' }
+  | { state: 'no_start' };
+
+/** zeenha fork: report coverage alongside measured samples, never zero-fill unknown delays. */
+export interface DeliveryTimingStats {
+  samples: number;
+  medianMs: number | null;
+  p90Ms: number | null;
+}
+
+export interface ProjectDeliveryTiming {
+  eligibleTasks: number;
+  measuredTasks: number;
+  coverage: number | null;
+  unknown: { missing: number; corrupt: number; incomplete: number };
+  queueToReviewReady: DeliveryTimingStats;
+  segments: Record<keyof DeliveryTimingSegments, DeliveryTimingStats>;
+}
