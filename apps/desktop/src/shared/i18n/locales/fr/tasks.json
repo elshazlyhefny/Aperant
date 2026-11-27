@@ -1,4 +1,58 @@
 {
+  "deliveryHistory": {
+    "title": "Historique des envois",
+    "refresh": "Actualiser",
+    "loading": "Chargement de l’historique des envois…",
+    "empty": "Aucun envoi enregistré pour cette tâche.",
+    "error": "Impossible de lire l’historique des envois.",
+    "unknownHint": "Un envoi non confirmé est peut-être encore en cours ou a pu être interrompu.",
+    "operations": {
+      "webhook": "Notification par webhook",
+      "issue_comment": "Commentaire sur le ticket",
+      "issue_transition": "Changement d’état du ticket"
+    },
+    "providers": {
+      "slack": "Slack",
+      "teams": "Microsoft Teams",
+      "discord": "Discord",
+      "github": "GitHub",
+      "gitlab": "GitLab",
+      "linear": "Linear",
+      "jira": "Jira",
+      "azureboards": "Azure Boards"
+    },
+    "events": {
+      "review_ready": "Prêt pour la revue",
+      "failed": "Échec de la tâche",
+      "blocked": "Tâche bloquée",
+      "account_required": "Compte requis",
+      "pr_opened": "Demande de fusion ouverte"
+    },
+    "statuses": {
+      "delivered": "Envoyé",
+      "skipped": "Ignoré",
+      "failed": "Échec",
+      "unknown": "Non confirmé"
+    },
+    "reasons": {
+      "event_disabled": "L’envoi est désactivé pour cet événement.",
+      "missing_target": "Aucune destination n’a été configurée.",
+      "invalid_target": "La destination configurée n’est pas valide.",
+      "not_linked": "Aucun ticket associé n’a été trouvé.",
+      "unsupported_source": "La source du ticket associé n’est pas prise en charge.",
+      "invalid_reference": "La référence du ticket n’est pas valide.",
+      "missing_configuration": "Des paramètres d’intégration requis sont manquants.",
+      "target_mismatch": "Le ticket associé ne correspond pas à la destination configurée.",
+      "state_unavailable": "Le changement d’état demandé n’est pas disponible.",
+      "rejected": "La destination a refusé la demande.",
+      "rate_limited": "La destination a limité le débit des demandes.",
+      "lookup_failed": "Les informations requises n’ont pas pu être récupérées avant l’envoi.",
+      "unconfirmed": "Aucune confirmation n’a été enregistrée.",
+      "timeout": "Le délai de la demande a expiré sans confirmation.",
+      "transport_error": "Une erreur de connexion a empêché la confirmation.",
+      "ambiguous_response": "La réponse n’a pas confirmé l’envoi."
+    }
+  },
   "dependencies": {
     "title": "Dépend de",
     "add": "Ajouter la dépendance : {{title}}",

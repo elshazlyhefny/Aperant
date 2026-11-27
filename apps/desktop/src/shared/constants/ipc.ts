@@ -72,6 +72,7 @@ export const IPC_CHANNELS = {
 
   // Task phase logs (persistent, collapsible logs by phase)
   TASK_LOGS_GET: 'task:logsGet',           // Load logs from spec dir
+  TASK_DELIVERY_RECEIPTS_GET: 'task:deliveryReceiptsGet', // zeenha fork: read project-local delivery history
   TASK_RUN_METRICS_GET: 'task:runMetricsGet', // Load per-session run metrics from spec dir
   // zeenha fork: project-wide delivery and token metrics
   PROJECT_RUN_METRICS_GET: 'project:runMetricsGet',

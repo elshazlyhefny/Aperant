@@ -16,6 +16,7 @@ vi.mock('../auth', () => ({
 }));
 vi.mock('../../ai/prompts/prompt-loader', () => ({ tryLoadPrompt: () => 'PLANNER PROMPT' }));
 
+import { readDeliveryReceipts } from '../../delivery-receipts';
 import { runServe, EXIT_LOCKED } from '../serve';
 import type { ServeOptions } from '../serve';
 import type { HeadlessBridge } from '../run-task';
@@ -106,6 +107,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   rmSync(projectDir, { recursive: true, force: true });
 });
 
@@ -180,6 +182,59 @@ describe('runServe queue', () => {
     expect(webhook).toHaveBeenCalledTimes(2);
     expect(fetchMock).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+
+  it('emits correlated NDJSON and drains delivery without occupying a build slot', async () => {
+    makeSpec('001-a');
+    makeSpec('002-b');
+    let acknowledge!: (response: { status: number }) => void;
+    const pending = new Promise<{ status: number }>((resolve) => { acknowledge = resolve; });
+    const fetchMock = vi.fn(() => pending);
+    vi.stubGlobal('fetch', fetchMock);
+    const p = serve({ json: true, dispatchWebhook: undefined }, 1);
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    spawned()[0].finish([{ type: 'QA_PASSED' }]);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(spawned()).toHaveLength(2));
+    expect(plan('001-a').status).toBe('human_review');
+    expect(await readDeliveryReceipts(projectDir, '001-a')).toMatchObject([{ status: 'unknown', reason: 'unconfirmed' }]);
+
+    const drained = vi.fn();
+    void p.then(drained);
+    signalHandler?.('SIGTERM');
+    await vi.waitFor(() => expect(plan('002-b').status).toBe('queue'));
+    expect(drained).not.toHaveBeenCalled();
+    acknowledge({ status: 200 });
+    expect(await p).toBe(0);
+    const records = out.join('').trim().split('\n').map((line) => JSON.parse(line));
+    expect(records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'daemon-log', taskId: '001-a' }),
+      expect.objectContaining({ type: 'result', taskId: '001-a', exitCode: 0 }),
+    ]));
+    expect(records.filter((record) => record.type === 'delivery-receipts')).toMatchObject([
+      { taskId: '001-a', spec: '001-a', receipts: [{ operation: 'webhook', status: 'delivered' }] },
+    ]);
+    expect(plan('001-a').status).toBe('human_review');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('leaves an unknown after shutdown times out and does not send again on restart', async () => {
+    makeSpec('001-a');
+    const fetchMock = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal('fetch', fetchMock);
+    const p = serve({ dispatchWebhook: undefined, shutdownTimeoutMs: 0 });
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    spawned()[0].finish([{ type: 'QA_PASSED' }]);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(await stop(p)).toBe(0);
+    expect(plan('001-a').status).toBe('human_review');
+    expect(await readDeliveryReceipts(projectDir, '001-a')).toMatchObject([{ status: 'unknown', reason: 'unconfirmed' }]);
+
+    const restart = serve({ dispatchWebhook: undefined });
+    await vi.waitFor(() => expect(signalHandler).toBeDefined());
+    expect(await stop(restart)).toBe(0);
+    expect(spawned()).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it('exits 1 and starts nothing when the webhook url is invalid', async () => {

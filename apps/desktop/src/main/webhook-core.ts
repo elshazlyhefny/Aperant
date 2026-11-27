@@ -9,9 +9,11 @@
  */
 
 import type { TaskStatus, ReviewReason } from '../shared/types';
+import type { DeliveryOperation, DeliveryResult } from '../shared/types/delivery-receipt';
 import type { WebhookSettings } from '../shared/types/settings';
+import type { DeliveryReceiptRecorder } from './delivery-receipts';
 import { appLogPort } from './log-port';
-import { prepareWebhookDelivery, sendWebhook, validateWebhookUrl, type WebhookEvent } from './task-webhook-core';
+import { prepareWebhookDelivery, sendWebhookDetailed, validateWebhookUrl, type WebhookEvent } from './task-webhook-core';
 
 export function mapOutcomeToWebhookEvent(
   status: TaskStatus | string,
@@ -45,16 +47,23 @@ export interface TaskOutcomeWebhookInput {
   prUrl?: string;
 }
 
-/** Apply enabled / event-toggle / URL checks to `settings`, then send. Never throws. */
-export function dispatchTaskOutcomeWebhookWith(
+/** zeenha fork: apply route gates and optionally record one receipt for the whole send. */
+export async function dispatchTaskOutcomeWebhookWith(
   settings: WebhookSettings,
-  input: TaskOutcomeWebhookInput
-): void {
+  input: TaskOutcomeWebhookInput,
+  options: { recorder?: DeliveryReceiptRecorder; warn?: (message: string) => void } = {}
+): Promise<DeliveryResult | undefined> {
   try {
     const event = mapOutcomeToWebhookEvent(input.status, input.reviewReason);
-    if (!event) return;
-    if (!settings.enabled || !settings.events[EVENT_TOGGLE[event]]) return;
-    if (!validateWebhookUrl(settings.url).ok) return;
+    if (!event || !settings.enabled) return;
+    const operation: DeliveryOperation = { operation: 'webhook', event };
+    const skip = async (reason: Extract<DeliveryResult, { status: 'skipped' }>['reason']): Promise<DeliveryResult> => {
+      await options.recorder?.skip(operation, reason);
+      return { status: 'skipped', reason };
+    };
+    if (!settings.events[EVENT_TOGGLE[event]]) return await skip('event_disabled');
+    if (!validateWebhookUrl(settings.url).ok) return await skip(settings.url ? 'invalid_target' : 'missing_target');
+
     const delivery = prepareWebhookDelivery({
       url: settings.url,
       format: settings.format,
@@ -63,11 +72,19 @@ export function dispatchTaskOutcomeWebhookWith(
       event,
       prUrl: input.prUrl
     });
-    void sendWebhook(delivery.url, delivery.payload, {
+    const sendOptions = {
       eventName: event,
       secret: settings.secret,
-      warn: (message) => appLogPort.warn(message)
-    }).catch(() => undefined);
+      warn: options.warn ?? ((message: string) => appLogPort.warn(message))
+    };
+    let result: DeliveryResult | undefined;
+    const send = async () => {
+      result = await sendWebhookDetailed(delivery.url, delivery.payload, sendOptions);
+      return result;
+    };
+    if (!options.recorder) return await send();
+    await options.recorder.track({ ...operation, provider: delivery.format }, send);
+    return result;
   } catch {
     // never let webhook problems affect task flow
   }

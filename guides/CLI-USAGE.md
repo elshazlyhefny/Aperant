@@ -107,6 +107,26 @@ npm run cli -- run <spec> ...
 - The last line in text mode is `RESULT <kind> exit=<code> spec=<id> branch=<branch> worktree=<path>`, where `kind` is `success`, `qa_failed` or `error`.
 - Errors and the failure reason go to stderr (`error: ...`, `reason: ...`). Output has ANSI codes stripped and known secret values replaced with `[REDACTED]`.
 
+### Delivery receipts
+
+Outcome notifications and issue updates are reported separately from the build. Standalone `run` prints `DELIVERY` lines (or one `delivery-receipts` event in `--json` mode) when there are receipts, before the final build result. In `serve --json`, the daemon reports receipts separately after saving the task status; use `taskId` to correlate them with build events. Delivery does not change task status, the final `result` event, or the build exit code.
+
+Read saved history without running the task again, even after an interrupted run:
+
+```bash
+node apps/desktop/out/main/cli.js receipts 001-demo --project ./my-project --json
+# or, from apps/desktop
+npm run cli -- receipts 001-demo --project ../../my-project --json
+```
+
+`--project` defaults to the current directory. Omit `--json` for text. JSON mode prints one line, for example:
+
+```json
+{"type":"delivery-receipts","spec":"001-demo","receipts":[{"id":"9bbb4452-2b19-4a58-ac44-82d44c44ca9e","operation":"webhook","provider":"slack","event":"review_ready","createdAt":"2026-11-27T12:00:00.000Z","status":"unknown","reason":"unconfirmed"}]}
+```
+
+`receipts` is read-only: it does not load delivery credentials, start a worker, or send or replay anything. It exits `0` on a successful read (including empty history) and `1` if the project, task, or history cannot be read. See [how to interpret delivery history](notifications-and-webhooks.md#delivery-history).
+
 ### Credentials
 
 The command never reads the desktop app's settings. Credentials come from the environment or an explicit config file.
