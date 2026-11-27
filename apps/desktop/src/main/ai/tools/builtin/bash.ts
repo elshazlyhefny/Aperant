@@ -6,7 +6,7 @@
  * Integrates with bashSecurityHook() for pre-execution denylist checks and
  * per-command validation (a guardrail, not a sandbox).
  *
- * NOTE: Commands run via execFile in the task cwd with the user's permissions
+ * NOTE: Commands run via spawn in the task cwd with the user's permissions
  * and are NOT covered by path-containment.ts. The child process gets a scrubbed
  * environment (credential variables removed), and the real isolation control is
  * the opt-in OS sandbox (bubblewrap on Linux, sandbox-exec on macOS; on Windows
@@ -16,7 +16,7 @@
  * Supports timeouts, background execution, and descriptive metadata.
  */
 
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { z } from 'zod/v3';
 
 import { findExecutable, isWindows, killProcessGracefully } from '../../../platform/index';
@@ -33,6 +33,7 @@ import { ToolPermission } from '../types';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
 const MAX_OUTPUT_LENGTH = 30_000;
+const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Input Schema
@@ -94,29 +95,63 @@ function executeCommand(
   abortSignal?: AbortSignal,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
-    const child = execFile(
-      shell,
-      args,
-      {
-        cwd,
-        env,
-        timeout: timeoutMs,
-        maxBuffer: 10 * 1024 * 1024,
-        signal: abortSignal,
-      },
-      (error, stdout, stderr) => {
-        const exitCode = error
-          ? ('code' in error && typeof error.code === 'number'
-              ? error.code
-              : 1)
-          : 0;
-        resolve({
-          stdout: typeof stdout === 'string' ? stdout : '',
-          stderr: typeof stderr === 'string' ? stderr : '',
-          exitCode,
-        });
-      },
-    );
+    // zeenha fork: spawn (not execFile, which silently drops `detached`) so each
+    // command gets its own process group on Linux and macOS. Without it,
+    // commands share the app's group (gnome-shell's group when launched from
+    // the dock), and an agent that kills "its" process group terminates
+    // Aperant itself. Not on Windows, where detached opens a console window.
+    // Timeout, output cap, abort and exit codes match the old execFile call.
+    const child = spawn(shell, args, {
+      cwd,
+      env,
+      signal: abortSignal,
+      detached: !isWindows(),
+    });
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let outputBytes = 0;
+    let failed = false;
+    let settled = false;
+
+    const finish = (exitCode: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+        exitCode,
+      });
+    };
+
+    const terminate = () => {
+      failed = true;
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // already exited
+      }
+    };
+
+    const timer = setTimeout(terminate, timeoutMs);
+
+    const collect = (chunks: Buffer[]) => (chunk: Buffer) => {
+      outputBytes += chunk.length;
+      if (outputBytes > MAX_BUFFER_BYTES) {
+        terminate();
+        return;
+      }
+      chunks.push(chunk);
+    };
+    child.stdout?.on('data', collect(stdoutChunks));
+    child.stderr?.on('data', collect(stderrChunks));
+
+    // Spawn failure (e.g. missing shell) or abort.
+    child.on('error', () => finish(1));
+    child.on('close', (code) => {
+      finish(!failed && typeof code === 'number' ? code : 1);
+    });
 
     // Ensure the child process is killed on abort
     if (abortSignal) {
