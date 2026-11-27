@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -65,7 +65,7 @@ describe('updateExistingSchedule', () => {
     const update = vi.fn((current: RecurringSchedule) => current);
 
     expect(store.updateExistingSchedule('a', update)).toBeUndefined();
-    expect(existsSync(file)).toBe(false);
+    expect(() => readFileSync(file)).toThrow(/ENOENT/);
 
     store.saveSchedule(make('a'));
     const other = store.saveSchedule(make('b'));
