@@ -600,7 +600,27 @@
       "output": "Sortie",
       "total": "Total"
     },
-    "note": "La reprise après limite de débit n'est pas enregistrée ; le temps perdu à cause des limites n'est donc pas affiché séparément."
+    "timing": {
+      "title": "Répartition des délais de livraison",
+      "coverage": "Couverture des mesures : {{measured}} tâches mesurées sur {{eligible}} admissibles ({{percent}}).",
+      "unknown": "Délais inconnus : {{missing}} anciens dossiers sans données de durée, {{corrupt}} dossiers illisibles, {{incomplete}} exécutions incomplètes ou interrompues.",
+      "columns": {
+        "metric": "Mesure",
+        "median": "Médiane",
+        "p90": "90e centile",
+        "samples": "Nombre de mesures"
+      },
+      "metrics": {
+        "queueToReviewReady": "De la mise en file à la validation qualité",
+        "queued": "Attente en file",
+        "active": "Exécution active",
+        "credentialPause": "Pause liée aux identifiants ou à une limite de débit",
+        "budgetPause": "Pause liée au budget",
+        "other": "Attente de revue ou autre"
+      },
+      "note": "Une tâche est prête pour la revue lorsque les contrôles qualité (QA) sont réussis. Une pause liée aux identifiants ou au budget ne suffit pas. Le délai est inconnu si trop peu d'événements ont été enregistrés. Ces mesures servent de référence, pas d'objectif."
+    },
+    "note": "La durée par session exclut l'attente en file et les pauses. La répartition des délais de livraison les affiche séparément lorsque les données sont disponibles."
   },
   "prFeedback": {
     "title": "Retours de la PR",

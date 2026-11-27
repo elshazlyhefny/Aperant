@@ -37,6 +37,7 @@ import { AUTO_BUILD_PATHS, getSpecsDir } from '../../shared/constants';
 import { extractPlannedFiles } from '../../shared/utils/file-overlap';
 import { mapStatusToPlanStatus } from '../../shared/utils/plan-status';
 import { normalizeTaskTokenBudget } from '../../shared/utils/token-budget';
+import { recordDeliveryTimingEvent } from '../ai/logging/delivery-timing';
 import { writeFileAtomicSync } from '../utils/atomic-file';
 import { withFileLock } from '../utils/file-lock';
 import { FileParseCache } from '../utils/file-parse-cache';
@@ -239,13 +240,19 @@ export function createHeadlessTaskReader(project: HeadlessProject) {
   };
 }
 
+export interface TaskStatusTiming {
+  pause?: 'budget' | 'credential';
+  interrupted?: boolean;
+}
+
 /** Persist a status on the worktree and main copy of a spec's plan. */
 export async function setTaskStatus(
   project: HeadlessProject,
   specId: string,
   status: TaskStatus,
   reviewReason?: ReviewReason,
-  cache?: FileParseCache
+  cache?: FileParseCache,
+  timing?: TaskStatusTiming
 ): Promise<void> {
   const specsBaseDir = getSpecsDir(project.autoBuildPath);
   let specPaths = findAllSpecPaths(project.path, specsBaseDir, specId, '[headless-task-store]');
@@ -259,6 +266,7 @@ export async function setTaskStatus(
       const plan: Record<string, unknown> = existsSync(planPath)
         ? (readJson<Record<string, unknown>>(planPath) ?? {})
         : { feature: specId, description: '', created_at: new Date().toISOString(), phases: [] };
+      const from = typeof plan.status === 'string' ? plan.status : undefined;
       plan.status = status;
       plan.planStatus = mapStatusToPlanStatus(status);
       if (reviewReason !== undefined) {
@@ -270,6 +278,15 @@ export async function setTaskStatus(
       mkdirSync(specPath, { recursive: true });
       writeFileAtomicSync(planPath, JSON.stringify(plan, null, 2));
       cache?.invalidate(planPath);
+      // zeenha fork: record each persisted daemon transition for local delivery metrics.
+      recordDeliveryTimingEvent(specPath, {
+        status,
+        reviewReason,
+        from,
+        pause: timing?.pause,
+        interrupted: timing?.interrupted,
+        source: 'daemon'
+      });
     });
   }
 }

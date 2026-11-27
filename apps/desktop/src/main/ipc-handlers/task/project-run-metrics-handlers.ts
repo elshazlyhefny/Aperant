@@ -48,6 +48,7 @@ export function registerProjectRunMetricsHandlers(): void {
           .map((task) => ({
             specId: task.specId,
             status: task.status,
+            reviewReason: task.reviewReason,
             title: task.title,
             updatedAt: task.updatedAt,
           }));
