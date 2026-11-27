@@ -3,7 +3,9 @@
  */
 
 import { useRef, type KeyboardEvent } from 'react';
-import { AlertTriangle, CheckCircle2, Download, Loader2, Play } from 'lucide-react';
+import {
+  AlertCircle, AlertTriangle, CheckCircle2, Download, Info, Loader2, Play, RotateCcw
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -26,6 +28,60 @@ export interface AzureBoardsImportModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImportComplete?: (result: AzureBoardsImportResult) => void;
+}
+
+const summaryStyles = {
+  success: { className: 'border-success/30 bg-success/10 text-success', Icon: CheckCircle2 },
+  partial: { className: 'border-warning/30 bg-warning/10 text-warning', Icon: AlertTriangle },
+  none: { className: 'border-destructive/30 bg-destructive/10 text-destructive', Icon: AlertCircle },
+  nothing: { className: 'border-border bg-muted/50 text-foreground', Icon: Info }
+};
+
+// zeenha fork: Keep the batch result visible while retrying individual work items.
+function ImportSummary({ result }: { result: AzureBoardsImportResult }) {
+  const { t } = useTranslation('azuredevops');
+  const { imported, skipped, failed } = result;
+  const failedItems = (result.items ?? []).filter((item) => item.status === 'failed');
+  const variant = failed > 0
+    ? (imported > 0 ? 'partial' : 'none')
+    : (imported > 0 ? 'success' : 'nothing');
+  const { className, Icon } = summaryStyles[variant];
+  const headings = {
+    success: t('boards.summary.allImported', { count: imported }),
+    partial: t('boards.summary.partial'),
+    none: t('boards.summary.noneImported'),
+    nothing: t('boards.summary.nothingNew')
+  };
+
+  return (
+    <div className={`min-h-0 space-y-2 overflow-y-auto rounded-md border p-3 text-sm ${className}`}>
+      <div role="status" aria-live="polite" aria-atomic="true" className="space-y-1">
+        <h3 className="flex items-center gap-2 font-medium">
+          <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+          {headings[variant]}
+        </h3>
+        <p className="flex flex-wrap gap-x-3 text-muted-foreground">
+          <span>{t('boards.summary.importedCount', { count: imported })}</span>
+          <span>{t('boards.summary.skippedCount', { count: skipped.length })}</span>
+          <span>{t('boards.summary.failedCount', { count: failed })}</span>
+        </p>
+      </div>
+      {failedItems.length > 0 && (
+        <ul aria-label={t('boards.summary.failedListLabel')} className="list-disc space-y-2 pl-5 text-foreground">
+          {failedItems.map(({ id, title, reason }) => (
+            <li key={id} className="break-words">
+              <div className="font-mono font-medium">
+                {title
+                  ? t('boards.summary.failedRow', { id, title })
+                  : t('boards.summary.failedRowNoTitle', { id })}
+              </div>
+              <div className="text-muted-foreground">{reason || t('boards.summary.unknownReason')}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export function AzureBoardsImportModal({
@@ -100,29 +156,7 @@ export function AzureBoardsImportModal({
           <DialogDescription>{t('boards.description')}</DialogDescription>
         </DialogHeader>
 
-        {importResult && (
-          <div className="rounded-md border border-success/30 bg-success/10 p-3 text-sm space-y-1">
-            <div className="flex items-center gap-2 font-medium text-success">
-              <CheckCircle2 className="h-4 w-4" />
-              {t('boards.successImported', { count: importResult.imported })}
-            </div>
-            {importResult.skipped.length > 0 && (
-              <div className="text-muted-foreground">
-                {t('boards.skippedDuplicates', { count: importResult.skipped.length })}
-              </div>
-            )}
-            {importResult.errors && importResult.errors.length > 0 && (
-              <div className="text-warning">
-                <div>{t('boards.partialFailure')}</div>
-                <ul className="list-disc pl-5">
-                  {importResult.errors.map((e) => (
-                    <li key={e}>{e}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
+        {importResult && <ImportSummary result={importResult} />}
 
         {boards.error && (
           <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
@@ -344,6 +378,26 @@ export function AzureBoardsImportModal({
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
             {done ? t('boards.done') : t('boards.cancel')}
           </Button>
+          {done && boards.failedIds.length > 0 && (
+            <Button
+              type="button"
+              onClick={() => void boards.retryFailed()}
+              disabled={boards.isRetrying}
+              aria-busy={boards.isRetrying}
+            >
+              {boards.isRetrying ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                  {t('boards.retrying')}
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="mr-2 h-4 w-4" aria-hidden="true" />
+                  {t('boards.retryFailed', { count: boards.failedIds.length })}
+                </>
+              )}
+            </Button>
+          )}
           {!done && (
             <Button
               onClick={boards.handleImport}

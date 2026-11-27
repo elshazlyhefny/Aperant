@@ -11,6 +11,7 @@ import type {
   AzureBoardsSavedQuery,
   AzureBoardsWorkItem
 } from '../../../shared/types';
+import { getFailedIds, mergeImportResults } from './import-result';
 
 export type AzureBoardsQueryMode = 'filter' | 'saved';
 
@@ -42,10 +43,13 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [importResult, setImportResult] = useState<AzureBoardsImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const requestIdRef = useRef(0);
+  const retryingRef = useRef(false);
+  const retryRequestIdRef = useRef(0);
 
   // Load saved queries and metadata when the modal opens
   useEffect(() => {
@@ -170,6 +174,38 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
     [projectId, onImportComplete, t]
   );
 
+  const retryFailed = useCallback(async () => {
+    if (retryingRef.current || !importResult) return;
+    const ids = getFailedIds(importResult);
+    if (ids.length === 0) return;
+
+    const requestId = ++retryRequestIdRef.current;
+    retryingRef.current = true;
+    setIsRetrying(true);
+    setError(null);
+    try {
+      // zeenha fork: Retry only failed items and skip any that now have a spec.
+      const result = await window.electronAPI.importAzureBoardsWorkItems(projectId, ids, false);
+      if (result.success && result.data) {
+        const data = result.data;
+        if (requestId === retryRequestIdRef.current) {
+          setImportResult((prev) => (prev ? mergeImportResults(prev, data) : data));
+        }
+        // Even if the modal closed, the parent still needs to refresh newly imported tasks.
+        onImportComplete?.(data);
+      } else if (requestId === retryRequestIdRef.current) {
+        setError(result.error || t('boards.errors.retry'));
+      }
+    } catch {
+      if (requestId === retryRequestIdRef.current) setError(t('boards.errors.retry'));
+    } finally {
+      if (requestId === retryRequestIdRef.current) {
+        retryingRef.current = false;
+        setIsRetrying(false);
+      }
+    }
+  }, [importResult, projectId, onImportComplete, t]);
+
   const duplicateIds = items.filter((i) => i.alreadyImported && selectedIds.has(i.id)).map((i) => i.id);
 
   const handleImport = useCallback(() => {
@@ -195,6 +231,8 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
 
   const resetState = useCallback(() => {
     requestIdRef.current++;
+    retryRequestIdRef.current++;
+    retryingRef.current = false;
     setSavedQueries([]);
     setMetadata({ workItemTypes: [], states: [] });
     setQueryMode('filter');
@@ -210,6 +248,7 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
     setSelectedIds(new Set());
     setShowDuplicateConfirm(false);
     setIsImporting(false);
+    setIsRetrying(false);
     setImportResult(null);
     setError(null);
   }, []);
@@ -231,6 +270,8 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
     duplicateCount: duplicateIds.length,
     showDuplicateConfirm,
     isImporting,
+    isRetrying,
+    failedIds: getFailedIds(importResult),
     importResult,
     error,
     setQueryMode,
@@ -245,6 +286,7 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
     handleImport,
     confirmReimport,
     skipReimport,
+    retryFailed,
     resetState
   };
 }

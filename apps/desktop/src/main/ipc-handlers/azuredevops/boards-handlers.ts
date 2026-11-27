@@ -11,6 +11,7 @@ import { IPC_CHANNELS, getSpecsDir } from '../../../shared/constants';
 import type {
   IPCResult,
   AzureBoardsFilter,
+  AzureBoardsImportItemOutcome,
   AzureBoardsImportResult,
   AzureBoardsMetadata,
   AzureBoardsQueryRequest,
@@ -189,32 +190,39 @@ export function registerAzureBoardsHandlers(agentManager: AgentManager): void {
         let failed = 0;
         const skipped: AzureBoardsImportResult['skipped'] = [];
         const errors: string[] = [];
+        // zeenha fork: per-item outcomes let the renderer retry only failed ids.
+        const items: AzureBoardsImportItemOutcome[] = [];
 
         for (const id of ids) {
           const existingSpecId = existing.get(id);
+          const item = fetched.get(id);
           if (existingSpecId && !allowDuplicates) {
             skipped.push({ id, specId: existingSpecId });
+            items.push({ id, status: 'skipped', specId: existingSpecId, title: item?.title });
             continue;
           }
-          const item = fetched.get(id);
           if (!item) {
             failed++;
             errors.push(`Failed to import AB#${id}: work item not found in Azure DevOps`);
+            items.push({ id, status: 'failed', reason: 'Work item not found in Azure DevOps' });
             continue;
           }
           try {
             const spec = await createSpecFromWorkItem(project, config, item);
             agentManager.startSpecCreation(spec.specId, project.path, spec.description, spec.specDir, spec.metadata);
             imported++;
+            items.push({ id, status: 'imported', specId: spec.specId, title: item.title });
           } catch (err) {
             failed++;
-            errors.push(`Failed to import AB#${id}: ${errorMessage(err, 'Unknown error')}`);
+            const reason = errorMessage(err, 'Unknown error');
+            errors.push(`Failed to import AB#${id}: ${reason}`);
+            items.push({ id, status: 'failed', title: item.title, reason });
           }
         }
 
         return {
           success: true,
-          data: { success: failed === 0, imported, failed, skipped, errors: errors.length > 0 ? errors : undefined }
+          data: { success: failed === 0, imported, failed, skipped, errors: errors.length > 0 ? errors : undefined, items }
         };
       } catch (error) {
         debugLog('Work item import failed');

@@ -21,6 +21,7 @@ vi.mock('../../../project-store', () => ({
 
 import { registerAzureBoardsHandlers } from '../boards-handlers';
 import { IPC_CHANNELS } from '../../../../shared/constants';
+import type { AzureBoardsImportResult } from '../../../../shared/types';
 
 const PAT = 'SECRET-PAT-VALUE-123';
 const GUID = ['abcdef01', 'abcd', 'abcd', 'abcd', 'abcdef012345'].join('-');
@@ -149,7 +150,7 @@ describe('Azure Boards IPC handlers', () => {
   it('imports one spec with azure_boards metadata and skips it the second time', async () => {
     configure();
     routeFetch([42]);
-    const first = await call<{ data: { imported: number; failed: number } }>(
+    const first = await call<{ data: AzureBoardsImportResult }>(
       IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
       'p1',
       [42, 42]
@@ -160,6 +161,7 @@ describe('Azure Boards IPC handlers', () => {
 
     const specsDir = path.join(projectDir, '.auto-claude', 'specs');
     const [specName] = readdirSync(specsDir);
+    expect(first.data.items).toEqual([{ id: 42, status: 'imported', specId: specName, title: 'Item 42' }]);
     const meta = JSON.parse(readFileSync(path.join(specsDir, specName, 'task_metadata.json'), 'utf-8'));
     expect(meta).toMatchObject({
       sourceType: 'azure_boards',
@@ -168,11 +170,14 @@ describe('Azure Boards IPC handlers', () => {
     });
     expect(startSpecCreation.mock.calls[0][4]).toMatchObject({ sourceType: 'azure_boards' });
 
-    const second = await call<{
-      data: { imported: number; skipped: Array<{ id: number; specId: string }> };
-    }>(IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS, 'p1', [42]);
+    const second = await call<{ data: AzureBoardsImportResult }>(
+      IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
+      'p1',
+      [42]
+    );
     expect(second.data.imported).toBe(0);
     expect(second.data.skipped).toEqual([{ id: 42, specId: specName }]);
+    expect(second.data.items).toEqual([{ id: 42, status: 'skipped', specId: specName, title: 'Item 42' }]);
     expect(startSpecCreation).toHaveBeenCalledTimes(1);
 
     const dup = await call<{ data: { imported: number } }>(IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS, 'p1', [42], true);
@@ -199,13 +204,55 @@ describe('Azure Boards IPC handlers', () => {
   it('reports items missing in Azure as per-item errors', async () => {
     configure();
     fetchMock.mockImplementation(async () => json({ value: [] }));
-    const res = await call<{ data: { imported: number; failed: number; errors?: string[] } }>(
+    const res = await call<{ data: AzureBoardsImportResult }>(
       IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
       'p1',
       [9]
     );
     expect(res.data.failed).toBe(1);
     expect(res.data.errors?.[0]).toContain('AB#9');
+    expect(res.data.items).toEqual([{ id: 9, status: 'failed', reason: expect.stringContaining('not found') }]);
+  });
+
+  it('reports mixed import outcomes in request order', async () => {
+    configure();
+    routeFetch([1]);
+    await call(IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS, 'p1', [1]);
+    fetchMock.mockResolvedValueOnce(json({ value: [rawItem(2), rawItem(1)] }));
+
+    const res = await call<{ success: boolean; data: AzureBoardsImportResult }>(
+      IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
+      'p1',
+      [1, 2, 3]
+    );
+
+    expect(res.success).toBe(true);
+    expect(res.data).toMatchObject({ success: false, imported: 1, failed: 1 });
+    expect(res.data.skipped).toHaveLength(1);
+    expect(res.data.items).toEqual([
+      { id: 1, status: 'skipped', specId: res.data.skipped[0].specId, title: 'Item 1' },
+      { id: 2, status: 'imported', specId: expect.any(String), title: 'Item 2' },
+      { id: 3, status: 'failed', reason: 'Work item not found in Azure DevOps' },
+    ]);
+  });
+
+  it('reports the title and reason when starting spec creation throws', async () => {
+    configure();
+    routeFetch([8]);
+    startSpecCreation.mockImplementationOnce(() => {
+      throw new Error('Could not start spec creation');
+    });
+
+    const res = await call<{ data: AzureBoardsImportResult }>(
+      IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
+      'p1',
+      [8]
+    );
+
+    expect(res.data.items).toEqual([
+      { id: 8, status: 'failed', title: 'Item 8', reason: 'Could not start spec creation' },
+    ]);
+    expect(res.data.errors).toEqual(['Failed to import AB#8: Could not start spec creation']);
   });
 
   it('never leaks the PAT in returned errors or written files', async () => {
