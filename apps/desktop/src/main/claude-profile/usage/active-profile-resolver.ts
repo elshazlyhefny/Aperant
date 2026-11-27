@@ -17,12 +17,21 @@ import { ensureValidToken } from '../token-refresh';
 import { ensureValidCodexToken } from '../../ai/auth/codex-oauth';
 import { readSettingsFileAsync, updateSettingsFile } from '../../settings-utils';
 import { getCredentialFingerprint } from './usage-log';
+import { isSecretEnvelope } from '../../../shared/utils/secret-envelope';
 import type { UsageLogger } from './usage-log';
 import type { ActiveProfileResult } from './types';
 
 export interface ActiveProfileResolverDeps {
   needsReauthProfiles: Set<string>;
   log: Pick<UsageLogger, 'debugLog' | 'traceLog'>;
+}
+
+/**
+ * zeenha fork: a key that could not be decrypted stays an `aperant-secret:v1:` envelope.
+ * Treat it as missing so ciphertext is never sent as a usage credential.
+ */
+function usableApiKey(value: string | undefined): string | undefined {
+  return value && !isSecretEnvelope(value) ? value : undefined;
 }
 
 type AccountResolver = (
@@ -143,7 +152,7 @@ async function resolveAnthropicApiKey(
   deps: ActiveProfileResolverDeps
 ): Promise<ActiveProfileResult | null> {
   const { log } = deps;
-  const credential = account.apiKey;
+  const credential = usableApiKey(account.apiKey);
   if (!credential) {
     log.traceLog('[UsageMonitor:TRACE] Anthropic API key account missing apiKey:', account.id);
     return null;
@@ -213,7 +222,7 @@ async function resolveZai(
 ): Promise<ActiveProfileResult | null> {
   const { log } = deps;
   // Z.AI API key account
-  const credential = account.apiKey;
+  const credential = usableApiKey(account.apiKey);
   if (!credential) {
     log.traceLog('[UsageMonitor:TRACE] Z.AI account missing apiKey:', account.id);
     return null;
@@ -243,7 +252,7 @@ async function resolveOpenRouter(
 ): Promise<ActiveProfileResult | null> {
   const { log } = deps;
   // OpenRouter API key account
-  const credential = account.apiKey;
+  const credential = usableApiKey(account.apiKey);
   if (!credential) {
     log.traceLog('[UsageMonitor:TRACE] OpenRouter account missing apiKey:', account.id);
     return null;
@@ -361,7 +370,8 @@ try {
     const activeAPIProfile = profilesFile.profiles.find(
       (p) => p.id === profilesFile.activeProfileId
     );
-    if (activeAPIProfile?.apiKey) {
+    const legacyCredential = usableApiKey(activeAPIProfile?.apiKey);
+    if (activeAPIProfile && legacyCredential) {
       log.traceLog('[UsageMonitor:TRACE] [Legacy] Active auth type: API Profile', {
         profileId: activeAPIProfile.id,
         profileName: activeAPIProfile.name,
@@ -372,7 +382,7 @@ try {
         profileName: activeAPIProfile.name,
         isAPIProfile: true,
         baseUrl: activeAPIProfile.baseUrl,
-        credential: activeAPIProfile.apiKey
+        credential: legacyCredential
       };
     }
   }

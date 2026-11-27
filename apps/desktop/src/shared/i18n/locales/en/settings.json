@@ -1017,6 +1017,8 @@
       "zaiUsageBased": "Usage-Based",
       "zaiCodingPlanSubscription": "Z.AI Coding Plan",
       "apiKey": "API Key",
+      "sessionOnly": "Session only",
+      "sessionOnlyTooltip": "This API key is kept in memory only. Re-enter it after restarting the app.",
       "active": "Active",
       "setDefault": "Set Active",
       "edit": "Edit account",
@@ -1076,6 +1078,12 @@
       "oauthNameRequired": "Enter an account name before authenticating",
       "addModel": "Add model",
       "modelsDescription": "Add the model IDs available at this endpoint. These will appear in the model selector.",
+      "secureStorage": {
+        "title": "Secure storage unavailable",
+        "description": "Your operating system has no secure credential storage available, so this API key cannot be saved. You can still use it for this session only.",
+        "useSessionOnly": "Use for this session only",
+        "cancel": "Cancel"
+      },
       "fields": {
         "name": "Account Name",
         "apiKey": "API Key",

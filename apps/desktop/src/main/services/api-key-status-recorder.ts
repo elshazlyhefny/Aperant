@@ -65,8 +65,9 @@ export async function recordApiKeyOutcome(
       return file;
     });
     return changed;
-  } catch (error) {
-    console.warn('[api-key-status-recorder] Failed to record key outcome:', error);
+  } catch {
+    // Encryption errors can wrap backend details; log only the failed operation.
+    console.warn('[api-key-status-recorder] Failed to record key outcome');
     return false;
   }
 }

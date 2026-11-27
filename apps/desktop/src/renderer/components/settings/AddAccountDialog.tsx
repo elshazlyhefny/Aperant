@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, CheckCircle2, AlertCircle, Terminal, Plus, X } from 'lucide-react';
 import {
@@ -9,6 +9,16 @@ import {
   DialogHeader,
   DialogTitle
 } from '../ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '../ui/alert-dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -24,6 +34,12 @@ const AWS_REGIONS = [
 ];
 
 type OAuthStatus = 'idle' | 'authenticating' | 'waiting' | 'success' | 'error';
+
+type AccountInput = Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>;
+interface AccountSaveRequest {
+  payload: AccountInput;
+  accountId?: string;
+}
 
 interface AddAccountDialogProps {
   open: boolean;
@@ -55,6 +71,8 @@ export function AddAccountDialog({
   const [baseUrl, setBaseUrl] = useState('');
   const [region, setRegion] = useState('us-east-1');
   const [isSaving, setIsSaving] = useState(false);
+  const [pendingSessionSave, setPendingSessionSave] = useState<AccountSaveRequest | null>(null);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
 
   // Custom models for openai-compatible endpoints
   const [customModels, setCustomModels] = useState<CustomModel[]>([]);
@@ -77,6 +95,7 @@ export function AddAccountDialog({
 
   // Reset form when dialog opens/editAccount changes
   useEffect(() => {
+    setPendingSessionSave(null);
     if (open) {
       if (editAccount) {
         setName(editAccount.name);
@@ -399,64 +418,67 @@ export function AddAccountDialog({
     setShowFallbackTerminal(false);
   }, []);
 
-  const handleSave = async () => {
-    if (!canSave()) return;
-
+  const submitAccount = async ({ payload, accountId }: AccountSaveRequest, sessionOnly = false) => {
     setIsSaving(true);
     try {
-      const payload = {
-        provider,
-        name: name.trim(),
-        authType,
-        billingModel: billingModelOverride ?? (authType === 'oauth' ? 'subscription' as const : 'pay-per-use' as const),
-        apiKey: needsApiKey ? apiKey.trim() : undefined,
-        baseUrl: needsBaseUrl && baseUrl.trim() ? baseUrl.trim() : undefined,
-        region: needsRegion ? region : undefined,
-        claudeProfileId: isOAuthOnly && !isCodexOAuth ? oauthProfileId ?? undefined : undefined,
-        email: isOAuthOnly ? (oauthEmail ?? (isEditing ? editAccount?.email : undefined)) : undefined,
-        customModels: provider === 'openai-compatible' && customModels.length > 0 ? customModels : undefined,
-      };
-
-      let result: {
-        success: boolean;
-        data?: ProviderAccount;
-        error?: string;
-      };
-      if (isEditing && editAccount) {
-        const payloadUpdates = {
+      const sessionFields = sessionOnly ? { apiKeySessionOnly: true } : {};
+      const result = accountId !== undefined
+        ? await updateProviderAccount(accountId, {
           name: payload.name,
           apiKey: payload.apiKey,
           baseUrl: payload.baseUrl,
           region: payload.region,
           customModels: payload.customModels,
           ...(payload.email ? { email: payload.email } : {}),
-        };
-        result = await updateProviderAccount(editAccount.id, {
-          ...payloadUpdates,
-        });
-      } else {
-        result = await addProviderAccount(payload);
+          ...sessionFields,
+        })
+        : await addProviderAccount({ ...payload, ...sessionFields });
+
+      if (!result.success && result.error === 'SECURE_STORAGE_UNAVAILABLE') {
+        setPendingSessionSave({ payload, accountId });
+        return;
       }
+      setPendingSessionSave(null);
 
       if (result.success) {
         await refreshUsageData();
         toast({
-          title: isEditing
+          title: accountId !== undefined
             ? t('providers.dialog.toast.updated')
             : t('providers.dialog.toast.added'),
-          description: name.trim(),
+          description: payload.name,
         });
         onOpenChange(false);
       } else if (result.error && !handleDuplicateEmailError(result.error)) {
         toast({
           variant: 'destructive',
           title: t('providers.dialog.toast.error'),
-          description: result.error ?? t('accounts.toast.tryAgain'),
+          description: result.error,
         });
       }
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSave = () => {
+    if (!canSave()) return;
+
+    return submitAccount({
+      accountId: editAccount?.id,
+      payload: {
+        provider,
+        name: name.trim(),
+        authType,
+        billingModel: billingModelOverride ?? (authType === 'oauth' ? 'subscription' : 'pay-per-use'),
+        apiKey: needsApiKey ? apiKey.trim() : undefined,
+        baseUrl: needsBaseUrl && baseUrl.trim() ? baseUrl.trim() : undefined,
+        region: needsRegion ? region : undefined,
+        claudeProfileId: isOAuthOnly && !isCodexOAuth ? oauthProfileId ?? undefined : undefined,
+        email: isOAuthOnly ? (oauthEmail ?? editAccount?.email) : undefined,
+        customModels: provider === 'openai-compatible' && customModels.length > 0 ? customModels : undefined,
+      },
+    });
   };
 
   const title = isEditing
@@ -467,8 +489,7 @@ export function AddAccountDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => {
-      // Prevent closing during auth
-      if (isAuthInProgress) return;
+      if (isAuthInProgress || isSaving || pendingSessionSave) return;
       onOpenChange(v);
     }}>
       <DialogContent className="max-w-md">
@@ -577,7 +598,7 @@ export function AddAccountDialog({
             )}
           </div>
         ) : (
-          <div className="space-y-4">
+          <fieldset className="min-w-0 space-y-4" disabled={isSaving}>
             {/* Name */}
             <div className="space-y-2">
               <Label htmlFor="account-name">{t('providers.dialog.fields.name')}</Label>
@@ -741,7 +762,7 @@ export function AddAccountDialog({
                 </div>
               </div>
             )}
-          </div>
+          </fieldset>
         )}
 
         <DialogFooter>
@@ -755,7 +776,7 @@ export function AddAccountDialog({
                 {t('providers.dialog.cancel')}
               </Button>
               {(isOAuthOnly ? (isEditing || oauthStatus === 'success') : true) && (
-                <Button onClick={handleSave} disabled={!canSave() || isSaving}>
+                <Button ref={saveButtonRef} onClick={handleSave} disabled={!canSave() || isSaving}>
                   {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   {isEditing ? t('providers.dialog.save') : t('providers.dialog.add')}
                 </Button>
@@ -763,6 +784,36 @@ export function AddAccountDialog({
             </>
           )}
         </DialogFooter>
+
+        <AlertDialog
+          open={pendingSessionSave !== null}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen && !isSaving) setPendingSessionSave(null);
+          }}
+        >
+          <AlertDialogContent onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            saveButtonRef.current?.focus();
+          }}>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('providers.dialog.secureStorage.title')}</AlertDialogTitle>
+              <AlertDialogDescription>{t('providers.dialog.secureStorage.description')}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isSaving}>{t('providers.dialog.secureStorage.cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={isSaving}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (pendingSessionSave) void submitAccount(pendingSessionSave, true);
+                }}
+              >
+                {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {t('providers.dialog.secureStorage.useSessionOnly')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

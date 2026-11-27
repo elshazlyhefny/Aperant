@@ -117,7 +117,9 @@ describe('settings-utils', () => {
       writeFileSync(settingsPath, '{ not json');
       const mutator = vi.fn();
 
-      await expect(updateSettingsFile(mutator)).rejects.toBeInstanceOf(SettingsUnreadableError);
+      const result = updateSettingsFile(mutator);
+      await expect(result).rejects.toBeInstanceOf(SettingsUnreadableError);
+      await expect(result).rejects.not.toHaveProperty('cause');
       expect(mutator).not.toHaveBeenCalled();
       expect(readFileSync(settingsPath, 'utf-8')).toBe('{ not json');
       expect(leftovers()).toEqual([]);
@@ -283,7 +285,7 @@ describe('settings-utils', () => {
       });
 
       await expect(updateSettingsFile(() => undefined)).rejects.toBeInstanceOf(SecureStorageUnavailableError);
-      await expect(migrateSettingsSecrets()).resolves.toBe('unchanged');
+      await expect(migrateSettingsSecrets()).resolves.toBe('failed');
       expect(warn).toHaveBeenCalledExactlyOnceWith('[Settings] Could not migrate stored credentials; settings.json was left unchanged');
       expect(diskBytes()).toBe(before);
       expect(readdirSync(state.userData)).toEqual(['settings.json']);

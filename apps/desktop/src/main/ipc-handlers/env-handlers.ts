@@ -666,12 +666,12 @@ ${existingVars['GRAPHITI_DB_PATH'] ? `GRAPHITI_DB_PATH=${existingVars['GRAPHITI_
         config.memoryEnabled = true;
       }
 
-      // OpenAI API Key: project-specific takes precedence, then global
+      // zeenha fork: inherited keys only need a presence check. Do not return
+      // either the stored envelope or a legacy key in project configuration.
       if (vars['OPENAI_API_KEY']) {
         config.openaiApiKey = vars['OPENAI_API_KEY'];
         config.openaiKeyIsGlobal = false;
       } else if (globalSettings.globalOpenAIApiKey) {
-        config.openaiApiKey = globalSettings.globalOpenAIApiKey;
         config.openaiKeyIsGlobal = true;
       }
 

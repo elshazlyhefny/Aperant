@@ -1017,6 +1017,8 @@
       "zaiUsageBased": "À l'utilisation",
       "zaiCodingPlanSubscription": "Z.AI Coding Plan",
       "apiKey": "Clé API",
+      "sessionOnly": "Cette session uniquement",
+      "sessionOnlyTooltip": "Cette clé API est conservée uniquement en mémoire. Saisissez-la à nouveau après avoir redémarré l’application.",
       "active": "Actif",
       "setDefault": "Définir actif",
       "edit": "Modifier le compte",
@@ -1076,6 +1078,12 @@
       "oauthNameRequired": "Entrez un nom de compte avant de vous authentifier",
       "addModel": "Ajouter le modèle",
       "modelsDescription": "Ajoutez les identifiants de modèles disponibles sur cet endpoint. Ils apparaîtront dans le sélecteur de modèles.",
+      "secureStorage": {
+        "title": "Stockage sécurisé indisponible",
+        "description": "Aucun stockage sécurisé des identifiants n’est disponible sur votre système d’exploitation. Cette clé API ne peut donc pas être enregistrée, mais vous pouvez l’utiliser pour cette session uniquement.",
+        "useSessionOnly": "Utiliser pour cette session uniquement",
+        "cancel": "Annuler"
+      },
       "fields": {
         "name": "Nom du compte",
         "apiKey": "Clé API",

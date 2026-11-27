@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -21,7 +21,8 @@ const approvalMocks = vi.hoisted(() => ({
 vi.mock('../webhook-approval-store', () => approvalMocks);
 vi.mock('../project-initializer', () => ({ isAutoBuildEnvTrackedByGit: vi.fn(() => false) }));
 
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
+import { wrapEnvelope } from '../../shared/utils/secret-envelope';
 import { registerEnvHandlers } from '../ipc-handlers/env-handlers';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { hashWebhookUrl } from '../project-webhook-approval';
@@ -34,13 +35,19 @@ const invoke = (channel: string, ...args: unknown[]) =>
     ...args
   );
 
+let userData: string;
 let root: string;
 let envPath: string;
 const URL_OK = 'https://hooks.example.com/services/ABC';
 
 describe('ENV_UPDATE / ENV_GET webhook keys', () => {
   beforeAll(() => {
+    userData = mkdtempSync(path.join(tmpdir(), 'env-user-data-'));
+    vi.mocked(app.getPath).mockReturnValueOnce(userData);
     registerEnvHandlers((() => null) as never);
+  });
+  afterAll(() => {
+    rmSync(userData, { recursive: true, force: true });
   });
   beforeEach(() => {
     root = mkdtempSync(path.join(tmpdir(), 'env-webhook-'));
@@ -52,6 +59,22 @@ describe('ENV_UPDATE / ENV_GET webhook keys', () => {
     vi.clearAllMocks();
     approvalMocks.getWebhookApprovals.mockReturnValue({ urls: [] });
     rmSync(root, { recursive: true, force: true });
+    rmSync(path.join(userData, 'settings.json'), { force: true });
+  });
+
+  it('reports an inherited OpenAI key without returning its stored value', async () => {
+    const storedKey = wrapEnvelope(Buffer.from('mock-ciphertext').toString('base64'));
+    writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ globalOpenAIApiKey: storedKey }));
+
+    const inherited = await invoke(IPC_CHANNELS.ENV_GET, 'p1');
+    expect(inherited.success).toBe(true);
+    expect(inherited.data?.openaiKeyIsGlobal).toBe(true);
+    expect(inherited.data).not.toHaveProperty('openaiApiKey');
+
+    writeFileSync(envPath, 'OPENAI_API_KEY=test-project-key\n');
+    const overridden = await invoke(IPC_CHANNELS.ENV_GET, 'p1');
+    expect(overridden.data?.openaiKeyIsGlobal).toBe(false);
+    expect(overridden.data?.openaiApiKey).toBe('test-project-key');
   });
 
   it('writes the keys with mode 0600 and round-trips via ENV_GET', async () => {

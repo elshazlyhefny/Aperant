@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { detectProvider, getUsageEndpoint, UsageMonitor, getUsageMonitor } from './usage-monitor';
 import type { ApiProvider } from './usage-monitor';
 import { hasHardcodedText } from '../../shared/utils/format-time';
+import { getClaudeProfileManager } from '../claude-profile-manager';
 
 // Mock getClaudeProfileManager
 vi.mock('../claude-profile-manager', () => ({
@@ -1053,6 +1054,58 @@ describe('usage-monitor', () => {
 
       // Unknown provider should return null
       expect(usage).toBeNull();
+    });
+  });
+
+  describe('Undecryptable key envelopes', () => {
+    const ENVELOPE = 'aperant-secret:v1:Y2lwaGVydGV4dA==';
+
+    it('does not treat an API profile with an envelope key as a usage-provider profile', async () => {
+      mockLoadProfilesFile.mockResolvedValueOnce({
+        profiles: [{
+          id: 'zai-locked',
+          name: 'z.ai Locked',
+          baseUrl: 'https://api.z.ai/api/anthropic',
+          apiKey: ENVELOPE
+        }],
+        activeProfileId: 'zai-locked',
+        version: 1
+      });
+
+      const monitor = getUsageMonitor();
+      await monitor['fetchUsageViaAPI']('oauth-token', 'zai-locked', 'z.ai Locked', undefined);
+
+      const urls = vi.mocked(global.fetch).mock.calls.map(([url]) => String(url));
+      expect(urls.some(url => url.includes('api.z.ai'))).toBe(false);
+      expect(urls.some(url => url.startsWith('https://api.anthropic.com/'))).toBe(true);
+    });
+
+    it('excludes API profiles with an envelope key from proactive swap targets', async () => {
+      vi.mocked(getClaudeProfileManager).mockReturnValueOnce({
+        getAccountPriorityOrder: vi.fn(() => []),
+        getProfilesSortedByAvailability: vi.fn(() => []),
+        getProfile: vi.fn(() => undefined),
+        setActiveProfile: vi.fn()
+      } as unknown as ReturnType<typeof getClaudeProfileManager>);
+      mockLoadProfilesFile.mockResolvedValueOnce({
+        profiles: [{
+          id: 'api-locked',
+          name: 'Locked',
+          baseUrl: 'https://api.anthropic.com',
+          apiKey: ENVELOPE
+        }],
+        activeProfileId: null,
+        version: 1
+      });
+
+      const monitor = getUsageMonitor();
+      const failed = vi.fn();
+      monitor.on('proactive-swap-failed', failed);
+
+      await monitor['performProactiveSwap']('current-profile', 'session');
+
+      monitor.off('proactive-swap-failed', failed);
+      expect(failed).toHaveBeenCalledWith(expect.objectContaining({ reason: 'no_alternative' }));
     });
   });
 

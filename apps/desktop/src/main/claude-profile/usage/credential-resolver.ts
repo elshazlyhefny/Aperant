@@ -5,6 +5,7 @@
  * through the dependency object so both sides mutate the same instance.
  */
 
+import { isSecretEnvelope } from '../../../shared/utils/secret-envelope';
 import { getClaudeProfileManager } from '../../claude-profile-manager';
 import { loadProfilesFile } from '../../services/profile/api-profile-store';
 import { getCredentialsFromKeychain } from '../credential-utils';
@@ -37,7 +38,7 @@ export async function resolveActiveCredential(
       const activeProfile = profilesFile.profiles.find(
         (p) => p.id === profilesFile.activeProfileId
       );
-      if (activeProfile?.apiKey) {
+      if (activeProfile?.apiKey && !isSecretEnvelope(activeProfile.apiKey)) {
         log.traceLog('[UsageMonitor:TRACE] Using API profile credential: ' + activeProfile.name);
         return activeProfile.apiKey;
       }

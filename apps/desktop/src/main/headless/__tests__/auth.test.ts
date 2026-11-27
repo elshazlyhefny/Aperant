@@ -6,6 +6,7 @@ vi.mock('../../claude-profile/token-refresh', () => ({
 }));
 
 import { NO_CREDENTIALS_MESSAGE, resolveHeadlessAuth } from '../auth';
+import type { HeadlessConfig } from '../config';
 
 const VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'];
 const saved: Record<string, string | undefined> = {};
@@ -36,6 +37,34 @@ describe('resolveHeadlessAuth', () => {
     const r = await resolveHeadlessAuth('gpt-5', null, {});
     expect(r.provider).toBe('openai');
     expect(r.auth.apiKey).toBe('sk-openai');
+  });
+
+  it('resolves an environment key without desktop secure storage', async () => {
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'google-env-fixture';
+
+    const r = await resolveHeadlessAuth('gemini-2.5-pro', null, {});
+
+    expect(r).toMatchObject({ provider: 'google', auth: { apiKey: 'google-env-fixture', source: 'environment' } });
+  });
+
+  it('ignores desktop ciphertext in providerAccounts passed via --config', async () => {
+    process.env.OPENAI_API_KEY = 'openai-env-fixture';
+    const account = {
+      id: 'desktop-account',
+      name: 'Desktop account',
+      provider: 'openai',
+      authType: 'api-key',
+      apiKey: 'aperant-secret:v1:YQ==',
+      billingModel: 'pay-per-use',
+      isActive: true,
+      createdAt: 0,
+      updatedAt: 0,
+    } as const;
+    const config: HeadlessConfig = { providerAccounts: [account], globalPriorityOrder: [account.id] };
+
+    const r = await resolveHeadlessAuth('gpt-5', null, config);
+
+    expect(r).toMatchObject({ provider: 'openai', auth: { apiKey: 'openai-env-fixture', source: 'environment' } });
   });
 
   it('resolves from the provider queue config', async () => {

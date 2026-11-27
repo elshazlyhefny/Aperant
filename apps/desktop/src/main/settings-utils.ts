@@ -184,7 +184,8 @@ function runSettingsUpdate<T>(
         try {
           parsed = JSON.parse(await fsPromises.readFile(settingsPath, 'utf-8'));
         } catch (error) {
-          throw new SettingsUnreadableError(settingsPath, error);
+          // zeenha fork: a JSON parser error can quote a credential from the file.
+          throw new SettingsUnreadableError(settingsPath, error instanceof SyntaxError ? undefined : error);
         }
         if (!isSettingsObject(parsed)) {
           throw new SettingsUnreadableError(settingsPath);
@@ -217,7 +218,7 @@ function runSettingsUpdate<T>(
 }
 
 /** Migrate legacy plaintext keys under the normal settings lock. Never throws. */
-export async function migrateSettingsSecrets(): Promise<'migrated' | 'unchanged' | 'skipped-no-backend'> {
+export async function migrateSettingsSecrets(): Promise<'migrated' | 'unchanged' | 'skipped-no-backend' | 'failed'> {
   try {
     if (!isSecureStorageAvailable()) return 'skipped-no-backend';
     // Re-encoding the locked snapshot is enough to migrate legacy plaintext.
@@ -225,7 +226,7 @@ export async function migrateSettingsSecrets(): Promise<'migrated' | 'unchanged'
     return written ? 'migrated' : 'unchanged';
   } catch {
     console.warn('[Settings] Could not migrate stored credentials; settings.json was left unchanged');
-    return 'unchanged';
+    return 'failed';
   }
 }
 

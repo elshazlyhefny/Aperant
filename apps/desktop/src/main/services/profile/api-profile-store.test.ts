@@ -2,213 +2,267 @@
  * Tests for api-profile-store.ts
  */
 
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { ProfilesFile } from '@shared/types/profile';
+import { isSecretEnvelope, wrapEnvelope } from '../../../shared/utils/secret-envelope';
+import { isWindows } from '../../platform';
+import { clearSecretCacheForTests, SecureStorageUnavailableError } from '../../secure-storage/secret-storage';
 import {
-  loadProfilesFile,
-  saveProfilesFile,
+  atomicModifyProfiles,
   generateProfileId,
+  getProfilesFilePath,
+  loadProfilesFile,
+  migrateProfilesSecrets,
+  saveProfilesFile,
   validateFilePermissions
 } from './api-profile-store';
-import path from 'path';
-import type { ProfilesFile } from '@shared/types/profile';
+import { createProfile, updateProfile } from './profile-service';
 
-// Use vi.hoisted to define mock functions that need to be accessible in vi.mock
-const { fsMocks } = vi.hoisted(() => ({
-  fsMocks: {
-    readFile: vi.fn(),
-    writeFile: vi.fn(),
-    mkdir: vi.fn(),
-    chmod: vi.fn(),
-    access: vi.fn(),
-    unlink: vi.fn(),
-    rename: vi.fn()
-  }
-}));
+const { state, safeStorage, fakeEncrypt } = vi.hoisted(() => {
+  const transform = (bytes: Buffer) => Buffer.from(bytes.map((byte) => byte ^ 0xff));
+  const fakeEncrypt = (plaintext: string, nonce = 0) =>
+    Buffer.concat([Buffer.of(nonce), transform(Buffer.from(plaintext))]);
+  return {
+    state: { userData: '' },
+    fakeEncrypt,
+    safeStorage: {
+      isEncryptionAvailable: vi.fn(() => true),
+      getSelectedStorageBackend: () => 'gnome_libsecret',
+      encryptString: vi.fn((plaintext: string) => fakeEncrypt(plaintext)),
+      decryptString: vi.fn((encrypted: Buffer) => transform(encrypted.subarray(1)).toString())
+    }
+  };
+});
 
-// Mock Electron app.getPath
 vi.mock('electron', () => ({
-  app: {
-    getPath: vi.fn((name: string) => {
-      if (name === 'userData') {
-        return '/mock/userdata';
-      }
-      return '/mock/path';
-    })
-  }
+  app: { getPath: () => state.userData },
+  safeStorage
 }));
 
-// Mock proper-lockfile
-vi.mock('proper-lockfile', () => ({
-  default: {
-    lock: vi.fn().mockResolvedValue(vi.fn().mockResolvedValue(undefined))
-  }
-}));
+function fixture(): ProfilesFile {
+  return {
+    profiles: [{
+      id: 'fixture-id-1',
+      name: 'Fixture Profile',
+      baseUrl: 'https://api.example.com',
+      apiKey: 'sk-fixture-key',
+      models: { default: 'claude-sonnet' },
+      createdAt: 1700000000000,
+      updatedAt: 1700000001000
+    }],
+    activeProfileId: 'fixture-id-1',
+    version: 1
+  };
+}
 
-// Mock fs module
-vi.mock('fs', () => ({
-  default: {
-    promises: fsMocks
-  },
-  promises: fsMocks,
-  existsSync: vi.fn(),
-  constants: {
-    O_RDONLY: 0,
-    S_IRUSR: 0o400
-  }
-}));
+const readRaw = () => fs.readFile(getProfilesFilePath(), 'utf-8');
+
+async function writeRaw(content: string): Promise<void> {
+  await fs.mkdir(path.dirname(getProfilesFilePath()), { recursive: true });
+  await fs.writeFile(getProfilesFilePath(), content);
+}
+
+async function expectNoLeftovers(): Promise<void> {
+  expect(await fs.readdir(path.dirname(getProfilesFilePath()))).toEqual(['profiles.json']);
+}
 
 describe('api-profile-store', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // Setup default mocks to resolve
-    fsMocks.mkdir.mockResolvedValue(undefined);
-    fsMocks.writeFile.mockResolvedValue(undefined);
-    fsMocks.chmod.mockResolvedValue(undefined);
+  beforeEach(async () => {
+    vi.resetAllMocks();
+    clearSecretCacheForTests();
+    state.userData = await fs.mkdtemp(path.join(tmpdir(), 'api-profile-store-'));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await fs.rm(state.userData, { recursive: true, force: true });
   });
 
   describe('loadProfilesFile', () => {
-    it('should return default profiles file when file does not exist', async () => {
-      fsMocks.readFile.mockRejectedValue(new Error('ENOENT'));
+    const empty = { profiles: [], activeProfileId: null, version: 1 };
 
-      const result = await loadProfilesFile();
-
-      expect(result).toEqual({
-        profiles: [],
-        activeProfileId: null,
-        version: 1
-      });
+    it('returns default profiles when the file is missing', async () => {
+      expect(await loadProfilesFile()).toEqual(empty);
     });
 
-    it('should return default profiles file when file is corrupted JSON', async () => {
-      fsMocks.readFile.mockResolvedValue(Buffer.from('invalid json{'));
-
-      const result = await loadProfilesFile();
-
-      expect(result).toEqual({
-        profiles: [],
-        activeProfileId: null,
-        version: 1
-      });
+    it.each(['invalid json{', '{"version":1}'])('returns default profiles for invalid data: %s', async (raw) => {
+      await writeRaw(raw);
+      expect(await loadProfilesFile()).toEqual(empty);
     });
 
-    it('should load valid profiles file', async () => {
-      const mockData: ProfilesFile = {
-        profiles: [
-          {
-            id: 'test-id-1',
-            name: 'Test Profile',
-            baseUrl: 'https://api.anthropic.com',
-            apiKey: 'sk-test-key',
-            createdAt: Date.now(),
-            updatedAt: Date.now()
-          }
-        ],
-        activeProfileId: 'test-id-1',
-        version: 1
-      };
-
-      fsMocks.readFile.mockResolvedValue(
-        Buffer.from(JSON.stringify(mockData))
-      );
-
-      const result = await loadProfilesFile();
-
-      expect(result).toEqual(mockData);
-    });
-
-    it('should use auto-claude directory for profiles.json path', async () => {
-      fsMocks.readFile.mockRejectedValue(new Error('ENOENT'));
-
-      await loadProfilesFile();
-
-      // Verify the file path includes auto-claude
-      const readFileCalls = fsMocks.readFile.mock.calls;
-      const filePath = readFileCalls[0]?.[0];
-      expect(filePath).toContain('auto-claude');
-      expect(filePath).toContain('profiles.json');
+    it('loads a legacy v1 profiles.json from the auto-claude directory', async () => {
+      const file = fixture();
+      expect(getProfilesFilePath()).toBe(path.join(state.userData, 'auto-claude', 'profiles.json'));
+      await writeRaw(JSON.stringify(file));
+      expect(await loadProfilesFile()).toEqual(file);
     });
   });
 
   describe('saveProfilesFile', () => {
-    it('should write profiles file to disk', async () => {
-      const mockData: ProfilesFile = {
-        profiles: [],
-        activeProfileId: null,
-        version: 1
-      };
+    it('encrypts profile keys and retains an owner-only file mode', async () => {
+      const file = fixture();
+      await saveProfilesFile(file);
 
-      await saveProfilesFile(mockData);
-
-      expect(fsMocks.writeFile).toHaveBeenCalled();
-      const writeFileCall = fsMocks.writeFile.mock.calls[0];
-      const filePath = writeFileCall?.[0];
-      const content = writeFileCall?.[1];
-
-      expect(filePath).toContain('auto-claude');
-      expect(filePath).toContain('profiles.json');
-      expect(content).toBe(JSON.stringify(mockData, null, 2));
+      const raw = await readRaw();
+      expect(raw).not.toContain(file.profiles[0].apiKey);
+      expect(isSecretEnvelope(JSON.parse(raw).profiles[0].apiKey)).toBe(true);
+      expect(await loadProfilesFile()).toEqual(file);
+      if (!isWindows()) expect((await fs.stat(getProfilesFilePath())).mode & 0o777).toBe(0o600);
     });
 
-    it('should throw error when write fails', async () => {
-      const mockData: ProfilesFile = {
-        profiles: [],
-        activeProfileId: null,
-        version: 1
-      };
+    it('propagates write failures and keeps the previous file', async () => {
+      const raw = JSON.stringify(fixture());
+      await writeRaw(raw);
+      vi.spyOn(fs, 'writeFile').mockRejectedValueOnce(new Error('Write failed'));
 
-      fsMocks.writeFile.mockRejectedValue(new Error('Write failed'));
-
-      await expect(saveProfilesFile(mockData)).rejects.toThrow('Write failed');
+      await expect(saveProfilesFile(fixture())).rejects.toThrow('Write failed');
+      expect(await readRaw()).toBe(raw);
+      await expectNoLeftovers();
     });
   });
 
-  describe('stored profile compatibility', () => {
-    const fixtureJson = JSON.stringify(
-      {
-        profiles: [
-          {
-            id: 'fixture-id-1',
-            name: 'Fixture Profile',
-            baseUrl: 'https://api.example.com',
-            apiKey: 'sk-fixture-key',
-            models: { default: 'claude-sonnet' },
-            createdAt: 1700000000000,
-            updatedAt: 1700000001000
-          }
-        ],
-        activeProfileId: 'fixture-id-1',
-        version: 1
-      },
-      null,
-      2
-    );
+  describe('atomicModifyProfiles', () => {
+    it('writes only an envelope, with a temp file opened in owner-only mode', async () => {
+      const file = fixture();
+      const writeFile = vi.spyOn(fs, 'writeFile');
+      expect(await atomicModifyProfiles(() => file)).toEqual(file);
 
-    it('should load a v1 profiles.json from <userData>/auto-claude/profiles.json unchanged', async () => {
-      fsMocks.readFile.mockResolvedValue(Buffer.from(fixtureJson));
-
-      const result = await loadProfilesFile();
-
-      expect(fsMocks.readFile.mock.calls[0]?.[0]).toBe(
-        path.join('/mock/userdata', 'auto-claude', 'profiles.json')
-      );
-      expect(result).toEqual(JSON.parse(fixtureJson));
+      const raw = await readRaw();
+      expect(raw).not.toContain(file.profiles[0].apiKey);
+      expect(isSecretEnvelope(JSON.parse(raw).profiles[0].apiKey)).toBe(true);
+      expect(writeFile).toHaveBeenCalledWith(`${getProfilesFilePath()}.tmp`, raw, { encoding: 'utf-8', mode: 0o600 });
+      expect(await loadProfilesFile()).toEqual(file);
+      await expectNoLeftovers();
     });
 
-    it('should round-trip save then load with byte-equivalent JSON', async () => {
-      fsMocks.readFile.mockResolvedValue(Buffer.from(fixtureJson));
-      const loaded = await loadProfilesFile();
+    it('gives the modifier plaintext but keeps each unchanged envelope byte-for-byte', async () => {
+      const file = fixture();
+      file.profiles.push({ ...file.profiles[0], id: 'fixture-id-2' });
+      const raw = JSON.stringify({
+        ...file,
+        profiles: file.profiles.map((profile, i) => ({
+          ...profile,
+          apiKey: wrapEnvelope(fakeEncrypt(profile.apiKey, i).toString('base64'))
+        }))
+      }, null, 2);
+      await writeRaw(raw);
 
-      await saveProfilesFile(loaded);
+      await atomicModifyProfiles((decoded) => {
+        expect(decoded).toEqual(file);
+        return decoded;
+      });
+      await saveProfilesFile(file);
+      expect(await readRaw()).toBe(raw);
+      expect(safeStorage.encryptString).not.toHaveBeenCalled();
+    });
 
-      const written = fsMocks.writeFile.mock.calls[0]?.[1];
-      expect(written).toBe(fixtureJson);
+    it('passes an undecryptable envelope through an unrelated update', async () => {
+      const file = fixture();
+      const envelope = wrapEnvelope(fakeEncrypt(file.profiles[0].apiKey).toString('base64'));
+      file.profiles[0].apiKey = envelope;
+      await writeRaw(JSON.stringify(file));
+      safeStorage.decryptString.mockImplementation(() => { throw new Error('Keyring changed'); });
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      fsMocks.readFile.mockResolvedValue(Buffer.from(written));
-      expect(await loadProfilesFile()).toEqual(loaded);
+      await atomicModifyProfiles((decoded) => ({ ...decoded, activeProfileId: null }));
+      expect(JSON.parse(await readRaw()).profiles[0].apiKey).toBe(envelope);
+      expect(safeStorage.encryptString).not.toHaveBeenCalled();
+    });
+
+    it('preserves a legacy key in its original slot but refuses to copy it to a new profile without a backend', async () => {
+      const file = fixture();
+      await writeRaw(JSON.stringify(file));
+      safeStorage.isEncryptionAvailable.mockReturnValue(false);
+      await atomicModifyProfiles((decoded) => ({ ...decoded, activeProfileId: null }));
+      const before = await readRaw();
+      expect(JSON.parse(before).profiles[0].apiKey).toBe(file.profiles[0].apiKey);
+
+      await expect(atomicModifyProfiles((decoded) => {
+        decoded.profiles.push({ ...decoded.profiles[0], id: 'new-id' });
+        return decoded;
+      })).rejects.toBeInstanceOf(SecureStorageUnavailableError);
+      await expect(saveProfilesFile({
+        ...file,
+        profiles: [{ ...file.profiles[0], apiKey: 'replacement-key' }]
+      })).rejects.toMatchObject({ code: 'SECURE_STORAGE_UNAVAILABLE' });
+      expect(await readRaw()).toBe(before);
+      await expectNoLeftovers();
+    });
+
+    it('surfaces storage refusals to profile service callers without saving the new key', async () => {
+      const file = fixture();
+      const before = JSON.stringify(file);
+      await writeRaw(before);
+      safeStorage.isEncryptionAvailable.mockReturnValue(false);
+      const newKey = { ...file.profiles[0], apiKey: 'replacement-key' };
+
+      await expect(createProfile({ ...newKey, name: 'New profile' })).rejects.toMatchObject({ code: 'SECURE_STORAGE_UNAVAILABLE' });
+      await expect(updateProfile(newKey)).rejects.toMatchObject({ code: 'SECURE_STORAGE_UNAVAILABLE' });
+      expect(await readRaw()).toBe(before);
+      await expectNoLeftovers();
+    });
+
+    it('leaves the original bytes and no temp file if encoding fails', async () => {
+      const file = fixture();
+      const before = JSON.stringify(file);
+      await writeRaw(before);
+      safeStorage.encryptString.mockImplementation(() => { throw new Error('Encryption failed'); });
+
+      await expect(atomicModifyProfiles((decoded) => decoded)).rejects.toBeInstanceOf(SecureStorageUnavailableError);
+      expect(await readRaw()).toBe(before);
+      await expectNoLeftovers();
+    });
+  });
+
+  describe('migrateProfilesSecrets', () => {
+    it('encrypts legacy plaintext and leaves encrypted files unchanged on repeat runs', async () => {
+      const file = fixture();
+      await writeRaw(JSON.stringify(file));
+      await migrateProfilesSecrets();
+
+      const raw = await readRaw();
+      expect(raw).not.toContain(file.profiles[0].apiKey);
+      expect(isSecretEnvelope(JSON.parse(raw).profiles[0].apiKey)).toBe(true);
+      expect(await loadProfilesFile()).toEqual(file);
+      const writeFile = vi.spyOn(fs, 'writeFile');
+      await migrateProfilesSecrets();
+      expect(writeFile).not.toHaveBeenCalled();
+      expect(await readRaw()).toBe(raw);
+    });
+
+    it('does not create a missing file or rewrite a corrupt file', async () => {
+      await migrateProfilesSecrets();
+      expect(await fs.readdir(state.userData)).toEqual([]);
+
+      await writeRaw('{invalid');
+      await migrateProfilesSecrets();
+      expect(await readRaw()).toBe('{invalid');
+      await expectNoLeftovers();
+    });
+
+    it('skips migration when storage is unavailable', async () => {
+      const before = JSON.stringify(fixture());
+      await writeRaw(before);
+      safeStorage.isEncryptionAvailable.mockReturnValue(false);
+      await migrateProfilesSecrets();
+      expect(await readRaw()).toBe(before);
+      expect(safeStorage.encryptString).not.toHaveBeenCalled();
+    });
+
+    it('does not rewrite the file or log secrets when encryption fails', async () => {
+      const file = fixture();
+      const before = JSON.stringify(file);
+      await writeRaw(before);
+      safeStorage.encryptString.mockImplementation((plaintext) => { throw new Error(plaintext); });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await expect(migrateProfilesSecrets()).resolves.toBeUndefined();
+      expect(warn.mock.calls).toEqual([['[ProfileStore] Failed to migrate API profile secrets']]);
+      expect(await readRaw()).toBe(before);
+      await expectNoLeftovers();
     });
   });
 
@@ -235,21 +289,14 @@ describe('api-profile-store', () => {
   });
 
   describe('validateFilePermissions', () => {
-    it('should validate user-readable only file permissions', async () => {
-      // Mock successful chmod
-      fsMocks.chmod.mockResolvedValue(undefined);
-
-      const result = await validateFilePermissions('/mock/path/to/file.json');
-
-      expect(result).toBe(true);
+    it('sets user-only read/write permissions', async () => {
+      await writeRaw(JSON.stringify(fixture()));
+      expect(await validateFilePermissions(getProfilesFilePath())).toBe(true);
+      if (!isWindows()) expect((await fs.stat(getProfilesFilePath())).mode & 0o777).toBe(0o600);
     });
 
-    it('should return false if chmod fails', async () => {
-      fsMocks.chmod.mockRejectedValue(new Error('Permission denied'));
-
-      const result = await validateFilePermissions('/mock/path/to/file.json');
-
-      expect(result).toBe(false);
+    it('returns false if chmod fails', async () => {
+      expect(await validateFilePermissions(getProfilesFilePath())).toBe(false);
     });
   });
 });

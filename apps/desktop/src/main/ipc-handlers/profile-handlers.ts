@@ -27,6 +27,7 @@ import {
 } from '../services/profile';
 
 import { appLog } from '../app-logger';
+import { SecureStorageUnavailableError } from '../secure-storage/secret-storage';
 import { recordApiKeyOutcome, outcomeFromConnectionError } from '../services/api-key-status-recorder';
 // Track active test connection requests for cancellation
 const activeTestConnections = new Map<number, AbortController>();
@@ -76,6 +77,8 @@ export function registerProfileHandlers(): void {
 
         return { success: true, data: newProfile };
       } catch (error) {
+        // zeenha fork: report refused key persistence without exposing backend errors.
+        if (error instanceof SecureStorageUnavailableError) return { success: false, error: error.code };
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to save profile'
@@ -107,6 +110,7 @@ export function registerProfileHandlers(): void {
 
         return { success: true, data: updatedProfile };
       } catch (error) {
+        if (error instanceof SecureStorageUnavailableError) return { success: false, error: error.code };
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to update profile'
