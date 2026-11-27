@@ -673,6 +673,8 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
                     isStuck={isStuck}
                     logsEndRef={state.logsEndRef}
                     logsContainerRef={state.logsContainerRef}
+                    isAwayFromLatest={state.isUserScrolledUp}
+                    onJumpToLatest={state.jumpToLatestLogs}
                     onLogsScroll={state.handleLogsScroll}
                     onTogglePhase={state.togglePhase}
                   />

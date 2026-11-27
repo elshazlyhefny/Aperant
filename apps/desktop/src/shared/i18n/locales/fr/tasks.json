@@ -595,6 +595,7 @@
     "hint": "Faites glisser un fichier, ou appuyez sur Entrée, pour l'ajouter comme référence"
   },
   "logs": {
+    "jumpToLatest": "Aller au plus récent",
     "empty": {
       "title": "Aucun journal pour le moment",
       "hint": "Les journaux apparaîtront ici lorsque la tâche s'exécutera"
