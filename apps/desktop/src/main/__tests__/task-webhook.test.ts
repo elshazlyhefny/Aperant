@@ -1,3 +1,4 @@
+import type { DeliveryReceiptRecorder } from '../delivery-receipts';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -260,6 +261,36 @@ describe('dispatchTaskOutcomeWebhook with a project webhook', () => {
     events: { reviewReady: true, failed, blocked: true, prOpened: false }
   });
 
+  it.each(['approved', 'unapproved', 'refused'] as const)(
+    'tracks a single POST for an %s project webhook using the selected route', async (status) => {
+      mocks.settings = { webhook: { ...appWide.webhook, format: 'discord' } };
+      mocks.projectConfig.mockReturnValue({ ...cfg(true, status), format: 'teams' });
+      fetchMock.mockResolvedValue(res(204));
+      const recorder = {
+        skip: vi.fn(),
+        track: vi.fn<DeliveryReceiptRecorder['track']>(async (_operation, send) => { await send(); return undefined; }),
+        snapshot: vi.fn()
+      };
+      expect(await dispatchTaskOutcomeWebhook(input, recorder)).toEqual({ status: 'delivered', attempts: 1, httpStatus: 204 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe(status === 'approved' ? PROJECT_URL : URL_OK);
+      expect(recorder.track).toHaveBeenCalledExactlyOnceWith({
+        operation: 'webhook', event: 'failed', provider: status === 'approved' ? 'teams' : 'discord'
+      }, expect.any(Function));
+      expect(recorder.skip).not.toHaveBeenCalled();
+    }
+  );
+
+  it('records the disabled event on the exclusive project route without falling back', async () => {
+    mocks.settings = appWide;
+    mocks.projectConfig.mockReturnValue(cfg(false));
+    const recorder = { skip: vi.fn(), track: vi.fn(), snapshot: vi.fn() };
+    expect(await dispatchTaskOutcomeWebhook(input, recorder)).toEqual({ status: 'skipped', reason: 'event_disabled' });
+    expect(recorder.skip).toHaveBeenCalledExactlyOnceWith({ operation: 'webhook', event: 'failed' }, 'event_disabled');
+    expect(recorder.track).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('sends only to the project url when set and the event is enabled', async () => {
     mocks.settings = appWide;
     mocks.projectConfig.mockReturnValue(cfg(true));
@@ -411,6 +442,25 @@ describe('webhook signing secret', () => {
     dispatchTaskOutcomeWebhook(input);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.warn).toHaveBeenCalledExactlyOnceWith(`[Webhook] project webhook delivery withheld reason=${reason}`);
+  });
+
+  it('records a withheld project send as a skipped receipt and checks the event toggle first', async () => {
+    mocks.settings = withSecret(APP_KEY);
+    mocks.signingRecord.mockReturnValue(null);
+    const recorder = { skip: vi.fn(), track: vi.fn(), snapshot: vi.fn() };
+    mocks.projectConfig.mockReturnValue(approved);
+    expect(await dispatchTaskOutcomeWebhook(input, recorder)).toEqual({ status: 'skipped', reason: 'missing_configuration' });
+    expect(recorder.skip).toHaveBeenCalledExactlyOnceWith({ operation: 'webhook', event: 'failed' }, 'missing_configuration');
+    expect(recorder.track).not.toHaveBeenCalled();
+
+    recorder.skip.mockClear();
+    mocks.warn.mockClear();
+    mocks.signingRecord.mockClear();
+    mocks.projectConfig.mockReturnValue({ ...approved, events: { ...events, failed: false } });
+    expect(await dispatchTaskOutcomeWebhook(input, recorder)).toEqual({ status: 'skipped', reason: 'event_disabled' });
+    expect(mocks.signingRecord).not.toHaveBeenCalled();
+    expect(mocks.warn).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -1043,8 +1043,8 @@
       "edit": "Edit account",
       "reauth": "Re-authenticate",
       "delete": "Delete account",
-      "showKey": "Show API key",
-      "hideKey": "Hide API key",
+      "keySaved": "API key saved",
+      "noKeySaved": "No API key saved",
       "oauthAccount": "OAuth account",
       "oauthLinked": "Linked account",
       "noEndpoint": "No endpoint",
@@ -1097,9 +1097,11 @@
       "oauthNameRequired": "Enter an account name before authenticating",
       "addModel": "Add model",
       "modelsDescription": "Add the model IDs available at this endpoint. These will appear in the model selector.",
+      "replaceKeyHint": "Enter a new API key only if you want to replace the saved one.",
       "fields": {
         "name": "Account Name",
         "apiKey": "API Key",
+        "replaceApiKey": "Replace API Key",
         "baseUrl": "Base URL",
         "region": "AWS Region",
         "models": "Models"
@@ -1107,6 +1109,7 @@
       "placeholders": {
         "name": "My Account",
         "apiKey": "sk-...",
+        "keepSavedKey": "Leave blank to keep the saved key",
         "baseUrl": "https://...",
         "modelId": "Model ID (e.g. llama-3.1-70b)",
         "modelLabel": "Display name"

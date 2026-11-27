@@ -52,7 +52,7 @@ const PROVIDER_I18N_KEYS: Record<string, string> = {
 };
 
 export function AuthStatusIndicator() {
-  const { providerAccounts, settings } = useSettingsStore();
+  const { settings } = useSettingsStore();
   const { t } = useTranslation(['common']);
 
   // Track usage data for warning badge
@@ -101,7 +101,7 @@ export function AuthStatusIndicator() {
       (hasHardcodedText(usage?.sessionResetTime) ? undefined : usage?.sessionResetTime))
     : (hasHardcodedText(usage?.sessionResetTime) ? undefined : usage?.sessionResetTime);
 
-  const { account: activeAccount } = useActiveProvider();
+  const { account: activeAccount, orderedAccounts } = useActiveProvider();
 
   const isCrossProviderMode = settings.customMixedProfileActive && !!settings.customMixedPhaseConfig;
   const crossProviderList = isCrossProviderMode
@@ -130,8 +130,8 @@ export function AuthStatusIndicator() {
     if (!activeAccount) return null;
     const order = settings.globalPriorityOrder ?? [];
     const pos = order.indexOf(activeAccount.id);
-    return { position: pos >= 0 ? pos + 1 : 1, total: providerAccounts.length };
-  }, [activeAccount, settings.globalPriorityOrder, providerAccounts.length]);
+    return { position: pos >= 0 ? pos + 1 : 1, total: orderedAccounts.length };
+  }, [activeAccount, settings.globalPriorityOrder, orderedAccounts.length]);
 
   return (
     <div className="flex items-center gap-2">

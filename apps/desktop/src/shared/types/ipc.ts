@@ -28,6 +28,7 @@ import type {
   McpTestConnectionResult
 } from './project';
 import type { PRFeedbackResult, StartPRFollowUpResult } from './pr-feedback';
+import type { DeliveryReceipt } from './delivery-receipt';
 import type { TaskRunMetrics, ProjectRunMetrics } from './run-metrics';
 import type { TaskQueueState, DaemonStopResultEvent } from './task-queue';
 import type { ScreenshotSource } from './screenshot';
@@ -76,7 +77,7 @@ import type {
   AllProfilesUsage,
   TerminalProfileChangedEvent
 } from './agent';
-import type { AppSettings } from './settings';
+import type { AppSettings, RendererAppSettings } from './settings';
 import type { AppUpdateInfo, AppUpdateProgress, AppUpdateAvailableEvent, AppUpdateDownloadedEvent, AppUpdateErrorEvent } from './app-update';
 import type {
   ChangelogTask,
@@ -172,7 +173,7 @@ import type {
   PRLogsUpdatedPayload
 } from '../../preload/api/modules/github-api';
 import type { APIProfile, ProfilesFile, TestConnectionResult, DiscoverModelsResult } from './profile';
-import type { ProviderAccount } from './provider-account';
+import type { ProviderAccount, ProviderAccountView } from './provider-account';
 
 // ============================================
 // Branch Types
@@ -239,7 +240,7 @@ export interface ElectronAPI extends ScheduleAPI {
   submitReview: (taskId: string, approved: boolean, feedback?: string, images?: ImageAttachment[]) => Promise<IPCResult>;
   updateTaskStatus: (taskId: string, status: TaskStatus, options?: { forceCleanup?: boolean }) => Promise<IPCResult & { worktreeExists?: boolean; worktreePath?: string }>;
   getPRFeedback: (taskId: string) => Promise<IPCResult<PRFeedbackResult>>;
-  startPRFollowUp: (taskId: string, itemIds: string[]) => Promise<IPCResult<StartPRFollowUpResult>>;
+  startPRFollowUp: (taskId: string, itemIds: string[], expectedHeadSha: string) => Promise<IPCResult<StartPRFollowUpResult>>;
   recoverStuckTask: (taskId: string, options?: TaskRecoveryOptions) => Promise<IPCResult<TaskRecoveryResult>>;
   checkTaskRunning: (taskId: string) => Promise<IPCResult<boolean>>;
   resumePausedTask: (taskId: string) => Promise<IPCResult>;
@@ -411,7 +412,7 @@ export interface ElectronAPI extends ScheduleAPI {
   onAllProfilesUsageUpdated?: (callback: (allProfilesUsage: AllProfilesUsage) => void) => () => void;
 
   // App settings
-  getSettings: () => Promise<IPCResult<AppSettings>>;
+  getSettings: () => Promise<IPCResult<RendererAppSettings>>;
   saveSettings: (settings: Partial<AppSettings>) => Promise<IPCResult>;
 
   // Spell check
@@ -439,13 +440,14 @@ export interface ElectronAPI extends ScheduleAPI {
   deleteAPIProfile: (profileId: string) => Promise<IPCResult>;
   setActiveAPIProfile: (profileId: string | null) => Promise<IPCResult>;
   // Note: AbortSignal is handled in preload via separate cancel IPC channels, not passed through IPC
-  testConnection: (baseUrl: string, apiKey: string, signal?: AbortSignal, profileId?: string) => Promise<IPCResult<TestConnectionResult>>;
-  discoverModels: (baseUrl: string, apiKey: string, signal?: AbortSignal) => Promise<IPCResult<DiscoverModelsResult>>;
+  // Pass a blank key with a provider account ID to use that account's saved key in main.
+  testConnection: (baseUrl: string, apiKey: string, signal?: AbortSignal, profileOrAccountId?: string) => Promise<IPCResult<TestConnectionResult>>;
+  discoverModels: (baseUrl: string, apiKey: string, signal?: AbortSignal, accountId?: string) => Promise<IPCResult<DiscoverModelsResult>>;
 
   // Provider Account management (unified multi-provider credentials)
-  getProviderAccounts: () => Promise<IPCResult<{ accounts: ProviderAccount[] }>>;
-  saveProviderAccount: (account: Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>) => Promise<IPCResult<ProviderAccount>>;
-  updateProviderAccount: (id: string, updates: Partial<ProviderAccount>) => Promise<IPCResult<ProviderAccount>>;
+  getProviderAccounts: () => Promise<IPCResult<{ accounts: ProviderAccountView[] }>>;
+  saveProviderAccount: (account: Omit<ProviderAccount, 'id' | 'createdAt' | 'updatedAt'>) => Promise<IPCResult<ProviderAccountView>>;
+  updateProviderAccount: (id: string, updates: Partial<Omit<ProviderAccount, 'id'>>) => Promise<IPCResult<ProviderAccountView>>;
   deleteProviderAccount: (id: string) => Promise<IPCResult>;
   setProviderAccountQueueOrder: (order: string[]) => Promise<IPCResult>;
   setCrossProviderQueueOrder: (order: string[]) => Promise<IPCResult>;
@@ -961,6 +963,8 @@ export interface ElectronAPI extends ScheduleAPI {
   // Task logs operations
   getTaskLogs: (projectId: string, specId: string) => Promise<IPCResult<TaskLogs | null>>;
   getTaskRunMetrics: (projectId: string, specId: string) => Promise<IPCResult<TaskRunMetrics | null>>;
+  // zeenha fork: provided by desktop preload; browser preview can omit it until it exposes history.
+  getTaskDeliveryReceipts?: (projectId: string, specId: string) => Promise<IPCResult<DeliveryReceipt[]>>;
   // zeenha fork: project-wide delivery and token metrics
   getProjectRunMetrics: (projectId: string, periodDays: number | null) => Promise<IPCResult<ProjectRunMetrics | null>>;
   watchTaskLogs: (projectId: string, specId: string) => Promise<IPCResult>;

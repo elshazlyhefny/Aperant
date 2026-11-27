@@ -24,11 +24,11 @@ import { ProviderAccountsList } from './ProviderAccountsList';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useToast } from '../../hooks/use-toast';
 import { PROVIDER_REGISTRY } from '@shared/constants/providers';
-import type { AppSettings, ClaudeAutoSwitchSettings, ProfileUsageSummary } from '../../../shared/types';
+import type { RendererAppSettings, ClaudeAutoSwitchSettings, ProfileUsageSummary } from '../../../shared/types';
 
 interface AccountSettingsProps {
-  settings: AppSettings;
-  onSettingsChange: (settings: AppSettings) => void;
+  settings: RendererAppSettings;
+  onSettingsChange: (settings: RendererAppSettings) => void;
   isOpen: boolean;
 }
 

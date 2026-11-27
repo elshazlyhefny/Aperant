@@ -234,51 +234,48 @@ export function registerWorktreeHandlers(
         // Get base branch using proper fallback chain:
         // 1. Task metadata baseBranch, 2. Project settings mainBranch, 3. main/master detection
         // Note: We do NOT use current HEAD as that may be a feature branch
-        // zeenha fork: async git calls, run in parallel, so the main thread is not blocked.
         const baseBranch = await resolveTaskBaseBranchAsync({ project, specId: task.specId });
 
         // Get the diff with file stats
         const files: WorktreeDiffFile[] = [];
 
-        try {
-          // Use working-tree diff against baseBranch to capture ALL changes
-          // (both committed and uncommitted). This ensures the diff view shows
-          // file changes even when the agent hasn't committed its work yet.
-          const [numstat, nameStatus] = await Promise.all([
-            getWorktreeNumstat(worktreePath, baseBranch),
-            // Get name-status for file status (cross-platform)
-            execFileAsync(getToolPath('git'), ['diff', '--name-status', baseBranch], {
-              cwd: worktreePath,
-              encoding: 'utf-8',
-              maxBuffer: 10 * 1024 * 1024
-            }).then(({ stdout }) => stdout.trim())
-          ]);
+        // Use working-tree diff against baseBranch to capture ALL changes
+        // (both committed and uncommitted). This ensures the diff view shows
+        // file changes even when the agent hasn't committed its work yet.
+        // zeenha fork: collect asynchronously and let Git failures reach the IPC catch
+        // instead of presenting them as a successful empty diff.
+        const [numstat, nameStatus] = await Promise.all([
+          getWorktreeNumstat(worktreePath, baseBranch),
+          // Get name-status for file status (cross-platform)
+          execFileAsync(getToolPath('git'), ['diff', '--name-status', baseBranch], {
+            cwd: worktreePath,
+            encoding: 'utf-8',
+            maxBuffer: 10 * 1024 * 1024
+          }).then(({ stdout }) => stdout.trim())
+        ]);
 
-          // Parse name-status to get file statuses
-          const statusMap: Record<string, 'added' | 'modified' | 'deleted' | 'renamed'> = {};
-          nameStatus.split('\n').filter(Boolean).forEach((line: string) => {
-            const [status, ...pathParts] = line.split('\t');
-            const filePath = pathParts.join('\t'); // Handle files with tabs in name
-            switch (status[0]) {
-              case 'A': statusMap[filePath] = 'added'; break;
-              case 'M': statusMap[filePath] = 'modified'; break;
-              case 'D': statusMap[filePath] = 'deleted'; break;
-              case 'R': statusMap[pathParts[1] || filePath] = 'renamed'; break;
-              default: statusMap[filePath] = 'modified';
-            }
-          });
-
-          // Parse numstat for additions/deletions
-          for (const entry of parseNumstat(numstat)) {
-            files.push({
-              path: entry.path,
-              status: statusMap[entry.path] || 'modified',
-              additions: entry.additions,
-              deletions: entry.deletions
-            });
+        // Parse name-status to get file statuses
+        const statusMap: Record<string, 'added' | 'modified' | 'deleted' | 'renamed'> = {};
+        nameStatus.split('\n').filter(Boolean).forEach((line: string) => {
+          const [status, ...pathParts] = line.split('\t');
+          const filePath = pathParts.join('\t'); // Handle files with tabs in name
+          switch (status[0]) {
+            case 'A': statusMap[filePath] = 'added'; break;
+            case 'M': statusMap[filePath] = 'modified'; break;
+            case 'D': statusMap[filePath] = 'deleted'; break;
+            case 'R': statusMap[pathParts[1] || filePath] = 'renamed'; break;
+            default: statusMap[filePath] = 'modified';
           }
-        } catch (diffError) {
-          console.error('Error getting diff:', diffError);
+        });
+
+        // Parse numstat for additions/deletions
+        for (const entry of parseNumstat(numstat)) {
+          files.push({
+            path: entry.path,
+            status: statusMap[entry.path] || 'modified',
+            additions: entry.additions,
+            deletions: entry.deletions
+          });
         }
 
         // Generate summary

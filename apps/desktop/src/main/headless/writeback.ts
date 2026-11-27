@@ -10,6 +10,7 @@ import { DEFAULT_APP_SETTINGS } from '../../shared/constants/config';
 import type { Project } from '../../shared/types';
 import type { AppSettings, IssueWritebackSettings, JiraWritebackSettings } from '../../shared/types/settings';
 import { normalizeIssueWritebackSettings } from '../../shared/utils/issue-writeback-settings';
+import type { DeliveryReceiptRecorder } from '../delivery-receipts';
 import { createHeadlessWriters } from '../ipc-handlers/forge/headless-writers';
 import { readMetadata } from '../ipc-handlers/issue-writeback/common';
 import { dispatchIssueOutcomeWith } from '../ipc-handlers/issue-writeback/issue-writeback-core';
@@ -70,6 +71,7 @@ export interface ReportOutcomeToSourceInput {
   title: string;
   prUrl?: string;
   env?: NodeJS.ProcessEnv;
+  recorder?: DeliveryReceiptRecorder;
   dispatchIssue?: typeof dispatchIssueOutcomeWith;
   warn?: (message: string) => void;
 }
@@ -97,6 +99,7 @@ export async function reportOutcomeToSource(input: ReportOutcomeToSourceInput): 
         event,
         meta,
         raw,
+        recorder: input.recorder,
         writers: createHeadlessWriters(input.env ?? process.env, settings.jira)
       });
     } catch {

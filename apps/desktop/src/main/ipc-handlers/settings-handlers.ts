@@ -7,6 +7,7 @@ import { is } from '@electron-toolkit/utils';
 import { assertTrustedSender } from '../ipc-sender-validation';
 
 import { isWebhookFormat } from '../../shared/utils/webhook-format';
+import { toRendererSettings } from '../../shared/utils/provider-account-view';
 import { sendTestWebhook, validateWebhookUrl } from '../task-webhook';
 import { appLog } from '../app-logger';
 // ESM-compatible __dirname
@@ -16,7 +17,8 @@ import { IPC_CHANNELS, DEFAULT_APP_SETTINGS, DEFAULT_AGENT_PROFILES, SPELL_CHECK
 import { setAppLanguage } from '../app-language';
 import type {
   AppSettings,
-  IPCResult
+  IPCResult,
+  RendererAppSettings
 } from '../../shared/types';
 import { AgentManager } from '../agent';
 import type { BrowserWindow } from 'electron';
@@ -294,7 +296,7 @@ export function registerSettingsHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.SETTINGS_GET,
-    async (): Promise<IPCResult<AppSettings>> => {
+    async (): Promise<IPCResult<RendererAppSettings>> => {
       // Load settings using shared helper and merge with defaults
       const savedSettings = readSettingsFile();
       const settings: AppSettings = { ...DEFAULT_APP_SETTINGS, ...savedSettings };
@@ -438,7 +440,8 @@ export function registerSettingsHandlers(
         console.warn('[SETTINGS_GET] Failed to re-warm CLI cache:', error);
       });
 
-      return { success: true, data: settings as AppSettings };
+      // zeenha fork: sanitize only the IPC reply so migrations keep saved credentials on disk.
+      return { success: true, data: toRendererSettings(settings) };
     }
   );
 

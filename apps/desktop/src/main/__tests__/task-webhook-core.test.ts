@@ -6,6 +6,7 @@ import {
   prepareTestWebhookDelivery,
   prepareWebhookDelivery,
   sendWebhook,
+  sendWebhookDetailed,
   signWebhookBody,
   validateWebhookUrl,
   verifyWebhookSignature,
@@ -327,5 +328,55 @@ describe('sendWebhook', () => {
         }
       })
     ).resolves.toBe(false);
+  });
+});
+
+describe('sendWebhookDetailed', () => {
+  const payload = buildWebhookPayload({ projectName: 'P', taskTitle: 'T', event: 'failed' });
+  const delay = () => Promise.resolve();
+
+  it.each([[403, 'rejected'], [429, 'rate_limited']])('classifies exhausted HTTP %i as failed', async (httpStatus, reason) => {
+    fetchMock.mockResolvedValue(res(httpStatus));
+    expect(await sendWebhookDetailed(URL_OK, payload, { delay })).toEqual({
+      status: 'failed', reason, attempts: 3, httpStatus
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    ['TimeoutError', 'timeout'],
+    ['AbortError', 'transport_error'],
+    ['TypeError', 'transport_error']
+  ])('keeps a %s unknown even after two explicit rejections', async (name, reason) => {
+    const error = Object.assign(new Error('private transport detail'), { name });
+    fetchMock.mockRejectedValueOnce(error).mockResolvedValue(res(429));
+    expect(await sendWebhookDetailed(URL_OK, payload, { delay })).toEqual({
+      status: 'unknown', reason, attempts: 3
+    });
+  });
+
+  it.each([[302, 'ambiguous_response'], [502, 'ambiguous_response'], [408, 'timeout']])(
+    'keeps HTTP %i unconfirmed even after explicit rejections', async (httpStatus, reason) => {
+      fetchMock.mockResolvedValueOnce(res(httpStatus)).mockResolvedValue(res(400));
+      expect(await sendWebhookDetailed(URL_OK, payload, { delay })).toEqual({
+        status: 'unknown', reason, attempts: 3, httpStatus
+      });
+    }
+  );
+
+  it('lets a later 2xx confirm delivery and uses a new 10s timeout per attempt', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      fetchMock.mockRejectedValueOnce(new DOMException('check timed out', 'TimeoutError'))
+        .mockResolvedValueOnce(res(429))
+        .mockResolvedValueOnce(res(204));
+      expect(await sendWebhookDetailed(URL_OK, payload, { delay })).toEqual({
+        status: 'delivered', attempts: 3, httpStatus: 204
+      });
+      expect(timeout.mock.calls).toEqual([[10_000], [10_000], [10_000]]);
+      expect(new Set(fetchMock.mock.calls.map(([, init]) => init.signal)).size).toBe(3);
+    } finally {
+      timeout.mockRestore();
+    }
   });
 });

@@ -12,6 +12,7 @@ interface StagedSuccessMessageProps {
   suggestedCommitMessage?: string;
   task: Task;
   hasWorktree?: boolean;
+  isWorktreeVerified?: boolean;
   projectPath?: string;
   onClose?: () => void;
   onReviewAgain?: () => void;
@@ -26,6 +27,7 @@ export function StagedSuccessMessage({
   suggestedCommitMessage,
   task,
   hasWorktree = false,
+  isWorktreeVerified = true,
   onClose,
   onReviewAgain
 }: StagedSuccessMessageProps) {
@@ -157,109 +159,113 @@ export function StagedSuccessMessage({
         </ol>
       </div>
 
-      {/* Action buttons */}
-      <div className="flex flex-col gap-2">
-        <div className="flex gap-2">
-          {hasWorktree ? (
-            <Button
-              onClick={handleDeleteWorktreeAndMarkDone}
-              disabled={anyActionInProgress}
-              size="sm"
-              variant="default"
-              className="flex-1"
-            >
-              {isDeleting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {t('taskReview:stagedSuccess.cleaningUp')}
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  {t('taskReview:stagedSuccess.deleteWorktreeAndMarkDone')}
-                </>
-              )}
-            </Button>
-          ) : (
-            <Button
-              onClick={handleMarkDoneOnly}
-              disabled={anyActionInProgress}
-              size="sm"
-              variant="default"
-              className="flex-1"
-            >
-              {isMarkingDone ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {t('taskReview:stagedSuccess.markingDone')}
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  {t('taskReview:stagedSuccess.markAsDone')}
-                </>
-              )}
-            </Button>
-          )}
-        </div>
+      {/* zeenha fork: keep staged details visible, but don't offer actions based on an unverified workspace. */}
+      {isWorktreeVerified ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            {hasWorktree ? (
+              <Button
+                onClick={handleDeleteWorktreeAndMarkDone}
+                disabled={anyActionInProgress}
+                size="sm"
+                variant="default"
+                className="flex-1"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    {t('taskReview:stagedSuccess.cleaningUp')}
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    {t('taskReview:stagedSuccess.deleteWorktreeAndMarkDone')}
+                  </>
+                )}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleMarkDoneOnly}
+                disabled={anyActionInProgress}
+                size="sm"
+                variant="default"
+                className="flex-1"
+              >
+                {isMarkingDone ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    {t('taskReview:stagedSuccess.markingDone')}
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    {t('taskReview:stagedSuccess.markAsDone')}
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
 
-        {/* Secondary actions row */}
-        <div className="flex gap-2">
+          {/* Secondary actions row */}
+          <div className="flex gap-2">
+            {hasWorktree && (
+              <Button
+                onClick={handleMarkDoneOnly}
+                disabled={anyActionInProgress}
+                size="sm"
+                variant="outline"
+                className="flex-1"
+              >
+                {isMarkingDone ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    {t('taskReview:stagedSuccess.markingDone')}
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    {t('taskReview:stagedSuccess.markDoneOnly')}
+                  </>
+                )}
+              </Button>
+            )}
+
+            {hasWorktree && onReviewAgain && (
+              <Button
+                onClick={handleReviewAgain}
+                disabled={anyActionInProgress}
+                size="sm"
+                variant="outline"
+                className="flex-1"
+              >
+                {isResetting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    {t('taskReview:stagedSuccess.resetting')}
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    {t('taskReview:stagedSuccess.reviewAgain')}
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+
+          {error && (
+            <p className="text-xs text-destructive">{error}</p>
+          )}
+
           {hasWorktree && (
-            <Button
-              onClick={handleMarkDoneOnly}
-              disabled={anyActionInProgress}
-              size="sm"
-              variant="outline"
-              className="flex-1"
-            >
-              {isMarkingDone ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {t('taskReview:stagedSuccess.markingDone')}
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  {t('taskReview:stagedSuccess.markDoneOnly')}
-                </>
-              )}
-            </Button>
-          )}
-
-          {hasWorktree && onReviewAgain && (
-            <Button
-              onClick={handleReviewAgain}
-              disabled={anyActionInProgress}
-              size="sm"
-              variant="outline"
-              className="flex-1"
-            >
-              {isResetting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {t('taskReview:stagedSuccess.resetting')}
-                </>
-              ) : (
-                <>
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  {t('taskReview:stagedSuccess.reviewAgain')}
-                </>
-              )}
-            </Button>
+            <p className="text-xs text-muted-foreground">
+              {t('taskReview:stagedSuccess.worktreeExplanation')}
+            </p>
           )}
         </div>
-
-        {error && (
-          <p className="text-xs text-destructive">{error}</p>
-        )}
-
-        {hasWorktree && (
-          <p className="text-xs text-muted-foreground">
-            {t('taskReview:stagedSuccess.worktreeExplanation')}
-          </p>
-        )}
-      </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">{t('taskReview:workspaceCheck.actionsUnavailable')}</p>
+      )}
     </div>
   );
 }

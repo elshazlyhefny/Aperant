@@ -2,14 +2,14 @@
  * State and IPC calls for the Azure Boards import modal.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AzureBoardsImportResult,
   AzureBoardsMetadata,
   AzureBoardsQueryRequest,
-  AzureBoardsSavedQuery,
-  AzureBoardsWorkItem
+  AzureBoardsQueryResult,
+  AzureBoardsSavedQuery
 } from '../../../shared/types';
 
 export type AzureBoardsQueryMode = 'filter' | 'saved';
@@ -34,10 +34,10 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
   const [states, setStates] = useState<string[]>([]);
   const [workItemTypes, setWorkItemTypes] = useState<string[]>([]);
   const [savedQueryId, setSavedQueryId] = useState('');
-  const [items, setItems] = useState<AzureBoardsWorkItem[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [truncated, setTruncated] = useState(false);
-  const [hasRun, setHasRun] = useState(false);
+  const [queryResult, setQueryResult] = useState<{
+    requestId: number;
+    data: AzureBoardsQueryResult;
+  } | null>(null);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false);
@@ -46,6 +46,16 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
   const [error, setError] = useState<string | null>(null);
 
   const requestIdRef = useRef(0);
+
+  const deselectAll = useCallback(() => {
+    setShowDuplicateConfirm(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const invalidateResult = useCallback(() => {
+    setQueryResult(null);
+    deselectAll();
+  }, [deselectAll]);
 
   // Load saved queries and metadata when the modal opens
   useEffect(() => {
@@ -90,32 +100,26 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
           };
     if (queryMode === 'saved' && !savedQueryId) return;
     const requestId = ++requestIdRef.current;
+    invalidateResult();
     setIsLoadingItems(true);
     setError(null);
     try {
       const result = await window.electronAPI.queryAzureBoardsWorkItems(projectId, request);
       if (requestId !== requestIdRef.current) return;
       if (result.success && result.data) {
-        setItems(result.data.items);
-        setTotalCount(result.data.totalCount);
-        setTruncated(result.data.truncated);
-        setSelectedIds(new Set());
-        setShowDuplicateConfirm(false);
-        setHasRun(true);
+        setQueryResult({ requestId, data: result.data });
       } else {
-        setItems([]);
-        setTruncated(false);
+        invalidateResult();
         setError(result.error || t('boards.errors.query'));
       }
     } catch {
       if (requestId !== requestIdRef.current) return;
-      setItems([]);
-      setTruncated(false);
+      invalidateResult();
       setError(t('boards.errors.query'));
     } finally {
       if (requestId === requestIdRef.current) setIsLoadingItems(false);
     }
-  }, [projectId, queryMode, savedQueryId, areaPath, states, workItemTypes, t]);
+  }, [projectId, queryMode, savedQueryId, areaPath, states, workItemTypes, t, invalidateResult]);
 
   const toggleState = useCallback((value: string) => setStates((prev) => toggleInList(prev, value)), []);
   const toggleWorkItemType = useCallback(
@@ -123,25 +127,36 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
     []
   );
 
-  const toggleItem = useCallback((id: number) => {
-    setShowDuplicateConfirm(false);
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  const itemsById = useMemo(
+    () => new Map(queryResult?.data.items.map((item) => [item.id, item])),
+    [queryResult]
+  );
+  const resultRequestId = queryResult?.requestId;
+  // A query can invalidate the snapshot before React renders the new state.
+  const isCurrentResult = useCallback(
+    () => resultRequestId === requestIdRef.current,
+    [resultRequestId]
+  );
+
+  const toggleItem = useCallback(
+    (id: number) => {
+      if (!isCurrentResult() || !itemsById.has(id)) return;
+      setShowDuplicateConfirm(false);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    },
+    [isCurrentResult, itemsById]
+  );
 
   const selectAll = useCallback(() => {
+    if (!isCurrentResult()) return;
     setShowDuplicateConfirm(false);
-    setSelectedIds(new Set(items.map((i) => i.id)));
-  }, [items]);
-
-  const deselectAll = useCallback(() => {
-    setShowDuplicateConfirm(false);
-    setSelectedIds(new Set());
-  }, []);
+    setSelectedIds(new Set(itemsById.keys()));
+  }, [isCurrentResult, itemsById]);
 
   const runImport = useCallback(
     async (ids: number[], allowDuplicates: boolean) => {
@@ -170,28 +185,42 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
     [projectId, onImportComplete, t]
   );
 
-  const duplicateIds = items.filter((i) => i.alreadyImported && selectedIds.has(i.id)).map((i) => i.id);
+  const { eligibleIds, duplicateIds } = useMemo(() => {
+    const eligibleIds = new Set<number>();
+    const duplicateIds = new Set<number>();
+    for (const id of selectedIds) {
+      const item = itemsById.get(id);
+      if (!item) continue;
+      eligibleIds.add(id);
+      if (item.alreadyImported) duplicateIds.add(id);
+    }
+    return { eligibleIds, duplicateIds };
+  }, [selectedIds, itemsById]);
+
+  const canImport = queryResult !== null && eligibleIds.size > 0 && !isLoadingItems && !isImporting;
+  const hasDuplicatePrompt = canImport && showDuplicateConfirm && duplicateIds.size > 0;
 
   const handleImport = useCallback(() => {
-    if (selectedIds.size === 0 || isImporting) return;
-    if (duplicateIds.length > 0) {
+    if (!canImport || !isCurrentResult()) return;
+    if (duplicateIds.size > 0) {
       setShowDuplicateConfirm(true);
       return;
     }
-    void runImport(Array.from(selectedIds), false);
-  }, [selectedIds, isImporting, duplicateIds.length, runImport]);
+    void runImport(Array.from(eligibleIds), false);
+  }, [canImport, isCurrentResult, duplicateIds.size, eligibleIds, runImport]);
 
   const confirmReimport = useCallback(() => {
-    void runImport(Array.from(selectedIds), true);
-  }, [selectedIds, runImport]);
+    if (!hasDuplicatePrompt || !isCurrentResult()) return;
+    void runImport(Array.from(eligibleIds), true);
+  }, [hasDuplicatePrompt, isCurrentResult, eligibleIds, runImport]);
 
   const skipReimport = useCallback(() => {
-    const dupes = new Set(duplicateIds);
+    if (!hasDuplicatePrompt || !isCurrentResult()) return;
     void runImport(
-      Array.from(selectedIds).filter((id) => !dupes.has(id)),
+      Array.from(eligibleIds).filter((id) => !duplicateIds.has(id)),
       false
     );
-  }, [selectedIds, duplicateIds, runImport]);
+  }, [hasDuplicatePrompt, isCurrentResult, eligibleIds, duplicateIds, runImport]);
 
   const resetState = useCallback(() => {
     requestIdRef.current++;
@@ -202,17 +231,12 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
     setStates([]);
     setWorkItemTypes([]);
     setSavedQueryId('');
-    setItems([]);
-    setTotalCount(0);
-    setTruncated(false);
-    setHasRun(false);
+    invalidateResult();
     setIsLoadingItems(false);
-    setSelectedIds(new Set());
-    setShowDuplicateConfirm(false);
     setIsImporting(false);
     setImportResult(null);
     setError(null);
-  }, []);
+  }, [invalidateResult]);
 
   return {
     savedQueries,
@@ -222,14 +246,15 @@ export function useAzureBoardsImport({ projectId, open, onImportComplete }: UseA
     states,
     workItemTypes,
     savedQueryId,
-    items,
-    totalCount,
-    truncated,
-    hasRun,
+    items: queryResult?.data.items ?? [],
+    totalCount: queryResult?.data.totalCount ?? 0,
+    truncated: queryResult?.data.truncated ?? false,
+    hasRun: queryResult !== null,
     isLoadingItems,
-    selectedIds,
-    duplicateCount: duplicateIds.length,
-    showDuplicateConfirm,
+    selectedIds: eligibleIds,
+    canImport,
+    duplicateCount: duplicateIds.size,
+    showDuplicateConfirm: hasDuplicatePrompt,
     isImporting,
     importResult,
     error,
