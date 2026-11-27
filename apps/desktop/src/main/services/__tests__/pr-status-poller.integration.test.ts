@@ -616,23 +616,31 @@ describe('PRStatusPoller Integration Tests', () => {
     });
   });
 
-  // zeenha fork: Measure overlapping PR status polls before introducing coalescing.
+  // zeenha fork: Measure overlapping PR status polls and exercise the shared queue.
   describe('Poll coalescing', () => {
     const delayMs = 100;
     const refreshDuration = 4 * delayMs;
     const concurrencyLimit = 5;
 
+    type MockPR = { updatedAt: Date; mergeable?: boolean | null };
+    type RefreshEvent = { prNumber: number; phase: 'start' | 'settle'; at: number };
+
     function installDelayedGitHubMock({
-      delayMs,
+      delayMs: responseDelay,
       prs,
-      rateLimitRemaining = 4500
+      onRefreshStart,
+      getRateLimitInfo = () => ({ remaining: 4500, reset: new Date(Date.now() + 3_600_000), limit: 5000 })
     }: {
-      delayMs: number;
-      prs: Map<number, { updatedAt: Date; mergeable?: boolean | null }>;
-      rateLimitRemaining?: number;
+      delayMs: number | ((endpoint: string) => number);
+      prs: Map<number, MockPR>;
+      onRefreshStart?: (prNumber: number) => void;
+      getRateLimitInfo?: () => { remaining: number; reset: Date; limit: number };
     }) {
       const requestsByPr = new Map<number, number>();
       const prRefreshesStarted = new Map<number, number>();
+      const timeline: RefreshEvent[] = [];
+      const inFlightByProject = new Map<string, number>();
+      const peakByProject = new Map<string, number>();
       let inFlightRefreshes = 0;
       let peakInFlightRefreshes = 0;
 
@@ -645,13 +653,19 @@ describe('PRStatusPoller Integration Tests', () => {
           throw new Error(`Unexpected GitHub endpoint: ${endpoint}`);
         }
 
+        const projectId = endpoint.split('/').slice(2, 4).join('/');
         requestsByPr.set(prNumber, (requestsByPr.get(prNumber) ?? 0) + 1);
         const isReview = pull?.[2] === '/reviews';
         let data: unknown;
         if (pull && !isReview) {
           prRefreshesStarted.set(prNumber, (prRefreshesStarted.get(prNumber) ?? 0) + 1);
+          timeline.push({ prNumber, phase: 'start', at: Date.now() });
           inFlightRefreshes++;
           peakInFlightRefreshes = Math.max(peakInFlightRefreshes, inFlightRefreshes);
+          const projectInFlight = (inFlightByProject.get(projectId) ?? 0) + 1;
+          inFlightByProject.set(projectId, projectInFlight);
+          peakByProject.set(projectId, Math.max(peakByProject.get(projectId) ?? 0, projectInFlight));
+          onRefreshStart?.(prNumber);
           data = {
             number: prNumber,
             updated_at: pr.updatedAt.toISOString(),
@@ -670,20 +684,20 @@ describe('PRStatusPoller Integration Tests', () => {
         return new Promise((resolve) => {
           setTimeout(() => {
             if (isReview) {
+              timeline.push({ prNumber, phase: 'settle', at: Date.now() });
               inFlightRefreshes--;
+              inFlightByProject.set(projectId, (inFlightByProject.get(projectId) ?? 0) - 1);
             }
-            resolve({
-              data,
-              fromCache: false,
-              rateLimitInfo: { remaining: rateLimitRemaining, reset: new Date(Date.now() + 3_600_000), limit: 5000 }
-            });
-          }, delayMs);
+            resolve({ data, fromCache: false, rateLimitInfo: getRateLimitInfo() });
+          }, typeof responseDelay === 'number' ? responseDelay : responseDelay(endpoint));
         });
       });
 
       return {
         requestsByPr,
         prRefreshesStarted,
+        timeline,
+        peakByProject,
         get inFlightRefreshes() {
           return inFlightRefreshes;
         },
@@ -691,40 +705,75 @@ describe('PRStatusPoller Integration Tests', () => {
           return peakInFlightRefreshes;
         },
         resetCounters() {
+          // Only reset between windows, when all earlier refreshes have settled.
+          expect(inFlightRefreshes).toBe(0);
           requestsByPr.clear();
           prRefreshesStarted.clear();
-          inFlightRefreshes = 0;
+          timeline.length = 0;
+          inFlightByProject.clear();
+          peakByProject.clear();
           peakInFlightRefreshes = 0;
         }
       };
     }
 
-    async function startDelayedPolling(activeCount: number, stableCount: number) {
-      vi.setSystemTime(new Date('2026-01-01T12:00:00Z'));
-      const activeUpdatedAt = new Date(); // Still active at the 15-minute tick.
+    function makePRs(activeCount: number, stableCount: number): Map<number, MockPR> {
+      const activeUpdatedAt = new Date();
       const stableUpdatedAt = new Date(Date.now() - ACTIVITY_THRESHOLD_MS);
-      const prs = new Map(Array.from({ length: activeCount + stableCount }, (_, i) => [
+      return new Map(Array.from({ length: activeCount + stableCount }, (_, i) => [
         i + 1,
         { updatedAt: i < activeCount ? activeUpdatedAt : stableUpdatedAt }
       ]));
-      const delayedMock = installDelayedGitHubMock({ delayMs, prs });
+    }
 
+    function fullPassDuration(prCount: number, responseDelay = delayMs) {
+      return Math.ceil(prCount / concurrencyLimit) * 4 * responseDelay;
+    }
+
+    function startCapturingUpdates() {
+      const window = createMockMainWindow();
+      poller.setMainWindowGetter(() => window);
+    }
+
+    function statusUpdates(): PRStatusUpdate[] {
+      return mockSafeSendToRenderer.mock.calls
+        .filter(([, channel]) => channel === 'github:pr-status-update')
+        .map(([, , update]) => update as PRStatusUpdate);
+    }
+
+    function statusesFor(prNumber: number) {
+      return statusUpdates().flatMap(({ statuses }) => statuses.filter(status => status.prNumber === prNumber));
+    }
+
+    beforeEach(() => {
+      vi.setSystemTime(new Date('2026-01-01T12:00:00Z'));
+    });
+
+    async function startDelayedPolling(activeCount: number, stableCount: number, responseDelay = delayMs) {
+      const prs = makePRs(activeCount, stableCount);
+      const delayedMock = installDelayedGitHubMock({ delayMs: responseDelay, prs });
       const started = poller.startPolling('o/r', [...prs.keys()], 'test-token');
-      await vi.advanceTimersByTimeAsync(Math.ceil(prs.size / concurrencyLimit) * refreshDuration);
+      await vi.advanceTimersByTimeAsync(fullPassDuration(prs.size, responseDelay));
       await started;
       return { prs, delayedMock };
     }
 
+    async function advanceTo(tick: number) {
+      await vi.advanceTimersByTimeAsync(tick - Date.now());
+    }
+
     async function measureCollision(activeCount: number, stableCount: number) {
       const { prs, delayedMock } = await startDelayedPolling(activeCount, stableCount);
-
-      // The active, stable and full-refresh timers all fire at 15 minutes from
-      // the end of the initial pass. Reset after earlier tier-only polls have settled.
-      await vi.advanceTimersByTimeAsync(POLLING_INTERVALS.FULL_REFRESH - 1);
-      delayedMock.resetCounters();
-      const settleTime = Math.ceil(prs.size / concurrencyLimit) * refreshDuration;
-      await vi.advanceTimersByTimeAsync(1 + settleTime + delayMs);
-      return { prs, delayedMock };
+      const firstTick = Date.now() + POLLING_INTERVALS.FULL_REFRESH;
+      const measureAt = async (tick: number) => {
+        // Reset just before the collision, after earlier tier-only polls have settled.
+        await advanceTo(tick - 1);
+        delayedMock.resetCounters();
+        mockSafeSendToRenderer.mockClear();
+        await advanceTo(tick + fullPassDuration(prs.size) + delayMs);
+      };
+      await measureAt(firstTick);
+      return { prs, delayedMock, firstTick, measureAt };
     }
 
     it('counts four requests for a single initial refresh', async () => {
@@ -736,20 +785,305 @@ describe('PRStatusPoller Integration Tests', () => {
       expect(delayedMock.inFlightRefreshes).toBe(0);
     });
 
-    it.fails('refreshes each PR once when the tier and full-refresh timers coincide', async () => {
-      const { prs, delayedMock } = await measureCollision(2, 2);
+    it('refreshes each PR once when the tier and full-refresh timers coincide', async () => {
+      const { prs, delayedMock, firstTick, measureAt } = await measureCollision(2, 2);
 
-      // baseline: current code makes 8 requests per PR at the collision.
-      expect(delayedMock.requestsByPr).toEqual(new Map([...prs.keys()].map(pr => [pr, 4])));
+      // Baseline: before coalescing, the poller made 8 requests per PR at the collision.
+      const expectedRequests = new Map([...prs.keys()].map(pr => [pr, 4]));
+      expect(delayedMock.requestsByPr).toEqual(expectedRequests);
+
+      // Record new activity so both active PRs stay active through the second collision.
+      for (const prNumber of [1, 2]) {
+        const pr = prs.get(prNumber);
+        if (pr) pr.updatedAt = new Date();
+      }
+      await measureAt(firstTick + POLLING_INTERVALS.FULL_REFRESH);
+      expect(delayedMock.requestsByPr).toEqual(expectedRequests);
     });
 
-    it.fails('caps concurrent refreshes at five per project when timers coincide', async () => {
+    it('caps concurrent refreshes at five per project when timers coincide', async () => {
       const { prs, delayedMock } = await measureCollision(6, 6);
 
-      // baseline: current code peaks at 15 in-flight refreshes at the collision.
+      // Baseline: before coalescing, the poller peaked at 15 in-flight refreshes at the collision.
       expect(delayedMock.peakInFlightRefreshes).toBeLessThanOrEqual(concurrencyLimit);
       expect(delayedMock.prRefreshesStarted.size).toBe(prs.size);
       expect(delayedMock.inFlightRefreshes).toBe(0);
+    });
+
+    it('includes otherwise idle stable PRs in every full refresh', async () => {
+      startCapturingUpdates();
+      const prs = makePRs(1, 1);
+      let tick = Date.now() + fullPassDuration(prs.size) + POLLING_INTERVALS.FULL_REFRESH;
+      let idlePR = 3;
+      const delayedMock = installDelayedGitHubMock({
+        delayMs,
+        prs,
+        onRefreshStart(prNumber) {
+          if (prNumber === 2 && Date.now() === tick) {
+            // The stable tier has already selected its PRs. Only the full pass
+            // can pick up this newly tracked stable PR at this deadline.
+            prs.set(idlePR, { updatedAt: new Date(Date.now() - ACTIVITY_THRESHOLD_MS) });
+            poller.addPRs('o/r', [idlePR]);
+          }
+        }
+      });
+      const started = poller.startPolling('o/r', [1, 2], 'test-token');
+      await vi.advanceTimersByTimeAsync(fullPassDuration(prs.size));
+      await started;
+
+      for (let cycle = 0; cycle < 3; cycle++) {
+        await advanceTo(tick - 1);
+        delayedMock.resetCounters();
+        mockSafeSendToRenderer.mockClear();
+        await advanceTo(tick + fullPassDuration(prs.size + 1));
+
+        expect(delayedMock.requestsByPr.get(idlePR)).toBe(4);
+        expect(delayedMock.prRefreshesStarted.get(idlePR)).toBe(1);
+        const fullPass = statusUpdates().filter(({ statuses }) => statuses.length === prs.size);
+        expect(fullPass).toHaveLength(1);
+        expect(fullPass[0].statuses).toEqual(expect.arrayContaining([
+          expect.objectContaining({ prNumber: idlePR, pollingTier: 'stable' })
+        ]));
+        expect(statusesFor(idlePR)).toHaveLength(1);
+
+        tick += POLLING_INTERVALS.FULL_REFRESH;
+        idlePR++;
+      }
+    });
+
+    async function prepareMergeableRetry(prNumber: number, retryOffset: number) {
+      startCapturingUpdates();
+      const prs = makePRs(6, 6);
+      const pr = prs.get(prNumber);
+      if (!pr) throw new Error(`Missing test PR #${prNumber}`);
+      const tick = Date.now() + fullPassDuration(prs.size) + POLLING_INTERVALS.FULL_REFRESH;
+      const tierInterval = prNumber <= 6 ? POLLING_INTERVALS.ACTIVE : POLLING_INTERVALS.STABLE;
+      const previousTierTick = tick - tierInterval;
+      const retryAt = tick + retryOffset;
+      const unknownAt = retryAt - POLLING_INTERVALS.MERGEABLE_RETRY;
+      const delayedMock = installDelayedGitHubMock({
+        prs,
+        delayMs(endpoint) {
+          const now = Date.now();
+          if (endpoint === `/repos/o/r/pulls/${prNumber}` && now >= previousTierTick && now < unknownAt) {
+            // Stretch the last tier refresh so its retry falls inside the collision window.
+            return unknownAt - now - (refreshDuration - delayMs);
+          }
+          return delayMs;
+        }
+      });
+      const started = poller.startPolling('o/r', [...prs.keys()], 'test-token');
+      await vi.advanceTimersByTimeAsync(fullPassDuration(prs.size));
+      await started;
+      await advanceTo(previousTierTick - 1);
+      pr.mergeable = null;
+      mockSafeSendToRenderer.mockClear();
+      await advanceTo(tick - 1);
+      expect(statusesFor(prNumber).at(-1)).toMatchObject({
+        mergeableState: 'unknown',
+        lastPolled: new Date(unknownAt).toISOString()
+      });
+      delayedMock.resetCounters();
+      mockSafeSendToRenderer.mockClear();
+      return { prs, pr, delayedMock, tick, retryAt };
+    }
+
+    it('gives a mergeable retry a later slot when the collision has already started its PR', async () => {
+      // Use a PR from the tail of the full pass so the retry's IPC result follows the pass.
+      const retryPR = 12;
+      const thirdWave = 2 * refreshDuration;
+      const { prs, pr, delayedMock, tick, retryAt } = await prepareMergeableRetry(retryPR, thirdWave + delayMs / 2);
+      await advanceTo(retryAt);
+      // The retry is due after the first request started, but before it settles.
+      expect(delayedMock.timeline.filter(event => event.prNumber === retryPR)).toEqual([
+        { prNumber: retryPR, phase: 'start', at: tick + thirdWave }
+      ]);
+      pr.mergeable = true;
+      await advanceTo(tick + fullPassDuration(prs.size + 1) + refreshDuration);
+
+      const events = delayedMock.timeline.filter(event => event.prNumber === retryPR);
+      expect(events.map(event => event.phase)).toEqual(['start', 'settle', 'start', 'settle']);
+      // Same clock tick is allowed: the settle event must precede the rerun in the timeline.
+      expect(events[2].at).toBeGreaterThanOrEqual(events[1].at);
+      expect(delayedMock.requestsByPr.get(retryPR)).toBe(8);
+      expect(statusesFor(retryPR).at(-1)?.mergeableState).toBe('clean');
+      expect(delayedMock.peakInFlightRefreshes).toBe(concurrencyLimit);
+      expect(delayedMock.inFlightRefreshes).toBe(0);
+      expect(delayedMock.prRefreshesStarted).toEqual(new Map([...prs.keys()].map(pr => [pr, pr === retryPR ? 2 : 1])));
+    });
+
+    it('coalesces a mergeable retry into an already queued refresh', async () => {
+      const { prs, pr, delayedMock, tick, retryAt } = await prepareMergeableRetry(6, delayMs / 2);
+      await advanceTo(retryAt);
+      expect(delayedMock.inFlightRefreshes).toBe(concurrencyLimit);
+      expect(delayedMock.prRefreshesStarted.has(6)).toBe(false);
+      pr.mergeable = true;
+      await advanceTo(tick + fullPassDuration(prs.size) + POLLING_INTERVALS.MERGEABLE_RETRY + refreshDuration);
+
+      expect(delayedMock.prRefreshesStarted.get(6)).toBe(1);
+      expect(delayedMock.requestsByPr.get(6)).toBe(4);
+      const statuses = statusesFor(6);
+      expect(statuses).toHaveLength(3); // Active, full and retry passes share the same result.
+      expect(statuses.map(status => status.mergeableState)).toEqual(['clean', 'clean', 'clean']);
+      expect(new Set(statuses.map(status => status.lastPolled)).size).toBe(1);
+    });
+
+    it('gives two projects independent five-slot limits at a shared collision', async () => {
+      const prs = makePRs(12, 0);
+      const prNumbers = [...prs.keys()];
+      const delayedMock = installDelayedGitHubMock({ delayMs, prs });
+      const started = Promise.all([
+        poller.startPolling('owner/repo1', prNumbers.slice(0, 6), 'token1'),
+        poller.startPolling('owner/repo2', prNumbers.slice(6), 'token2')
+      ]);
+      await vi.advanceTimersByTimeAsync(fullPassDuration(6));
+      await started;
+      const tick = Date.now() + POLLING_INTERVALS.FULL_REFRESH;
+      await advanceTo(tick - 1);
+      delayedMock.resetCounters();
+      await advanceTo(tick + fullPassDuration(6));
+
+      expect(delayedMock.peakByProject).toEqual(new Map([
+        ['owner/repo1', concurrencyLimit],
+        ['owner/repo2', concurrencyLimit]
+      ]));
+      expect(delayedMock.peakInFlightRefreshes).toBe(2 * concurrencyLimit);
+      expect(delayedMock.requestsByPr).toEqual(new Map(prNumbers.map(pr => [pr, 4])));
+      expect(delayedMock.inFlightRefreshes).toBe(0);
+    });
+
+    it('starts active PRs first without starving stable PRs', async () => {
+      const longDelay = 500;
+      const activeCount = 12;
+      const { delayedMock } = await startDelayedPolling(activeCount, 2, longDelay);
+      const tick = Date.now() + POLLING_INTERVALS.FULL_REFRESH;
+      await advanceTo(tick - 1);
+      delayedMock.resetCounters();
+      await advanceTo(tick + fullPassDuration(activeCount + 2, longDelay));
+
+      const starts = delayedMock.timeline.filter(event => event.phase === 'start');
+      expect(starts.slice(0, concurrencyLimit).map(event => event.prNumber)).toEqual([1, 2, 3, 4, 5]);
+      const stableStarts = starts.filter(event => event.prNumber > activeCount);
+      expect(stableStarts.map(event => event.prNumber)).toEqual([13, 14]);
+      expect(starts[concurrencyLimit].prNumber).toBe(13); // A normal slot after five high starts.
+      for (const event of stableStarts) {
+        expect(event.at).toBeLessThan(tick + POLLING_INTERVALS.FULL_REFRESH);
+      }
+    });
+
+    it('publishes the tail status within three refresh waves of a 12-PR full tick', async () => {
+      startCapturingUpdates();
+      const { prs, firstTick } = await measureCollision(6, 6);
+      const fullPass = statusUpdates().find(({ statuses }) => statuses.length === prs.size);
+      expect(fullPass?.statuses.map(status => status.prNumber).sort((a, b) => a - b)).toEqual([...prs.keys()]);
+      const latestPoll = Math.max(...(fullPass?.statuses ?? []).map(status => Date.parse(status.lastPolled ?? '')));
+      const tailAge = latestPoll - firstTick;
+      expect(tailAge).toBeGreaterThan(2 * refreshDuration);
+      expect(tailAge).toBeLessThanOrEqual(fullPassDuration(prs.size) + delayMs);
+    });
+
+    it('stops all requests and IPC updates when stopped mid-drain', async () => {
+      startCapturingUpdates();
+      const { delayedMock } = await startDelayedPolling(6, 6, 500);
+      const tick = Date.now() + POLLING_INTERVALS.FULL_REFRESH;
+      await advanceTo(tick - 1);
+      delayedMock.resetCounters();
+      mockSafeSendToRenderer.mockClear();
+      await advanceTo(tick);
+      expect(delayedMock.inFlightRefreshes).toBe(concurrencyLimit);
+      expect(delayedMock.prRefreshesStarted.size).toBe(concurrencyLimit);
+
+      poller.stopPolling('o/r');
+      const requestCount = mockGithubFetchWithETag.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(POLLING_INTERVALS.FULL_REFRESH + 1000);
+      expect(mockGithubFetchWithETag).toHaveBeenCalledTimes(requestCount);
+      expect(delayedMock.prRefreshesStarted.size).toBe(concurrencyLimit);
+      expect(mockSafeSendToRenderer).not.toHaveBeenCalled();
+    });
+
+    it.each(['owner/repo1', 'owner/repo2'])('discards a mid-drain result when switching to %s', async (nextProjectId) => {
+      startCapturingUpdates();
+      const prs = makePRs(7, 0);
+      const delayedMock = installDelayedGitHubMock({ delayMs, prs });
+      const oldProjectId = 'owner/repo1';
+      const oldStart = poller.startPolling(oldProjectId, [1, 2, 3, 4, 5, 6], 'old-token');
+      await vi.advanceTimersByTimeAsync(fullPassDuration(6));
+      await oldStart;
+      const tick = Date.now() + POLLING_INTERVALS.FULL_REFRESH;
+      await advanceTo(tick - 1);
+      delayedMock.resetCounters();
+      mockSafeSendToRenderer.mockClear();
+      await advanceTo(tick);
+      expect(delayedMock.inFlightRefreshes).toBe(concurrencyLimit);
+
+      poller.stopPolling(oldProjectId);
+      const newStart = poller.startPolling(nextProjectId, [7], 'new-token');
+      await vi.advanceTimersByTimeAsync(refreshDuration);
+      await newStart;
+
+      expect(delayedMock.prRefreshesStarted.has(6)).toBe(false);
+      expect(delayedMock.requestsByPr.get(7)).toBe(4);
+      expect(poller.getPollingMetadata(nextProjectId).isPolling).toBe(true);
+      const updates = statusUpdates();
+      expect(updates.map(update => update.projectId)).toEqual([nextProjectId]);
+      expect(updates[0].statuses.map(status => status.prNumber)).toEqual([7]);
+    });
+
+    it('drops queued work on pause and refreshes every tracked PR on staggered resume', async () => {
+      const prs = makePRs(12, 0);
+      const prNumbers = [...prs.keys()];
+      const reset = new Date(Date.now() + 2 * POLLING_INTERVALS.ACTIVE);
+      let firstResponse = true;
+      const delayedMock = installDelayedGitHubMock({
+        delayMs,
+        prs,
+        getRateLimitInfo() {
+          const remaining = firstResponse ? RATE_LIMIT_THRESHOLDS.PAUSE_THRESHOLD - 1 : 4500;
+          firstResponse = false;
+          return { remaining, reset, limit: 5000 };
+        }
+      });
+      const initialPassFinished = vi.fn();
+      const started = poller.startPolling('owner/repo1', prNumbers.slice(0, 11), 'token1').then(initialPassFinished);
+      const resumeAt = reset.getTime() + 1000;
+      await vi.advanceTimersByTimeAsync(refreshDuration);
+      expect(poller.isPaused()).toBe(true);
+      expect(initialPassFinished).toHaveBeenCalledTimes(1);
+      await started;
+      expect([...delayedMock.prRefreshesStarted.keys()]).toEqual(prNumbers.slice(0, concurrencyLimit));
+      expect(delayedMock.inFlightRefreshes).toBe(0);
+
+      // A second project started during the pause waits for its own resume slot.
+      await poller.startPolling('owner/repo2', [12], 'token2');
+      await advanceTo(resumeAt - 1);
+      expect(delayedMock.prRefreshesStarted.size).toBe(concurrencyLimit);
+      expect(poller.isPaused()).toBe(true);
+      delayedMock.resetCounters();
+
+      await advanceTo(resumeAt + fullPassDuration(11) + delayMs);
+      expect(poller.isPaused()).toBe(false);
+      expect(delayedMock.prRefreshesStarted).toEqual(new Map(prNumbers.slice(0, 11).map(pr => [pr, 1])));
+      await advanceTo(resumeAt + 5000 + refreshDuration);
+      expect(delayedMock.prRefreshesStarted).toEqual(new Map(prNumbers.map(pr => [pr, 1])));
+      expect(delayedMock.requestsByPr).toEqual(new Map(prNumbers.map(pr => [pr, 4])));
+    });
+
+    it('never starts a queued refresh for a removed PR', async () => {
+      startCapturingUpdates();
+      const prs = makePRs(7, 0);
+      const delayedMock = installDelayedGitHubMock({ delayMs, prs });
+      const started = poller.startPolling('o/r', [...prs.keys()], 'test-token');
+      expect(delayedMock.inFlightRefreshes).toBe(concurrencyLimit);
+      expect(delayedMock.prRefreshesStarted.has(6)).toBe(false);
+
+      poller.removePRs('o/r', [6]);
+      await vi.advanceTimersByTimeAsync(fullPassDuration(prs.size));
+      expect(statusUpdates()).toHaveLength(1);
+      await started;
+
+      expect(delayedMock.requestsByPr.has(6)).toBe(false);
+      expect(delayedMock.requestsByPr.get(7)).toBe(4);
+      expect(statusesFor(6)).toEqual([]);
     });
   });
 });
