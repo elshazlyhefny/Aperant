@@ -85,23 +85,37 @@ export async function getMemoryClient(
       ? { syncUrl: tursoSyncUrl, authToken, syncInterval: 60 }
       : {}),
   });
+  await prepareClient(_client);
 
+  return _client;
+}
+
+/**
+ * zeenha fork: open a local memory database at an explicit path, with no
+ * Electron dependency. The headless CLI has no userData folder, so it chooses
+ * the file itself. Not a singleton: the caller keeps the client.
+ */
+export async function openLocalMemoryClient(localPath: string): Promise<Client> {
+  return prepareClient(loadCreateClient()({ url: `file:${localPath}` }));
+}
+
+async function prepareClient(client: Client): Promise<Client> {
   // Apply WAL and other PRAGMAs first (must be separate execute calls)
   for (const pragma of MEMORY_PRAGMA_SQL.split('\n').filter(l => l.trim())) {
     try {
-      await _client.execute(pragma);
+      await client.execute(pragma);
     } catch {
       // Some PRAGMAs may not be supported in all libSQL modes — ignore
     }
   }
 
   // Initialize schema (idempotent — uses CREATE IF NOT EXISTS throughout)
-  await _client.executeMultiple(MEMORY_SCHEMA_SQL);
+  await client.executeMultiple(MEMORY_SCHEMA_SQL);
 
   // libsql has native vector support (vector_distance_cos, F32_BLOB) —
   // no sqlite-vec extension needed for either local or cloud mode.
 
-  return _client;
+  return client;
 }
 
 /**

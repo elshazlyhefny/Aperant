@@ -559,6 +559,12 @@ Update `implementation_plan.json`:
 
 ---
 
+## PHASE 9.5: RECORD RECURRING PROBLEMS
+
+After you decide the verdict, save each recurring failure pattern or project gotcha you found with `record_memory` if that tool is available, so the next coder avoids it. Record lessons that apply beyond this task, not task-specific details. Skip this if you found nothing new.
+
+---
+
 ## PHASE 10: SIGNAL COMPLETION
 
 ### If Approved:

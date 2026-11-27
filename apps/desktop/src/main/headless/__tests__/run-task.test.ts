@@ -17,10 +17,23 @@ vi.mock('../auth', () => ({
 vi.mock('../../ai/prompts/prompt-loader', () => ({
   tryLoadPrompt: () => 'PLANNER PROMPT',
 }));
+// zeenha fork: no real memory database or embedding detection in these tests.
+const mockOpenMemoryClient = vi.fn();
+const mockMemoryStore = vi.fn();
+vi.mock('../../ai/memory/db', () => ({
+  openLocalMemoryClient: (...args: unknown[]) => mockOpenMemoryClient(...args),
+}));
+vi.mock('../../ai/memory/create-memory-service', () => ({
+  createMemoryService: async () => ({
+    service: { store: mockMemoryStore, search: vi.fn().mockResolvedValue([]) },
+    embeddingProvider: 'none',
+  }),
+}));
 
 import { readDeliveryReceipts } from '../../delivery-receipts';
 import { runHeadlessTask, runHeadlessTaskDetailed } from '../run-task';
 import type { HeadlessBridge } from '../run-task';
+import type { WorkerBridgeCoreOptions } from '../../ai/agent/worker-bridge-core';
 
 const SECRET = 'sk-ant-super-secret-key';
 
@@ -610,6 +623,72 @@ describe('runHeadlessTask source write-back', () => {
     reportOutcome.mockRejectedValue(new Error('boom'));
     expect(await runWb()).toBe(2);
     expect(reportOutcome).toHaveBeenCalledOnce();
+  });
+});
+
+describe('runHeadlessTask agent memory', () => {
+  type StartMemory = NonNullable<WorkerBridgeCoreOptions['startMemory']>;
+  let started: ReturnType<StartMemory> | undefined;
+  let bridgeOptions: WorkerBridgeCoreOptions | undefined;
+
+  beforeEach(() => {
+    started = undefined;
+    bridgeOptions = undefined;
+    mockOpenMemoryClient.mockReset().mockResolvedValue({});
+    mockMemoryStore.mockReset().mockResolvedValue('mem-1');
+  });
+
+  /** Like WorkerBridgeCore.spawn: ask for the memory port, then finish the run. */
+  function runWithMemory(config: Parameters<typeof runHeadlessTask>[0]['config'], beforeExit?: () => Promise<void>) {
+    bridge.spawn.mockImplementation((executorConfig) => {
+      started = bridgeOptions?.startMemory?.(executorConfig) ?? null;
+      setImmediate(async () => {
+        await beforeExit?.();
+        bridge.emit('task-event', '001-demo', { type: 'QA_PASSED' });
+        bridge.emit('exit', '001-demo', 0, 'task-execution');
+      });
+    });
+    return run({
+      config,
+      createBridge: (options) => {
+        bridgeOptions = options;
+        return bridge;
+      },
+    });
+  }
+
+  it('attaches a memory port by default and stores records under the headless project id', async () => {
+    makeSpec();
+    let reply: unknown;
+    const code = await runWithMemory({}, async () => {
+      const port = started?.port;
+      if (!port) return;
+      reply = await new Promise((resolve) => {
+        port.once('message', resolve);
+        port.postMessage({
+          type: 'memory:record',
+          requestId: 'r1',
+          entry: { type: 'gotcha', content: 'Run the build before the tests in this repo.' },
+        });
+      });
+    });
+    expect(code).toBe(0);
+    expect(bridgeOptions?.startMemory).toBeTypeOf('function');
+    expect(started?.port).toBeDefined();
+    expect(reply).toEqual({ type: 'memory:stored', requestId: 'r1', id: 'mem-1' });
+    expect(mockOpenMemoryClient).toHaveBeenCalledWith(path.join(projectDir, '.auto-claude', 'memory.db'));
+    expect(mockMemoryStore).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: `headless:${projectDir}`, source: 'agent_explicit' }),
+    );
+  });
+
+  it('attaches no memory port when memory.enabled is false', async () => {
+    makeSpec();
+    expect(await runWithMemory({ memory: { enabled: false } })).toBe(0);
+    expect(bridgeOptions).toBeDefined();
+    expect(bridgeOptions?.startMemory).toBeUndefined();
+    expect(started).toBeNull();
+    expect(mockOpenMemoryClient).not.toHaveBeenCalled();
   });
 });
 

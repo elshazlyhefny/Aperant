@@ -67,6 +67,11 @@ export interface HeadlessWritebackConfig {
   };
 }
 
+/** zeenha fork: agent memory for headless runs. On unless `enabled` is false, as in the app. */
+export interface HeadlessMemoryConfig {
+  enabled?: boolean;
+}
+
 export interface HeadlessConfig {
   /** Explicit path to Aperant’s Codex OAuth token file for runs outside Electron. */
   codexTokenFilePath?: string;
@@ -76,6 +81,7 @@ export interface HeadlessConfig {
   project?: HeadlessProjectConfig;
   webhook?: HeadlessWebhookConfig;
   writeback?: HeadlessWritebackConfig;
+  memory?: HeadlessMemoryConfig;
 }
 
 export interface HeadlessFlags {
@@ -265,6 +271,16 @@ export function loadHeadlessConfig(configPath?: string): HeadlessConfig {
       writeback.azureBoards = parsed;
     }
     config.writeback = writeback;
+  }
+  if (raw.memory !== undefined) {
+    if (!isRecord(raw.memory)) {
+      throw new Error(`Config file ${configPath}: memory must be an object`);
+    }
+    const { enabled } = raw.memory;
+    if (enabled !== undefined && typeof enabled !== 'boolean') {
+      throw new Error(`Config file ${configPath}: memory.enabled must be a boolean`);
+    }
+    config.memory = enabled === undefined ? {} : { enabled };
   }
   return config;
 }

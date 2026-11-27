@@ -88,6 +88,24 @@ describe('loadHeadlessConfig', () => {
     expect(loadHeadlessConfig(file).writeback).toBeUndefined();
   });
 
+  it('parses memory.enabled and leaves memory undefined by default', () => {
+    const file = path.join(dir, 'mem.json');
+    writeFileSync(file, JSON.stringify({ memory: { enabled: false, extra: 1 } }));
+    expect(loadHeadlessConfig(file).memory).toEqual({ enabled: false });
+    writeFileSync(file, JSON.stringify({ memory: {} }));
+    expect(loadHeadlessConfig(file).memory).toEqual({});
+    writeFileSync(file, JSON.stringify({}));
+    expect(loadHeadlessConfig(file).memory).toBeUndefined();
+  });
+
+  it('rejects a mistyped memory section', () => {
+    const bad = path.join(dir, 'membad.json');
+    writeFileSync(bad, JSON.stringify({ memory: true }));
+    expect(() => loadHeadlessConfig(bad)).toThrow(/memory must be an object/);
+    writeFileSync(bad, JSON.stringify({ memory: { enabled: 'no' } }));
+    expect(() => loadHeadlessConfig(bad)).toThrow(/memory\.enabled must be a boolean/);
+  });
+
   it('rejects a mistyped writeback section', () => {
     const bad = path.join(dir, 'wbbad.json');
     const cases: [unknown, RegExp][] = [
