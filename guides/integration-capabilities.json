@@ -1,0 +1,126 @@
+[
+  {
+    "id": "github",
+    "name": "GitHub (github.com)",
+    "editionSupported": true,
+    "prProviderId": "github",
+    "sourceType": "github",
+    "aiReview": "desktop",
+    "issueImport": "desktop",
+    "outcomeComments": { "desktop": "comment", "headless": "comment" },
+    "setupLinks": [
+      { "label": "Project setup", "href": "project-configuration.md#github" },
+      { "label": "Write-back", "href": "issue-writeback.md#turn-it-on" }
+    ]
+  },
+  {
+    "id": "gitlab",
+    "name": "GitLab (GitLab.com or a configured self-managed instance)",
+    "editionSupported": true,
+    "prProviderId": "gitlab",
+    "sourceType": "gitlab",
+    "aiReview": "desktop",
+    "issueImport": "desktop",
+    "outcomeComments": { "desktop": "note", "headless": "note" },
+    "setupLinks": [
+      { "label": "Project setup", "href": "project-configuration.md#gitlab" },
+      { "label": "Write-back", "href": "issue-writeback.md#turn-it-on" }
+    ]
+  },
+  {
+    "id": "linear",
+    "name": "Linear",
+    "editionSupported": true,
+    "sourceType": "linear",
+    "aiReview": "unsupported",
+    "issueImport": "desktop",
+    "outcomeComments": { "desktop": "comment", "headless": "comment" },
+    "transition": { "type": "state", "event": "review_ready", "surfaces": ["desktop"] },
+    "setupLinks": [
+      { "label": "Project setup", "href": "project-configuration.md#linear" },
+      { "label": "Write-back", "href": "issue-writeback.md#turn-it-on" }
+    ]
+  },
+  {
+    "id": "jira-cloud",
+    "name": "Jira (Cloud only)",
+    "editionSupported": true,
+    "sourceType": "jira",
+    "aiReview": "unsupported",
+    "issueImport": "desktop",
+    "outcomeComments": { "desktop": "comment", "headless": "comment" },
+    "transition": { "type": "status", "event": "review_ready", "surfaces": ["desktop", "headless"] },
+    "setupLinks": [
+      { "label": "Project setup", "href": "project-configuration.md#jira" },
+      { "label": "Write-back", "href": "issue-writeback.md#turn-it-on" }
+    ]
+  },
+  {
+    "id": "bitbucket-cloud",
+    "name": "Bitbucket Cloud",
+    "editionSupported": true,
+    "prProviderId": "bitbucket",
+    "aiReview": "desktop",
+    "issueImport": "unsupported",
+    "outcomeComments": { "desktop": "unsupported", "headless": "unsupported" },
+    "setupLinks": [
+      { "label": "Project setup", "href": "project-configuration.md#bitbucket" },
+      { "label": "AI review", "href": "project-configuration.md#ai-review" }
+    ]
+  },
+  {
+    "id": "bitbucket-server",
+    "name": "Bitbucket Server",
+    "editionSupported": false,
+    "aiReview": "unsupported",
+    "issueImport": "unsupported",
+    "outcomeComments": { "desktop": "unsupported", "headless": "unsupported" },
+    "setupLinks": [{ "label": "Edition limits", "href": "project-configuration.md#bitbucket" }]
+  },
+  {
+    "id": "bitbucket-data-center",
+    "name": "Bitbucket Data Center",
+    "editionSupported": false,
+    "aiReview": "unsupported",
+    "issueImport": "unsupported",
+    "outcomeComments": { "desktop": "unsupported", "headless": "unsupported" },
+    "setupLinks": [{ "label": "Edition limits", "href": "project-configuration.md#bitbucket" }]
+  },
+  {
+    "id": "azure-devops-services",
+    "name": "Azure DevOps Services",
+    "editionSupported": true,
+    "prProviderId": "azuredevops",
+    "aiReview": "desktop",
+    "issueImport": "unsupported",
+    "outcomeComments": { "desktop": "unsupported", "headless": "unsupported" },
+    "setupLinks": [
+      { "label": "Project setup", "href": "project-configuration.md#azure-devops" },
+      { "label": "AI review", "href": "project-configuration.md#azure-devops-ai-review" }
+    ]
+  },
+  {
+    "id": "azure-boards-services",
+    "name": "Azure Boards (Services)",
+    "editionSupported": true,
+    "sourceType": "azure_boards",
+    "aiReview": "unsupported",
+    "issueImport": "desktop",
+    "outcomeComments": { "desktop": "comment", "headless": "comment" },
+    "transition": { "type": "state", "event": "review_ready", "surfaces": ["desktop", "headless"] },
+    "setupLinks": [
+      { "label": "Project setup", "href": "project-configuration.md#azure-devops" },
+      { "label": "Import", "href": "project-configuration.md#import-work-items-from-azure-boards" },
+      { "label": "Write-back", "href": "issue-writeback.md#turn-it-on" }
+    ]
+  },
+  {
+    "id": "azure-devops-server",
+    "name": "Azure DevOps Server",
+    "editionSupported": false,
+    "aiReview": "unsupported",
+    "issueImport": "unsupported",
+    "outcomeComments": { "desktop": "unsupported", "headless": "unsupported" },
+    "setupLinks": [{ "label": "Edition limits", "href": "project-configuration.md#azure-devops" }]
+  }
+]

@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 
+import integrationCapabilities from '../../../../../guides/integration-capabilities.json';
 import { IPC_CHANNELS } from '../../shared/constants/ipc';
 
 const TEST_DIR = mkdtempSync(path.join(tmpdir(), 'ipc-guard-coverage-'));
@@ -23,6 +24,38 @@ interface Registration {
 }
 
 const recorded: Registration[] = [];
+
+// zeenha fork: tie published rows to actual desktop entry points, not just channel declarations.
+const REVIEW_ENTRY_POINTS = {
+  github: IPC_CHANNELS.GITHUB_PR_REVIEW,
+  gitlab: IPC_CHANNELS.GITLAB_MR_REVIEW,
+  'bitbucket-cloud': IPC_CHANNELS.BITBUCKET_PR_REVIEW,
+  'azure-devops-services': IPC_CHANNELS.AZUREDEVOPS_PR_REVIEW,
+};
+const IMPORT_ENTRY_POINTS = {
+  github: IPC_CHANNELS.GITHUB_IMPORT_ISSUES,
+  gitlab: IPC_CHANNELS.GITLAB_IMPORT_ISSUES,
+  linear: IPC_CHANNELS.LINEAR_IMPORT_ISSUES,
+  'jira-cloud': IPC_CHANNELS.JIRA_IMPORT_ISSUES,
+  'azure-boards-services': IPC_CHANNELS.AZUREBOARDS_IMPORT_WORK_ITEMS,
+};
+
+function expectPublishedEntryPoints(
+  capability: 'aiReview' | 'issueImport',
+  entryPoints: Record<string, string>,
+  channelPattern: RegExp,
+  kind: Kind
+): void {
+  // Scan all matching registrations so unexpected providers (e.g. Bitbucket import) also fail.
+  const observed = recorded
+    .filter(({ channel }) => channelPattern.test(channel))
+    .map(({ kind, channel }) => `${kind} ${channel}`);
+  const expected = Object.values(entryPoints).map((channel) => `${kind} ${channel}`);
+  expect(observed.sort()).toEqual(expected.sort());
+
+  const published = integrationCapabilities.filter((row) => row[capability] === 'desktop');
+  expect(published.map(({ id }) => id).sort()).toEqual(Object.keys(entryPoints).sort());
+}
 
 vi.mock('electron-updater', () => ({
   autoUpdater: {
@@ -190,6 +223,31 @@ describe('IPC sender guard covers every registered channel (dynamic)', () => {
     expect(channels.has(IPC_CHANNELS.SENTRY_STATE_CHANGED)).toBe(true);
     expect(channels.has(IPC_CHANNELS.GET_SENTRY_DSN)).toBe(true);
     expect(channels.has(IPC_CHANNELS.GET_SENTRY_CONFIG)).toBe(true);
+  });
+
+  it('matches published desktop AI review support to registered review entry points', () => {
+    expectPublishedEntryPoints('aiReview', REVIEW_ENTRY_POINTS, /:(?:pr|mr):review$/, 'on');
+  });
+
+  it('registers invoke handlers for getting and posting Bitbucket and Azure DevOps reviews', () => {
+    for (const channel of [
+      IPC_CHANNELS.BITBUCKET_PR_GET_REVIEW,
+      IPC_CHANNELS.BITBUCKET_PR_POST_REVIEW,
+      IPC_CHANNELS.AZUREDEVOPS_PR_GET_REVIEW,
+      IPC_CHANNELS.AZUREDEVOPS_PR_POST_REVIEW,
+    ]) {
+      const kinds = recorded.filter((r) => r.channel === channel).map((r) => r.kind);
+      expect(kinds, channel).toEqual(['handle']);
+    }
+  });
+
+  it('matches published desktop issue import support to registered import entry points', () => {
+    expectPublishedEntryPoints(
+      'issueImport',
+      IMPORT_ENTRY_POINTS,
+      /:import(?:issues?|workitems?)$/i,
+      'handle'
+    );
   });
 
   it('rejects an untrusted sender on every guarded channel', async () => {
