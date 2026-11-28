@@ -76,6 +76,50 @@ describe('WorkerBridgeCore', () => {
     expect(onExit).not.toHaveBeenCalled();
   });
 
+  // zeenha fork: rate limits are recorded on the account
+  it('records a rate limit with the reset time named in the error', () => {
+    const recordRateLimit = vi.fn();
+    const bridge = new WorkerBridgeCore({ resolveWorkerPath: () => '/worker.js', recordRateLimit });
+    bridge.on('error', vi.fn());
+    bridge.spawn({ ...config, accountId: 'pa_1' } as AgentExecutorConfig);
+    const resetSeconds = Math.floor(Date.now() / 1000) + 3600;
+    createdWorkers[0].emit('message', {
+      type: 'result', taskId: 'task-1', projectId: 'proj-1',
+      data: { ...result('rate_limited'), error: { code: 'rate_limited', message: `Rate limit exceeded: usage limit reached|${resetSeconds}`, retryable: true } },
+    });
+    expect(recordRateLimit).toHaveBeenCalledWith('pa_1', resetSeconds * 1000);
+  });
+
+  it('records a rate limit without a reset time as null, and nothing for other outcomes', () => {
+    const recordRateLimit = vi.fn();
+    const bridge = new WorkerBridgeCore({ resolveWorkerPath: () => '/worker.js', recordRateLimit });
+    bridge.on('error', vi.fn());
+    bridge.spawn({ ...config, accountId: 'pa_1' } as AgentExecutorConfig);
+    createdWorkers[0].emit('message', {
+      type: 'result', taskId: 'task-1', projectId: 'proj-1',
+      data: { ...result('rate_limited'), error: { code: 'rate_limited', message: '429 Too Many Requests', retryable: true } },
+    });
+    expect(recordRateLimit).toHaveBeenCalledWith('pa_1', null);
+
+    const other = vi.fn();
+    const second = new WorkerBridgeCore({ resolveWorkerPath: () => '/worker.js', recordRateLimit: other });
+    second.spawn({ ...config, accountId: 'pa_1' } as AgentExecutorConfig);
+    createdWorkers[1].emit('message', { type: 'result', taskId: 'task-1', projectId: 'proj-1', data: result('completed') });
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  it('records a routed phase rate limit on the phase account', async () => {
+    const recordRateLimit = vi.fn();
+    const resolvePhaseConnection = vi.fn(async () => ({ provider: 'anthropic', modelId: 'm', accountId: 'pa_phase' }));
+    const bridge = new WorkerBridgeCore({ resolveWorkerPath: () => '/worker.js', recordRateLimit });
+    bridge.spawn({ ...config, resolvePhaseConnection } as unknown as AgentExecutorConfig);
+    createdWorkers[0].emit('message', { type: 'phase-connection', phase: 'planning', requestId: 1 });
+    await vi.waitFor(() => expect(resolvePhaseConnection).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    createdWorkers[0].emit('message', { type: 'phase-rate-limit', resetAt: 1234 });
+    expect(recordRateLimit).toHaveBeenCalledWith('pa_phase', 1234);
+  });
+
   it('sends no memoryPort without startMemory', () => {
     const bridge = new WorkerBridgeCore({ resolveWorkerPath: () => '/worker.js' });
     bridge.spawn(config);

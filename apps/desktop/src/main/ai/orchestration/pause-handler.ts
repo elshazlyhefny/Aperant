@@ -13,6 +13,8 @@
 import { existsSync, unlinkSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { extractRateLimitResetAt } from '../../../shared/utils/rate-limit-reset';
+
 // =============================================================================
 // Constants — see apps/desktop/src/main/ai/orchestration/pause-handler.ts
 // =============================================================================
@@ -204,6 +206,27 @@ export async function waitForRateLimitResume(
   // Clean up pause file after wait completes
   removePauseFile(specDir, RATE_LIMIT_PAUSE_FILE);
   return false;
+}
+
+/**
+ * zeenha fork: the one pause-and-wait path for a rate-limited session (coder,
+ * planner and spec phases). Writes RATE_LIMIT_PAUSE with the reset time when
+ * the error names one, then waits until that reset (capped at `maxWaitMs`,
+ * default 2 hours) or an early RESUME. Planning used to fail the task and spec
+ * phases retried at once, straight into the same limit.
+ *
+ * @returns true if the user signalled an early resume.
+ */
+export async function pauseForRateLimit(
+  specDir: string,
+  errorMessage: string,
+  options: { maxWaitMs?: number; sourceSpecDir?: string; signal?: AbortSignal } = {},
+): Promise<boolean> {
+  const maxWaitMs = options.maxWaitMs ?? MAX_RATE_LIMIT_WAIT_MS;
+  const resetAt = extractRateLimitResetAt(errorMessage);
+  writeRateLimitPauseFile(specDir, errorMessage, resetAt ? new Date(resetAt).toISOString() : null);
+  const waitMs = resetAt ? Math.min(Math.max(resetAt - Date.now(), 0), maxWaitMs) : maxWaitMs;
+  return waitForRateLimitResume(specDir, waitMs, options.sourceSpecDir, options.signal);
 }
 
 /**

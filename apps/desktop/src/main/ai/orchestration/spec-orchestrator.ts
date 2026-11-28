@@ -33,6 +33,7 @@ import {
 } from '../schema';
 import type { ZodSchema } from 'zod';
 import type { SessionResult } from '../session/types';
+import { pauseForRateLimit } from './pause-handler';
 
 // =============================================================================
 // Constants
@@ -595,6 +596,18 @@ export class SpecOrchestrator extends EventEmitter {
         const phaseResult: SpecPhaseResult = { phase, success: true, errors: [], retries: attempt };
         this.emitTyped('phase-complete', phase, phaseResult);
         return phaseResult;
+      }
+
+      // zeenha fork: a rate limit used to retry at once, straight into the same
+      // limit. Wait for the reset (or an early resume), then run the phase again
+      // without using up a retry.
+      if (result.outcome === 'rate_limited') {
+        const message = result.error?.message ?? 'Rate limit reached';
+        this.emitTyped('log', `Phase ${phase} hit a rate limit. Waiting for it to reset before retrying. ${message}`);
+        await pauseForRateLimit(this.config.specDir, message, { signal: this.config.abortSignal });
+        if (this.aborted) return { phase, success: false, errors: ['Cancelled'], retries: attempt };
+        attempt--;
+        continue;
       }
 
       // Error — collect and maybe retry

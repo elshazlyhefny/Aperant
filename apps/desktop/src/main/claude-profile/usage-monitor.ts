@@ -178,6 +178,14 @@ export class UsageMonitor extends EventEmitter {
   }
 
   /**
+   * zeenha fork: the last fetched usage of every cached profile, without fetching,
+   * so the task queue's capacity check stays cheap.
+   */
+  getCachedProfileUsage(): ProfileUsageSummary[] {
+    return [...this.allProfilesUsageCache.values()].map((entry) => entry.usage);
+  }
+
+  /**
    * Clear the usage cache for a specific profile.
    * Called after re-authentication to ensure fresh usage data is fetched.
    *

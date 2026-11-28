@@ -39,6 +39,7 @@ import type { RunOutcome } from './outcome';
 import { createProgressReporter } from './progress';
 import type { ResultInfo } from './progress';
 import { createHeadlessSpecInDir, HeadlessSpecAbortedError, readSpecTaskDescription } from './new-spec';
+import { readHeadlessRateLimits, recordHeadlessRateLimit, withHeadlessRateLimits } from './rate-limit-state';
 import {
   AUTO_BUILD_PATH,
   findGitRoot,
@@ -251,14 +252,15 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     const modelId = await resolveTaskModelId(specDir, 'planning', providerPhaseModels(config));
     const preferredProvider = resolveTaskPhaseProvider(specDir, 'planning');
     const resolvePhase = phaseConnectionResolver(readTaskMetadata(specDir), () => ({
-      accounts: config.providerAccounts ?? [],
+      // zeenha fork: read per phase, so an account limited earlier in this run stays skipped.
+      accounts: withHeadlessRateLimits(config.providerAccounts, readHeadlessRateLimits(projectPath)),
       priorityOrder: config.globalPriorityOrder ?? [],
       codexTokenFilePath: config.codexTokenFilePath,
       fallback: resolveHeadlessPhaseFallback,
     }));
     const resolvedAuth: HeadlessAuthResult = resolvePhase
       ? { provider: preferredProvider ?? 'anthropic', modelId, auth: {} }
-      : await resolveHeadlessAuth(modelId, preferredProvider, config);
+      : await resolveHeadlessAuth(modelId, preferredProvider, config, projectPath);
     if (resolvedAuth.auth.apiKey) secrets.push(resolvedAuth.auth.apiKey);
 
     // (4) worktree; no fallback to the project root
@@ -323,8 +325,12 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       taskId: specId,
       processType: 'task-execution',
       session: sessionConfig,
-      resolvePhaseConnection: resolvePhase && (async phase => {
-        const connection = await resolvePhase(phase);
+      // zeenha fork: lets the bridge record a rate limit on the account used.
+      accountId: resolvedAuth.accountId,
+      // zeenha fork: pass the bridge's exclusions through, so a phase retried after
+      // a rate limit moves to the next account of the same provider (as on desktop).
+      resolvePhaseConnection: resolvePhase && (async (phase, excludeAccountIds) => {
+        const connection = await resolvePhase(phase, excludeAccountIds);
         if (connection.apiKey && !secrets.includes(connection.apiKey)) secrets.push(connection.apiKey);
         return connection;
       }),
@@ -347,6 +353,13 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
         return workerPath;
       },
       startMemory: memory?.startMemory,
+      // zeenha fork: record a rate limit where headless auth reads it back
+      // (rate-limit-state.ts), so the next run or daemon task skips the account
+      // until its reset. Never throws.
+      recordRateLimit: async (accountId, resetAt) => {
+        const reset = await recordHeadlessRateLimit(projectPath, accountId, resetAt);
+        reporter.log(`Account ${accountId} hit a rate limit; skipping it until ${reset.toISOString()}`);
+      },
     };
     const bridge = options.createBridge ? options.createBridge(bridgeOptions) : new WorkerBridgeCore(bridgeOptions);
 

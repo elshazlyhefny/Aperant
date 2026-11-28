@@ -67,6 +67,7 @@ import { budgetGateResult, budgetPauseResult } from './budget-gate';
 import { TokenBudgetGuard } from '../session/token-budget';
 import { TOKEN_BUDGET_ERROR_CODE } from '../session/types';
 import { budgetTokens, parseTokenBudget } from '../../../shared/utils/token-budget';
+import { extractRateLimitResetAt } from '../../../shared/utils/rate-limit-reset';
 
 // =============================================================================
 // Validation
@@ -630,6 +631,10 @@ async function runSingleSession(
   if (config.resolvePhaseConnection) {
     if (sessionResult.outcome === 'auth_failure' || sessionResult.outcome === 'completed') {
       postMessage({ type: 'phase-key-outcome', outcome: sessionResult.outcome === 'auth_failure' ? 'rejected' : 'valid' });
+    }
+    // zeenha fork: record the limit on the account in the main process
+    if (sessionResult.outcome === 'rate_limited') {
+      postMessage({ type: 'phase-rate-limit', resetAt: extractRateLimitResetAt(sessionResult.error?.message) });
     }
     // zeenha fork: on a rate limit, retry the session on the next usable account of
     // the same provider. Only when none is left does the request fail and the

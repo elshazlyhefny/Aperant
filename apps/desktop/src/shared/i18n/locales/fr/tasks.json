@@ -148,6 +148,10 @@
     "error": "Échec"
   },
   "kanban": {
+    "capacityWait": {
+      "until": "En attente de capacité de compte jusqu'à {{time}}",
+      "retryingSoon": "En attente de capacité de compte, nouvel essai bientôt"
+    },
     "daemonQueue": {
       "title": "La file est gérée par {{holder}}",
       "paused": "La file d'attente et les planifications du bureau sont suspendues tant qu'il tourne.",

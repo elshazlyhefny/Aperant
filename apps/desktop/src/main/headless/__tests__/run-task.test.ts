@@ -13,6 +13,7 @@ vi.mock('../../ai/worktree/worktree-manager', () => ({
 }));
 vi.mock('../auth', () => ({
   resolveHeadlessAuth: (...args: unknown[]) => mockResolveAuth(...args),
+  resolveHeadlessPhaseFallback: async () => null,
 }));
 vi.mock('../../ai/prompts/prompt-loader', () => ({
   tryLoadPrompt: () => 'PLANNER PROMPT',
@@ -32,6 +33,7 @@ vi.mock('../../ai/memory/create-memory-service', () => ({
 
 import { readDeliveryReceipts } from '../../delivery-receipts';
 import { runHeadlessTask, runHeadlessTaskDetailed } from '../run-task';
+import { readHeadlessRateLimits } from '../rate-limit-state';
 import type { HeadlessBridge } from '../run-task';
 import type { WorkerBridgeCoreOptions } from '../../ai/agent/worker-bridge-core';
 
@@ -249,6 +251,53 @@ describe('runHeadlessTask', () => {
     });
     expect(await run({ handleProcessSignals: false })).toBe(0);
     expect(during).toEqual([sigint, sigterm]);
+  });
+
+  // zeenha fork: headless records rate limits where its own auth reads them back.
+  it('records a rate limit on the account the run used', async () => {
+    makeSpec();
+    mockResolveAuth.mockResolvedValue({
+      auth: { apiKey: SECRET },
+      provider: 'anthropic',
+      modelId: 'claude-sonnet-4-5',
+      accountId: 'acc1',
+    });
+    const reset = Date.now() + 3_600_000;
+    let bridgeOptions: WorkerBridgeCoreOptions | undefined;
+    bridge.spawn.mockImplementation(() => {
+      setImmediate(async () => {
+        await bridgeOptions?.recordRateLimit?.('acc1', reset);
+        bridge.emit('exit', '001-demo', 1, 'task-execution');
+      });
+    });
+    await run({ createBridge: (options) => { bridgeOptions = options; return bridge; } });
+
+    expect(mockResolveAuth.mock.calls[0][3]).toBe(projectDir);
+    expect(bridge.spawn.mock.calls[0][0].accountId).toBe('acc1');
+    const limits = readHeadlessRateLimits(projectDir);
+    expect(limits.acc1).toHaveLength(1);
+    expect(new Date(limits.acc1[0].resetAt).getTime()).toBe(reset);
+  });
+
+  // zeenha fork: a phase retried after a rate limit skips the accounts the bridge excludes.
+  it('passes the bridge exclusions to phase routing', async () => {
+    const specDir = makeSpec();
+    writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({
+      provider: 'anthropic', model: 'sonnet', phaseProviders: { planning: 'anthropic' },
+    }));
+    const config = {
+      providerAccounts: [
+        { id: 'acc1', provider: 'anthropic', authType: 'api-key', apiKey: 'key-one', isActive: true, name: 'a', billingModel: 'subscription' },
+        { id: 'acc2', provider: 'anthropic', authType: 'api-key', apiKey: 'key-two', isActive: true, name: 'b', billingModel: 'subscription' },
+      ],
+      globalPriorityOrder: ['acc1', 'acc2'],
+    } as never;
+    script([{ type: 'QA_PASSED' }]);
+    await run({ config });
+
+    const executorConfig = bridge.spawn.mock.calls[0][0];
+    expect((await executorConfig.resolvePhaseConnection('planning')).accountId).toBe('acc1');
+    expect((await executorConfig.resolvePhaseConnection('planning', ['acc1'])).accountId).toBe('acc2');
   });
 
   it('returns detailed result fields', async () => {

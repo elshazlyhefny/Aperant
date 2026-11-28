@@ -35,7 +35,7 @@ import {
   describeScheduleRecord,
   readTaskTokensFromDisk,
 } from '../schedule-service';
-import { TaskQueueManager } from '../task-queue-manager';
+import { TaskQueueManager, capacityStopFor } from '../task-queue-manager';
 import { writeFileAtomicSync } from '../utils/atomic-file';
 import { acquireProjectQueueLock, formatLockHolder } from '../utils/project-queue-lock';
 import type { QueueLockOptions } from '../utils/project-queue-lock';
@@ -346,7 +346,13 @@ export async function runServe(options: ServeOptions): Promise<number> {
       try {
         const newStatus: TaskStatus =
           run.stopReason === 'stop' ? 'human_review' : interrupted ? 'queue' : status;
-        await queue.onTaskStatusChanged(taskId, newStatus, projectId);
+        // zeenha fork: a task that paused for an account or failed on a rate limit
+        // cools the queue down, so the next task does not start into the same limit.
+        const capacityStop = newStatus === status && !run.stopReason
+          ? capacityStopFor(status, reviewReason, reason)
+          : undefined;
+        if (capacityStop) log(`${taskId} stopped for lack of account capacity, the queue waits before starting another task`, taskId);
+        await queue.onTaskStatusChanged(taskId, newStatus, projectId, capacityStop);
       } catch (error) {
         log(`Queue update failed: ${error instanceof Error ? error.message : String(error)}`, taskId);
       }
@@ -530,6 +536,7 @@ export async function runServe(options: ServeOptions): Promise<number> {
       scheduleService.stop();
       for (const timer of timers) clearInterval(timer);
       stopping = true;
+      queue.dispose();
       for (const run of runs.values()) {
         run.stopReason ??= 'shutdown';
         run.controller.abort('shutdown');

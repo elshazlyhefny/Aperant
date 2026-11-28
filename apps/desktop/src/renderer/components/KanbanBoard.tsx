@@ -34,6 +34,7 @@ import { TaskCard } from './TaskCard';
 import { SortableTaskCard } from './SortableTaskCard';
 import { QueueSettingsModal } from './QueueSettingsModal';
 import { DaemonQueueBanner } from './DaemonQueueBanner';
+import { QueueCapacityBanner } from './QueueCapacityBanner';
 import { TASK_STATUS_COLUMNS, TASK_STATUS_LABELS } from '../../shared/constants';
 import { cn } from '../lib/utils';
 import { persistTaskStatus, forceCompleteTask, archiveTasks, deleteTasks, useTaskStore, isQueueAtCapacity, DEFAULT_MAX_PARALLEL_TASKS } from '../stores/task-store';
@@ -752,6 +753,8 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
   // zeenha fork: daemon lock info for the board banner
   const lockedBy = queueState?.lockedBy;
   const lockedTaskIds = queueState?.lockedTaskIds ?? [];
+  // zeenha fork: the queue waits for account capacity until this time
+  const capacityBlockedUntil = queueState?.capacityBlockedUntil;
   const inProgressIdsKey = tasks
     .filter((tk) => tk.status === 'in_progress')
     .map((tk) => tk.id)
@@ -1577,6 +1580,12 @@ export function KanbanBoard({ tasks, onTaskClick, onNewTaskClick, onRefresh, isR
             tasks={tasks}
             onTaskClick={onTaskClick}
           />
+        </div>
+      )}
+      {/* zeenha fork: show that the queue waits for account capacity */}
+      {!lockedBy && capacityBlockedUntil !== undefined && (
+        <div className="px-6 pt-4">
+          <QueueCapacityBanner until={capacityBlockedUntil} estimated={queueState?.capacityRetryEstimated} />
         </div>
       )}
       {/* Kanban columns */}

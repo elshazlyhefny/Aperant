@@ -1,11 +1,18 @@
-import type { Project, Task, TaskStatus, TaskQueueState } from '../shared/types';
+import type { Project, ReviewReason, Task, TaskStatus, TaskQueueState } from '../shared/types';
 import { DEFAULT_MAX_PARALLEL_TASKS } from '../shared/constants/queue';
 import { evaluateTaskDependencies } from '../shared/utils/task-dependencies';
 import { isHoldActive } from '../shared/utils/file-overlap';
+import { extractRateLimitResetAt, isRateLimitReason } from '../shared/utils/rate-limit-reset';
 import { appLogPort } from './log-port';
 
 /** Safety limit that stops a pass when promotions keep failing */
 const MAX_CONSECUTIVE_FAILURES = 10;
+
+/** zeenha fork: capacity backoff when no reset time is known: 1, 2, 4 ... 30 minutes. */
+export const CAPACITY_BACKOFF_BASE_MS = 60_000;
+export const CAPACITY_BACKOFF_MAX_MS = 30 * 60_000;
+/** setTimeout cannot wait longer than this. */
+const MAX_TIMER_MS = 2_147_483_647;
 
 export type QueueState = TaskQueueState;
 
@@ -14,6 +21,9 @@ export interface PromoteResult {
   error?: string;
 }
 
+/** zeenha fork: whether an account can take a task right now. */
+export type CapacityCheckResult = { ok: true } | { ok: false; retryAt?: number; reason: string };
+
 export interface TaskQueueDeps {
   getProjects: () => Project[];
   getTasks: (projectId: string) => Task[];
@@ -21,6 +31,44 @@ export interface TaskQueueDeps {
   emitState?: (projectId: string, state: QueueState) => void;
   /** zeenha fork: false while another process (the daemon) holds this project's queue lock. */
   canProcess?: (projectId: string) => { ok: true } | { ok: false; heldBy: string; runningTaskIds?: string[] };
+  /**
+   * zeenha fork: asked right before a task is promoted. When no account can take
+   * it, the queue stops promoting and retries at `retryAt` (or after a backoff).
+   * Errors count as ok, so a broken check never stalls the queue.
+   */
+  checkCapacity?: (projectId: string, task: Task) => Promise<CapacityCheckResult>;
+}
+
+interface CapacityBlock {
+  until: number;
+  reason: string;
+  estimated: boolean;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** zeenha fork: a task that stopped because no account had capacity. */
+export interface CapacityStop {
+  reason: string;
+  retryAt?: number;
+}
+
+/**
+ * zeenha fork: whether a task's new status means it stopped for lack of account
+ * capacity: paused for an account (account_required) or failed on a rate limit.
+ */
+export function capacityStopFor(
+  status: TaskStatus,
+  reviewReason?: ReviewReason,
+  failureReason?: string
+): CapacityStop | undefined {
+  const accountPause = status === 'human_review' && reviewReason === 'account_required';
+  const rateLimitFailure = status === 'error' && isRateLimitReason(failureReason);
+  if (!accountPause && !rateLimitFailure) return undefined;
+  const retryAt = extractRateLimitResetAt(failureReason) ?? undefined;
+  return {
+    reason: failureReason?.trim() || (accountPause ? 'A task paused because no account was available' : 'A task hit a rate limit'),
+    ...(retryAt ? { retryAt } : {}),
+  };
 }
 
 const isActive = (t: Task): boolean => !t.metadata?.archivedAt;
@@ -37,6 +85,11 @@ export class TaskQueueManager {
   private rerun = new Set<string>();
   private promotedIds = new Map<string, Set<string>>();
   private skipped = new Map<string, string[]>();
+  // zeenha fork: per-project capacity wait. Six tasks started together used to hit
+  // the same exhausted account within seconds; each paused (freeing its slot) and
+  // the next queued task went straight into the same limit.
+  private capacityBlocks = new Map<string, CapacityBlock>();
+  private capacityBackoffSteps = new Map<string, number>();
 
   constructor(deps?: TaskQueueDeps) {
     if (deps) this.deps = deps;
@@ -53,13 +106,118 @@ export class TaskQueueManager {
     await Promise.all(ids.map((id) => this.schedule(id)));
   }
 
-  /** Called on every task status change; a task leaving in_progress frees a slot. */
-  async onTaskStatusChanged(taskId: string, status: TaskStatus, projectId?: string): Promise<void> {
+  /**
+   * Called on every task status change; a task leaving in_progress frees a slot.
+   * zeenha fork: `capacityStop` says the task stopped for lack of account capacity,
+   * which cools the project down instead of promoting the next task at once.
+   */
+  async onTaskStatusChanged(
+    taskId: string,
+    status: TaskStatus,
+    projectId?: string,
+    capacityStop?: CapacityStop
+  ): Promise<void> {
     if (status === 'in_progress') return;
+    if (projectId && capacityStop) {
+      this.reportCapacityExhausted(projectId, capacityStop.reason, capacityStop.retryAt);
+    } else if (projectId && status !== 'queue' && status !== 'backlog') {
+      this.noteCapacityUsable(projectId);
+    }
     // Any other status event proves the task has left the running state (including a drag back to
     // 'queue'), so the promoted marker must not keep counting it toward capacity.
     this.forgetPromoted(taskId, projectId);
     await this.requestProcess(projectId);
+  }
+
+  /**
+   * zeenha fork: a task stopped because no account had capacity (it paused with
+   * account_required, or failed on a rate limit). The project cools down so the
+   * next queued task does not start into the same limit. Call this before
+   * onTaskStatusChanged so the pass it triggers already sees the cooldown.
+   */
+  reportCapacityExhausted(projectId: string, reason: string, retryAt?: number): void {
+    if (!this.deps) return;
+    // One task's reset can be days away while another account frees up sooner, so a
+    // reported stop waits at most the backoff cap; checkCapacity then decides again.
+    if (retryAt !== undefined) retryAt = Math.min(retryAt, Date.now() + CAPACITY_BACKOFF_MAX_MS);
+    const current = this.activeCapacityBlock(projectId);
+    // Tasks running together hit the limit together; one cooldown covers them all.
+    if (current && (!retryAt || retryAt <= current.until)) return;
+    this.blockCapacity(projectId, reason, retryAt);
+  }
+
+  /**
+   * zeenha fork: a task got past the account (it reached any status other than
+   * a capacity stop), so capacity exists again and the backoff starts over.
+   */
+  noteCapacityUsable(projectId: string): void {
+    this.capacityBackoffSteps.delete(projectId);
+  }
+
+  /** zeenha fork: stop all capacity retry timers (daemon shutdown, app quit, tests). */
+  dispose(): void {
+    for (const block of this.capacityBlocks.values()) clearTimeout(block.timer);
+    this.capacityBlocks.clear();
+    this.capacityBackoffSteps.clear();
+  }
+
+  private activeCapacityBlock(projectId: string): CapacityBlock | undefined {
+    const block = this.capacityBlocks.get(projectId);
+    if (block && block.until > Date.now()) return block;
+    return undefined;
+  }
+
+  private blockCapacity(projectId: string, reason: string, retryAt?: number): void {
+    const now = Date.now();
+    const known = retryAt !== undefined && Number.isFinite(retryAt) && retryAt > now;
+    let delay: number;
+    if (known) {
+      delay = retryAt - now;
+    } else {
+      const step = this.capacityBackoffSteps.get(projectId) ?? 0;
+      delay = Math.min(CAPACITY_BACKOFF_BASE_MS * 2 ** step, CAPACITY_BACKOFF_MAX_MS);
+      this.capacityBackoffSteps.set(projectId, step + 1);
+    }
+    delay = Math.min(delay, MAX_TIMER_MS);
+    const previous = this.capacityBlocks.get(projectId);
+    if (previous) clearTimeout(previous.timer);
+    const timer = setTimeout(() => {
+      if (this.capacityBlocks.get(projectId)?.timer !== timer) return;
+      this.capacityBlocks.delete(projectId);
+      void this.requestProcess(projectId);
+    }, delay);
+    timer.unref?.();
+    this.capacityBlocks.set(projectId, { until: now + delay, reason, estimated: !known, timer });
+    appLogPort.warn(
+      `[Queue] Waiting for account capacity in project ${projectId} until ${new Date(now + delay).toISOString()}: ${reason}`
+    );
+  }
+
+  private clearCapacityBlock(projectId: string): void {
+    const block = this.capacityBlocks.get(projectId);
+    if (!block) return;
+    clearTimeout(block.timer);
+    this.capacityBlocks.delete(projectId);
+  }
+
+  /** zeenha fork: true when promotion must wait for account capacity. Never throws. */
+  private async isCapacityBlocked(projectId: string, task: Task): Promise<boolean> {
+    if (this.activeCapacityBlock(projectId)) return true;
+    const check = this.deps?.checkCapacity;
+    if (!check) return false;
+    let result: CapacityCheckResult;
+    try {
+      result = await check(projectId, task);
+    } catch (error) {
+      appLogPort.error(`[Queue] Capacity check failed for project ${projectId}:`, error);
+      return false;
+    }
+    if (result.ok) {
+      this.clearCapacityBlock(projectId);
+      return false;
+    }
+    this.blockCapacity(projectId, result.reason, result.retryAt);
+    return true;
   }
 
   private forgetPromoted(taskId: string, projectId?: string): void {
@@ -79,6 +237,17 @@ export class TaskQueueManager {
       inProgressCount,
       queuedTaskIds: queued.map((t) => t.id),
       skippedTaskIds: [...(this.skipped.get(projectId) ?? [])],
+      ...this.capacityState(projectId),
+    };
+  }
+
+  private capacityState(projectId: string): Partial<QueueState> {
+    const block = this.activeCapacityBlock(projectId);
+    if (!block) return {};
+    return {
+      capacityBlockedUntil: block.until,
+      capacityBlockedReason: block.reason,
+      capacityRetryEstimated: block.estimated,
     };
   }
 
@@ -196,6 +365,10 @@ export class TaskQueueManager {
         }
 
         const next = queued[0];
+        // zeenha fork: no account can take the task. Stop this pass without marking
+        // the task as failed; a timer runs the next pass when capacity should return.
+        if (await this.isCapacityBlocked(projectId, next)) break;
+
         let result: PromoteResult;
         try {
           result = await deps.promote(next.id, projectId);

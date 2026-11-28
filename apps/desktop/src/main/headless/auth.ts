@@ -10,12 +10,15 @@ import { PROVIDER_ENV_VARS, type ResolvedAuth } from '../ai/auth/types';
 import { detectProviderFromModel } from '../ai/providers/factory';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 import type { HeadlessConfig } from './config';
+import { readHeadlessRateLimits, withHeadlessRateLimits } from './rate-limit-state';
 
 export interface HeadlessAuthResult {
   auth: { apiKey?: string; baseURL?: string; oauthTokenFilePath?: string; headers?: Record<string, string> };
   provider: string;
   modelId: string;
   configDir?: string;
+  /** zeenha fork: the provider account used, so a rate limit can be recorded on it. */
+  accountId?: string;
 }
 
 export const NO_CREDENTIALS_MESSAGE =
@@ -46,13 +49,31 @@ function orderQueue(
   ];
 }
 
+// zeenha fork: say why no account was usable when recorded rate limits are the reason.
+function rateLimitedMessage(accounts: ProviderAccount[]): string | undefined {
+  const now = Date.now();
+  const resets = accounts.flatMap((a) => a.rateLimitEvents ?? [])
+    .map((e) => new Date(e.resetAt).getTime())
+    .filter((ms) => ms > now);
+  if (!resets.length) return undefined;
+  return `No configured provider account is usable right now; the earliest recorded rate limit resets at ${new Date(Math.min(...resets)).toISOString()}.`;
+}
+
 export async function resolveHeadlessAuth(
   modelId: string,
   preferredProvider: string | null | undefined,
   config: HeadlessConfig,
+  /**
+   * zeenha fork: the project whose recorded rate limits (headless/rate-limit-state.ts)
+   * apply, so an account stays skipped until its reset. Omitted = none apply.
+   */
+  projectPath?: string,
 ): Promise<HeadlessAuthResult> {
+  const limits = projectPath ? readHeadlessRateLimits(projectPath) : {};
   const settings: Record<string, unknown> = {
-    providerAccounts: config.providerAccounts,
+    // zeenha fork: the legacy fallback below must not pick an account that is
+    // rate-limited until a recorded reset.
+    providerAccounts: config.providerAccounts?.filter((a) => !limits[a.id]),
     globalPriorityOrder: config.globalPriorityOrder,
     providerAgentConfig: config.providerAgentConfig,
     codexTokenFilePath: config.codexTokenFilePath,
@@ -63,7 +84,7 @@ export async function resolveHeadlessAuth(
     return typeof value === 'string' ? value : JSON.stringify(value);
   });
 
-  const accounts = config.providerAccounts ?? [];
+  const accounts = withHeadlessRateLimits(config.providerAccounts, limits);
   const priorityOrder = config.globalPriorityOrder ?? [];
   if (accounts.length > 0) {
     const resolved = await resolveAuthFromQueue(modelId, orderQueue(accounts, priorityOrder, preferredProvider), { codexTokenFilePath: config.codexTokenFilePath });
@@ -73,6 +94,7 @@ export async function resolveHeadlessAuth(
         provider: resolved.resolvedProvider,
         modelId: resolved.resolvedModelId,
         configDir: resolved.configDir,
+        accountId: resolved.accountId,
       };
     }
   }
@@ -90,7 +112,7 @@ export async function resolveHeadlessAuth(
 
   // Only the existing resolveAuth stages run; keychain failures fall through there.
   const auth = await resolveAuth({ provider });
-  if (!auth) throw new Error(NO_CREDENTIALS_MESSAGE);
+  if (!auth) throw new Error(rateLimitedMessage(accounts) ?? NO_CREDENTIALS_MESSAGE);
   return { auth, provider, modelId, configDir: auth.configDir };
 }
 

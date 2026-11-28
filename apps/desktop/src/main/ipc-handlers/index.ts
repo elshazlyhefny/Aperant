@@ -50,7 +50,11 @@ import type { IPCResult, TaskQueueState } from '../../shared/types';
 import { projectStore } from '../project-store';
 import { taskStateManager } from '../task-state-manager';
 import { registerDaemonStopHandlers } from './daemon-stop-handlers';
-import { taskQueueManager } from '../task-queue-manager';
+import { taskQueueManager, capacityStopFor } from '../task-queue-manager';
+import { checkTaskCapacity } from '../queue-capacity';
+import { readSettingsFile } from '../settings-utils';
+import { getClaudeProfileManager } from '../claude-profile-manager';
+import { getUsageMonitor } from '../claude-profile/usage-monitor';
 import { ensureQueueLock } from '../desktop-queue-lock';
 import { formatLockHolder } from '../utils/project-queue-lock';
 import { readServeRunningTaskIds } from '../utils/serve-running-file';
@@ -97,10 +101,23 @@ export function setupIpcHandlers(
       return lock.holder?.kind === 'daemon'
         ? { ok: false, heldBy, runningTaskIds: readServeRunningTaskIds(project.path) }
         : { ok: false, heldBy };
-    }
+    },
+    // zeenha fork: do not start a task while every account it can use is rate limited
+    checkCapacity: (_projectId, task) =>
+      checkTaskCapacity(task, () => {
+        const manager = getClaudeProfileManager();
+        return {
+          accounts: readSettingsFile()?.providerAccounts ?? [],
+          autoSwitch: manager.getAutoSwitchSettings(),
+          profileLimit: (profileId) => manager.isProfileRateLimited(profileId),
+          usage: getUsageMonitor().getCachedProfileUsage(),
+        };
+      }),
   });
-  taskStateManager.onStatusEmitted((taskId, status, projectId) => {
-    void taskQueueManager.onTaskStatusChanged(taskId, status, projectId);
+  taskStateManager.onStatusEmitted((taskId, status, projectId, reviewReason, failureReason) => {
+    // zeenha fork: a task that paused for an account or failed on a rate limit cools the queue down
+    const capacityStop = capacityStopFor(status, reviewReason, failureReason);
+    void taskQueueManager.onTaskStatusChanged(taskId, status, projectId, capacityStop);
   });
   ipcMain.handle(
     IPC_CHANNELS.TASK_QUEUE_GET_STATE,

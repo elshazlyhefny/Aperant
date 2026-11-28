@@ -82,7 +82,7 @@ describe('headless cli imports', () => {
     for (const name of ['task-queue-manager.ts', 'schedule-service.ts', 'schedule-file-store.ts',
       'task-store.ts', 'task-record-fields.ts', 'shared.ts', 'preflight.ts', 'preflight-credentials.ts',
       'github-writer.ts', 'gitlab-writer.ts', 'linear-writer.ts', 'jira-writer.ts', 'headless-writers.ts',
-      'issue-writeback-core.ts', 'issue-writeback-settings.ts', 'github-api.ts', 'gitlab-api.ts', 'writeback.ts',
+      'issue-writeback-core.ts', 'issue-writeback-settings.ts', 'github-api.ts', 'gitlab-api.ts', 'writeback.ts', 'rate-limit-state.ts', 'rate-limit-events.ts',
     ]) {
       expect(reached.has(name), `${name} should be reachable`).toBe(true);
     }
@@ -107,6 +107,8 @@ describe('headless cli imports', () => {
       'main/settings-utils.ts',
       'main/project-webhook-config.ts',
       'main/webhook-approval-store.ts',
+      // zeenha fork: headless records rate limits through rate-limit-state.ts instead.
+      'main/services/rate-limit-recorder.ts',
     ]) {
       expect(reached.has(path.join(SRC_ROOT, rel)), `${rel} must not be reachable`).toBe(false);
     }
