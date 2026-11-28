@@ -42,7 +42,10 @@ beforeEach(() => {
   git(author, 'commit', '-qam', 'escape the output');
   featureSha = git(author, 'rev-parse', 'HEAD');
   git(author, 'push', '-q', 'origin', 'feature/escape');
-  git(root, 'clone', '-q', 'origin.git', 'project');
+  // zeenha fork: core.autocrlf=false in the project's own config. The Windows runner's
+  // global config sets it true, which checks app.php out with CRLF endings; the
+  // review worktree shares this config, so both read the committed bytes.
+  git(root, 'clone', '-q', '-c', 'core.autocrlf=false', 'origin.git', 'project');
   project = join(root, 'project');
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));

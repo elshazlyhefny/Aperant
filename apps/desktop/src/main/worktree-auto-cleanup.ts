@@ -383,12 +383,14 @@ export async function ensureWorktreeDeletable(
   worktreePath: string,
   projectPath: string,
 ): Promise<{ ok: boolean; detail?: string }> {
-  const uid = process.getuid?.();
-  const gid = process.getgid?.();
-  if (uid === undefined || gid === undefined) return { ok: true }; // Windows: no ownership problem to fix
+  // zeenha fork: the folder check comes first. It came after the Windows return,
+  // so on Windows any folder (the project itself included) was reported deletable.
   if (!isTaskWorktreeFolder(worktreePath, projectPath)) {
     return { ok: false, detail: 'outside the task worktree folder' };
   }
+  const uid = process.getuid?.();
+  const gid = process.getgid?.();
+  if (uid === undefined || gid === undefined) return { ok: true }; // Windows: no ownership problem to fix
 
   let foreign: string | null;
   try {

@@ -12,6 +12,7 @@
 
 import { readFileSync, existsSync, readFile as readFileAsync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isWindows } from '../../platform';
 
 import type { ProjectCapabilities, PromptContext, PromptValidationResult } from './types';
 
@@ -354,7 +355,11 @@ export function buildReferenceImagesSection(specDir: string, relativeTo?: string
     const fromRoot = relative(root, abs);
     if (!fromRoot || fromRoot.startsWith('..') || isAbsolute(fromRoot)) continue;
     if (!existsSync(abs)) continue;
-    const shown = relativeTo ? relative(resolve(relativeTo), abs) : abs;
+    const native = relativeTo ? relative(resolve(relativeTo), abs) : abs;
+    // zeenha fork: show the model forward slashes on Windows. The Read tool
+    // takes them, and a backslash path pasted into the Bash tool's shell loses
+    // its separators (`spec\attachments` runs as `specattachments`).
+    const shown = isWindows() ? native.replace(/\\/g, '/') : native;
     if (!paths.includes(shown)) paths.push(shown);
   }
   if (paths.length === 0) return '';

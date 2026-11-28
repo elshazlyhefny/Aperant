@@ -86,6 +86,7 @@ global.fetch = mockFetch;
 // Import after mocks are set up
 import { IPC_CHANNELS } from '../../shared/constants';
 import { existsSync } from 'fs';
+import path from 'path';
 import { execFile } from 'child_process';
 import { readSettingsFile } from '../settings-utils';
 
@@ -480,7 +481,8 @@ describe('claude-code-handlers - shared Claude validator', () => {
     mockValidateClaudeAsync.mockResolvedValue({ valid: true, version: '2.0.0', message: 'ok' });
     const handler = registeredHandlers.get(IPC_CHANNELS.CLAUDE_CODE_SET_ACTIVE_PATH)!;
     const result = (await handler({}, '/opt/bin/claude')) as { success: boolean };
-    expect(mockValidateClaudeAsync).toHaveBeenCalledWith('/opt/bin/claude');
+    // The handler resolves the path first; on Windows that adds the drive letter.
+    expect(mockValidateClaudeAsync).toHaveBeenCalledWith(path.resolve('/opt/bin/claude'));
     expect(result.success).toBe(true);
   });
 

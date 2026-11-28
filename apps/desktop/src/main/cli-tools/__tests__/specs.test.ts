@@ -1,3 +1,4 @@
+import path from 'path';
 import { describe, it, expect, vi } from 'vitest';
 
 const platformState = vi.hoisted(() => ({ windows: false }));
@@ -49,8 +50,9 @@ describe('TOOL_SPECS candidates', () => {
     const list = candidates('python', 'darwin');
     const homebrew = list.filter((c) => c.source === 'homebrew');
     expect(homebrew).toHaveLength(12);
-    expect(homebrew[0]).toMatchObject({ path: '/opt/homebrew/bin/python3.14' });
-    expect(homebrew[11]).toMatchObject({ path: '/usr/local/bin/python3' });
+    // Joined with the host's path module, like every non-literal candidate path.
+    expect(homebrew[0]).toMatchObject({ path: path.join('/opt/homebrew/bin', 'python3.14') });
+    expect(homebrew[11]).toMatchObject({ path: path.join('/usr/local/bin', 'python3') });
     expect(list.slice(12).map((c) => c.kind === 'lookup' && c.exe)).toEqual(['python3', 'python']);
   });
 
@@ -118,9 +120,9 @@ describe('TOOL_SPECS candidates', () => {
       'path:/opt/homebrew/bin/claude:homebrew:Using Homebrew Claude CLI',
       'path:/usr/local/bin/claude:homebrew:Using Homebrew Claude CLI',
       'lookup:claude:system-path:Using system Claude CLI',
-      'nvm:/home/u/.nvm/versions/node:nvm:Using NVM Claude CLI',
-      'path:/home/u/.local/bin/claude:system-path:Using Claude CLI',
-      'path:/home/u/bin/claude:system-path:Using Claude CLI',
+      `nvm:${path.join('/home/u', '.nvm', 'versions', 'node')}:nvm:Using NVM Claude CLI`,
+      `path:${path.join('/home/u', '.local', 'bin', 'claude')}:system-path:Using Claude CLI`,
+      `path:${path.join('/home/u', 'bin', 'claude')}:system-path:Using Claude CLI`,
     ]);
   });
 
