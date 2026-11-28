@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { existsSync, readdirSync, promises as fsPromises } from 'fs';
 import { execFileSync } from 'child_process';
+import path from 'path';
 import { detectSync, detectAsync, validateTool, validateToolAsync, validateClaudeAsync } from '../detect';
 import { planVersionCommand } from '../run-version';
 import { TOOL_SPECS } from '../specs';
@@ -72,6 +73,9 @@ const ctxFor = (os: DetectionContext['os']): DetectionContext => ({
   isPackaged: false,
   resourcesPath: '/res',
 });
+
+/** Where the Claude spec looks for NVM installs under the mock home */
+const nvmDir = path.join('/mock/home', '.nvm', 'versions', 'node');
 
 /** Make only the listed paths exist and answer --version with the given output per executable */
 function mockWorld(existing: string[], output: string | ((file: string) => string)) {
@@ -159,14 +163,16 @@ describe('detect - candidate order', () => {
   });
 
   it('scans NVM versions newest first (sync and async agree)', async () => {
-    const dir = '/mock/home/.nvm/versions/node';
+    // The detector joins with the host's path module, so build the paths the same way.
+    const dir = nvmDir;
+    const bin = (version: string) => path.join(dir, version, 'bin', 'claude');
     const dirent = (name: string) => ({ name, isDirectory: () => true }) as never;
     vi.mocked(readdirSync).mockReturnValue([dirent('v18.0.0'), dirent('v20.0.0')] as never);
     vi.mocked(fsPromises.readdir).mockResolvedValue([dirent('v18.0.0'), dirent('v20.0.0')] as never);
-    mockWorld([dir, `${dir}/v18.0.0/bin/claude`, `${dir}/v20.0.0/bin/claude`], 'claude 1.2.3\n');
+    mockWorld([dir, bin('v18.0.0'), bin('v20.0.0')], 'claude 1.2.3\n');
     const ctx = ctxFor('linux');
     const sync = detectSync(TOOL_SPECS.claude, undefined, ctx);
-    expect(sync).toMatchObject({ found: true, path: `${dir}/v20.0.0/bin/claude`, source: 'nvm' });
+    expect(sync).toMatchObject({ found: true, path: bin('v20.0.0'), source: 'nvm' });
     expect(await detectAsync(TOOL_SPECS.claude, undefined, ctx)).toEqual(sync);
   });
 
@@ -175,7 +181,7 @@ describe('detect - candidate order', () => {
     vi.mocked(readdirSync).mockImplementation(() => {
       throw new Error('EACCES');
     });
-    mockWorld(['/mock/home/.nvm/versions/node'], '');
+    mockWorld([nvmDir], '');
     detectSync(TOOL_SPECS.claude, undefined, ctxFor('linux'));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('[Claude CLI] Unable to read NVM directory'));
     warn.mockRestore();

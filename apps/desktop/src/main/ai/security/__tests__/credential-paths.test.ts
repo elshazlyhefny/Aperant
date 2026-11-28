@@ -4,7 +4,18 @@
  */
 
 import { homedir } from 'node:os';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Lets a test pose as a Windows machine; by default the real home and platform.
+const fake = vi.hoisted(() => ({ home: null as string | null, windows: null as boolean | null }));
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return { ...actual, homedir: () => fake.home ?? actual.homedir() };
+});
+vi.mock('../../../platform', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../platform')>();
+  return { ...actual, isWindows: () => fake.windows ?? actual.isWindows() };
+});
 
 import { bashSecurityHook, validateCommand } from '../bash-validator';
 import { validateCredentialPaths } from '../validators/credential-validators';
@@ -32,6 +43,8 @@ const REFUSED = [
   'cat ../.env',
   'grep TOKEN "/home/x/proj/.auto-claude/.env"',
   "sh -c 'cat ../../../.env'",
+  'type .auto-claude\\.env',
+  'cat ..\\..\\..\\.env',
 ];
 
 const ALLOWED = [
@@ -59,6 +72,44 @@ describe('validateCredentialPaths', () => {
   });
 
   it.each(ALLOWED)('allows %s', (command) => {
+    expect(validateCredentialPaths(command)[0]).toBe(true);
+  });
+});
+
+// zeenha fork: backslashes used to be stripped before matching, so no Windows
+// home path (`C:\Users\me\.ssh`) was ever refused.
+describe('validateCredentialPaths with a Windows home directory', () => {
+  afterEach(() => {
+    fake.home = null;
+    fake.windows = null;
+  });
+
+  const WINDOWS_REFUSED = [
+    'cat C:\\Users\\Dev\\.ssh\\id_rsa',
+    'type "C:\\Users\\Dev\\.aws\\credentials"',
+    'cat C:/Users/Dev/.ssh/id_rsa',
+    'cat C:\\Users\\Dev/.ssh/id_rsa',
+    'cat /c/Users/Dev/.ssh/id_rsa',
+    'cat c:\\users\\dev\\.SSH\\id_rsa',
+    'copy C:\\Users\\Dev\\.config\\gh\\hosts.yml out',
+    'type ~\\.ssh\\id_rsa',
+  ];
+  const WINDOWS_ALLOWED = [
+    'cat C:\\Users\\Dev\\projects\\app\\README.md',
+    'dir .auto-claude\\specs',
+    'type .env',
+    'cat C:\\Users\\Dev\\.sshconfig-notes.txt',
+  ];
+
+  it.each(WINDOWS_REFUSED)('refuses %s', (command) => {
+    fake.home = 'C:\\Users\\Dev';
+    fake.windows = true;
+    expect(validateCredentialPaths(command)[0]).toBe(false);
+  });
+
+  it.each(WINDOWS_ALLOWED)('allows %s', (command) => {
+    fake.home = 'C:\\Users\\Dev';
+    fake.windows = true;
     expect(validateCredentialPaths(command)[0]).toBe(true);
   });
 });
