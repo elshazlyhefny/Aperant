@@ -2,8 +2,20 @@ import { describe, it, expect } from 'vitest';
 import { budgetTokens, budgetPercent, parseTokenBudget, resolveTokenBudget } from '../token-budget';
 
 describe('budgetTokens', () => {
-  it('does not double count cache read/creation', () => {
-    expect(budgetTokens({ input: 100, output: 50, cacheRead: 80, cacheCreation: 20 })).toBe(150);
+  it('counts cache reads at a tenth and cache creation inside input', () => {
+    // (100 - 80) + 50 + 80 * 0.1 = 78
+    expect(budgetTokens({ input: 100, output: 50, cacheRead: 80, cacheCreation: 20 })).toBe(78);
+  });
+  it('is input + output without cache reads', () => {
+    expect(budgetTokens({ input: 100, output: 50 })).toBe(150);
+  });
+  it('weights a cache-heavy session far below its raw total', () => {
+    expect(budgetTokens({ input: 1_000_000, output: 20_000, cacheRead: 900_000 })).toBe(210_000);
+  });
+  it('never goes negative and ignores invalid fields', () => {
+    expect(budgetTokens({ input: 10, output: 0, cacheRead: 50 })).toBe(5);
+    expect(budgetTokens({ input: -5, output: -1 })).toBe(0);
+    expect(budgetTokens({ input: undefined as unknown as number, output: 7, cacheRead: Number.NaN })).toBe(7);
   });
 });
 

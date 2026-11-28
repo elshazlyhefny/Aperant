@@ -72,7 +72,7 @@ The `missed`, `skipped_unfinished`, `budget_exceeded` and `failed` entries appea
 
 ## Token budget per run
 
-The default is 2,000,000 tokens, input plus output, for each run. The usage of a task is read only after each agent session ends. A run can therefore slightly exceed the budget before it is stopped.
+The default is 2,000,000 budget tokens for each run, counted as described in [What counts](token-budgets.md#what-counts) (cache reads count at a tenth). The usage of a task is read only after each agent session ends. A run can therefore slightly exceed the budget before it is stopped.
 
 ## Where schedules are stored
 

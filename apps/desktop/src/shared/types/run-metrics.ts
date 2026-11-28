@@ -39,6 +39,12 @@ export interface SessionMetricsEntry {
   };
   tools: Record<string, ToolMetrics>;
   slowest: SlowToolCall[];
+  /** zeenha fork: why the session failed; redacted and capped. Absent on success. */
+  error?: { code: string; message: string; retryable?: boolean };
+  /** zeenha fork: provider the session ran on, so failures can be traced to a route. */
+  provider?: string;
+  /** zeenha fork: internal provider-account id (never an email or token). */
+  accountId?: string;
 }
 
 export interface RunMetricsTokens {

@@ -216,7 +216,7 @@ The CLI reports the effective budget before starting the build:
 
 The source is `task` for a task override (including `0` or an invalid value), `schedule` for a schedule's per-run budget, `config` for the headless default, or `none` when no value is set.
 
-Usage is cumulative across the task: input plus output tokens, with cache tokens not added again. The budget is not a hard real-time cap. Each planning, coding and QA session re-reads the usage recorded in `run_metrics.json` at the start of the session. A running session checks its own usage between model requests and steps. A schedule's per-run budget is also checked between sessions. A run can end above the limit.
+Usage is cumulative across the task, counted as budget tokens: input plus output, with cache reads counted at a tenth (see [What counts](token-budgets.md#what-counts)). The budget is not a hard real-time cap. Each planning, coding and QA session re-reads the usage recorded in `run_metrics.json` at the start of the session. A running session checks its own usage between model requests and steps. A schedule's per-run budget is also checked between sessions. A run can end above the limit.
 
 When the limit is reached the run stops with exit code 1 (not 0, not 2). It prints `reason: token budget reached: <used> of <limit> tokens used` on stderr and a final `RESULT error exit=1 ...` line. It is never reported as success.
 

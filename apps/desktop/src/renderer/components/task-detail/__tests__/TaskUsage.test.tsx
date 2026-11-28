@@ -70,13 +70,13 @@ describe('TaskUsage', () => {
     expect(screen.getByTitle('npm test')).toBeInTheDocument();
   });
 
-  it('shows budget usage and progress when a limit exists, ignoring cache tokens', async () => {
+  it('shows budget usage and progress when a limit exists, weighting cache reads', async () => {
     getTaskRunMetrics.mockResolvedValue({ success: true, data: sample });
     render(<TaskUsage task={task} />);
     await waitFor(() => expect(screen.getByTestId('usage-budget')).toBeInTheDocument());
-    // input + output = 1290; cache fields are not added. 64% of 2000.
+    // (1234 - 7) + 56 + 7 * 0.1 = 1283.7, rounded to 1284; cacheCreation stays in input. 64% of 2000.
     expect(screen.getByTestId('usage-budget')).toHaveTextContent('tasks:usage.budgetUsed');
-    expect(screen.getByText('1,290')).toBeInTheDocument();
+    expect(screen.getByText('1,284')).toBeInTheDocument();
     expect(screen.getByTestId('usage-budget-bar')).toHaveStyle({ width: '64%' });
   });
 

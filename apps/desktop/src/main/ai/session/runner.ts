@@ -17,7 +17,7 @@
  * - Memory-aware step limits via calibration factor
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { stepCountIs, Output } from 'ai';
 import { streamText } from '../claude-code/sdk';
 import { isClaudeCodeModel } from '../claude-code/model';
@@ -41,6 +41,7 @@ import type {
   SessionMessage,
 } from './types';
 import { TOKEN_BUDGET_ERROR_CODE } from './types';
+import { segmentBudgetTokens } from './token-budget';
 import type { QueueResolvedAuth } from '../auth/types';
 
 // =============================================================================
@@ -159,16 +160,23 @@ export async function runAgentSession(
   let authRetries = 0;
   let activeConfig = config;
   let activeAccountId = currentAccountId;
+  // zeenha fork: usage of failed attempts. The budget guard already counted
+  // them, so the returned result must carry them too, or run_metrics.json (the
+  // next session's budget baseline) would under-report what was spent.
+  const spent: PartialUsage = { stepsExecuted: 0, toolCallCount: 0, usage: emptyUsage() };
+  const buildErrorResult = (outcome: SessionOutcome, error: SessionError, start: number): SessionResult =>
+    withSpent(buildEmptyErrorResult(outcome, error, start), spent);
 
   // Retry loop for auth refresh and account switching
   while (authRetries <= MAX_AUTH_RETRIES) {
     try {
       const result = await executeStream(activeConfig, tools, onEvent, memoryContext);
-      return {
+      return withSpent({
         ...result,
         durationMs: Date.now() - startTime,
-      };
+      }, spent);
     } catch (error: unknown) {
+      addPartialUsage(spent, error);
       const { sessionError, outcome } = classifyError(error);
 
       // Account-switch on rate limit (429) or auth failure (401)
@@ -350,11 +358,13 @@ async function executeStream(
   const isAnthropicModel = modelId?.startsWith('claude-') ?? false;
   const isClaudeCode = isClaudeCodeModel(config.model);
 
-  // zeenha fork: one prompt cache key per session, as the Codex CLI sends per
-  // conversation, so every step of this session reuses the same OpenAI prompt
-  // cache. Only OpenAI models (including Codex sign-in) receive it.
+  // zeenha fork: one prompt cache key per (task, agent type), as the Codex CLI
+  // sends per conversation, so every step of this session and later sessions
+  // of the same agent on the same task reuse the same OpenAI prompt cache. A
+  // random key per session threw the cache away at every session boundary.
+  // Only OpenAI models (including Codex sign-in) receive it.
   const modelProvider = typeof config.model === 'string' ? undefined : config.model.provider;
-  const promptCacheKey = modelProvider?.startsWith('openai.') ? randomUUID() : undefined;
+  const promptCacheKey = modelProvider?.startsWith('openai.') ? buildPromptCacheKey(config) : undefined;
 
   // Compute thinking/reasoning provider options from session config
   const thinkingOptions = config.thinkingLevel
@@ -512,6 +522,9 @@ async function executeStream(
     // Stream-level errors (network, abort, etc.)
     const summary = streamHandler.getSummary();
     config.tokenBudget?.commitSegment(summary.usage);
+    // zeenha fork: keep what the failed stream used, so the error result built
+    // by runAgentSession reports it instead of 0 tokens / 0 steps.
+    attachPartialUsage(error, summary);
 
     // Check if this was a stream inactivity timeout
     if (
@@ -668,7 +681,7 @@ async function executeStream(
   };
 
   // zeenha fork: a run cut off by the token budget is never reported as completed.
-  const segmentTokens = usage.promptTokens + usage.completionTokens;
+  const segmentTokens = segmentBudgetTokens(usage);
   const overBudget = budgetReached || (budget?.isExceeded(segmentTokens) ?? false);
   config.tokenBudget?.commitSegment(usage);
   if (overBudget && budget) {
@@ -702,9 +715,9 @@ async function executeStream(
 // =============================================================================
 
 /**
- * Build an error SessionResult.
+ * Build an error SessionResult with no usage; runAgentSession adds what failed attempts spent.
  */
-function buildErrorResult(
+function buildEmptyErrorResult(
   outcome: SessionOutcome,
   error: SessionError,
   startTime: number,
@@ -721,6 +734,70 @@ function buildErrorResult(
     messages: [],
     toolCallCount: 0,
     durationMs: Date.now() - startTime,
+  };
+}
+
+/**
+ * zeenha fork: stable OpenAI prompt cache key for a (task, agent type) pair.
+ * The spec directory identifies the task; it is hashed so no local path leaves
+ * the machine. Without a spec directory the key falls back to a random one.
+ */
+export function buildPromptCacheKey(config: Pick<SessionConfig, 'specDir' | 'agentType'>): string {
+  if (!config.specDir) return randomUUID();
+  return createHash('sha256').update(`${config.specDir}\0${config.agentType}`).digest('hex').slice(0, 32);
+}
+
+interface PartialUsage {
+  stepsExecuted: number;
+  toolCallCount: number;
+  usage: TokenUsage;
+}
+
+const PARTIAL_USAGE = Symbol('zeenha.partialUsage');
+
+function emptyUsage(): TokenUsage {
+  return { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+}
+
+/** Remember on a thrown error what the failed stream had already used. */
+function attachPartialUsage(error: unknown, partial: PartialUsage): void {
+  if (error === null || typeof error !== 'object') return;
+  try {
+    Object.defineProperty(error, PARTIAL_USAGE, { value: partial, configurable: true });
+  } catch {
+    // Frozen error objects lose the usage; never mask the original error.
+  }
+}
+
+function addTokenUsage(target: TokenUsage, add: TokenUsage): void {
+  target.promptTokens += add.promptTokens;
+  target.completionTokens += add.completionTokens;
+  target.totalTokens += add.totalTokens;
+  if (add.cacheReadTokens) target.cacheReadTokens = (target.cacheReadTokens ?? 0) + add.cacheReadTokens;
+  if (add.cacheCreationTokens) {
+    target.cacheCreationTokens = (target.cacheCreationTokens ?? 0) + add.cacheCreationTokens;
+  }
+}
+
+function addPartialUsage(spent: PartialUsage, error: unknown): void {
+  const partial = error !== null && typeof error === 'object'
+    ? (error as { [PARTIAL_USAGE]?: PartialUsage })[PARTIAL_USAGE]
+    : undefined;
+  if (!partial) return;
+  spent.stepsExecuted += partial.stepsExecuted;
+  spent.toolCallCount += partial.toolCallCount;
+  addTokenUsage(spent.usage, partial.usage);
+}
+
+function withSpent(result: SessionResult, spent: PartialUsage): SessionResult {
+  if (spent.stepsExecuted === 0 && spent.toolCallCount === 0 && spent.usage.totalTokens === 0) return result;
+  const usage = { ...result.usage };
+  addTokenUsage(usage, spent.usage);
+  return {
+    ...result,
+    stepsExecuted: result.stepsExecuted + spent.stepsExecuted,
+    toolCallCount: result.toolCallCount + spent.toolCallCount,
+    usage,
   };
 }
 

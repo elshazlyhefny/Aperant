@@ -51,9 +51,10 @@ beforeEach(() => {
 
 describe('TokenBudgetBanner', () => {
   it('renders used and limit and a suggested higher limit', async () => {
+    // (900 - 500) + 150 + 500 * 0.1 = 600 budget tokens.
     render(<TokenBudgetBanner task={task} />);
     await waitFor(() =>
-      expect(screen.getByTestId('token-budget-banner-usage')).toHaveTextContent('1,050/1,000')
+      expect(screen.getByTestId('token-budget-banner-usage')).toHaveTextContent('600/1,000')
     );
     expect(screen.getByTestId('token-budget-banner-input')).toHaveValue(1500);
   });

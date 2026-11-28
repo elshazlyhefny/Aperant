@@ -27,6 +27,8 @@ export const RUN_METRICS_FILE = 'run_metrics.json';
 
 const SLOWEST_KEPT = 5;
 const DETAIL_MAX_CHARS = 120;
+/** zeenha fork: cap on a recorded error message. */
+const ERROR_MESSAGE_MAX_CHARS = 500;
 
 export type { SessionMetricsEntry, SlowToolCall, ToolMetrics };
 
@@ -90,13 +92,39 @@ export interface SessionMetricsInput {
   startedAt: Date;
   /** Null when the session threw before producing a result. */
   result: SessionResult | null;
+  /** zeenha fork: what the session threw, recorded when `result` is null. */
+  thrownError?: unknown;
+  /** zeenha fork: provider and internal account id the session ran on. */
+  provider?: string;
+  accountId?: string;
   collector: SessionMetricsCollector;
   now?: Date;
+}
+
+/** zeenha fork: the error to record, redacted and capped; undefined when the session did not fail. */
+function sessionError(input: SessionMetricsInput): SessionMetricsEntry['error'] {
+  // Provider errors can echo an API key (e.g. "Incorrect API key provided: sk-...").
+  const clean = (message: string) =>
+    redactDetail(message).replace(/\b(sk-[\w-]{3})[\w-]{5,}/g, '$1***').slice(0, ERROR_MESSAGE_MAX_CHARS);
+  if (input.result) {
+    const error = input.result.error;
+    if (!error) return undefined;
+    return {
+      code: error.code,
+      message: clean(error.message ?? ''),
+      ...(error.retryable !== undefined ? { retryable: error.retryable } : {}),
+    };
+  }
+  if (input.thrownError === undefined) return undefined;
+  const thrown = input.thrownError;
+  const message = thrown instanceof Error ? thrown.message : String(thrown);
+  return { code: 'threw', message: clean(message) };
 }
 
 export function buildSessionEntry(input: SessionMetricsInput): SessionMetricsEntry {
   const { result, collector } = input;
   const elapsed = (input.now ?? new Date()).getTime() - input.startedAt.getTime();
+  const error = sessionError(input);
   return {
     agentType: input.agentType,
     phase: input.phase,
@@ -116,6 +144,9 @@ export function buildSessionEntry(input: SessionMetricsInput): SessionMetricsEnt
       cacheCreation: result?.usage.cacheCreationTokens ?? 0,
     },
     ...collector.summary(),
+    ...(error ? { error } : {}),
+    ...(input.provider ? { provider: input.provider } : {}),
+    ...(input.accountId ? { accountId: input.accountId } : {}),
   };
 }
 

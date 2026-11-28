@@ -64,6 +64,18 @@ describe('WorkerBridgeCore', () => {
     expect(onExit).toHaveBeenCalledWith('task-1', 1, 'task-execution', 'proj-1');
   });
 
+  it('forwards a budget warning without ending the run', () => {
+    const bridge = new WorkerBridgeCore({ resolveWorkerPath: () => '/worker.js' });
+    const onWarning = vi.fn();
+    const onExit = vi.fn();
+    bridge.on('budget-warning', onWarning);
+    bridge.on('exit', onExit);
+    bridge.spawn(config);
+    createdWorkers[0].emit('message', { type: 'budget-warning', taskId: 'task-1', projectId: 'proj-1', used: 800, limit: 1000 });
+    expect(onWarning).toHaveBeenCalledWith('task-1', { used: 800, limit: 1000 }, 'proj-1');
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
   it('sends no memoryPort without startMemory', () => {
     const bridge = new WorkerBridgeCore({ resolveWorkerPath: () => '/worker.js' });
     bridge.spawn(config);

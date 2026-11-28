@@ -25,7 +25,7 @@ export interface ScheduleTemplate {
   category?: TaskCategory;
   model?: ModelType;
   thinkingLevel?: ThinkingLevel;
-  /** Tokens (input + output) a run may use. */
+  /** Budget tokens (see `budgetTokens()`) a run may use. */
   tokenBudget: number;
 }
 

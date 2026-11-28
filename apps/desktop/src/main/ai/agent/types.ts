@@ -136,7 +136,8 @@ export type WorkerMessage =
   | WorkerProgressMessage
   | WorkerStreamEventMessage
   | WorkerResultMessage
-  | WorkerTaskEventMessage;
+  | WorkerTaskEventMessage
+  | WorkerBudgetWarningMessage;
 
 export interface WorkerLogMessage {
   type: 'log';
@@ -177,6 +178,15 @@ export interface WorkerTaskEventMessage {
   type: 'task-event';
   taskId: string;
   data: Record<string, unknown>;
+  projectId?: string;
+}
+
+/** zeenha fork: the task's budget usage first reached the warning percent this run. */
+export interface WorkerBudgetWarningMessage {
+  type: 'budget-warning';
+  taskId: string;
+  used: number;
+  limit: number;
   projectId?: string;
 }
 

@@ -7,6 +7,7 @@
  * used to report CODING_FAILED, which the machine's `planning` state does not
  * handle, so the task stayed in planning with no worker behind it.
  */
+import { budgetPercent } from '../../../shared/utils/token-budget';
 import type { BuildOutcome } from '../orchestration/build-orchestrator';
 
 export interface BuildOutcomeTaskEvent {
@@ -46,4 +47,9 @@ export function budgetPauseTaskEvents(budget: { used: number; limit: number }): 
 /** Message shown for a task paused by its token budget. */
 export function budgetPauseMessage(budget: { used: number; limit: number }): string {
   return `Token budget reached: ${budget.used.toLocaleString('en-US')} of ${budget.limit.toLocaleString('en-US')} tokens used`;
+}
+
+/** zeenha fork: task log line for the one-time early budget warning. */
+export function budgetWarningMessage(budget: { used: number; limit: number }): string {
+  return `Token budget warning: ${budgetPercent(budget.used, budget.limit)}% used (${budget.used.toLocaleString('en-US')} of ${budget.limit.toLocaleString('en-US')} tokens)`;
 }

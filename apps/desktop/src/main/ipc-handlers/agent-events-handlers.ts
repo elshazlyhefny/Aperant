@@ -268,6 +268,13 @@ export function registerAgenteventsHandlers(
     }
   });
 
+  // zeenha fork: early token budget warning, sent once per task run by the worker.
+  agentManager.on("budget-warning", (taskId: string, budget: { used: number; limit: number }, projectId?: string) => {
+    const { task, project } = findTaskAndProject(taskId, projectId);
+    if (!task || !project) return;
+    notificationService.notifyBudgetWarning(task.title || task.specId, project.id, taskId, budget);
+  });
+
   agentManager.on("task-event", (taskId: string, event, projectId?: string) => {
     console.debug(`[agent-events-handlers] Received task-event for ${taskId}:`, event.type, event);
 
