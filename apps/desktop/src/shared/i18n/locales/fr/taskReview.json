@@ -177,7 +177,8 @@
       "commitFailed": "Impossible de valider les modifications de la tâche",
       "pushFailed": "Échec du push de la branche",
       "ghTimeout": "La création de la PR a expiré",
-      "retriesExhausted": "La création de la PR a échoué après plusieurs tentatives"
+      "retriesExhausted": "La création de la PR a échoué après plusieurs tentatives",
+      "baseConflict": "La branche cible contient de nouvelles modifications en conflit avec cette tâche dans : {{files}}. Rien n'a été poussé. Fusionnez la branche cible dans la branche de la tâche, résolvez les conflits, puis créez à nouveau la PR."
     },
     "resultsDescriptionWithSkipped": "{{success}} réussies, {{skipped}} ignorées, {{failed}} échouées"
   }
