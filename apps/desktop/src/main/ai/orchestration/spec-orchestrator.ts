@@ -14,6 +14,7 @@
  * into the next phase's kickoff message, eliminating redundant file re-reads.
  */
 
+import { createHash } from 'node:crypto';
 import { readFile, writeFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EventEmitter } from 'events';
@@ -115,6 +116,13 @@ const PHASE_OUTPUTS: Partial<Record<SpecPhase, string[]>> = {
   planning: ['implementation_plan.json'],
   quick_spec: ['spec.md', 'implementation_plan.json'],
 };
+
+/**
+ * zeenha fork: phases whose job is to write spec.md. Ideation and Roadmap tasks
+ * arrive with a stub spec.md, so an existence check alone would pass one of these
+ * phases even when the agent wrote nothing. They must also change the stub.
+ */
+const SPEC_WRITING_PHASES: ReadonlySet<SpecPhase> = new Set<SpecPhase>(['spec_writing', 'quick_spec']);
 
 /** Configuration for the spec orchestrator */
 export interface SpecOrchestratorConfig {
@@ -245,6 +253,11 @@ export class SpecOrchestrator extends EventEmitter {
   private aborted = false;
   private assessment: ComplexityAssessment | null = null;
   private phaseSummaries: Record<string, string> = {};
+  /**
+   * zeenha fork: sha256 of a spec.md that existed before this run (an Ideation or
+   * Roadmap stub). Cleared once a phase leaves spec.md different from the stub.
+   */
+  private stubSpecHash: string | null = null;
 
   constructor(config: SpecOrchestratorConfig) {
     super();
@@ -270,6 +283,8 @@ export class SpecOrchestrator extends EventEmitter {
     const phasesExecuted: SpecPhase[] = [];
 
     try {
+      this.stubSpecHash = await this.hashSpecFile();
+
       // ===================================================================
       // Step 1: Determine complexity (runs FIRST to gate the workflow)
       // ===================================================================
@@ -364,6 +379,12 @@ export class SpecOrchestrator extends EventEmitter {
 
         if (!result.success) {
           return this.outcome(false, phasesExecuted, Date.now() - startTime, result.errors.join('; '));
+        }
+
+        // zeenha fork: once spec.md differs from the stub, later phases are not
+        // judged against the stub.
+        if (this.stubSpecHash && (await this.hashSpecFile()) !== this.stubSpecHash) {
+          this.stubSpecHash = null;
         }
 
         // Capture phase outputs for injection into subsequent phases
@@ -532,6 +553,24 @@ export class SpecOrchestrator extends EventEmitter {
           break;
         }
 
+        // zeenha fork: an unchanged stub spec.md counts as a missing spec.md.
+        if (await this.isSpecUnchangedStub(phase)) {
+          const detail = 'Phase completed but spec.md is unchanged from the pre-existing stub spec — the specification was not written';
+          errors.push(detail);
+          this.emitTyped('log', `Phase ${phase} output validation failed (attempt ${attempt + 1}): ${detail}`);
+          if (attempt < MAX_PHASE_RETRIES) {
+            toolUseRetryContext = [
+              'CRITICAL — SPEC NOT WRITTEN',
+              '',
+              `Your previous attempt left ${this.config.specDir}/spec.md unchanged.`,
+              'That file is only a stub holding the task description. You MUST use the Write tool',
+              'to replace it with the full specification.',
+            ].join('\n');
+            continue; // Retry the phase
+          }
+          break;
+        }
+
         // Schema validation for phases with structured output requirements
         // (e.g., planning phase must produce valid implementation_plan.json)
         const schemaValidation = await this.validatePhaseSchema(phase);
@@ -677,6 +716,25 @@ export class SpecOrchestrator extends EventEmitter {
       }
     }
     return missing;
+  }
+
+  /** zeenha fork: sha256 of spec.md, or null when it does not exist. */
+  private async hashSpecFile(): Promise<string | null> {
+    try {
+      const content = await readFile(join(this.config.specDir, 'spec.md'));
+      return createHash('sha256').update(content).digest('hex');
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * zeenha fork: true when a spec-writing phase left a pre-existing stub spec.md
+   * byte-for-byte unchanged.
+   */
+  private async isSpecUnchangedStub(phase: SpecPhase): Promise<boolean> {
+    if (!this.stubSpecHash || !SPEC_WRITING_PHASES.has(phase)) return false;
+    return (await this.hashSpecFile()) === this.stubSpecHash;
   }
 
   /**
