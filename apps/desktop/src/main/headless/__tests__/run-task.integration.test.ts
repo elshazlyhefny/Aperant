@@ -8,6 +8,8 @@ import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
+import { setFlagsFromString } from 'v8';
+import { runInNewContext } from 'vm';
 import { ipcMain, ipcRenderer } from 'electron';
 
 vi.mock('../../ai/prompts/prompt-loader', () => ({
@@ -58,6 +60,15 @@ let projectDir: string;
 let out: string[];
 let err: string[];
 let spawned: AgentExecutorConfig[];
+
+/** Run a full GC, then let native finalizers (libsql statements) run. */
+async function collectGarbage(): Promise<void> {
+  setFlagsFromString('--expose-gc');
+  const gc = runInNewContext('gc') as () => void;
+  gc();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  gc();
+}
 
 function writeStub(name: keyof typeof STUBS): string {
   const file = path.join(root, `${name}.mjs`);
@@ -130,8 +141,11 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   // zeenha fork: the memory test leaves the project's memory.db open in this
-  // process, and Windows cannot delete an open file.
+  // process, and Windows cannot delete an open file. libsql's close() only
+  // releases the file once its prepared statements are garbage collected, so
+  // force a collection (the same trick Jest's leak detector uses).
   await closeHeadlessMemoryDatabases();
+  await collectGarbage();
   rmSync(root, { recursive: true, force: true });
 });
 

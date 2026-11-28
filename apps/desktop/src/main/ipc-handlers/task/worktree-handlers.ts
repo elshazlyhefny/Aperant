@@ -250,7 +250,7 @@ export function registerWorktreeHandlers(
         // file changes even when the agent hasn't committed its work yet.
         // zeenha fork: collect asynchronously and let Git failures reach the IPC catch
         // instead of presenting them as a successful empty diff.
-        const [numstat, nameStatus] = await Promise.all([
+        const diffCalls = [
           getWorktreeNumstat(worktreePath, baseBranch),
           // Get name-status for file status (cross-platform)
           execFileAsync(getToolPath('git'), ['diff', '--name-status', baseBranch], {
@@ -258,7 +258,11 @@ export function registerWorktreeHandlers(
             encoding: 'utf-8',
             maxBuffer: 10 * 1024 * 1024
           }).then(({ stdout }) => stdout.trim())
-        ]);
+        ] as const;
+        // zeenha fork: wait for both git calls, as in the status handler above, so a
+        // failure does not return while the other git still runs in the worktree.
+        await Promise.allSettled(diffCalls);
+        const [numstat, nameStatus] = await Promise.all(diffCalls);
 
         // Parse name-status to get file statuses
         const statusMap: Record<string, 'added' | 'modified' | 'deleted' | 'renamed'> = {};
