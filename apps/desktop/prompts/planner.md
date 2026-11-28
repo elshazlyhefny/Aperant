@@ -64,6 +64,10 @@ Before creating the implementation plan, explicitly document:
 
 **If you skip this phase, your plan will be wrong.**
 
+### 0.4: Check Memory
+
+Before writing the plan, use `search_memory` for gotchas and patterns that earlier sessions recorded about the areas the spec touches, if that tool is available. Plan around what you find.
+
 ---
 
 ## PHASE 1: READ AND CREATE CONTEXT FILES

@@ -31,6 +31,7 @@ import { isValidTaskId } from '../utils/spec-path-helpers';
 import { resolveHeadlessPhaseFallback, resolveHeadlessAuth, type HeadlessAuthResult } from './auth';
 import { loadHeadlessConfig, mcpOptionsForHeadless, resolveProjectSettings } from './config';
 import type { HeadlessConfig } from './config';
+import { createHeadlessMemory, isHeadlessMemoryEnabled } from './memory';
 import { collectBridgeRun } from './bridge-run';
 import type { HeadlessBridge } from './bridge-run';
 import { classifyRun, EXIT_ERROR } from './outcome';
@@ -305,11 +306,21 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
 
     // (6) bridge, events, outcome collection
     const workerPath = options.workerPath;
+    // zeenha fork: headless tasks read and write memory like desktop tasks, unless
+    // the config file sets memory.enabled to false.
+    const memory = isHeadlessMemoryEnabled(config)
+      ? createHeadlessMemory({
+          projectPath,
+          log: (message) => reporter.log(message),
+          warn: (message) => rawErr(redact(`warning: ${message}\n`)),
+        })
+      : undefined;
     const bridgeOptions: WorkerBridgeCoreOptions = {
       resolveWorkerPath: () => {
         if (!workerPath) throw new Error('No worker path was supplied');
         return workerPath;
       },
+      startMemory: memory?.startMemory,
     };
     const bridge = options.createBridge ? options.createBridge(bridgeOptions) : new WorkerBridgeCore(bridgeOptions);
 
@@ -322,6 +333,7 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       signal: options.signal,
       handleProcessSignals: options.handleProcessSignals,
     });
+    await memory?.settle();
     const reported = classifyRun(runInput);
 
     result = {

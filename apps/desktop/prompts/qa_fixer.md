@@ -370,6 +370,12 @@ QA Fix Session: [N]"
 
 ---
 
+## PHASE 6.5: RECORD THE ROOT CAUSE
+
+If an issue you fixed is likely to come back, save its root cause and the fix pattern with `record_memory` if that tool is available. Skip this if you learned nothing new.
+
+---
+
 ## PHASE 7: UPDATE IMPLEMENTATION PLAN
 
 Update `implementation_plan.json` to signal fixes are complete:

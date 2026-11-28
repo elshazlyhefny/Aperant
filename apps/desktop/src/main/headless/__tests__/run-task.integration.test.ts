@@ -75,7 +75,8 @@ function run(stub: keyof typeof STUBS, overrides: Partial<HeadlessRunOptions> = 
     spec: SPEC,
     workerPath,
     noPush: true,
-    config: {},
+    // zeenha fork: memory probes Ollama through the stubbed fetch; only the memory test turns it on.
+    config: { memory: { enabled: false } },
     baseBranch: 'main',
     createBridge: (options) => {
       const bridge = new WorkerBridgeCore(options);
@@ -168,6 +169,12 @@ describe('runHeadlessTask with a stub worker', () => {
     expect(serialized.split(SECRET).length - 1).toBe(1);
     expect(session.toolContext.cwd).toBe(path.join(projectDir, '.auto-claude/worktrees/tasks', SPEC));
   }, 30000);
+
+  // zeenha fork: headless memory is on by default and uses the project's own database file.
+  it('opens the project memory database when memory is on', async () => {
+    expect(await run('pass', { config: {} })).toBe(0);
+    expect(existsSync(path.join(projectDir, '.auto-claude', 'memory.db'))).toBe(true);
+  }, 30000);
 });
 
 // zeenha fork: the same receipt written by headless must be readable through
@@ -213,7 +220,7 @@ describe('headless delivery receipt history', () => {
       projectPath: worktreeSpec,
       baseBranch: 'missing-fixture-branch',
       json: true,
-      config: { webhook: { url: 'http://example.com/rejected-hook' } },
+      config: { webhook: { url: 'http://example.com/rejected-hook' }, memory: { enabled: false } },
     })).toBe(1);
     expect(spawned).toEqual([]);
     expect(err.join('')).toContain('Could not create the task');
@@ -254,7 +261,7 @@ describe('headless delivery receipt history', () => {
       spec,
       baseBranch: 'missing-fixture-branch',
       json: true,
-      config: { webhook: { url: 'http://example.com/rejected-hook' } },
+      config: { webhook: { url: 'http://example.com/rejected-hook' }, memory: { enabled: false } },
     })).toBe(1);
     const events = readNdjson(out.join(''));
     expect(events.at(-1)).toMatchObject({ type: 'result', kind: 'error', exitCode: 1 });
@@ -302,7 +309,7 @@ describe('headless delivery receipt history', () => {
     expect(await run('pass', {
       json: true,
       webhookDelay: delay,
-      config: { webhook: { url: hook }, writeback: { jira: { enabled: true, transitionOnReview: true } } },
+      config: { webhook: { url: hook }, writeback: { jira: { enabled: true, transitionOnReview: true } }, memory: { enabled: false } },
     })).toBe(0);
     const issue = `${jira}/rest/api/3/issue/DEMO-1`;
     expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
@@ -357,7 +364,7 @@ describe('headless delivery receipt history', () => {
       .mockRejectedValueOnce(new DOMException(detail, 'TimeoutError'))
       .mockImplementation(async () => new Response(detail, { status: 429 }));
     const delay = vi.fn<(ms: number) => Promise<void>>().mockResolvedValue(undefined);
-    expect(await run('pass', { config: { webhook: { url: hook } }, webhookDelay: delay })).toBe(0);
+    expect(await run('pass', { config: { webhook: { url: hook }, memory: { enabled: false } }, webhookDelay: delay })).toBe(0);
     expect(delay.mock.calls).toEqual([[500], [1000]]);
     expect(out.join('')).toMatch(/DELIVERY .*webhook review_ready unknown .*reason=timeout attempts=3\nRESULT success exit=0/);
     const surfaces = [out.join(''), readFileSync(receiptFile(), 'utf8'), await cliHistory(true), JSON.stringify(await desktopReader()())];
@@ -387,7 +394,7 @@ describe('headless delivery receipt history', () => {
     const serve = () => runServe({
       projectPath: serveProjectDir, workerPath: writeStub('pass'), createBridge,
       noPush: true, baseBranch: 'main', json: true, shutdownTimeoutMs: 0,
-      config: { webhook: { enabled: true, url: hook } },
+      config: { webhook: { enabled: true, url: hook }, memory: { enabled: false } },
       out: (t) => void out.push(t), err: (t) => void err.push(t),
       installSignalHandlers: (handler) => {
         signal = handler;
