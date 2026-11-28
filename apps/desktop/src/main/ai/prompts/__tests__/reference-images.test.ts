@@ -3,7 +3,7 @@
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -21,6 +21,9 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+// The section shows forward slashes on every platform (see buildReferenceImagesSection).
+const slashed = (p: string) => p.split(sep).join('/');
+
 const meta = (paths: string[]) =>
   writeFileSync(join(specDir, 'task_metadata.json'), JSON.stringify({ attachedImages: paths.map((path) => ({ path })) }));
 
@@ -34,7 +37,7 @@ describe('buildReferenceImagesSection', () => {
     const out = buildReferenceImagesSection(specDir);
     expect(out).toContain('REFERENCE IMAGES');
     expect(out).toContain('1 reference image.');
-    expect(out).toContain(join(specDir, 'attachments', 'a.png'));
+    expect(out).toContain(`\`${slashed(join(specDir, 'attachments', 'a.png'))}\``);
   });
 
   it('drops missing files and traversal entries', () => {
@@ -44,7 +47,7 @@ describe('buildReferenceImagesSection', () => {
 
   it('falls back to requirements.json attached_images', () => {
     writeFileSync(join(specDir, 'requirements.json'), JSON.stringify({ attached_images: [{ path: 'attachments/a.png' }] }));
-    expect(buildReferenceImagesSection(specDir)).toContain('attachments/a.png');
+    expect(buildReferenceImagesSection(specDir)).toContain(`\`${slashed(join(specDir, 'attachments', 'a.png'))}\``);
   });
 
   it('uses paths relative to a base when asked', () => {

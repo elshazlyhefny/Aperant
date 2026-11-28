@@ -56,21 +56,21 @@ describe('where the build worker finds prompts', () => {
 
   it('finds the rewritten prompts in the packaged resources folder', () => {
     for (const agent of ['planner', 'coder', 'qa_reviewer', 'qa_fixer']) {
-      expect(promptSearchDirs(agent, packaged)[0]).toBe('/opt/app/resources/prompts');
+      expect(promptSearchDirs(agent, packaged)[0]).toBe(join('/opt/app/resources/prompts'));
     }
   });
 
   it('finds them through process.resourcesPath as well', () => {
-    expect(promptSearchDirs('coder', packaged, '/elsewhere/resources')[0]).toBe('/elsewhere/resources/prompts');
+    expect(promptSearchDirs('coder', packaged, '/elsewhere/resources')[0]).toBe(join('/elsewhere/resources/prompts'));
   });
 
   it('finds them in a development build', () => {
-    expect(promptSearchDirs('coder', '/repo/apps/desktop/out/main/ai/agent')).toContain('/repo/apps/desktop/prompts');
+    expect(promptSearchDirs('coder', '/repo/apps/desktop/out/main/ai/agent')).toContain(join('/repo/apps/desktop/prompts'));
   });
 
   it('leaves agents whose prompts have not been reviewed on their current path', () => {
     const dirs = promptSearchDirs('spec_writer', packaged, '/opt/app/resources');
-    expect(dirs).not.toContain('/opt/app/resources/prompts');
+    expect(dirs).not.toContain(join('/opt/app/resources/prompts'));
     expect(dirs).toHaveLength(4);
   });
 });
