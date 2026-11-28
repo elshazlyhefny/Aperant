@@ -25,6 +25,8 @@ export default defineConfig({
       '@sentry/electron/main': resolve(__dirname, 'src/__mocks__/sentry-electron-main.ts'),
       '@sentry/electron/renderer': resolve(__dirname, 'src/__mocks__/sentry-electron-renderer.ts')
     },
+    // zeenha fork: per-run temp dir, removed at the end of the run (see the file).
+    globalSetup: ['src/__tests__/global-tmpdir.ts'],
     // Setup files for test environment
     setupFiles: ['src/__tests__/setup.ts']
   },
