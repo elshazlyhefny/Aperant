@@ -90,18 +90,24 @@ describe('runVerifyGate', { timeout: GIT_TIMEOUT_MS }, () => {
     expect(result).toEqual({ status: 'passed', base: 'origin/main', baseMerged: true, notes: [] });
   });
 
+  // zeenha fork: the gate runs commands through cmd.exe on Windows, which has no
+  // `;` separator or shell loops. Commands that must behave the same in sh and
+  // cmd.exe are written as `node -e "..."`, with double quotes outside and no `$`.
+  const FAILING = `node -e "console.log('boom-output'); console.error('on-stderr'); process.exit(3)"`;
+  const WRITE_RAN_AFTER = `node -e "require('fs').writeFileSync('ran-after', '')"`;
+
   it('stops at the first failing command and reports its output tail', async () => {
-    const result = await gate(['true', 'echo boom-output; echo on-stderr >&2; exit 3', 'touch ran-after']);
+    const result = await gate(['true', FAILING, WRITE_RAN_AFTER]);
     expect(result.status).toBe('failed');
     if (result.status !== 'failed' || result.reason !== 'command_failed') throw new Error('expected command_failed');
-    expect(result.command).toBe('echo boom-output; echo on-stderr >&2; exit 3');
+    expect(result.command).toBe(FAILING);
     expect(result.outputTail).toContain('boom-output');
     expect(result.outputTail).toContain('on-stderr');
     expect(existsSync(join(worktree, 'ran-after'))).toBe(false);
   });
 
   it('keeps only the last 4000 characters of output', async () => {
-    const result = await gate(['i=0; while [ $i -lt 2000 ]; do echo line-$i; i=$((i+1)); done; exit 1']);
+    const result = await gate([`node -e "for (let i = 0; i < 2000; i++) console.log('line-' + i); process.exit(1)"`]);
     if (result.status !== 'failed' || result.reason !== 'command_failed') throw new Error('expected command_failed');
     expect(result.outputTail.length).toBeLessThanOrEqual(4000);
     expect(result.outputTail).toContain('line-1999');
