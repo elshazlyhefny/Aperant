@@ -2,6 +2,7 @@
  * zeenha fork: the finalizer pushes a PR follow-up only after a fresh QA approval.
  */
 import os from 'os';
+import path from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project, Task } from '../../../../shared/types';
 import type { FastForwardPushResult } from '../../../ai/runners/github/pr-creator';
@@ -29,9 +30,10 @@ const MOVED_SHA = 'c'.repeat(40);
 const PUSH_URL = 'https://github.com/o/r.git';
 const STALE_GUIDANCE =
   'Your local commits are kept in the worktree. Refresh the PR feedback, review the new revision, then send feedback again or push by hand. Nothing was pushed.';
-const SPEC_DIR = `${WT}/.auto-claude/specs/001-x`;
-const MARKER = `${SPEC_DIR}/PR_FOLLOWUP.json`;
-const PLAN = `${SPEC_DIR}/implementation_plan.json`;
+// The finalizer builds these with path.join, which uses backslashes on Windows.
+const SPEC_DIR = path.join(WT, '.auto-claude', 'specs', '001-x');
+const MARKER = path.join(SPEC_DIR, 'PR_FOLLOWUP.json');
+const PLAN = path.join(SPEC_DIR, 'implementation_plan.json');
 const project = { id: 'p1', path: '/proj', autoBuildPath: '.auto-claude' } as Project;
 const task = { id: 't1', specId: '001-x', status: 'done', metadata: { prUrl: 'https://github.com/o/r/pull/7' } } as unknown as Task;
 

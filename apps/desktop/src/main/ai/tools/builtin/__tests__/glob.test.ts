@@ -230,8 +230,8 @@ describe('Glob Tool', () => {
 
     const result = await globTool.config.execute({ pattern: '**/*' }, baseContext) as string;
 
-    expect(result).not.toContain('.auto-claude/.env');
-    expect(result).toContain('.auto-claude/other.json');
+    // Glob lists native absolute paths (D:\test\project\... on Windows).
+    expect(result.split('\n')).toEqual([path.resolve('/test/project/.auto-claude/other.json')]);
   });
 
   it('should return "No files found" when only protected files match', async () => {
