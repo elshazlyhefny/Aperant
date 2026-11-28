@@ -18,11 +18,16 @@ export class HeadlessSetupError extends Error {}
 
 export function findGitRoot(start: string): string {
   try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd: start,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    // zeenha fork: Git for Windows prints C:/Users/..., so normalize to the
+    // platform's separators. Otherwise the project path differs from every
+    // path.join() result built from it, and from the desktop app's paths.
+    return path.normalize(
+      execFileSync('git', ['rev-parse', '--show-toplevel'], {
+        cwd: start,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim(),
+    );
   } catch {
     throw new HeadlessSetupError(`${start} is not inside a git repository`);
   }

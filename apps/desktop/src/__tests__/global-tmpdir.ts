@@ -55,7 +55,12 @@ export default function setup(): () => void {
   const base = os.tmpdir();
   sweepAbandonedRunDirs(base);
 
-  const runDir = fs.mkdtempSync(path.join(base, `${RUN_DIR_PREFIX}${process.pid}-`));
+  // Resolve the run directory to its canonical long form. On Windows TEMP is
+  // often an 8.3 short name (C:\Users\RUNNER~1), while Git and
+  // fs.realpathSync.native report the long name (C:\Users\runneradmin), and on
+  // macOS /var is a link to /private/var. Tests that compare a fixture path with
+  // one a product module got from Git would otherwise differ only in spelling.
+  const runDir = fs.realpathSync.native(fs.mkdtempSync(path.join(base, `${RUN_DIR_PREFIX}${process.pid}-`)));
   const previous = TMP_VARS.map((name) => [name, process.env[name]] as const);
   for (const name of TMP_VARS) process.env[name] = runDir;
 

@@ -14,6 +14,8 @@
 import { mkdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
+import type { Client } from '@libsql/client/sqlite3';
+
 import type { WorkerBridgeCoreOptions } from '../ai/agent/worker-bridge-core';
 import { openLocalMemoryClient } from '../ai/memory/db';
 import { createMemoryService } from '../ai/memory/create-memory-service';
@@ -45,6 +47,7 @@ export function resolveHeadlessMemoryProject(projectPath: string): { id: string;
 
 // One service per database file for the life of the process (the daemon runs many tasks).
 const services = new Map<string, Promise<MemoryService>>();
+const clients = new Map<string, Client>();
 
 function getHeadlessMemoryService(dbPath: string): Promise<MemoryService> {
   let service = services.get(dbPath);
@@ -52,6 +55,7 @@ function getHeadlessMemoryService(dbPath: string): Promise<MemoryService> {
     service = (async () => {
       mkdirSync(path.dirname(dbPath), { recursive: true });
       const db = await openLocalMemoryClient(dbPath);
+      clients.set(dbPath, db);
       return (await createMemoryService(db, undefined)).service;
     })();
     // A failed open is retried by the next run instead of being cached.
@@ -59,6 +63,18 @@ function getHeadlessMemoryService(dbPath: string): Promise<MemoryService> {
     services.set(dbPath, service);
   }
   return service;
+}
+
+/**
+ * zeenha fork: close every cached memory database. Windows refuses to delete a
+ * file another handle keeps open, so a caller that removes the project folder
+ * in the same process (the tests do) closes the databases first.
+ */
+export async function closeHeadlessMemoryDatabases(): Promise<void> {
+  await Promise.allSettled(services.values());
+  for (const client of clients.values()) client.close();
+  clients.clear();
+  services.clear();
 }
 
 export interface HeadlessMemory {
