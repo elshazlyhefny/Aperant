@@ -5,7 +5,7 @@
 import { app } from 'electron';
 import path from 'path';
 import type { RecurringSchedule } from '../shared/types/schedule';
-import { createScheduleFileStore, type ScheduleMutator, trimHistory as trimScheduleHistory } from './schedule-file-store';
+import { createScheduleFileStore, type ScheduleGuard, type ScheduleMutator, trimHistory as trimScheduleHistory } from './schedule-file-store';
 
 // Resolved lazily so app.getPath is only called when the store is used.
 const store = createScheduleFileStore(() => path.join(app.getPath('userData'), 'schedules.json'));
@@ -31,6 +31,6 @@ export function updateSchedule(id: string, mutator: ScheduleMutator): Promise<Re
   return store.updateSchedule(id, mutator);
 }
 
-export function deleteSchedule(id: string): Promise<RecurringSchedule | undefined> {
-  return store.deleteSchedule(id);
+export function deleteSchedule(id: string, guard?: ScheduleGuard): Promise<RecurringSchedule | undefined> {
+  return store.deleteSchedule(id, guard);
 }

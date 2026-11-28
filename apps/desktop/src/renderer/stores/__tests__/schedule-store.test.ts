@@ -344,4 +344,34 @@ describe('schedule store mutations', () => {
       expect(getState().schedules).toEqual([row]);
     }
   );
+
+  // zeenha fork: main rejects by-ID calls for another project, so each call names the active one.
+  it('passes the active project to by-ID calls and sends nothing without one', async () => {
+    const row = makeSchedule('A', 'a1');
+    const failed = { success: false, error: 'x' };
+    scheduleAPI.updateSchedule.mockResolvedValue(failed);
+    scheduleAPI.deleteSchedule.mockResolvedValue(failed);
+    scheduleAPI.setScheduleEnabled.mockResolvedValue(failed);
+    scheduleAPI.acknowledgeScheduleReports.mockResolvedValue(failed);
+    scheduleAPI.runScheduleNow.mockResolvedValue(failed);
+
+    const runAll = async () => [
+      await getState().updateSchedule(row.id, row),
+      await getState().deleteSchedule(row.id),
+      await getState().setEnabled(row.id, false),
+      await getState().acknowledgeReports(row.id, ['r1']),
+      await getState().runNow(row.id)
+    ];
+
+    expect(await runAll()).toEqual([null, false, false, false, null]);
+    for (const mock of Object.values(scheduleAPI)) expect(mock).not.toHaveBeenCalled();
+
+    await loadProject(row);
+    await runAll();
+    expect(scheduleAPI.updateSchedule).toHaveBeenCalledWith('A', row.id, row);
+    expect(scheduleAPI.deleteSchedule).toHaveBeenCalledWith('A', row.id);
+    expect(scheduleAPI.setScheduleEnabled).toHaveBeenCalledWith('A', row.id, false);
+    expect(scheduleAPI.acknowledgeScheduleReports).toHaveBeenCalledWith('A', row.id, ['r1']);
+    expect(scheduleAPI.runScheduleNow).toHaveBeenCalledWith('A', row.id);
+  });
 });

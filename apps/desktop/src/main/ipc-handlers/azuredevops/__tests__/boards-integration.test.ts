@@ -2,7 +2,7 @@ import { describe, it, expect, assert, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, mkdirSync, readFileSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
-import { createSpecFromWorkItem } from '../boards-spec';
+import { createSpecFromWorkItem, findExistingBoardsSpecs } from '../boards-spec';
 import type { AzureBoardsWorkItemData } from '../boards-client';
 import { readIssueRefs } from '../../../ai/runners/commit-message';
 import { readSourceIssueLines } from '../../../ai/runners/github/pr-creator';
@@ -49,6 +49,64 @@ describe('Azure Boards end-to-end consistency', () => {
     expect(readIssueRefs(r.specDir)).toEqual([{ kind: 'azure_boards', ref: '77' }]);
     expect(readSourceIssueLines(projectDir, projectDir, r.specId)).toEqual(['AB#77']);
     expect(readSourceIssueLines(projectDir, projectDir, r.specId, 'azuredevops')).toEqual(['AB#77']);
+  });
+
+  // zeenha fork: overlapping imports and retries needed three concurrency fixes; this pins them together.
+  it('overlapping concurrent imports and a retry of only the failed items never duplicate a spec', async () => {
+    const project = { path: projectDir, autoBuildPath: '.auto-claude' };
+    const config = { organization: 'acme', project: 'Proj', pat: 'x' } as never;
+    const specsDir = path.join(projectDir, '.auto-claude', 'specs');
+    const workItem = (id: number): AzureBoardsWorkItemData => ({
+      id,
+      title: `Item ${id}`,
+      workItemType: 'Task',
+      state: 'New',
+      areaPath: 'Proj',
+      tags: [],
+      description: '<p>Body</p>',
+      acceptanceCriteria: '',
+      reproSteps: '',
+      url: `https://dev.azure.com/acme/Proj/_workitems/edit/${id}`,
+    });
+
+    // Mirrors the import handler: items run in order, each failure is reported per item.
+    type Outcome = { id: number; status: 'imported' | 'skipped' | 'failed'; specId?: string };
+    const importBatch = async (ids: number[], missing: number[] = []): Promise<Outcome[]> => {
+      const outcomes: Outcome[] = [];
+      for (const id of ids) {
+        try {
+          const r = await createSpecFromWorkItem(project, config, id, missing.includes(id) ? undefined : workItem(id));
+          outcomes.push({ id, status: r.kind === 'created' ? 'imported' : 'skipped', specId: r.specId });
+        } catch {
+          outcomes.push({ id, status: 'failed' });
+        }
+      }
+      return outcomes;
+    };
+
+    // Item 5 is omitted by Azure in both batches; items 2 and 3 overlap.
+    const [a, b] = await Promise.all([importBatch([1, 2, 3, 5], [5]), importBatch([3, 2, 4, 5], [5])]);
+    const firstPass = [...a, ...b];
+    for (const id of [2, 3]) {
+      const both = firstPass.filter(o => o.id === id);
+      expect(both.map(o => o.status).sort()).toEqual(['imported', 'skipped']);
+      expect(new Set(both.map(o => o.specId)).size).toBe(1);
+    }
+    const failedIds = [...new Set(firstPass.filter(o => o.status === 'failed').map(o => o.id))];
+    expect(failedIds).toEqual([5]);
+    expect(readdirSync(specsDir)).toHaveLength(4);
+
+    // Retrying only the failed ids, twice at once, creates each exactly once.
+    const retries = (await Promise.all([importBatch(failedIds), importBatch(failedIds)])).flat();
+    expect(retries.map(o => o.status).sort()).toEqual(['imported', 'skipped']);
+    expect(new Set(retries.map(o => o.specId)).size).toBe(1);
+
+    const specs = readdirSync(specsDir);
+    expect(specs).toHaveLength(5);
+    expect(new Set(specs.map(name => name.split('-')[0])).size).toBe(5);
+    const byItem = findExistingBoardsSpecs(specsDir, 'acme', 'Proj');
+    expect([...byItem.keys()].sort()).toEqual([1, 2, 3, 4, 5]);
+    expect(new Set(byItem.values()).size).toBe(5);
   });
 
   it('en and fr boards key trees are identical', () => {

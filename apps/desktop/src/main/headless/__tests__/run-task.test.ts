@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { execFileSync } from 'child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
@@ -277,6 +277,131 @@ describe('runHeadlessTask', () => {
     script([{ type: 'QA_PASSED' }]);
     expect(await run({ configPath: '/does/not/exist.json', config: { project: { mainBranch: 'dev' } } })).toBe(0);
     expect(mockCreateWorktree.mock.calls[0][2]).toBe('dev');
+  });
+});
+
+// zeenha fork: a spec folder without spec.md (a scheduled task) goes through spec creation first.
+describe('runHeadlessTask without spec.md', () => {
+  const dir = () => path.join(projectDir, '.auto-claude', 'specs', '001-demo');
+
+  function makePendingSpec(requirements?: Record<string, unknown>) {
+    mkdirSync(dir(), { recursive: true });
+    writeFileSync(
+      path.join(dir(), 'implementation_plan.json'),
+      JSON.stringify({ feature: 'Nightly', status: 'queue', phases: [] })
+    );
+    if (requirements) writeFileSync(path.join(dir(), 'requirements.json'), JSON.stringify(requirements));
+  }
+
+  /** One bridge per spawn; the spec bridge writes spec.md when writeSpec is true. */
+  function bridges(opts: { writeSpec?: boolean; specCode?: number; abort?: AbortController } = {}) {
+    const made: FakeBridge[] = [];
+    const createBridge = () => {
+      const b = new FakeBridge();
+      b.spawn.mockImplementation((config: { processType: string }) => {
+        setImmediate(() => {
+          if (config.processType === 'spec-creation') {
+            if (opts.abort) {
+              opts.abort.abort('daemon stop');
+              return;
+            }
+            if (opts.writeSpec) writeFileSync(path.join(dir(), 'spec.md'), '# Nightly from spec\n');
+            b.emit('exit', '001-demo', opts.specCode ?? 0, 'spec-creation');
+          } else {
+            b.emit('task-event', '001-demo', { type: 'QA_PASSED' });
+            b.emit('exit', '001-demo', 0, 'task-execution');
+          }
+        });
+      });
+      made.push(b);
+      return b;
+    };
+    return { made, createBridge };
+  }
+
+  it('runs spec creation from requirements.json, then the build', async () => {
+    makePendingSpec({ task_description: 'Run the nightly checks', workflow_type: 'feature' });
+    const { made, createBridge } = bridges({ writeSpec: true });
+    const result = await runHeadlessTaskDetailed({
+      projectPath: projectDir,
+      spec: '001-demo',
+      workerPath: '/fake/worker.js',
+      createBridge,
+      out: (t) => void out.push(t),
+      err: (t) => void err.push(t),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(made).toHaveLength(2);
+    const spec = made[0].spawn.mock.calls[0][0];
+    expect(spec.processType).toBe('spec-creation');
+    expect(spec.session.agentType).toBe('spec_orchestrator');
+    expect(spec.session.specDir).toBe(dir());
+    expect(spec.session.projectDir).toBe(projectDir);
+    expect(spec.session.initialMessages[0].content).toContain('Task: Run the nightly checks');
+    expect(made[1].spawn.mock.calls[0][0].processType).toBe('task-execution');
+    expect(mockCreateWorktree).toHaveBeenCalledOnce();
+    expect(out.join('')).not.toContain(SECRET);
+    expect(err.join('')).not.toContain(SECRET);
+  });
+
+  it('falls back to the plan description when requirements.json is missing', async () => {
+    makePendingSpec();
+    writeFileSync(
+      path.join(dir(), 'implementation_plan.json'),
+      JSON.stringify({ feature: 'Nightly', description: 'From the plan', status: 'queue', phases: [] })
+    );
+    const { made, createBridge } = bridges({ writeSpec: true });
+    expect(await run({ createBridge })).toBe(0);
+    expect(made[0].spawn.mock.calls[0][0].session.initialMessages[0].content).toContain('Task: From the plan');
+  });
+
+  it('refuses a folder with neither spec.md nor a task description, with a clear message', async () => {
+    makePendingSpec();
+    const { made, createBridge } = bridges();
+    expect(await run({ createBridge })).toBe(1);
+    expect(made).toHaveLength(0);
+    expect(mockCreateWorktree).not.toHaveBeenCalled();
+    expect(err.join('')).toContain('Spec not found');
+    expect(err.join('')).toContain('no task description (requirements.json) to create it from');
+  });
+
+  it('fails without a build when spec creation writes no spec.md, and keeps the folder', async () => {
+    makePendingSpec({ task_description: 'Run the nightly checks' });
+    const { made, createBridge } = bridges({ writeSpec: false });
+    const result = await runHeadlessTaskDetailed({
+      projectPath: projectDir,
+      spec: '001-demo',
+      workerPath: '/fake/worker.js',
+      createBridge,
+      out: (t) => void out.push(t),
+      err: (t) => void err.push(t),
+    });
+    expect(result).toMatchObject({ exitCode: 1, aborted: false });
+    expect(made).toHaveLength(1);
+    expect(mockCreateWorktree).not.toHaveBeenCalled();
+    expect(err.join('')).toContain('Spec creation failed: Spec creation finished but spec.md was not written');
+    expect(existsSync(path.join(dir(), 'requirements.json'))).toBe(true);
+  });
+
+  it('reports an aborted spec creation as an aborted run', async () => {
+    makePendingSpec({ task_description: 'Run the nightly checks' });
+    const controller = new AbortController();
+    const { made, createBridge } = bridges({ abort: controller });
+    const result = await runHeadlessTaskDetailed({
+      projectPath: projectDir,
+      spec: '001-demo',
+      workerPath: '/fake/worker.js',
+      createBridge,
+      out: (t) => void out.push(t),
+      err: (t) => void err.push(t),
+      signal: controller.signal,
+      handleProcessSignals: false,
+    });
+    expect(result).toMatchObject({ exitCode: 1, aborted: true });
+    expect(made).toHaveLength(1);
+    expect(made[0].terminate).toHaveBeenCalledOnce();
+    expect(mockCreateWorktree).not.toHaveBeenCalled();
   });
 });
 

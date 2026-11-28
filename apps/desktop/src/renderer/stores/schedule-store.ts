@@ -126,9 +126,13 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     return null;
   },
 
+  // zeenha fork: by-ID calls pass the active project so main can reject a
+  // schedule that belongs to another project. Without one nothing is sent.
   updateSchedule: async (id, input) => {
-    const currentOwner = captureOwner(get().activeProjectId);
-    const result = await window.electronAPI.updateSchedule(id, input);
+    const projectId = get().activeProjectId;
+    if (projectId === null) return null;
+    const currentOwner = captureOwner(projectId);
+    const result = await window.electronAPI.updateSchedule(projectId, id, input);
     if (result.success && result.data) {
       commitSchedule(currentOwner, result.data);
       return result.data;
@@ -138,8 +142,10 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
   },
 
   deleteSchedule: async (id) => {
-    const currentOwner = captureOwner(get().activeProjectId);
-    const result = await window.electronAPI.deleteSchedule(id);
+    const projectId = get().activeProjectId;
+    if (projectId === null) return false;
+    const currentOwner = captureOwner(projectId);
+    const result = await window.electronAPI.deleteSchedule(projectId, id);
     if (result.success) {
       commitMutation(currentOwner, (list) => list.filter((schedule) => schedule.id !== id));
       return true;
@@ -149,8 +155,10 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
   },
 
   setEnabled: async (id, enabled) => {
-    const currentOwner = captureOwner(get().activeProjectId);
-    const result = await window.electronAPI.setScheduleEnabled(id, enabled);
+    const projectId = get().activeProjectId;
+    if (projectId === null) return false;
+    const currentOwner = captureOwner(projectId);
+    const result = await window.electronAPI.setScheduleEnabled(projectId, id, enabled);
     if (result.success && result.data) {
       commitSchedule(currentOwner, result.data);
       return true;
@@ -160,8 +168,10 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
   },
 
   acknowledgeReports: async (scheduleId, recordIds) => {
-    const currentOwner = captureOwner(get().activeProjectId);
-    const result = await window.electronAPI.acknowledgeScheduleReports(scheduleId, recordIds);
+    const projectId = get().activeProjectId;
+    if (projectId === null) return false;
+    const currentOwner = captureOwner(projectId);
+    const result = await window.electronAPI.acknowledgeScheduleReports(projectId, scheduleId, recordIds);
     if (result.success && result.data) {
       commitSchedule(currentOwner, result.data);
       return true;
@@ -171,8 +181,10 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
   },
 
   runNow: async (id) => {
-    const currentOwner = captureOwner(get().activeProjectId);
-    const result = await window.electronAPI.runScheduleNow(id);
+    const requestProjectId = get().activeProjectId;
+    if (requestProjectId === null) return null;
+    const currentOwner = captureOwner(requestProjectId);
+    const result = await window.electronAPI.runScheduleNow(requestProjectId, id);
     const projectId = currentOwner();
     if (result.success && result.data) {
       // The reload also clears the current project's action error.

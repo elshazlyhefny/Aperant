@@ -10,7 +10,7 @@ import type { RecurringSchedule, ScheduleInput } from '../../shared/types/schedu
 import { registerScheduleHandlers } from '../ipc-handlers/schedule-handlers';
 import { createTaskSpec } from '../ipc-handlers/task/create-task';
 import { applyTaskStatusUpdate } from '../ipc-handlers/task/execution-handlers';
-import { createScheduleFileStore, type ScheduleMutator } from '../schedule-file-store';
+import { createScheduleFileStore, type ScheduleGuard, type ScheduleMutator } from '../schedule-file-store';
 
 // biome-ignore lint/suspicious/noExplicitAny: handler results are loosely typed in tests
 const handlers = new Map<string, (...args: unknown[]) => Promise<any>>();
@@ -32,9 +32,10 @@ const updateSchedule = vi.fn(async (id: string, mutator: ScheduleMutator) => {
   stored[i] = { ...stored[i], ...applyMutation(mutator, stored[i]) };
   return stored[i];
 });
-const deleteSchedule = vi.fn(async (id: string) => {
+const deleteSchedule = vi.fn(async (id: string, guard?: ScheduleGuard) => {
   const i = stored.findIndex((s) => s.id === id);
   if (i === -1) return undefined;
+  guard?.(stored[i]);
   return stored.splice(i, 1)[0];
 });
 
@@ -55,7 +56,8 @@ vi.mock('../schedule-store', async (importOriginal) => {
       userDataDir ? realStore.insertSchedule(schedule) : insertSchedule(schedule),
     updateSchedule: (id: string, mutator: ScheduleMutator) =>
       userDataDir ? realStore.updateSchedule(id, mutator) : updateSchedule(id, mutator),
-    deleteSchedule: (id: string) => (userDataDir ? realStore.deleteSchedule(id) : deleteSchedule(id)),
+    deleteSchedule: (id: string, guard?: ScheduleGuard) =>
+      userDataDir ? realStore.deleteSchedule(id, guard) : deleteSchedule(id, guard),
   };
 });
 
@@ -162,7 +164,7 @@ describe('schedule handlers', () => {
   it('only changes enabled, updatedAt and nextRunAt when pausing or resuming', async () => {
     const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input());
     send.mockClear();
-    const paused = await call(IPC_CHANNELS.SCHEDULE_SET_ENABLED, data.id, false);
+    const paused = await call(IPC_CHANNELS.SCHEDULE_SET_ENABLED, 'p1', data.id, false);
     const pausePatch = { enabled: false, updatedAt: paused.data.updatedAt, nextRunAt: null };
     expect(applyMutation).toHaveReturnedWith(pausePatch);
     expect(paused.data).toEqual({ ...data, ...pausePatch });
@@ -170,7 +172,7 @@ describe('schedule handlers', () => {
     beforeUpdate.mockImplementationOnce(() => {
       stored[0] = { ...stored[0], cadence: { kind: 'interval', everyMinutes: 45 } };
     });
-    const resumed = await call(IPC_CHANNELS.SCHEDULE_SET_ENABLED, data.id, true);
+    const resumed = await call(IPC_CHANNELS.SCHEDULE_SET_ENABLED, 'p1', data.id, true);
     const resumePatch = {
       enabled: true,
       updatedAt: resumed.data.updatedAt,
@@ -206,7 +208,7 @@ describe('schedule handlers', () => {
       cadence: { kind: 'interval', everyMinutes: 30 },
       template: { title: ' New title ', description: 'New instructions', tokenBudget: 2000 },
     });
-    const edited = await call(IPC_CHANNELS.SCHEDULE_UPDATE, data.id, updatedInput);
+    const edited = await call(IPC_CHANNELS.SCHEDULE_UPDATE, 'p1', data.id, updatedInput);
     const editPatch = {
       name: 'Renamed',
       cadence: updatedInput.cadence,
@@ -226,7 +228,7 @@ describe('schedule handlers', () => {
     expect(stored[0].missedRunPolicy).toBe('catch_up');
 
     for (const missedRunPolicy of ['skip', 'catch_up'] as const) {
-      const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, data.id, input({ missedRunPolicy }));
+      const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, 'p1', data.id, input({ missedRunPolicy }));
       expect(res.success).toBe(true);
       expect(res.data.missedRunPolicy).toBe(missedRunPolicy);
       expect(stored[0].missedRunPolicy).toBe(missedRunPolicy);
@@ -235,14 +237,14 @@ describe('schedule handlers', () => {
 
   it('keeps the stored policy when an edit omits it', async () => {
     const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input({ missedRunPolicy: 'skip' }));
-    const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, data.id, input({ name: 'Renamed' }));
+    const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, 'p1', data.id, input({ name: 'Renamed' }));
     expect(res.success).toBe(true);
     expect(stored[0]).toMatchObject({ name: 'Renamed', missedRunPolicy: 'skip' });
   });
 
   it('rejects an invalid policy edit without changing the schedule', async () => {
     const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input({ missedRunPolicy: 'skip' }));
-    const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, data.id, { ...input(), missedRunPolicy: 'replay' });
+    const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, 'p1', data.id, { ...input(), missedRunPolicy: 'replay' });
     expect(res).toEqual({ success: false, error: 'Missed-run policy must be catch_up or skip' });
     expect(stored[0]).toEqual(data);
   });
@@ -252,14 +254,14 @@ describe('schedule handlers', () => {
     beforeUpdate.mockImplementationOnce(() => {
       stored[0] = { ...stored[0], enabled: false, nextRunAt: null };
     });
-    const edited = await call(IPC_CHANNELS.SCHEDULE_UPDATE, data.id, input({ name: 'Renamed', enabled: true }));
+    const edited = await call(IPC_CHANNELS.SCHEDULE_UPDATE, 'p1', data.id, input({ name: 'Renamed', enabled: true }));
     expect(edited.data).toMatchObject({ name: 'Renamed', enabled: false, nextRunAt: null });
   });
 
   it('rejects an invalid edit without a write or notification', async () => {
     const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input());
     send.mockClear();
-    const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, data.id, input({ cadence: { kind: 'interval', everyMinutes: 1 } }));
+    const res = await call(IPC_CHANNELS.SCHEDULE_UPDATE, 'p1', data.id, input({ cadence: { kind: 'interval', everyMinutes: 1 } }));
     expect(res.success).toBe(false);
     expect(stored[0]).toEqual(data);
     expect(send).not.toHaveBeenCalled();
@@ -269,8 +271,8 @@ describe('schedule handlers', () => {
     const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input());
     stored.push({ ...data, id: 'unrelated' });
     send.mockClear();
-    expect(await call(IPC_CHANNELS.SCHEDULE_DELETE, data.id)).toEqual({ success: true });
-    expect(deleteSchedule).toHaveBeenCalledExactlyOnceWith(data.id);
+    expect(await call(IPC_CHANNELS.SCHEDULE_DELETE, 'p1', data.id)).toEqual({ success: true });
+    expect(deleteSchedule).toHaveBeenCalledExactlyOnceWith(data.id, expect.any(Function));
     expect(getSchedule).not.toHaveBeenCalled();
     expect(stored).toEqual([{ ...data, id: 'unrelated' }]);
     expect(send).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.SCHEDULE_CHANGED, { projectId: 'p1' });
@@ -285,10 +287,33 @@ describe('schedule handlers', () => {
   ])('%s returns not found without a mutation or change event for a missing row', async (channel, arg) => {
     const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input());
     send.mockClear();
-    expect(await call(channel, 'missing', arg)).toEqual({ success: false, error: 'Schedule not found' });
+    expect(await call(channel, 'p1', 'missing', arg)).toEqual({ success: false, error: 'Schedule not found' });
     expect(getSchedule).not.toHaveBeenCalled();
     expect(applyMutation).not.toHaveBeenCalled();
     expect(stored).toEqual([data]);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  // zeenha fork: by-ID handlers enforce the caller's project in main, not only in the renderer.
+  it.each([
+    [IPC_CHANNELS.SCHEDULE_UPDATE, input({ name: 'Hijacked' })],
+    [IPC_CHANNELS.SCHEDULE_SET_ENABLED, false],
+    [IPC_CHANNELS.SCHEDULE_ACK_REPORTS, undefined],
+    [IPC_CHANNELS.SCHEDULE_DELETE, undefined],
+    [IPC_CHANNELS.SCHEDULE_RUN_NOW, undefined],
+  ])('%s rejects a schedule of another project without a write or change event', async (channel, arg) => {
+    const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input());
+    stored[0] = { ...stored[0], history: [{ id: 'r', at: 1, kind: 'missed', acknowledged: false }] };
+    const before = structuredClone(stored);
+    send.mockClear();
+    for (const projectId of ['p2', undefined]) {
+      expect(await call(channel, projectId, data.id, arg)).toEqual({
+        success: false,
+        error: 'Schedule belongs to a different project',
+      });
+    }
+    expect(stored).toEqual(before);
+    expect(runNow).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -303,22 +328,22 @@ describe('schedule handlers', () => {
     it('delegates to the service and returns its result', async () => {
       const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input());
       runNow.mockResolvedValue({ started: true, taskId: 't1' });
-      const res = await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, data.id);
+      const res = await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, 'p1', data.id);
       expect(runNow).toHaveBeenCalledWith(data.id);
       expect(res).toEqual({ success: true, data: { started: true, taskId: 't1' } });
     });
 
     it('rejects an unknown id without calling the service', async () => {
-      const res = await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, 'nope');
+      const res = await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, 'p1', 'nope');
       expect(res).toEqual({ success: false, error: 'Schedule not found' });
-      expect((await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, '')).success).toBe(false);
+      expect((await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, 'p1', '')).success).toBe(false);
       expect(runNow).not.toHaveBeenCalled();
     });
 
     it('returns an unfinished result as success with started false', async () => {
       const { data } = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input());
       runNow.mockResolvedValue({ started: false, reason: 'unfinished', taskId: 't1' });
-      const res = await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, data.id);
+      const res = await call(IPC_CHANNELS.SCHEDULE_RUN_NOW, 'p1', data.id);
       expect(res.success).toBe(true);
       expect(res.data.started).toBe(false);
       expect(res.data.reason).toBe('unfinished');
@@ -334,7 +359,7 @@ describe('schedule handlers', () => {
     beforeUpdate.mockImplementationOnce(() => {
       stored[0] = { ...stored[0], history: [a, b] };
     });
-    const some = await call(IPC_CHANNELS.SCHEDULE_ACK_REPORTS, data.id, ['a', 'c']);
+    const some = await call(IPC_CHANNELS.SCHEDULE_ACK_REPORTS, 'p1', data.id, ['a', 'c']);
     const somePatch = { history: [{ ...a, acknowledged: true }, b] };
     expect(applyMutation).toHaveLastReturnedWith(somePatch);
     expect(some.data).toEqual({ ...data, ...somePatch });
@@ -342,7 +367,7 @@ describe('schedule handlers', () => {
     // Requesting a report that doesn't exist yet does not acknowledge it later.
     stored[0] = { ...stored[0], history: [...stored[0].history, c] };
     expect(stored[0].history[2].acknowledged).toBe(false);
-    const all = await call(IPC_CHANNELS.SCHEDULE_ACK_REPORTS, data.id);
+    const all = await call(IPC_CHANNELS.SCHEDULE_ACK_REPORTS, 'p1', data.id);
     const allPatch = { history: [a, b, c].map((r) => ({ ...r, acknowledged: true })) };
     expect(applyMutation).toHaveLastReturnedWith(allPatch);
     expect(all.data).toEqual({ ...data, ...allPatch });
@@ -404,7 +429,7 @@ describe('schedule handler interleavings with a real file', () => {
     });
 
     send.mockClear();
-    const run = call(IPC_CHANNELS.SCHEDULE_RUN_NOW, id);
+    const run = call(IPC_CHANNELS.SCHEDULE_RUN_NOW, 'p1', id);
     let committed: T;
     try {
       await Promise.race([
@@ -438,14 +463,14 @@ describe('schedule handler interleavings with a real file', () => {
       template: { title: 'New title', description: 'New instructions', tokenBudget: 2000 },
     });
     const committed = await runDuring(id, async () => {
-      const edited = await call(IPC_CHANNELS.SCHEDULE_UPDATE, id, edit);
+      const edited = await call(IPC_CHANNELS.SCHEDULE_UPDATE, 'p1', id, edit);
       expect(edited.success).toBe(true);
       expect(edited.data.nextRunAt).toBe(edited.data.updatedAt + 45 * 60_000);
       if (pause) {
-        const paused = await call(IPC_CHANNELS.SCHEDULE_SET_ENABLED, id, false);
+        const paused = await call(IPC_CHANNELS.SCHEDULE_SET_ENABLED, 'p1', id, false);
         expect(paused.success).toBe(true);
       }
-      const acked = await call(IPC_CHANNELS.SCHEDULE_ACK_REPORTS, id, [report.id]);
+      const acked = await call(IPC_CHANNELS.SCHEDULE_ACK_REPORTS, 'p1', id, [report.id]);
       expect(acked.success).toBe(true);
       const current = disk.getSchedule(id);
       expect(current).toMatchObject({
@@ -472,6 +497,20 @@ describe('schedule handler interleavings with a real file', () => {
     });
   });
 
+  it('rejects cross-project edits and deletes under the real file lock', async () => {
+    const created = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input({ cadence }));
+    const { id } = created.data;
+    send.mockClear();
+    const error = { success: false, error: 'Schedule belongs to a different project' };
+    expect(await call(IPC_CHANNELS.SCHEDULE_UPDATE, 'p2', id, input({ name: 'Hijacked' }))).toEqual(error);
+    expect(await call(IPC_CHANNELS.SCHEDULE_SET_ENABLED, 'p2', id, false)).toEqual(error);
+    expect(await call(IPC_CHANNELS.SCHEDULE_DELETE, 'p2', id)).toEqual(error);
+    expect(disk.listSchedules()).toEqual([created.data]);
+    expect(send).not.toHaveBeenCalled();
+    expect(await call(IPC_CHANNELS.SCHEDULE_DELETE, 'p1', id)).toEqual({ success: true });
+    expect(disk.listSchedules()).toEqual([]);
+  });
+
   it('does not recreate a deleted schedule or notify again when task creation finishes', async () => {
     const created = await call(IPC_CHANNELS.SCHEDULE_CREATE, 'p1', input({ cadence }));
     expect(created.success).toBe(true);
@@ -479,7 +518,7 @@ describe('schedule handler interleavings with a real file', () => {
 
     await runDuring(id, async () => {
       expect(disk.getSchedule(id)).toEqual(created.data);
-      expect(await call(IPC_CHANNELS.SCHEDULE_DELETE, id)).toEqual({ success: true });
+      expect(await call(IPC_CHANNELS.SCHEDULE_DELETE, 'p1', id)).toEqual({ success: true });
       expect(disk.getSchedule(id)).toBeUndefined();
       expect(send).toHaveBeenCalledExactlyOnceWith(IPC_CHANNELS.SCHEDULE_CHANGED, { projectId });
     });

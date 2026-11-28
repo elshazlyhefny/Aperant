@@ -229,6 +229,36 @@ export async function withSpecNumberLock<T>(
   }
 }
 
+export interface AllocatedSpecDir {
+  specId: string;
+  specDir: string;
+}
+
+/**
+ * zeenha fork: optional steps that run while the spec-number lock is held, so
+ * callers whose checks must not race (dedup, idempotency) can use the shared
+ * allocator instead of an inline withSpecNumberLock.
+ */
+export interface AllocateSpecDirHooks<TSkip, TCreated> {
+  /**
+   * Runs first, before a number is picked. Return `{ skip: value }` to allocate
+   * nothing (for example, the spec already exists); allocateSpecDir then
+   * resolves to `{ skipped: value }`. A throw releases the lock and propagates.
+   */
+  beforeAllocate?: () => { skip: TSkip } | undefined | Promise<{ skip: TSkip } | undefined>;
+  /**
+   * Runs right after the directory is created, still under the lock. Its result
+   * is returned as `created`. A throw propagates; the directory is left as is.
+   */
+  afterCreate?: (allocated: AllocatedSpecDir) => TCreated | Promise<TCreated>;
+}
+
+/**
+ * A spec title, or a function that returns it. The function runs under the
+ * lock after beforeAllocate, for callers that only learn the title there.
+ */
+export type SpecDirTitle = string | (() => string);
+
 /**
  * Allocate the next spec number and create its directory while the lock is
  * held, so concurrent callers can never receive the same number.
@@ -236,12 +266,26 @@ export async function withSpecNumberLock<T>(
 export async function allocateSpecDir(
   project: { path: string; autoBuildPath?: string },
   title: string
-): Promise<{ specId: string; specDir: string }> {
-  return withSpecNumberLock(project.path, (lock) => {
+): Promise<AllocatedSpecDir>;
+export async function allocateSpecDir<TSkip = never, TCreated = undefined>(
+  project: { path: string; autoBuildPath?: string },
+  title: SpecDirTitle,
+  hooks: AllocateSpecDirHooks<TSkip, TCreated>
+): Promise<{ skipped: TSkip } | (AllocatedSpecDir & { created: TCreated })>;
+export async function allocateSpecDir<TSkip, TCreated>(
+  project: { path: string; autoBuildPath?: string },
+  title: SpecDirTitle,
+  hooks?: AllocateSpecDirHooks<TSkip, TCreated>
+): Promise<AllocatedSpecDir | { skipped: TSkip } | (AllocatedSpecDir & { created: TCreated })> {
+  return withSpecNumberLock(project.path, async (lock) => {
+    const skip = await hooks?.beforeAllocate?.();
+    if (skip) return { skipped: skip.skip };
     const specNumber = lock.getNextSpecNumber(project.autoBuildPath);
-    const specId = buildSpecId(specNumber, title);
+    const specId = buildSpecId(specNumber, typeof title === 'function' ? title() : title);
     const specDir = path.join(project.path, getSpecsDir(project.autoBuildPath), specId);
     mkdirSync(specDir, { recursive: true });
-    return { specId, specDir };
+    if (!hooks) return { specId, specDir };
+    const created = (await hooks.afterCreate?.({ specId, specDir })) as TCreated;
+    return { specId, specDir, created };
   });
 }
