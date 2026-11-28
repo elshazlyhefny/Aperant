@@ -19,6 +19,13 @@ vi.mock('../../client/factory', () => ({
   createSimpleClient: (...args: unknown[]) => mockCreateSimpleClient(...args),
 }));
 
+// zeenha fork: the meter is real; only the file write is captured.
+const mockRecordFeatureSession = vi.fn();
+vi.mock('../../logging/feature-run-metrics', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../logging/feature-run-metrics')>()),
+  recordFeatureSession: (...args: unknown[]) => mockRecordFeatureSession(...args),
+}));
+
 // Filesystem mocks
 const mockExistsSync = vi.fn();
 const mockReadFileSync = vi.fn();
@@ -206,6 +213,51 @@ describe('runRoadmapGeneration', () => {
 
       expect(result.success).toBe(true);
       expect(mockStreamText).toHaveBeenCalledTimes(2);
+    });
+
+    // zeenha fork: usage metering
+    it('records each phase session with its tokens in the roadmap folder', async () => {
+      existingFiles();
+      mockStreamText.mockImplementation(() => makeStream([
+        { type: 'tool-call', toolName: 'Read' },
+        { type: 'finish-step', usage: { inputTokens: 1000, outputTokens: 50, inputTokenDetails: { cacheReadTokens: 800 } } },
+        { type: 'finish', totalUsage: { inputTokens: 1000, outputTokens: 50, inputTokenDetails: { cacheReadTokens: 800, cacheWriteTokens: 20 } } },
+      ]));
+
+      await runRoadmapGeneration(baseConfig({ refresh: true }));
+
+      expect(mockRecordFeatureSession).toHaveBeenCalledTimes(2);
+      const [discovery, features] = mockRecordFeatureSession.mock.calls.map((call) => call[0]);
+      expect(discovery).toMatchObject({
+        directory: '/project/.auto-claude/roadmap',
+        agentType: 'roadmap_discovery',
+        phase: 'roadmap_discovery',
+        model: 'claude-sonnet-test',
+        outcome: 'completed',
+      });
+      expect(discovery.meter.tokens()).toEqual({ input: 1000, output: 50, cacheRead: 800, cacheCreation: 20 });
+      expect(discovery.meter.steps).toBe(1);
+      expect(discovery.meter.toolCalls).toBe(1);
+      expect(features).toMatchObject({ phase: 'roadmap_features', outcome: 'completed' });
+    });
+
+    it('records a session that threw, with the tokens used before it stopped', async () => {
+      existingFiles();
+      mockStreamText.mockImplementation(() => ({
+        fullStream: (async function* () {
+          yield { type: 'finish-step', usage: { inputTokens: 10, outputTokens: 2 } };
+          throw new Error('socket hang up');
+        })(),
+      }));
+
+      await runRoadmapGeneration(baseConfig({ refresh: true }));
+
+      // Discovery is attempted three times; each attempt is one recorded session.
+      expect(mockRecordFeatureSession).toHaveBeenCalledTimes(3);
+      const first = mockRecordFeatureSession.mock.calls[0][0];
+      expect(first).toMatchObject({ phase: 'roadmap_discovery', outcome: 'threw' });
+      expect(String(first.error)).toContain('socket hang up');
+      expect(first.meter.tokens()).toEqual({ input: 10, output: 2, cacheRead: 0, cacheCreation: 0 });
     });
 
     it('gives each phase the raised step budget and tells the agent', async () => {

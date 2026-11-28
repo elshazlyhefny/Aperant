@@ -26,6 +26,7 @@ import type { ModelShorthand, ThinkingLevel } from '../config/types';
 import { writeFileAtomicSync } from '../../utils/atomic-file';
 import { safeParseJson } from '../../utils/json-repair';
 import { tryLoadPrompt } from '../prompts/prompt-loader';
+import { StreamUsageMeter, modelLabel, recordFeatureSession } from '../logging/feature-run-metrics';
 
 // =============================================================================
 // Constants
@@ -131,13 +132,55 @@ export type RoadmapStreamEvent =
   | { type: 'tool-use'; name: string }
   | { type: 'error'; error: string };
 
+/** zeenha fork: where and as what one roadmap session's usage is recorded. */
+interface RoadmapMetricsContext {
+  directory: string;
+  phase: 'roadmap_discovery' | 'roadmap_features';
+  client: SimpleClientResult;
+}
+
 async function streamRoadmapAttempt(
   options: Parameters<typeof streamText>[0],
+  onStream?: RoadmapStreamCallback,
+  metrics?: RoadmapMetricsContext,
+): Promise<string | undefined> {
+  // zeenha fork: record what the session used, however it ends.
+  const meter = new StreamUsageMeter();
+  const startedAt = new Date();
+  let thrown: unknown;
+  let reported: string | undefined;
+  try {
+    reported = await consumeRoadmapStream(options, meter, onStream);
+    return reported;
+  } catch (error) {
+    thrown = error;
+    throw error;
+  } finally {
+    if (metrics) {
+      recordFeatureSession({
+        directory: metrics.directory,
+        agentType: metrics.phase,
+        phase: metrics.phase,
+        model: modelLabel(metrics.client),
+        thinkingLevel: metrics.client.thinkingLevel,
+        startedAt,
+        meter,
+        outcome: thrown !== undefined ? 'threw' : reported ? 'error' : 'completed',
+        error: thrown ?? reported,
+      });
+    }
+  }
+}
+
+async function consumeRoadmapStream(
+  options: Parameters<typeof streamText>[0],
+  meter: StreamUsageMeter,
   onStream?: RoadmapStreamCallback,
 ): Promise<string | undefined> {
   let toolError: string | undefined;
   let streamError: string | undefined;
   for await (const part of streamText(options).fullStream) {
+    meter.observe(part);
     switch (part.type) {
       case 'text-delta':
         onStream?.({ type: 'text-delta', text: part.text });
@@ -225,7 +268,7 @@ Do NOT ask questions. Make educated inferences and create the file.${notes}`;
         stopWhen: stepCountIs(client.maxSteps),
         abortSignal,
 
-      }, onStream);
+      }, onStream, { directory: outputDir, phase: 'roadmap_discovery', client });
 
       // Validate output (only a file written by this attempt counts)
       if (existsSync(discoveryFile) && !writtenSince(discoveryFile, attemptStartedAt)) {
@@ -336,7 +379,7 @@ The JSON must contain: vision, target_audience (object with "primary" key), phas
         stopWhen: stepCountIs(client.maxSteps),
         abortSignal,
 
-      }, onStream);
+      }, onStream, { directory: outputDir, phase: 'roadmap_features', client });
 
       // Validate and merge — read/write through fd to avoid TOCTOU
       let roadmapRaw: string | null = null;

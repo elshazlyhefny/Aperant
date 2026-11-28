@@ -17,6 +17,13 @@ vi.mock('../../client/factory', () => ({
   createSimpleClient: (...args: unknown[]) => mockCreateSimpleClient(...args),
 }));
 
+// zeenha fork: the meter is real; only the file write is captured.
+const mockRecordFeatureSession = vi.fn();
+vi.mock('../../logging/feature-run-metrics', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../logging/feature-run-metrics')>()),
+  recordFeatureSession: (...args: unknown[]) => mockRecordFeatureSession(...args),
+}));
+
 // Mock filesystem: prompt files exist by default
 const mockExistsSync = vi.fn();
 const mockReadFileSync = vi.fn();
@@ -208,6 +215,50 @@ describe('runIdeation', () => {
     expect(retryPrompt).toContain('/project/.auto-claude/ideation');
     expect(result.success).toBe(true);
     expect(result.text).toBe('one two');
+  });
+
+  // zeenha fork: usage metering
+  it('records the first run and the retry as separate sessions in the ideation folder', async () => {
+    ideasFile = null;
+    const name = 'code_improvements_ideas.json';
+    const usage = (input: number, output: number) => [
+      { type: 'finish-step', usage: { inputTokens: input, outputTokens: output } },
+      { type: 'finish', totalUsage: { inputTokens: input, outputTokens: output, cacheReadTokens: input / 2 } },
+    ];
+    mockStreamText
+      .mockReturnValueOnce(streamThatWrites({ name, content: noRationaleFile('code_improvements') }, usage(400, 40)))
+      .mockReturnValueOnce(streamThatWrites({ name, content: goodFile('code_improvements') }, usage(200, 20)));
+
+    await runIdeation(baseConfig());
+
+    expect(mockRecordFeatureSession).toHaveBeenCalledTimes(2);
+    const [first, retry] = mockRecordFeatureSession.mock.calls.map((call) => call[0]);
+    expect(first).toMatchObject({
+      directory: '/project/.auto-claude/ideation',
+      agentType: 'ideation',
+      phase: 'code_improvements',
+      model: 'claude-sonnet-test',
+      outcome: 'completed',
+    });
+    expect(first.meter.tokens()).toEqual({ input: 400, output: 40, cacheRead: 200, cacheCreation: 0 });
+    expect(retry.meter.tokens()).toEqual({ input: 200, output: 20, cacheRead: 100, cacheCreation: 0 });
+  });
+
+  it('records a session whose stream threw', async () => {
+    mockStreamText.mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: 'finish-step', usage: { inputTokens: 7, outputTokens: 1 } };
+        throw new Error('rate limited');
+      })(),
+    });
+
+    const result = await runIdeation(baseConfig());
+
+    expect(result.success).toBe(false);
+    expect(mockRecordFeatureSession).toHaveBeenCalledTimes(1);
+    const session = mockRecordFeatureSession.mock.calls[0][0];
+    expect(session).toMatchObject({ outcome: 'threw', phase: 'code_improvements' });
+    expect(session.meter.tokens()).toEqual({ input: 7, output: 1, cacheRead: 0, cacheCreation: 0 });
   });
 
   it('fails with a distinct error when the file is still invalid after the retry', async () => {
