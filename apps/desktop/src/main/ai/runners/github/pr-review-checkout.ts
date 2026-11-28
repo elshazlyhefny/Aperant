@@ -138,7 +138,11 @@ async function prepareReviewCheckout(
     // its own top level; a half-made one answers for the parent repository.
     const top = (await git(['rev-parse', '--show-toplevel'], dir)).trim();
     const head = (await git(['rev-parse', 'HEAD'], dir)).trim();
-    if (!existsSync(dir) || realpathSync(top) !== realpathSync(dir) || head !== sha) {
+    // zeenha fork: the native realpath on both sides. On Windows git prints the
+    // long, forward-slash path (C:/Users/runneradmin/...) while the folder may be
+    // spelled with an 8.3 short name (C:\Users\RUNNER~1\...); the JS realpathSync
+    // keeps the short name, so every review fell back to the base checkout.
+    if (!existsSync(dir) || realpathSync.native(top) !== realpathSync.native(dir) || head !== sha) {
       await cleanup();
       return { kind: 'base', reason: `the review worktree did not check out the ${label} head` };
     }
