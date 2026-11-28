@@ -3,7 +3,7 @@
  * really writes. Four of the six types are camelCase; converted ideas are stored
  * as status "archived" with linked_task_id.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,10 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const ref = vi.hoisted(() => ({ path: '' }));
 vi.mock('../../../project-store', () => ({
   projectStore: { getProject: () => ({ id: 'p1', path: ref.path, autoBuildPath: '.auto-claude' }) },
-}));
-vi.mock('../../../utils/spec-number-lock', () => ({
-  withSpecNumberLock: async (_p: string, fn: (lock: { getNextSpecNumber: () => number }) => unknown) =>
-    fn({ getNextSpecNumber: () => 7 }),
 }));
 
 import { dismissAllIdeas } from '../idea-manager';
@@ -82,6 +78,32 @@ describe('converted ideas', () => {
 
     const saved = JSON.parse(readFileSync(ideationFile(), 'utf-8')).ideas;
     expect(saved.map((i: { status: string }) => i.status)).toEqual(['archived', 'dismissed']);
+  });
+
+  // zeenha fork: the shared allocator runs these checks under its lock.
+  it('converts an idea once: concurrent and repeated requests create one spec and link it', async () => {
+    const sec = { ...base, id: 'sec-010', type: 'security_hardening', title: 'Pin deps' };
+    writeFileSync(ideationFile(), JSON.stringify({ ideas: [sec] }));
+
+    const results = await Promise.all([
+      convertIdeaToTask({} as never, 'p1', 'sec-010'),
+      convertIdeaToTask({} as never, 'p1', 'sec-010'),
+    ]);
+    const again = await convertIdeaToTask({} as never, 'p1', 'sec-010');
+
+    const ok = results.filter((r) => r.success);
+    expect(ok).toHaveLength(1);
+    expect(ok[0].data?.specId).toBe('001-pin-deps');
+    expect(again).toEqual({ success: false, error: 'Idea has already been converted to task: 001-pin-deps' });
+    expect(readdirSync(path.join(ref.path, '.auto-claude', 'specs'))).toEqual(['001-pin-deps']);
+    const saved = JSON.parse(readFileSync(ideationFile(), 'utf-8')).ideas[0];
+    expect(saved).toMatchObject({ status: 'archived', linked_task_id: '001-pin-deps' });
+  });
+
+  it('reports a missing idea without allocating a spec', async () => {
+    writeFileSync(ideationFile(), JSON.stringify({ ideas: [] }));
+    expect(await convertIdeaToTask({} as never, 'p1', 'nope')).toEqual({ success: false, error: 'Idea not found' });
+    expect(readdirSync(path.join(ref.path, '.auto-claude', 'specs'))).toEqual([]);
   });
 
   it('writes the idea sections into spec.md, which the planner reads', async () => {

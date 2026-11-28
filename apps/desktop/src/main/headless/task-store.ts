@@ -38,8 +38,7 @@ import { writeFileAtomicSync } from '../utils/atomic-file';
 import { withFileLock } from '../utils/file-lock';
 import { FileParseCache } from '../utils/file-parse-cache';
 import { safeParseJson } from '../utils/json-repair';
-import { withSpecNumberLock } from '../utils/spec-number-lock';
-import { buildSpecId } from '../utils/spec-slug';
+import { allocateSpecDir } from '../utils/spec-number-lock';
 import { findAllSpecPaths } from '../utils/spec-path-helpers';
 import { getTaskWorktreeDir } from '../worktree-paths';
 
@@ -344,18 +343,10 @@ export async function createScheduledTaskSpec(
   scheduledFor: number,
   cache?: FileParseCache
 ): Promise<Task> {
-  const specsBaseDir = getSpecsDir(project.autoBuildPath);
-  const specsDir = path.join(project.path, specsBaseDir);
   const title = template.title.trim() || template.description.split('\n')[0].slice(0, 60) || 'Scheduled task';
 
-  const specId = await withSpecNumberLock(project.path, (lock) => {
-    const specNumber = lock.getNextSpecNumber(project.autoBuildPath);
-    const id = buildSpecId(specNumber, title);
-    // Create the directory while the lock is held so the number is taken
-    mkdirSync(path.join(specsDir, id), { recursive: true });
-    return id;
-  });
-  const specDir = path.join(specsDir, specId);
+  // zeenha fork: the shared allocator creates the directory while the lock is held.
+  const { specDir } = await allocateSpecDir(project, title);
 
   function writeScheduledFile(name: string, content: string): void {
     const file = path.join(specDir, name);
