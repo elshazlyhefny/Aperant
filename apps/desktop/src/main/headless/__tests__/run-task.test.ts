@@ -22,8 +22,8 @@ vi.mock('../../ai/prompts/prompt-loader', () => ({
 import { readDeliveryReceipts } from '../../delivery-receipts';
 import { runHeadlessTask, runHeadlessTaskDetailed } from '../run-task';
 import { readHeadlessRateLimits } from '../rate-limit-state';
-import type { WorkerBridgeCoreOptions } from '../../ai/agent/worker-bridge-core';
 import type { HeadlessBridge } from '../run-task';
+import type { WorkerBridgeCoreOptions } from '../../ai/agent/worker-bridge-core';
 
 const SECRET = 'sk-ant-super-secret-key';
 
