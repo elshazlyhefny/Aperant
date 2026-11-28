@@ -2,7 +2,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { isWindows } from '../../../platform';
 import { collectSecretEnvFiles, parseSandboxMode, wrapForSandbox } from '../sandbox';
+
+// zeenha fork: sandbox-exec exists only on macOS, and the profile builder joins
+// paths with the host's path module. On a Windows host those paths carry
+// backslashes, which the builder rightly refuses as unsafe in a profile, so the
+// macOS profile cases only mean something off Windows.
+const itMacProfile = it.skipIf(isWindows());
 
 // The Windows launcher writes its script file here instead of the shared temp dir.
 const launcherDir = mkdtempSync(path.join(os.tmpdir(), 'aperant-sbx-test-'));
@@ -49,7 +56,7 @@ describe('wrapForSandbox', () => {
     expect(r.ok && r.args.includes('--unshare-net')).toBe(true);
   });
 
-  it('builds a sandbox-exec profile on macOS', () => {
+  itMacProfile('builds a sandbox-exec profile on macOS', () => {
     const r = wrapForSandbox('/bin/zsh', ['-c', 'ls'], {
       ...base, mode: 'home-hidden', platformName: 'darwin', find: found,
     });
@@ -64,7 +71,7 @@ describe('wrapForSandbox', () => {
     expect(r.args.slice(2)).toEqual(['/bin/zsh', '-c', 'ls']);
   });
 
-  it('denies network on macOS in no-network mode', () => {
+  itMacProfile('denies network on macOS in no-network mode', () => {
     const r = wrapForSandbox('/bin/zsh', [], {
       ...base, mode: 'home-hidden-no-network', platformName: 'darwin', find: found,
     });
@@ -165,7 +172,7 @@ describe('integration token file masking', () => {
     expect(r.ok && r.args.includes('/dev/null')).toBe(false);
   });
 
-  it('denies the file on macOS after the allow line', () => {
+  itMacProfile('denies the file on macOS after the allow line', () => {
     const root = project('d', ['.env']);
     const r = wrapForSandbox('/bin/zsh', [], opts(root, { platformName: 'darwin' }));
     expect(r.ok).toBe(true);

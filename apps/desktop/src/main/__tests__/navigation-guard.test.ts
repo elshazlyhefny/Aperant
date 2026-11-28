@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 vi.mock('electron', () => ({
   shell: { openExternal: vi.fn(() => Promise.resolve()) },
@@ -37,7 +39,8 @@ describe('navigation-guard', () => {
 
   it('builds the renderer URL', () => {
     expect(getAppRendererUrl('/x/out/main', true, DEV)).toBe(DEV);
-    expect(PROD).toBe('file:///opt/app/out/renderer/index.html');
+    // On Windows a rooted path lands on the current drive (file:///D:/opt/...).
+    expect(PROD).toBe(pathToFileURL(resolve('/opt/app/out/renderer/index.html')).href);
   });
 
   it('allows app URLs', () => {

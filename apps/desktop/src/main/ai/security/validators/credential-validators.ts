@@ -10,10 +10,13 @@
  * agent already has (git through the app's credential helper, gh, the file
  * tools) are the supported way to reach remotes.
  *
- * The whole command string is scanned with quotes and backslashes removed, so
+ * The whole command string is scanned with quotes removed, so
  * `cat "~/.ssh/id_rsa"`, `sh -c 'cat ~/.ssh/id_rsa'` and `$(cat ~/.ssh/x)` are
- * all seen. `~`, `$HOME`, `${HOME}` and the real home directory are matched as
- * prefixes.
+ * all seen. It is scanned twice: once with backslashes removed (a shell escape,
+ * `\~/.ssh`) and once with backslashes read as `/` (a Windows separator,
+ * `C:\Users\me\.ssh`). `~`, `$HOME`, `${HOME}` and the real home directory are
+ * matched as prefixes; on Windows the home directory is also matched with `/`
+ * separators and in its Git Bash form (`/c/Users/me`), case-insensitively.
  *
  * A second, project-relative class covers the app's integration token store,
  * `<project>/.auto-claude/.env` (and `.env.*` variants): named directly, or
@@ -31,6 +34,7 @@
 
 import { homedir } from 'node:os';
 
+import { isWindows } from '../../../platform';
 import type { ValidationResult } from '../denylist';
 
 interface CredentialClass {
@@ -60,20 +64,39 @@ function escapeRegExp(s: string): string {
 /** Not followed by more name characters (`.sshfoo`), but `/`, space, end are fine. */
 const PATH_END = '(?![\\w.-])';
 
+/**
+ * The home directory as the command may spell it. zeenha fork: on Windows,
+ * `C:\Users\me` is compared with `/` separators (backslashes in the command
+ * are read as `/` too) and also in its Git Bash form `/c/Users/me`. Before
+ * this, every Windows home path slipped through, because the backslashes in
+ * the command were stripped and the home prefix kept them.
+ */
+function homePrefixes(): string[] {
+  const home = homedir().replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!home || home === '/') return [];
+  const prefixes = [home];
+  const drive = /^([A-Za-z]):(\/.*)$/.exec(home);
+  if (drive) prefixes.push(`/${drive[1].toLowerCase()}${drive[2]}`);
+  return prefixes;
+}
+
 function buildMatchers(): Array<{ label: string; re: RegExp }> {
-  const home = homedir().replace(/\/+$/, '');
+  // zeenha fork: Windows paths are case-insensitive, so `C:\Users\Me\.SSH`
+  // names the same folder as `~/.ssh`.
+  const flags = isWindows() ? 'i' : '';
+  const homes = homePrefixes();
   const matchers: Array<{ label: string; re: RegExp }> = [];
   for (const { path, label } of CREDENTIAL_CLASSES) {
     const rel = escapeRegExp(path);
     // ~, $HOME, ${HOME}: must not continue a longer word or path (`./x~/.ssh`).
     matchers.push({
       label,
-      re: new RegExp(`(?<![\\w./-])(?:~|\\$HOME|\\$\\{HOME\\})/${rel}${PATH_END}`),
+      re: new RegExp(`(?<![\\w./-])(?:~|\\$HOME|\\$\\{HOME\\})/${rel}${PATH_END}`, flags),
     });
-    if (home && home !== '/') {
+    for (const home of homes) {
       matchers.push({
         label,
-        re: new RegExp(`(?<![\\w.-])${escapeRegExp(home)}/${rel}${PATH_END}`),
+        re: new RegExp(`(?<![\\w.-])${escapeRegExp(home)}/${rel}${PATH_END}`, flags),
       });
     }
   }
@@ -118,9 +141,13 @@ function refuse(label: string): ValidationResult {
  * bump that shell indirection can evade.
  */
 export function validateCredentialPaths(commandString: string): ValidationResult {
-  const stripped = commandString.replace(/['"\\]/g, '');
+  const unquoted = commandString.replace(/['"]/g, '');
+  // Backslash as a shell escape (`\~/.ssh`), and as a Windows separator
+  // (`C:\Users\me\.ssh`, `..\..\.env`). zeenha fork: the second reading is
+  // what catches Windows paths; checking both costs nothing elsewhere.
+  const candidates = [unquoted.replace(/\\/g, ''), unquoted.replace(/\\/g, '/')];
   for (const { label, re } of [...buildMatchers(), ...PROJECT_TOKEN_MATCHERS]) {
-    if (re.test(stripped)) return refuse(label);
+    if (candidates.some((c) => re.test(c))) return refuse(label);
   }
   return [true, ''];
 }
