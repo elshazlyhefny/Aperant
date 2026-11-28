@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -300,7 +300,7 @@ describe('createHeadlessTaskReader', () => {
     );
     const dir = path.join(root, '.auto-claude', 'specs', created.id);
     expect(invalidate.mock.calls.flat().sort()).toEqual(
-      ['implementation_plan.json', 'requirements.json', 'spec.md', 'task_metadata.json']
+      ['implementation_plan.json', 'requirements.json', 'task_metadata.json']
         .map((file) => path.join(dir, file))
         .sort()
     );
@@ -486,7 +486,8 @@ describe('resetStuckSubtasks', () => {
 });
 
 describe('createScheduledTaskSpec', () => {
-  it('creates a queued task with schedule metadata and spec.md', async () => {
+  // zeenha fork: no spec.md; runHeadlessTask creates it from requirements.json, as on the desktop.
+  it('creates a queued task with schedule metadata and requirements, without spec.md', async () => {
     writeSpec(root, '004-old', { status: 'done' });
     const created = await createScheduledTaskSpec(
       project(),
@@ -495,7 +496,9 @@ describe('createScheduledTaskSpec', () => {
       1700000000000
     );
     expect(created.id.startsWith('005-')).toBe(true);
-    expect(readFileSync(path.join(created.specsPath as string, 'spec.md'), 'utf-8')).toContain('Run the checks');
+    expect(existsSync(path.join(created.specsPath as string, 'spec.md'))).toBe(false);
+    expect(JSON.parse(readFileSync(path.join(created.specsPath as string, 'requirements.json'), 'utf-8')))
+      .toEqual({ task_description: 'Run the checks', workflow_type: 'feature' });
 
     const listed = listHeadlessTasks(project()).find((t) => t.id === created.id);
     expect(listed?.status).toBe('queue');

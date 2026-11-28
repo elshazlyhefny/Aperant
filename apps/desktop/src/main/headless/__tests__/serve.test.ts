@@ -504,13 +504,40 @@ describe('runServe schedules', () => {
       expect(schedule.nextRunAt).toBe(T0 + DAY);
       const taskId = schedule.lastTaskId as string;
       expect(plan(taskId).status).toBe('in_progress');
-      expect(spawned()[0].taskId).toBe(taskId);
-      expect(spawned()[0].spawn.mock.calls[0][0].session.tokenBudget).toBe(5000);
+      // zeenha fork: no spec.md yet, so spec creation runs first, from the template description.
+      const specRun = spawned()[0];
+      expect(specRun.taskId).toBe(taskId);
+      expect(specRun.spawn.mock.calls[0][0].processType).toBe('spec-creation');
+      expect(specRun.spawn.mock.calls[0][0].session.initialMessages[0].content).toContain('Task: do it');
+      expect(existsSync(path.join(specDir(taskId), 'spec.md'))).toBe(false);
+      writeFileSync(path.join(specDir(taskId), 'spec.md'), '# Nightly check\n');
+      specRun.finish([]);
+
+      await vi.waitFor(() => expect(spawned()).toHaveLength(2));
+      const build = spawned()[1];
+      expect(build.taskId).toBe(taskId);
+      expect(build.spawn.mock.calls[0][0].processType).toBe('task-execution');
+      expect(build.spawn.mock.calls[0][0].session.tokenBudget).toBe(5000);
       expect(out).toContain(`[${taskId}] token budget: 5000 tokens (source: schedule)\n`);
     } finally {
       await stop(p);
     }
     expect(plan(spawned()[0].taskId).status).toBe('queue');
+  });
+
+  it('fails a scheduled task whose spec creation does not write spec.md, without starting a build', async () => {
+    const { store } = await seedSchedules([makeSchedule()]);
+    serveSchedules();
+    const schedule = await waitForHistory(store, 's1', ['started']);
+    await vi.waitFor(() => expect(spawned()).toHaveLength(1));
+    const taskId = schedule.lastTaskId as string;
+    spawned()[0].finish([]);
+
+    await vi.waitFor(() => expect(plan(taskId).status).toBe('error'));
+    expect(spawned()).toHaveLength(1);
+    expect(err.join('')).toContain('Spec creation failed: Spec creation finished but spec.md was not written');
+    // The task's folder is kept; only a spec this run allocated is ever removed.
+    expect(existsSync(path.join(specDir(taskId), 'requirements.json'))).toBe(true);
   });
 
   it('filters out other projects when a project ID is configured', async () => {

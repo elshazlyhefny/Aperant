@@ -4,9 +4,12 @@
  * Mirrors AgentManager.startSpecCreation. Returns the exit code (and the new
  * spec id) instead of calling process.exit, so it can be tested. The spec
  * folder is removed again on any failure that this run caused.
+ *
+ * createHeadlessSpecInDir runs the same spec creation in a folder that already
+ * exists (a scheduled task created without spec.md), for runHeadlessTask.
  */
 
-import { existsSync, rmSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import type { AgentExecutorConfig, SerializableSessionConfig } from '../ai/agent/types';
@@ -17,11 +20,14 @@ import { resolveModelId } from '../ai/config/phase-config';
 import { tryLoadPrompt } from '../ai/prompts/prompt-loader';
 import { allocateSpecDir } from '../utils/spec-number-lock';
 import { resolveHeadlessAuth } from './auth';
+import type { HeadlessAuthResult } from './auth';
 import { loadHeadlessConfig, mcpOptionsForHeadless, resolveProjectSettings } from './config';
+import type { HeadlessConfig, HeadlessProjectSettings } from './config';
 import { collectBridgeRun } from './bridge-run';
 import type { HeadlessBridge } from './bridge-run';
 import { classifySpecRun, EXIT_ERROR, EXIT_SUCCESS } from './outcome';
 import { createProgressReporter } from './progress';
+import type { ProgressReporter } from './progress';
 import { AUTO_BUILD_PATH, findGitRoot, HeadlessSetupError } from './shared';
 
 export interface HeadlessNewSpecOptions {
@@ -103,70 +109,19 @@ export async function createHeadlessSpec(
     specDir = allocated.specDir;
     created = true;
 
-    // (6) session config, as in startSpecCreation
-    const systemPrompt = tryLoadPrompt('spec_orchestrator') ?? buildDefaultSpecPrompt(description, specDir);
-    const sessionConfig: SerializableSessionConfig = {
-      agentType: 'spec_orchestrator',
-      systemPrompt,
-      phase: 'spec',
-      initialMessages: [
-        {
-          role: 'user',
-          content: `Task: ${description}\n\nProject directory: ${projectPath}\nSpec directory: ${specDir}\nAuto-approve: true`,
-        },
-      ],
-      maxSteps: 1000,
+    // (6)-(8) spec creation in the new folder
+    const failure = await runSpecOrchestrator({
+      projectPath,
+      specId,
       specDir,
-      projectDir: projectPath,
-      provider: resolvedAuth.provider,
-      modelId: resolvedAuth.modelId,
-      apiKey: resolvedAuth.auth.apiKey,
-      baseURL: resolvedAuth.auth.baseURL,
-      configDir: resolvedAuth.configDir,
-      oauthTokenFilePath: resolvedAuth.auth.oauthTokenFilePath,
-      mcpOptions: mcpOptionsForHeadless(projectPath, AUTO_BUILD_PATH),
-      toolContext: {
-        cwd: projectPath,
-        projectDir: projectPath,
-        specDir,
-        securityProfile: serializeSecurityProfile(projectPath, {
-          prOnlyLanding: settings.prOnlyLanding,
-          envPassthrough: settings.envPassthrough,
-          bashSandbox: settings.bashSandbox,
-          webFetchProvider: settings.webFetchProvider,
-        }),
-      },
-    };
-    const executorConfig: AgentExecutorConfig = {
-      taskId: specId,
-      processType: 'spec-creation',
-      session: sessionConfig,
-    };
-
-    // (7) bridge and outcome
-    const workerPath = options.workerPath;
-    const bridgeOptions: WorkerBridgeCoreOptions = {
-      resolveWorkerPath: () => {
-        if (!workerPath) throw new Error('No worker path was supplied');
-        return workerPath;
-      },
-    };
-    const bridge = options.createBridge ? options.createBridge(bridgeOptions) : new WorkerBridgeCore(bridgeOptions);
-    reporter.log(`Creating spec ${specId} in ${specDir}`);
-
-    const outcome = classifySpecRun(await collectBridgeRun({ bridge, executorConfig, reporter }));
-    if (outcome.kind !== 'success') {
-      return fail(outcome.reason ?? 'Spec creation failed');
-    }
-
-    // (8) the spec must actually exist
-    const specFile = path.join(specDir, 'spec.md');
-    if (!existsSync(specFile) || statSync(specFile).size === 0) {
-      return fail('Spec creation finished but spec.md was not written');
-    }
-    if (!existsSync(path.join(specDir, 'implementation_plan.json'))) {
-      return fail('Spec creation finished but implementation_plan.json was not written');
-    }
+      description,
+      settings,
+      resolvedAuth,
+      reporter,
+      workerPath: options.workerPath,
+      createBridge: options.createBridge,
+    });
+    if (failure) return fail(failure.reason);
 
     // (10) success
     reporter.log(`Created spec ${specId} at ${specDir}`);
@@ -177,4 +132,166 @@ export async function createHeadlessSpec(
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));
   }
+}
+
+interface SpecOrchestratorParams {
+  projectPath: string;
+  specId: string;
+  specDir: string;
+  description: string;
+  settings: Pick<HeadlessProjectSettings, 'prOnlyLanding' | 'envPassthrough' | 'bashSandbox' | 'webFetchProvider'>;
+  resolvedAuth: HeadlessAuthResult;
+  reporter: ProgressReporter;
+  workerPath?: string;
+  createBridge?: (options: WorkerBridgeCoreOptions) => HeadlessBridge;
+  signal?: AbortSignal;
+  handleProcessSignals?: boolean;
+}
+
+/**
+ * Run the spec orchestrator in a spec folder that already exists and check
+ * that it wrote spec.md and implementation_plan.json. Undefined on success.
+ */
+async function runSpecOrchestrator(
+  params: SpecOrchestratorParams,
+): Promise<{ reason: string; aborted: boolean } | undefined> {
+  const { projectPath, specId, specDir, description, settings, resolvedAuth, reporter } = params;
+
+  // (6) session config, as in startSpecCreation
+  const systemPrompt = tryLoadPrompt('spec_orchestrator') ?? buildDefaultSpecPrompt(description, specDir);
+  const sessionConfig: SerializableSessionConfig = {
+    agentType: 'spec_orchestrator',
+    systemPrompt,
+    phase: 'spec',
+    initialMessages: [
+      {
+        role: 'user',
+        content: `Task: ${description}\n\nProject directory: ${projectPath}\nSpec directory: ${specDir}\nAuto-approve: true`,
+      },
+    ],
+    maxSteps: 1000,
+    specDir,
+    projectDir: projectPath,
+    provider: resolvedAuth.provider,
+    modelId: resolvedAuth.modelId,
+    apiKey: resolvedAuth.auth.apiKey,
+    baseURL: resolvedAuth.auth.baseURL,
+    configDir: resolvedAuth.configDir,
+    oauthTokenFilePath: resolvedAuth.auth.oauthTokenFilePath,
+    mcpOptions: mcpOptionsForHeadless(projectPath, AUTO_BUILD_PATH),
+    toolContext: {
+      cwd: projectPath,
+      projectDir: projectPath,
+      specDir,
+      securityProfile: serializeSecurityProfile(projectPath, {
+        prOnlyLanding: settings.prOnlyLanding,
+        envPassthrough: settings.envPassthrough,
+        bashSandbox: settings.bashSandbox,
+        webFetchProvider: settings.webFetchProvider,
+      }),
+    },
+  };
+  const executorConfig: AgentExecutorConfig = {
+    taskId: specId,
+    processType: 'spec-creation',
+    session: sessionConfig,
+  };
+
+  // (7) bridge and outcome
+  const workerPath = params.workerPath;
+  const bridgeOptions: WorkerBridgeCoreOptions = {
+    resolveWorkerPath: () => {
+      if (!workerPath) throw new Error('No worker path was supplied');
+      return workerPath;
+    },
+  };
+  const bridge = params.createBridge ? params.createBridge(bridgeOptions) : new WorkerBridgeCore(bridgeOptions);
+  reporter.log(`Creating spec ${specId} in ${specDir}`);
+
+  const runInput = await collectBridgeRun({
+    bridge,
+    executorConfig,
+    reporter,
+    signal: params.signal,
+    handleProcessSignals: params.handleProcessSignals,
+  });
+  const outcome = classifySpecRun(runInput);
+  if (outcome.kind !== 'success') {
+    return { reason: outcome.reason ?? 'Spec creation failed', aborted: runInput.abortSignal !== undefined };
+  }
+
+  // (8) the spec must actually exist
+  const specFile = path.join(specDir, 'spec.md');
+  if (!existsSync(specFile) || statSync(specFile).size === 0) {
+    return { reason: 'Spec creation finished but spec.md was not written', aborted: false };
+  }
+  if (!existsSync(path.join(specDir, 'implementation_plan.json'))) {
+    return { reason: 'Spec creation finished but implementation_plan.json was not written', aborted: false };
+  }
+  return undefined;
+}
+
+/**
+ * zeenha fork: the task description stored in a spec folder that has no
+ * spec.md yet (requirements.json, else the plan's description), or undefined.
+ * Scheduled tasks store their description there instead of writing spec.md.
+ */
+export function readSpecTaskDescription(specDir: string): string | undefined {
+  const read = (file: string, field: string): string | undefined => {
+    try {
+      const parsed = JSON.parse(readFileSync(path.join(specDir, file), 'utf-8')) as Record<string, unknown> | null;
+      const value = parsed?.[field];
+      return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  return read('requirements.json', 'task_description') ?? read('implementation_plan.json', 'description');
+}
+
+/** Spec creation was stopped by an abort signal (daemon stop, token budget). */
+export class HeadlessSpecAbortedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'HeadlessSpecAbortedError';
+  }
+}
+
+export interface HeadlessSpecInDirOptions {
+  projectPath: string;
+  specId: string;
+  /** An existing spec folder. Nothing is allocated, and nothing is removed on failure. */
+  specDir: string;
+  description: string;
+  config: HeadlessConfig;
+  settings: SpecOrchestratorParams['settings'];
+  reporter: ProgressReporter;
+  /** Receives the resolved API key, so the caller's reporter redacts it. */
+  secrets: string[];
+  workerPath?: string;
+  createBridge?: (options: WorkerBridgeCoreOptions) => HeadlessBridge;
+  signal?: AbortSignal;
+  handleProcessSignals?: boolean;
+}
+
+/**
+ * zeenha fork: run spec creation in an EXISTING spec folder: the same
+ * orchestrator call createHeadlessSpec makes, without allocating a folder.
+ * The desktop does the same for a task without spec.md (launchTask ->
+ * startSpecCreation). Throws HeadlessSetupError on failure and
+ * HeadlessSpecAbortedError when the signal aborted it.
+ */
+export async function createHeadlessSpecInDir(options: HeadlessSpecInDirOptions): Promise<void> {
+  const modelId = resolveModelId('sonnet');
+  const resolvedAuth = await resolveHeadlessAuth(modelId, null, options.config);
+  if (resolvedAuth.auth.apiKey && !options.secrets.includes(resolvedAuth.auth.apiKey)) {
+    options.secrets.push(resolvedAuth.auth.apiKey);
+  }
+  const failure = await runSpecOrchestrator({ ...options, resolvedAuth });
+  if (!failure) {
+    options.reporter.log(`Created spec ${options.specId} at ${options.specDir}`);
+    return;
+  }
+  const message = `Spec creation failed: ${failure.reason}`;
+  throw failure.aborted ? new HeadlessSpecAbortedError(message) : new HeadlessSetupError(message);
 }

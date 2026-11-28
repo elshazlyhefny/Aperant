@@ -352,17 +352,22 @@ The headless CLI and daemon (`headless/`) run tasks without Electron. Some of it
 | Headless | Desktop | What must stay in sync |
 |----------|---------|------------------------|
 | `headless/run-task.ts` (`runHeadlessTask`) | `agent/agent-manager.ts` `startTaskExecution` | Session config, phases, worktree setup |
-| `headless/new-spec.ts` (`createHeadlessSpec`) | `agent/agent-manager.ts` `startSpecCreation` | Spec creation session config |
+| `headless/new-spec.ts` (`createHeadlessSpec`, `createHeadlessSpecInDir`) | `agent/agent-manager.ts` `startSpecCreation` | Spec creation session config |
+| `headless/run-task.ts` spec check (no `spec.md` -> `createHeadlessSpecInDir`, then the build) | `ipc-handlers/task/launch-task.ts` `launchTask` (no `spec.md` -> `startSpecCreation`) | A task without `spec.md` goes through spec creation first |
 | `headless/auth.ts` (`resolveHeadlessAuth`) | `AgentManager.resolveAuthFromProviderQueue` | Account queue order and provider preference |
 | `headless/config.ts` (`mcpOptionsForHeadless`) | `AgentManager.mcpOptionsForProject` | MCP options (headless approves nothing) |
 | `headless/task-store.ts` `setTaskStatus` / `resetStuckSubtasks` | `ipc-handlers/task/plan-file-utils.ts` `persistPlanStatus` / `resetStuckSubtasks` | Plan status writes and the stuck-subtask reset |
 | `headless/serve.ts` `deliverOutcome` / `settle`, `headless/webhook.ts` `eventsForOutcome`, `headless/writeback.ts` | `task-state-manager.ts` outcome subscriber | Which outcomes send a webhook or an issue write-back |
-| `headless/task-store.ts` `createScheduledTaskSpec` | `ipc-handlers/task/create-task.ts` `createTaskSpec` | Scheduled task metadata |
+| `headless/task-store.ts` `createScheduledTaskSpec` | `ipc-handlers/task/create-task.ts` `createTaskSpec` | Scheduled task metadata; neither writes `spec.md` |
+
+Every path that creates a spec folder, on both sides, takes its number from `utils/spec-number-lock.ts` `allocateSpecDir`. A caller whose check must not race with another import (dedup, idempotency) runs it in the `beforeAllocate` / `afterCreate` hooks, which run under the same lock.
+
+A scheduled task follows the same steps on both sides: it is created without `spec.md`, and starting it runs the spec pipeline first. Headless reads the task description from `requirements.json` (or the plan's `description`); a spec folder with neither `spec.md` nor a description is refused.
 
 Known differences that are intentional:
 
 - **Schedule file.** The desktop keeps schedules in `userData/schedules.json` (`schedule-store.ts`). The headless daemon keeps them per project in `<project>/.auto-claude/schedules.json` (`headless/serve.ts`). Both use `schedule-file-store.ts`.
-- **Scheduled task spec.** A desktop schedule creates a task without `spec.md`, so the full spec pipeline writes it. `runHeadlessTask` needs `spec.md` up front and cannot run spec creation in an existing spec folder, so `createScheduledTaskSpec` writes a minimal `spec.md` from the template and the headless run skips the spec pipeline.
+- **Spec creation model and approval.** Headless spec creation always uses the `sonnet` model and auto-approves. The desktop takes the spec model from the task metadata (`phaseModels.spec`, then `model`) and honours `requireReviewBeforeCoding`.
 
 ## Cross-Platform Development
 
