@@ -69,23 +69,26 @@ Wait for all services to be healthy before proceeding.
 
 ## PHASE 3: RUN AUTOMATED TESTS
 
-### 3.1: Unit Tests
+### 3.1: Verify Commands (typecheck, lint, unit tests)
 
-Run all unit tests for affected services:
+Run the project's verify commands. Take them from the PROJECT INSTRUCTIONS above, or from `verifyCommands` in `.aperant.json` at the repository root:
 
 ```bash
-# Get test commands from project_index.json
-cat project_index.json | jq '.services[].test_command'
+# The project's declared checks, if any
+cat .aperant.json 2>/dev/null | jq -r '.verifyCommands[]?'
 
-# Run tests for each affected service
-# [Execute test commands based on project_index]
+# Run each command from the repository root, exactly as written
 ```
+
+**You MUST run the type check and the linter, not only the tests.** A passing test suite does not catch type errors or lint failures, and those still break the build. If the project declares no verify commands, find its typecheck, lint and unit test commands (package.json scripts, Makefile, project instructions) and run all three.
+
+Any failing command is a critical issue: reject. After you approve, the same `verifyCommands` run automatically against the task merged with the latest `{{BASE_BRANCH}}`, and a failure there withdraws your approval.
 
 **Document results:**
 ```
-UNIT TESTS:
-- [service-name]: PASS/FAIL (X/Y tests)
-- [service-name]: PASS/FAIL (X/Y tests)
+VERIFY COMMANDS:
+- [command]: PASS/FAIL
+- [command]: PASS/FAIL
 ```
 
 ### 3.2: Integration Tests

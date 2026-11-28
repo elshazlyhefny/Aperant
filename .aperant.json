@@ -1,4 +1,9 @@
 {
   "baseBranch": "zeenha",
-  "linkDependencies": ["node_modules", "apps/desktop/node_modules"]
+  "linkDependencies": ["node_modules", "apps/desktop/node_modules"],
+  "verifyCommands": [
+    "cd apps/desktop && npm run typecheck",
+    "cd apps/desktop && npm run test:unit",
+    "cd apps/desktop && npm run lint"
+  ]
 }

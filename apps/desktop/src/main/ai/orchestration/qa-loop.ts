@@ -31,6 +31,12 @@ import type { Phase } from '../config/types';
 import { QASignoffSchema, validateStructuredOutput } from '../schema';
 import { safeParseJson } from '../../utils/json-repair';
 import type { SessionResult } from '../session/types';
+import {
+  describeVerifyGateResult,
+  verifyGateIssue,
+  writeVerifyGateFixRequest,
+  type VerifyGateResult,
+} from './verify-gate';
 
 // =============================================================================
 // Constants
@@ -88,6 +94,12 @@ export interface QALoopConfig {
   generatePrompt: (agentType: AgentType, context: QAPromptContext) => Promise<string>;
   /** Callback to run an agent session */
   runSession: (config: QASessionRunConfig) => Promise<SessionResult>;
+  /**
+   * zeenha fork: runs the project's verify commands after QA approves
+   * (verify-gate.ts). A failure turns the approval into a rejection. Absent
+   * means no gate.
+   */
+  verifyGate?: (signal?: AbortSignal) => Promise<VerifyGateResult>;
 }
 
 /** Context passed to prompt generation */
@@ -278,7 +290,7 @@ export class QALoop extends EventEmitter {
         // Read QA signoff from implementation_plan.json, but only if this session wrote it
         const freshSignoff = (await this.readRawQASignoff()) !== signoffBefore;
         const signoff = freshSignoff ? await this.readQASignoff() : null;
-        const status = this.resolveQAStatus(signoff);
+        let status = this.resolveQAStatus(signoff);
 
         // zeenha fork: a reviewer that failed without writing a verdict is an error,
         // never a pass. error/auth_failure/rate_limited stop the loop the same way a
@@ -298,7 +310,25 @@ export class QALoop extends EventEmitter {
           await this.writeReports('max_iterations');
           return this.outcome(false, iteration, Date.now() - startTime, 'error', message);
         }
-        const issues = signoff?.issues_found ?? [];
+        let issues = signoff?.issues_found ?? [];
+
+        // zeenha fork: an approval only stands if the project's own checks pass
+        // against the latest base. On failure the round counts as a rejection and
+        // the gate's QA_FIX_REQUEST.md goes to the fixer below.
+        if (status === 'approved' && this.config.verifyGate) {
+          const gate = await this.config.verifyGate(this.config.abortSignal);
+          if (this.aborted) {
+            return this.outcome(false, iteration, Date.now() - startTime, 'cancelled');
+          }
+          this.emitTyped('log', describeVerifyGateResult(gate));
+          if (gate.status === 'failed') {
+            status = 'rejected';
+            issues = [verifyGateIssue(gate)];
+            await writeVerifyGateFixRequest(this.config.specDir, gate);
+            await this.markSignoffRejected(issues);
+          }
+        }
+
         const iterationDuration = Date.now() - iterationStart;
 
         this.emitTyped('qa-review-complete', iteration, status, issues);
@@ -437,6 +467,28 @@ export class QALoop extends EventEmitter {
       return JSON.stringify(plan.qa_signoff);
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * zeenha fork: rewrite an approving qa_signoff as rejected after a verify gate
+   * failure, so a later run does not short-circuit on the withdrawn approval.
+   */
+  private async markSignoffRejected(issues: QAIssue[]): Promise<void> {
+    try {
+      const planPath = join(this.config.specDir, 'implementation_plan.json');
+      const plan = safeParseJson<{ qa_signoff?: Record<string, unknown> }>(await readFile(planPath, 'utf-8'));
+      if (!plan) return;
+      plan.qa_signoff = {
+        ...(plan.qa_signoff ?? {}),
+        status: 'rejected',
+        timestamp: new Date().toISOString(),
+        issues_found: issues,
+        fix_request_file: 'QA_FIX_REQUEST.md',
+      };
+      await writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8');
+    } catch {
+      // Non-fatal: the rejection is still tracked in this run
     }
   }
 

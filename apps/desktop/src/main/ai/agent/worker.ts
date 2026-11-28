@@ -26,7 +26,7 @@ import type { ToolRegistry } from '../tools/registry';
 import { SubagentExecutorImpl } from '../orchestration/subagent-executor';
 import type { ToolContext } from '../tools/types';
 import type { SecurityProfile } from '../security/bash-validator';
-import { parseEnvPassthrough } from '../security/child-env';
+import { buildChildEnv, parseEnvPassthrough } from '../security/child-env';
 import { parseSandboxMode } from '../security/sandbox';
 import { parseWebFetchProvider } from '../tools/providers/types';
 import type {
@@ -41,6 +41,8 @@ import type { Tool as AITool } from 'ai';
 import type { SessionConfig, StreamEvent, SessionResult } from '../session/types';
 import { BuildOrchestrator } from '../orchestration/build-orchestrator';
 import { QALoop } from '../orchestration/qa-loop';
+import { runVerifyGate, type VerifyGateResult } from '../orchestration/verify-gate';
+import { readProjectRepoConfig } from '../worktree/project-repo-config';
 import { SpecOrchestrator } from '../orchestration/spec-orchestrator';
 import type { SpecPhase } from '../orchestration/spec-orchestrator';
 import type { AgentType } from '../config/agent-configs';
@@ -387,7 +389,33 @@ async function assemblePrompt(
     specDir: session.specDir,
     projectDir: session.projectDir,
     projectInstructions: cachedProjectInstructions,
+    baseBranch: session.baseBranch,
   });
+}
+
+/**
+ * zeenha fork: the QA verify gate for this task. Commands come from the main
+ * checkout's `.aperant.json`, read when the gate runs; none means "skipped".
+ */
+function createVerifyGate(
+  session: SerializableSessionConfig,
+  securityProfile: SecurityProfile,
+): (signal?: AbortSignal) => Promise<VerifyGateResult> {
+  return (signal) => {
+    const projectPath = session.mainProjectDir ?? session.projectDir;
+    const repoConfig = readProjectRepoConfig(projectPath);
+    if (repoConfig.verifyCommands) {
+      postLog(`Running the QA verify gate: ${repoConfig.verifyCommands.join(' ; ')}`);
+    }
+    return runVerifyGate({
+      worktreePath: session.projectDir,
+      projectPath,
+      baseBranch: session.baseBranch ?? repoConfig.baseBranch ?? 'main',
+      commands: repoConfig.verifyCommands,
+      signal,
+      env: buildChildEnv(process.env, { passthrough: securityProfile.envPassthrough }),
+    });
+  };
 }
 
 // =============================================================================
@@ -832,6 +860,7 @@ async function runBuildOrchestrator(
     projectDir: session.projectDir,
     sourceSpecDir: session.sourceSpecDir,
     abortSignal: abortController.signal,
+    verifyGate: createVerifyGate(session, toolContext.securityProfile),
 
     generatePrompt: async (agentType, _phase, context) => {
       const promptName = agentType === 'coder' ? 'coder' : agentType;
@@ -1020,6 +1049,7 @@ async function runQALoop(
     specDir: session.specDir,
     projectDir: session.projectDir,
     abortSignal: abortController.signal,
+    verifyGate: createVerifyGate(session, toolContext.securityProfile),
 
     generatePrompt: async (agentType, _context) => {
       const promptName = agentType === 'qa_fixer' ? 'qa_fixer' : 'qa_reviewer';

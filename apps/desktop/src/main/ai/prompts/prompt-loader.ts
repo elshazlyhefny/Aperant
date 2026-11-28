@@ -283,7 +283,9 @@ export function injectContext(promptTemplate: string, context: PromptContext): s
   }
 
   // 5. Base prompt
-  sections.push(promptTemplate);
+  // zeenha fork: qa_reviewer.md diffs against {{BASE_BRANCH}}, which was never
+  // substituted, so the reviewer ran `git diff {{BASE_BRANCH}}...HEAD` literally.
+  sections.push(promptTemplate.replaceAll('{{BASE_BRANCH}}', context.baseBranch || 'main'));
 
   return sections.join('');
 }
