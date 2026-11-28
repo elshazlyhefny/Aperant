@@ -20,6 +20,8 @@ vi.mock('../../ai/prompts/prompt-loader', () => ({
 
 import { readDeliveryReceipts } from '../../delivery-receipts';
 import { runHeadlessTask, runHeadlessTaskDetailed } from '../run-task';
+import { readHeadlessRateLimits } from '../rate-limit-state';
+import type { WorkerBridgeCoreOptions } from '../../ai/agent/worker-bridge-core';
 import type { HeadlessBridge } from '../run-task';
 
 const SECRET = 'sk-ant-super-secret-key';
@@ -236,6 +238,32 @@ describe('runHeadlessTask', () => {
     });
     expect(await run({ handleProcessSignals: false })).toBe(0);
     expect(during).toEqual([sigint, sigterm]);
+  });
+
+  // zeenha fork: headless records rate limits where its own auth reads them back.
+  it('records a rate limit on the account the run used', async () => {
+    makeSpec();
+    mockResolveAuth.mockResolvedValue({
+      auth: { apiKey: SECRET },
+      provider: 'anthropic',
+      modelId: 'claude-sonnet-4-5',
+      accountId: 'acc1',
+    });
+    const reset = Date.now() + 3_600_000;
+    let bridgeOptions: WorkerBridgeCoreOptions | undefined;
+    bridge.spawn.mockImplementation(() => {
+      setImmediate(async () => {
+        await bridgeOptions?.recordRateLimit?.('acc1', reset);
+        bridge.emit('exit', '001-demo', 1, 'task-execution');
+      });
+    });
+    await run({ createBridge: (options) => { bridgeOptions = options; return bridge; } });
+
+    expect(mockResolveAuth.mock.calls[0][3]).toBe(projectDir);
+    expect(bridge.spawn.mock.calls[0][0].accountId).toBe('acc1');
+    const limits = readHeadlessRateLimits(projectDir);
+    expect(limits.acc1).toHaveLength(1);
+    expect(new Date(limits.acc1[0].resetAt).getTime()).toBe(reset);
   });
 
   it('returns detailed result fields', async () => {

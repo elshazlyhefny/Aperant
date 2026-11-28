@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../claude-profile/token-refresh', () => ({
@@ -7,6 +10,7 @@ vi.mock('../../claude-profile/token-refresh', () => ({
 
 import { NO_CREDENTIALS_MESSAGE, resolveHeadlessAuth } from '../auth';
 import type { HeadlessConfig } from '../config';
+import { clearHeadlessRateLimitMemory, recordHeadlessRateLimit } from '../rate-limit-state';
 
 const VARS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'];
 const saved: Record<string, string | undefined> = {};
@@ -96,5 +100,57 @@ describe('resolveHeadlessAuth', () => {
     await expect(resolveHeadlessAuth('claude-sonnet-4-5', null, {})).rejects.toThrow(NO_CREDENTIALS_MESSAGE);
     expect(NO_CREDENTIALS_MESSAGE).toContain('ANTHROPIC_API_KEY');
     expect(NO_CREDENTIALS_MESSAGE).toContain('CLAUDE_CODE_OAUTH_TOKEN');
+  });
+});
+
+// zeenha fork: an account with a recorded headless rate limit is skipped until its reset.
+describe('resolveHeadlessAuth with recorded rate limits', () => {
+  let projectDir: string;
+  const config = {
+    providerAccounts: [
+      { id: 'acc1', provider: 'anthropic', authType: 'api-key', apiKey: 'key-one', isActive: true, name: 'a', billingModel: 'subscription' },
+      { id: 'acc2', provider: 'anthropic', authType: 'api-key', apiKey: 'key-two', isActive: true, name: 'b', billingModel: 'subscription' },
+    ],
+    globalPriorityOrder: ['acc1', 'acc2'],
+  } as never as HeadlessConfig;
+
+  beforeEach(() => {
+    projectDir = mkdtempSync(path.join(tmpdir(), 'headless-auth-rl-'));
+    clearHeadlessRateLimitMemory();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    rmSync(projectDir, { recursive: true, force: true });
+  });
+
+  it('skips the limited account until its reset, then uses it again', async () => {
+    const first = await resolveHeadlessAuth('claude-sonnet-4-5', null, config, projectDir);
+    expect(first).toMatchObject({ accountId: 'acc1', auth: { apiKey: 'key-one' } });
+
+    const reset = Date.now() + 3_600_000;
+    await recordHeadlessRateLimit(projectDir, 'acc1', reset);
+    clearHeadlessRateLimitMemory(); // the next run is a new process: only the file remains
+
+    const limited = await resolveHeadlessAuth('claude-sonnet-4-5', null, config, projectDir);
+    expect(limited).toMatchObject({ accountId: 'acc2', auth: { apiKey: 'key-two' } });
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(reset + 1);
+    const afterReset = await resolveHeadlessAuth('claude-sonnet-4-5', null, config, projectDir);
+    expect(afterReset).toMatchObject({ accountId: 'acc1', auth: { apiKey: 'key-one' } });
+  });
+
+  it('ignores recorded limits when no project is given', async () => {
+    await recordHeadlessRateLimit(projectDir, 'acc1', Date.now() + 3_600_000);
+    const r = await resolveHeadlessAuth('claude-sonnet-4-5', null, config);
+    expect(r.accountId).toBe('acc1');
+  });
+
+  it('names the reset when every account is limited and no other credential exists', async () => {
+    const reset = Date.now() + 3_600_000;
+    await recordHeadlessRateLimit(projectDir, 'acc1', reset);
+    await recordHeadlessRateLimit(projectDir, 'acc2', reset + 60_000);
+    await expect(resolveHeadlessAuth('claude-sonnet-4-5', null, config, projectDir))
+      .rejects.toThrow(new Date(reset).toISOString());
   });
 });

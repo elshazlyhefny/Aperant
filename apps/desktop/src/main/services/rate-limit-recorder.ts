@@ -12,40 +12,12 @@
 
 import { updateSettingsFile } from '../settings-utils';
 import { getClaudeProfileManager } from '../claude-profile-manager';
-import { rateLimitTypeFor } from '../claude-profile/rate-limit-manager';
-import type { ClaudeRateLimitEvent } from '../../shared/types';
+import { rateLimitResetDate, withRateLimitEvent } from './rate-limit-events';
 import type { ProviderAccount } from '../../shared/types/provider-account';
 
-/** How long an account counts as exhausted when the error named no reset time. */
-export const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 10 * 60_000;
-
-/** At most this many events are kept per account. */
-const MAX_EVENTS = 10;
-
-function resetMs(event: ClaudeRateLimitEvent): number {
-  const value = event.resetAt as unknown;
-  if (typeof value === 'number') return value;
-  const ms = new Date(value as string | Date).getTime();
-  return Number.isNaN(ms) ? 0 : ms;
-}
-
-/**
- * Add a rate-limit event and drop events whose reset has passed, so the
- * array never grows without bound.
- */
-export function withRateLimitEvent(
-  events: ClaudeRateLimitEvent[] | undefined,
-  resetAt: Date,
-  now: number = Date.now()
-): ClaudeRateLimitEvent[] {
-  const event: ClaudeRateLimitEvent = {
-    type: rateLimitTypeFor(resetAt, now),
-    hitAt: new Date(now),
-    resetAt,
-    resetTimeString: resetAt.toISOString(),
-  };
-  return [event, ...(events ?? []).filter((e) => resetMs(e) > now)].slice(0, MAX_EVENTS);
-}
+// zeenha fork: the event rules live in rate-limit-events.ts so the headless CLI
+// can share them without Electron; re-exported for existing callers.
+export { DEFAULT_RATE_LIMIT_COOLDOWN_MS, withRateLimitEvent } from './rate-limit-events';
 
 /**
  * Record a rate limit for a provider account id (resetAt in ms, or null when
@@ -53,7 +25,7 @@ export function withRateLimitEvent(
  */
 export async function recordAccountRateLimit(accountId: string, resetAt: number | null): Promise<void> {
   const now = Date.now();
-  const reset = new Date(resetAt && resetAt > now ? resetAt : now + DEFAULT_RATE_LIMIT_COOLDOWN_MS);
+  const reset = rateLimitResetDate(resetAt, now);
   let claudeProfileId: string | undefined;
   try {
     await updateSettingsFile((settings) => {
