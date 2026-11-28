@@ -13,18 +13,11 @@ on:
       - 'apps/desktop/biome.jsonc'
       - 'scripts/release-signing-gate*'
       - 'scripts/verify-windows-signatures.ps1'
+  # zeenha fork: no path filter on pull requests. The branch protection on
+  # zeenha requires this workflow's gate job, so a PR that skipped it could
+  # never merge. Pushes keep their filter.
   pull_request:
     branches: [main, develop, zeenha]
-    paths:
-      - 'apps/desktop/**'
-      - '.github/workflows/lint.yml'
-      - '.github/workflows/release.yml'
-      - '.github/workflows/beta-release.yml'
-      - '.github/actions/**'
-      - 'scripts/check-action-pins*.mjs'
-      - 'apps/desktop/biome.jsonc'
-      - 'scripts/release-signing-gate*'
-      - 'scripts/verify-windows-signatures.ps1'
   # zeenha fork: run the required gate on merge-queue commits, so each PR is
   # tested on top of the latest trunk and the PRs queued before it. merge_group
   # takes no path filters, so every queued commit runs the full gate.
