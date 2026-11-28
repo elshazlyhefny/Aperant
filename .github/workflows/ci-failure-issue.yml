@@ -1,10 +1,11 @@
 # Opens (or updates) an issue when the CI workflow fails on a push to
-# the default branch.
+# the default branch, and closes it once CI recovers there.
 #
 # workflow_run fires once the triggering run completes, whatever its
-# conclusion, so the `if:` below keeps only failures. It also keeps only `push`
-# runs on the default branch from this repository. The event runs this file
-# from the DEFAULT BRANCH, so it does nothing until this file is merged there.
+# conclusion, so the `if:` below keeps only failures and successes. It also
+# keeps only `push` runs on the default branch from this repository. The event
+# runs this file from the DEFAULT BRANCH, so it does nothing until this file is
+# merged there.
 #
 # The issue holds the run URL, branch, commit SHA, time, and the names of the
 # failed jobs and steps. It never holds log lines: the full logs stay in Actions.
@@ -14,6 +15,13 @@
 # issue, this run comments there instead of opening a duplicate. Closing the
 # issue re-arms it. `concurrency` serialises runs so two quick failures cannot
 # both open one.
+#
+# zeenha fork: issues used to stay open after the trunk went green again. A
+# successful run now closes (as completed, with a "Recovered in run" comment)
+# each open `ci-failure` issue whose markers are all for this branch and whose
+# jobs all succeeded in that run, or every one of them when every job in the
+# run succeeded or was skipped. A job that still fails, such as an advisory
+# one, keeps its issue open.
 #
 # It never summons an agent. Issues and comments created with GITHUB_TOKEN
 # trigger no workflows, so @claude/@codex workflows cannot start from here.
@@ -39,14 +47,15 @@ concurrency:
 jobs:
   report:
     if: >-
-      github.event.workflow_run.conclusion == 'failure'
+      (github.event.workflow_run.conclusion == 'failure'
+        || github.event.workflow_run.conclusion == 'success')
       && github.event.workflow_run.event == 'push'
       && github.event.workflow_run.head_branch == github.event.repository.default_branch
       && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Open or update the CI failure issue
+      - name: Open, update, or close the CI failure issue
         uses: actions/github-script@v9
         with:
           script: |
@@ -66,6 +75,40 @@ jobs:
             const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
               owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
             });
+
+            // zeenha fork: a green run closes the issues it shows are fixed.
+            if (run.conclusion === 'success') {
+              const passed = new Set(jobs.filter((j) => j.conclusion === 'success').map((j) => j.name));
+              const allPassed = jobs.length > 0
+                && jobs.every((j) => j.conclusion === 'success' || j.conclusion === 'skipped');
+              const KEY = /<!-- ci-failure-key: ([^\s\/]+)\/(\S+) -->/g;
+              const open = (await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, state: 'open', labels: LABEL, per_page: 100,
+              })).filter((i) => !i.pull_request);
+              for (const issue of open) {
+                let keys;
+                try {
+                  keys = [...(issue.body || '').matchAll(KEY)].map((m) => ({
+                    branch: decodeURIComponent(m[1]), job: decodeURIComponent(m[2]),
+                  }));
+                } catch (e) {
+                  core.info(`Skipped #${issue.number}: unreadable marker`);
+                  continue;
+                }
+                // Only issues this workflow opened for this branch, and only when fixed.
+                if (keys.length === 0 || keys.some((k) => k.branch !== branch)) continue;
+                if (!allPassed && !keys.every((k) => passed.has(k.job))) continue;
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: issue.number,
+                  body: `Recovered in run ${run.html_url} at ${tick(run.head_sha)}.`,
+                });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: issue.number, state: 'closed', state_reason: 'completed',
+                });
+                core.info(`Closed #${issue.number}`);
+              }
+              return;
+            }
             let failed = jobs
               .filter((j) => FAILED.has(j.conclusion))
               .map((j) => ({

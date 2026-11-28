@@ -259,12 +259,17 @@ def merge(event, agent):
             missing, failing = ci_status(pull)
             if failing:
                 raise ValueError(f"PR #{number} needs green CI: {', '.join(sorted(failing))}.")
+            # zeenha fork: PRs that each pass CI can still break the trunk when merged
+            # together, so a PR behind the trunk is updated and retested, never merged as is.
+            # Compare with the branch, not pull["base"]["sha"], which can lag the trunk tip.
+            if api(f"compare/{TRUNK}...{head}", public=True)["behind_by"] > 0:
+                api(f"pulls/{number}/update-branch", "PUT", {"expected_head_sha": head})
+                raise ValueError(
+                    f"PR #{number} was behind {TRUNK}, so it was updated from {TRUNK} and not merged. "
+                    "CI is re-running on the updated branch. Approve any requested CI run and "
+                    "issue the merge command again once the checks are green."
+                )
             if missing:
-                # A downstream PR may need a new check run against the new trunk.
-                base = pull["base"]["sha"]
-                if merged_branches and api(f"compare/{base}...{head}", public=True)["behind_by"] > 0:
-                    api(f"pulls/{number}/update-branch", "PUT", {"expected_head_sha": head})
-                    raise ValueError(f"PR #{number} is updating from {TRUNK}. Approve any requested CI run and wait for green checks.")
                 raise ValueError(f"PR #{number} needs green CI: {', '.join(sorted(missing))}.")
             latest = mergeable_pull(number)
             if (
