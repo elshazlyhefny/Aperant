@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const clickHandlers: Array<() => void> = [];
+const created: Array<{ title: string; body: string }> = [];
+let appLanguage = 'en';
 
 vi.mock('electron', () => {
   class MockNotification {
     static isSupported = vi.fn(() => true);
+    constructor(options: { title: string; body: string }) {
+      created.push(options);
+    }
     on(event: string, handler: () => void): void {
       if (event === 'click') clickHandlers.push(handler);
     }
@@ -15,6 +20,10 @@ vi.mock('electron', () => {
 
 vi.mock('../project-store', () => ({
   projectStore: { getProjects: vi.fn(() => []) }
+}));
+
+vi.mock('../app-language', () => ({
+  getAppLanguage: () => appLanguage
 }));
 
 import { notificationService } from '../notification-service';
@@ -88,5 +97,26 @@ describe('notificationService click handling', () => {
     notificationService.notifyTaskFailed('T', 'p', 't');
     expect(() => clickHandlers[1]()).not.toThrow();
     expect(win.webContents.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('notificationService budget warning', () => {
+  beforeEach(() => {
+    created.length = 0;
+    appLanguage = 'en';
+  });
+
+  it('shows the percent and usage in English', () => {
+    notificationService.notifyBudgetWarning('Add login', 'p', 't', { used: 820_000, limit: 1_000_000 });
+    expect(created).toEqual([
+      { title: 'Token budget at 82%', body: '"Add login" has used 820,000 of 1,000,000 budget tokens', silent: true }
+    ]);
+  });
+
+  it('uses the app language', () => {
+    appLanguage = 'fr';
+    notificationService.notifyBudgetWarning('Connexion', 'p', 't', { used: 800, limit: 1000 });
+    expect(created[0].title).toBe('Budget de tokens à 80 %');
+    expect(created[0].body).toContain('« Connexion »');
   });
 });

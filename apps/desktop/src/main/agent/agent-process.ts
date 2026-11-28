@@ -835,6 +835,10 @@ export class AgentProcessManager {
       this.emitter.emit('task-event', tId, event, pId);
     });
 
+    bridge.on('budget-warning', (tId: string, budget: { used: number; limit: number }, pId?: string) => {
+      this.emitter.emit('budget-warning', tId, budget, pId);
+    });
+
     bridge.on('exit', (tId: string, code: number | null, pType: ProcessType, pId?: string) => {
       this.state.deleteProcess(tId);
 

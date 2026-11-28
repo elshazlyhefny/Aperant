@@ -38,6 +38,8 @@ export interface AgentManagerEvents {
   exit: (taskId: string, code: number | null, processType: ProcessType, projectId?: string) => void;
   'execution-progress': (taskId: string, progress: ExecutionProgressData, projectId?: string) => void;
   'task-event': (taskId: string, event: TaskEventPayload, projectId?: string) => void;
+  /** zeenha fork: the task first reached the early token budget warning this run. */
+  'budget-warning': (taskId: string, budget: { used: number; limit: number }, projectId?: string) => void;
 }
 
 // IdeationConfig now imported from shared types to maintain consistency

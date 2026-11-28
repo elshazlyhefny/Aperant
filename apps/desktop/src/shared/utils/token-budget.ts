@@ -3,11 +3,21 @@
  */
 
 /**
- * Tokens that count against a budget: input + output.
+ * zeenha fork: weight of a cache-read token against the budget. Providers bill
+ * cache reads at roughly a tenth of fresh input, and one long task measured
+ * ~95% of its "tokens" as cache reads, so counting them at full weight paused
+ * tasks far earlier than their real cost justified.
+ */
+export const CACHE_READ_BUDGET_WEIGHT = 0.1;
+
+/**
+ * Tokens that count against a budget:
+ * (input - cacheRead) + output + cacheRead * CACHE_READ_BUDGET_WEIGHT.
  *
- * cacheRead and cacheCreation are deliberately ignored. As documented in
- * cli-events.ts, `input` already includes cached input, so the cache fields
- * are a subset of it and adding them would double count.
+ * As documented in cli-events.ts, `input` already includes cached input, so
+ * cacheRead is taken out of it and added back at its reduced weight.
+ * cacheCreation stays inside `input` at full weight. The result is rounded
+ * and never negative.
  */
 export function budgetTokens(tokens: {
   input: number;
@@ -15,7 +25,11 @@ export function budgetTokens(tokens: {
   cacheRead?: number;
   cacheCreation?: number;
 }): number {
-  return tokens.input + tokens.output;
+  // Missing or corrupt fields (e.g. from a hand-edited run_metrics.json) count as 0.
+  const count = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0);
+  const cacheRead = count(tokens.cacheRead);
+  const uncachedInput = Math.max(0, count(tokens.input) - cacheRead);
+  return Math.round(uncachedInput + count(tokens.output) + cacheRead * CACHE_READ_BUDGET_WEIGHT);
 }
 
 /** Returns a positive finite integer, or undefined for anything else. */

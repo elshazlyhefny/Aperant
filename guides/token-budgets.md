@@ -35,11 +35,21 @@ If the project has no limit, a blank task field means no budget, and a positive 
 
 ## What counts
 
-Input tokens plus output tokens. Cache read and cache creation tokens are not added, because the input count already includes cached input, so adding them would count the same tokens twice.
+Budget tokens = (input - cache read) + output + cache read x 0.1.
+
+The input count already includes cached input. Cache reads are taken out of it and added back at a tenth of their number, because a provider bills a cache read at a fraction of fresh input. Without the weighting, a long task that re-reads a large cached prompt on every step could reach its budget mostly on cache reads. Cache creation tokens stay inside input at full weight. The result is rounded to a whole number.
+
+Example: a session with 1,000,000 input tokens, of which 900,000 are cache reads, and 20,000 output tokens counts 100,000 + 20,000 + 90,000 = 210,000 budget tokens.
+
+A session that fails partway still counts the tokens it used before the failure.
 
 Usage is cumulative across all sessions of the task. It is read from the task's `run_metrics.json`, not counted per session.
 
 The limit is checked before every model request and after each finished step. A run can therefore end slightly above the limit.
+
+## Early warning
+
+The first time a task run reaches 80% of its budget without exceeding it, the task log gets a "Token budget warning" line and the app shows a system notification. It is sent once per run. The notification follows the project's "review needed" notification setting.
 
 ## What happens at the limit
 

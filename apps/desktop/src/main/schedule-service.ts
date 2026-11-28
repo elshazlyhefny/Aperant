@@ -19,6 +19,7 @@ import type {
   ScheduleTemplate,
 } from '../shared/types/schedule';
 import { advancePast, computeNextRun } from '../shared/utils/schedule-time';
+import { budgetTokens } from '../shared/utils/token-budget';
 
 /** Same default as the renderer queue (renderer/stores/task-store.ts). */
 const DEFAULT_MAX_PARALLEL_TASKS = 3;
@@ -46,7 +47,7 @@ export interface ScheduleServiceDeps {
   startTask(taskId: string): Promise<void>;
   isRunning(taskId: string): boolean;
   notifyChanged(projectId: string): void;
-  /** Total tokens (input + output) a task has used so far; 0 when unknown. Never throws. */
+  /** Budget tokens (see `budgetTokens()`) a task has used so far; 0 when unknown. Never throws. */
   readTaskTokens(projectId: string, specId: string): number;
   /** Stops a running task (execution-handlers stopTask; it emits USER_STOPPED itself). */
   stopTask(taskId: string): void;
@@ -55,7 +56,8 @@ export interface ScheduleServiceDeps {
 }
 
 function sumTokens(directory: string): number {
-  return readRunMetrics(directory).reduce((sum, s) => sum + (s.tokens?.input ?? 0) + (s.tokens?.output ?? 0), 0);
+  // zeenha fork: same weighting as the in-task budget guard (cache reads at a tenth).
+  return readRunMetrics(directory).reduce((sum, s) => sum + (s.tokens ? budgetTokens(s.tokens) : 0), 0);
 }
 
 /**

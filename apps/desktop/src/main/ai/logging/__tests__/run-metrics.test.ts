@@ -85,6 +85,49 @@ describe('buildSessionEntry', () => {
     });
     expect(entry.outcome).toBe('threw');
     expect(entry.durationMs).toBe(7000);
+    expect(entry.error).toBeUndefined();
+  });
+
+  it('records the session error, provider and account, redacted', () => {
+    const failed: SessionResult = {
+      ...result,
+      outcome: 'error',
+      error: { code: 'generic_error', message: `Bad request: api_key=sk-secret123456 ${'x'.repeat(600)}`, retryable: true },
+    };
+    const entry = buildSessionEntry({
+      ...base,
+      result: failed,
+      provider: 'openai',
+      accountId: 'pa_1_abc',
+      collector: new SessionMetricsCollector(),
+    });
+    expect(entry.error?.code).toBe('generic_error');
+    expect(entry.error?.retryable).toBe(true);
+    expect(entry.error?.message).not.toContain('sk-secret123456');
+    expect(entry.error?.message.length).toBe(500);
+    expect(entry.provider).toBe('openai');
+    expect(entry.accountId).toBe('pa_1_abc');
+    expect(entry.tokens.input).toBe(1000);
+  });
+
+  it('records the thrown error of a session that threw', () => {
+    const entry = buildSessionEntry({
+      ...base,
+      result: null,
+      thrownError: new Error('Incorrect API key provided: sk-proj-abcdefghijkl'),
+      collector: new SessionMetricsCollector(),
+    });
+    expect(entry.outcome).toBe('threw');
+    expect(entry.error).toEqual({ code: 'threw', message: 'Incorrect API key provided: sk-pro***' });
+    expect(buildSessionEntry({ ...base, result: null, thrownError: 'boom', collector: new SessionMetricsCollector() }).error)
+      .toEqual({ code: 'threw', message: 'boom' });
+  });
+
+  it('omits error, provider and account when there are none', () => {
+    const entry = buildSessionEntry({ ...base, result, collector: new SessionMetricsCollector() });
+    expect(entry).not.toHaveProperty('error');
+    expect(entry).not.toHaveProperty('provider');
+    expect(entry).not.toHaveProperty('accountId');
   });
 });
 

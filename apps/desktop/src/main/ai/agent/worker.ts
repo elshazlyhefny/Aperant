@@ -62,7 +62,7 @@ import { WorkerObserverProxy } from '../memory/ipc/worker-observer-proxy';
 import { createRecordMemoryTool } from '../memory/tools/record-memory';
 import { createSearchMemoryTool } from '../memory/tools/search-memory';
 import type { MemorySessionContext } from '../session/runner';
-import { buildOutcomeTaskEvents, budgetPauseMessage, budgetPauseTaskEvents } from './build-outcome-events';
+import { buildOutcomeTaskEvents, budgetPauseMessage, budgetPauseTaskEvents, budgetWarningMessage } from './build-outcome-events';
 import { budgetGateResult, budgetPauseResult } from './budget-gate';
 import { TokenBudgetGuard } from '../session/token-budget';
 import { TOKEN_BUDGET_ERROR_CODE } from '../session/types';
@@ -225,7 +225,13 @@ function readSpentTokens(session: SerializableSessionConfig): number {
 function createBudgetGuard(session: SerializableSessionConfig): TokenBudgetGuard | null {
   const limit = parseTokenBudget(session.tokenBudget);
   if (!limit) return null;
-  return new TokenBudgetGuard({ limit, readSpentTokens: () => readSpentTokens(session) });
+  return new TokenBudgetGuard({ limit, readSpentTokens: () => readSpentTokens(session), onWarning: warnBudget });
+}
+
+/** zeenha fork: early budget warning, fired once per task run by the guard. */
+function warnBudget(budget: { used: number; limit: number }): void {
+  postLog(budgetWarningMessage(budget));
+  postMessage({ type: 'budget-warning', taskId: config.taskId, projectId: config.projectId, ...budget });
 }
 
 /** Records the budget stop once, aborts the worker's work and logs the numbers. */
@@ -493,7 +499,9 @@ async function runSingleSession(
 
   const metrics = new SessionMetricsCollector();
   const startedAt = new Date();
-  const recordMetrics = (result: SessionResult | null): void => {
+  // zeenha fork: errors, provider and account go into run_metrics.json too, so
+  // a failed session can be traced without the task logs.
+  const recordMetrics = (result: SessionResult | null, thrownError?: unknown): void => {
     appendRunMetrics(
       [specDir, baseSession.sourceSpecDir],
       buildSessionEntry({
@@ -505,6 +513,9 @@ async function runSingleSession(
         thinkingLevel: phaseThinking,
         startedAt,
         result,
+        thrownError,
+        provider: connection.provider,
+        accountId: connection.accountId,
         collector: metrics,
       }),
     );
@@ -606,7 +617,7 @@ async function runSingleSession(
       contextWindowLimit,
     });
   } catch (error) {
-    recordMetrics(null);
+    recordMetrics(null, error);
     // Ensure log cleanup happens on failure
     if (logWriter && !skipPhaseLogging) {
       logWriter.endPhase(phase, false, phaseEndMessage(phase, false, error instanceof Error ? error.message : String(error)));
