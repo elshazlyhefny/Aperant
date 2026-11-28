@@ -101,11 +101,17 @@ export interface SessionMetricsInput {
   now?: Date;
 }
 
+/**
+ * zeenha fork: an error message as it may be recorded: redacted and capped.
+ * Provider errors can echo an API key (e.g. "Incorrect API key provided: sk-...").
+ */
+export function cleanErrorMessage(message: string): string {
+  return redactDetail(message).replace(/\b(sk-[\w-]{3})[\w-]{5,}/g, '$1***').slice(0, ERROR_MESSAGE_MAX_CHARS);
+}
+
 /** zeenha fork: the error to record, redacted and capped; undefined when the session did not fail. */
 function sessionError(input: SessionMetricsInput): SessionMetricsEntry['error'] {
-  // Provider errors can echo an API key (e.g. "Incorrect API key provided: sk-...").
-  const clean = (message: string) =>
-    redactDetail(message).replace(/\b(sk-[\w-]{3})[\w-]{5,}/g, '$1***').slice(0, ERROR_MESSAGE_MAX_CHARS);
+  const clean = cleanErrorMessage;
   if (input.result) {
     const error = input.result.error;
     if (!error) return undefined;

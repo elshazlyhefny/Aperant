@@ -17,6 +17,7 @@ import { join } from 'node:path';
 
 import { createSimpleClient } from '../client/factory';
 import { buildToolRegistry } from '../tools/build-registry';
+import { StreamUsageMeter, modelLabel, recordFeatureSession } from '../logging/feature-run-metrics';
 import type { ToolContext } from '../tools/types';
 import type { ModelShorthand, ThinkingLevel } from '../config/types';
 import type { SecurityProfile } from '../security/bash-validator';
@@ -343,24 +344,48 @@ export async function runIdeation(
       });
 
     const consume = async (result: ReturnType<typeof run>): Promise<void> => {
-      for await (const part of result.fullStream) {
-        switch (part.type) {
-          case 'text-delta': {
-            responseText += part.text;
-            onStream?.({ type: 'text-delta', text: part.text });
-            break;
-          }
-          case 'tool-call': {
-            onStream?.({ type: 'tool-use', name: part.toolName });
-            break;
-          }
-          case 'error': {
-            const errorMsg =
-              part.error instanceof Error ? part.error.message : String(part.error);
-            onStream?.({ type: 'error', error: errorMsg });
-            break;
+      // zeenha fork: record what each session (first run or retry) used, however it ends.
+      const meter = new StreamUsageMeter();
+      const sessionStartedAt = new Date();
+      let thrown: unknown;
+      let streamError: string | undefined;
+      try {
+        for await (const part of result.fullStream) {
+          meter.observe(part);
+          switch (part.type) {
+            case 'text-delta': {
+              responseText += part.text;
+              onStream?.({ type: 'text-delta', text: part.text });
+              break;
+            }
+            case 'tool-call': {
+              onStream?.({ type: 'tool-use', name: part.toolName });
+              break;
+            }
+            case 'error': {
+              const errorMsg =
+                part.error instanceof Error ? part.error.message : String(part.error);
+              streamError = errorMsg;
+              onStream?.({ type: 'error', error: errorMsg });
+              break;
+            }
           }
         }
+      } catch (error) {
+        thrown = error;
+        throw error;
+      } finally {
+        recordFeatureSession({
+          directory: outputDir,
+          agentType: 'ideation',
+          phase: ideationType,
+          model: modelLabel(client),
+          thinkingLevel: client.thinkingLevel,
+          startedAt: sessionStartedAt,
+          meter,
+          outcome: thrown !== undefined ? 'threw' : streamError ? 'error' : 'completed',
+          error: thrown ?? streamError,
+        });
       }
     };
 
