@@ -152,7 +152,7 @@ export function registerWorktreeHandlers(
           // branch in the main project (where changes will merge INTO; failure ignored, might be
           // detached HEAD), and the base branch using the fallback chain:
           // 1. Task metadata baseBranch, 2. Project settings mainBranch, 3. main/master detection
-          const [branch, currentProjectBranch, baseBranch] = await Promise.all([
+          const gitCalls = [
             execFileAsync(getToolPath('git'), ['rev-parse', '--abbrev-ref', 'HEAD'], {
               cwd: worktreePath,
               encoding: 'utf-8'
@@ -163,7 +163,13 @@ export function registerWorktreeHandlers(
             }).then(({ stdout }) => stdout.trim() as string | undefined)
               .catch(() => undefined),
             resolveTaskBaseBranchAsync({ project, specId: task.specId })
-          ]);
+          ] as const;
+          // zeenha fork: let every git call finish before answering, also when the
+          // worktree call fails first. Promise.all alone would return while git is
+          // still running in the project folder, and on Windows a running process
+          // keeps its working directory from being moved or deleted.
+          await Promise.allSettled(gitCalls);
+          const [branch, currentProjectBranch, baseBranch] = await Promise.all(gitCalls);
 
           // Commit count (cross-platform - no shell syntax) and diff stats in parallel.
           // Use working-tree diff against baseBranch to capture ALL changes

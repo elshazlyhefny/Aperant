@@ -44,7 +44,7 @@ describe('headless cli', () => {
     expect(createHeadlessSpec).toHaveBeenCalledWith(
       expect.objectContaining({
         description: 'x',
-        projectPath: '/p',
+        projectPath: path.resolve('/p'),
         configPath: 'c.json',
         json: true,
         verbose: true,
@@ -127,7 +127,7 @@ describe('headless cli', () => {
     expect(runHeadlessTask).toHaveBeenCalledWith(
       expect.objectContaining({
         spec: '001-x',
-        projectPath: '/p',
+        projectPath: path.resolve('/p'),
         configPath: 'c.json',
         baseBranch: 'main',
         noPush: true,
@@ -149,7 +149,7 @@ describe('headless cli', () => {
     expect(code).toBe(3);
     expect(runServe).toHaveBeenCalledWith(
       expect.objectContaining({
-        projectPath: '/p',
+        projectPath: path.resolve('/p'),
         configPath: 'c.json',
         schedulesPath: 's.json',
         projectId: 'pid',

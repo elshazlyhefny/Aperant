@@ -25,6 +25,7 @@ import { registerTaskDeliveryReceiptsHandlers } from '../../ipc-handlers/task/de
 import { projectStore } from '../../project-store';
 import { LEGACY_WORKTREE_DIR, TASK_WORKTREE_DIR } from '../../worktree-paths';
 import { runCli } from '../cli';
+import { closeHeadlessMemoryDatabases } from '../memory';
 import { type HeadlessBridge, type HeadlessRunOptions, runHeadlessTask } from '../run-task';
 import { runServe } from '../serve';
 
@@ -125,9 +126,12 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Unexpected fixture request')));
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  // zeenha fork: the memory test leaves the project's memory.db open in this
+  // process, and Windows cannot delete an open file.
+  await closeHeadlessMemoryDatabases();
   rmSync(root, { recursive: true, force: true });
 });
 
