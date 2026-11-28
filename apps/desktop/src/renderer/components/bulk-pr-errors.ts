@@ -43,6 +43,9 @@ export function getBulkPRErrorMessageKey(code: WorktreeCreatePRErrorCode | undef
       return 'taskReview:bulkPR.errors.ghTimeout';
     case 'RETRIES_EXHAUSTED':
       return 'taskReview:bulkPR.errors.retriesExhausted';
+    case 'BASE_CONFLICT':
+      // zeenha fork: interpolated with {{files}} (the result's conflictFiles).
+      return 'taskReview:bulkPR.errors.baseConflict';
     default:
       // NO_CHANGES, SECRETS_DETECTED (the server message lists the files and lines), GH_FAILED, MR_FAILED, UNKNOWN, undefined: use the server message
       return null;

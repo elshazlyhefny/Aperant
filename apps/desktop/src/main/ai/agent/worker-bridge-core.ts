@@ -245,6 +245,11 @@ export class WorkerBridgeCore extends EventEmitter {
         this.emitTyped('task-event', message.taskId, message.data as TaskEventPayload, message.projectId);
         break;
 
+      // zeenha fork: early token budget warning; the main process shows a notification.
+      case 'budget-warning':
+        this.emitTyped('budget-warning', message.taskId, { used: message.used, limit: message.limit }, message.projectId);
+        break;
+
       case 'result':
         this.handleResult(message.taskId, message.data, message.projectId);
         break;

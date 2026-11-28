@@ -61,24 +61,81 @@ class CommentAgentTest(unittest.TestCase):
         self.assertEqual(missing, run.REQUIRED_CHECKS)
         self.assertFalse(failing)
 
-    def test_merge_stops_on_a_later_failure(self):
-        def pull(number):
-            return {
-                "number": number, "state": "open", "draft": False, "merged": False,
-                "mergeable": True, "mergeable_state": "clean",
-                "base": {"ref": run.TRUNK, "sha": f"base-{number}"},
-                "head": {"sha": f"head-{number}", "ref": f"fix-{number}", "repo": {"full_name": run.REPO}},
-            }
+    @staticmethod
+    def open_pull(number):
+        return {
+            "number": number, "state": "open", "draft": False, "merged": False,
+            "mergeable": True, "mergeable_state": "clean",
+            "base": {"ref": run.TRUNK, "sha": f"base-{number}"},
+            "head": {"sha": f"head-{number}", "ref": f"fix-{number}", "repo": {"full_name": run.REPO}},
+        }
 
+    @staticmethod
+    def fake_api(behind=()):
+        """Answer compare and merge calls; PRs whose head is in `behind` lag the trunk."""
+        def answer(path, method="GET", data=None, *, public=False):
+            if path.startswith("compare/"):
+                return {"behind_by": 2 if path.rsplit("...", 1)[1] in behind else 0}
+            if path.endswith("/update-branch"):
+                return {"message": "Updating pull request branch."}
+            if path.endswith("/merge"):
+                return {"merged": True}
+            raise AssertionError(f"Unexpected API call: {method} {path}")
+        return answer
+
+    def test_merge_stops_on_a_later_failure(self):
         event = {"issue": {"number": 12}, "comment": {"body": "@codex merge #12 #13 #14"}}
         with (
-            patch.object(run, "mergeable_pull", side_effect=pull) as get_pull,
+            patch.object(run, "mergeable_pull", side_effect=self.open_pull) as get_pull,
             patch.object(run, "ci_status", side_effect=[(set(), set()), (set(), {"CI Complete"})]),
-            patch.object(run, "api", return_value={"merged": True}) as api,
+            patch.object(run, "api", side_effect=self.fake_api()) as api,
             patch.object(run, "comment") as comment,
         ):
             with self.assertRaisesRegex(ValueError, "PR #13 needs green CI"):
                 run.merge(event, "codex")
-        api.assert_called_once_with("pulls/12/merge", "PUT", {"sha": "head-12", "merge_method": "merge"})
+        api.assert_any_call("pulls/12/merge", "PUT", {"sha": "head-12", "merge_method": "merge"})
+        self.assertEqual([call.args[0] for call in api.call_args_list if call.args[0].endswith("/merge")], ["pulls/12/merge"])
         self.assertEqual([call.args[0] for call in get_pull.call_args_list], [12, 12, 13])
         self.assertIn("Merged #12. Stopped", comment.call_args.args[1])
+
+    def test_merge_checks_every_pr_against_the_latest_trunk(self):
+        event = {"issue": {"number": 12}, "comment": {"body": "@codex merge #12"}}
+        with (
+            patch.object(run, "mergeable_pull", side_effect=self.open_pull),
+            patch.object(run, "ci_status", return_value=(set(), set())),
+            patch.object(run, "api", side_effect=self.fake_api()) as api,
+            patch.object(run, "comment") as comment,
+        ):
+            run.merge(event, "codex")
+        api.assert_any_call(f"compare/{run.TRUNK}...head-12", public=True)
+        api.assert_any_call("pulls/12/merge", "PUT", {"sha": "head-12", "merge_method": "squash"})
+        self.assertIn("Merged #12", comment.call_args.args[1])
+
+    def test_merge_updates_a_green_pr_behind_the_trunk_instead_of_merging(self):
+        event = {"issue": {"number": 12}, "comment": {"body": "@codex merge #12"}}
+        with (
+            patch.object(run, "mergeable_pull", side_effect=self.open_pull),
+            patch.object(run, "ci_status", return_value=(set(), set())),
+            patch.object(run, "api", side_effect=self.fake_api(behind={"head-12"})) as api,
+            patch.object(run, "comment") as comment,
+        ):
+            with self.assertRaisesRegex(ValueError, "PR #12 was behind .* not merged"):
+                run.merge(event, "codex")
+        api.assert_any_call("pulls/12/update-branch", "PUT", {"expected_head_sha": "head-12"})
+        self.assertFalse([call for call in api.call_args_list if call.args[0].endswith("/merge")])
+        self.assertIn("issue the merge command again", comment.call_args.args[1])
+
+    def test_merge_keeps_earlier_prs_merged_when_a_later_one_is_behind(self):
+        event = {"issue": {"number": 12}, "comment": {"body": "@codex merge #12 #13"}}
+        with (
+            patch.object(run, "mergeable_pull", side_effect=self.open_pull),
+            patch.object(run, "ci_status", return_value=(set(), set())),
+            patch.object(run, "api", side_effect=self.fake_api(behind={"head-13"})) as api,
+            patch.object(run, "comment") as comment,
+        ):
+            with self.assertRaisesRegex(ValueError, "PR #13 was behind"):
+                run.merge(event, "codex")
+        merges = [call.args[0] for call in api.call_args_list if call.args[0].endswith("/merge")]
+        self.assertEqual(merges, ["pulls/12/merge"])
+        api.assert_any_call("pulls/13/update-branch", "PUT", {"expected_head_sha": "head-13"})
+        self.assertIn("Merged #12. Stopped: PR #13 was behind", comment.call_args.args[1])

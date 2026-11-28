@@ -5,13 +5,12 @@
  * from the config; the PAT is never written to disk.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import path from 'path';
 import { AUTO_BUILD_PATHS, getSpecsDir } from '../../../shared/constants';
 import type { TaskMetadata } from '../../../shared/types';
 import { sanitizeText, sanitizeUrl, sanitizeStringArray } from '../shared/sanitize';
-import { withSpecNumberLock } from '../../utils/spec-number-lock';
-import { buildSpecId } from '../../utils/spec-slug';
+import { allocateSpecDir } from '../../utils/spec-number-lock';
 import { applyDefaultTaskAgent } from '../../utils/default-task-agent';
 import { readSettingsFile } from '../../settings-utils';
 import { htmlToMarkdown, type AzureBoardsWorkItemData } from './boards-client';
@@ -102,44 +101,49 @@ export async function createSpecFromWorkItem(
   const prepared = item ? prepareWorkItem(item) : undefined;
   const specsDir = path.join(project.path, getSpecsDir(project.autoBuildPath));
 
-  return withSpecNumberLock<BoardsSpecResult>(project.path, lock => {
-    if (allowDuplicates !== true) {
-      const existingSpecId = findExistingBoardsSpecs(specsDir, organization, azureProject).get(id);
-      if (existingSpecId) return { kind: 'existing', specId: existingSpecId };
+  // zeenha fork: the shared allocator; the dedup check runs under its lock.
+  const allocation = await allocateSpecDir<BoardsSpecResult, BoardsSpecResult>(
+    project,
+    () => (prepared as NonNullable<typeof prepared>).title,
+    {
+      beforeAllocate: () => {
+        if (allowDuplicates !== true) {
+          const existingSpecId = findExistingBoardsSpecs(specsDir, organization, azureProject).get(id);
+          if (existingSpecId) return { skip: { kind: 'existing', specId: existingSpecId } };
+        }
+        if (!prepared) throw new Error('work item not found in Azure DevOps');
+        return undefined;
+      },
+      afterCreate: ({ specId, specDir }) => {
+        const { title, description, isBug, itemUrl } = prepared as NonNullable<typeof prepared>;
+        const now = new Date().toISOString();
+
+        writeFileSync(
+          path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN),
+          JSON.stringify({ feature: title, description, created_at: now, updated_at: now, status: 'pending', phases: [] }, null, 2),
+          'utf-8'
+        );
+        writeFileSync(
+          path.join(specDir, AUTO_BUILD_PATHS.REQUIREMENTS),
+          JSON.stringify({ task_description: description, workflow_type: 'feature' }, null, 2),
+          'utf-8'
+        );
+
+        // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
+        const metadata: TaskMetadata = applyDefaultTaskAgent({
+          sourceType: 'azure_boards',
+          azureBoardsWorkItemId: id,
+          azureBoardsUrl: itemUrl,
+          azureBoardsOrganization: organization,
+          azureBoardsProject: azureProject,
+          category: isBug ? 'bug_fix' : 'feature',
+        }, readSettingsFile());
+        // Publish the identity last, before another import can acquire the lock.
+        writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
+
+        return { kind: 'created', specId, specDir, description, metadata };
+      },
     }
-    if (!prepared) throw new Error('work item not found in Azure DevOps');
-
-    const { title, description, isBug, itemUrl } = prepared;
-    const specNumber = lock.getNextSpecNumber(project.autoBuildPath);
-    const specId = buildSpecId(specNumber, title);
-    const specDir = path.join(specsDir, specId);
-    mkdirSync(specDir, { recursive: true });
-
-    const now = new Date().toISOString();
-
-    writeFileSync(
-      path.join(specDir, AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN),
-      JSON.stringify({ feature: title, description, created_at: now, updated_at: now, status: 'pending', phases: [] }, null, 2),
-      'utf-8'
-    );
-    writeFileSync(
-      path.join(specDir, AUTO_BUILD_PATHS.REQUIREMENTS),
-      JSON.stringify({ task_description: description, workflow_type: 'feature' }, null, 2),
-      'utf-8'
-    );
-
-    // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
-    const metadata: TaskMetadata = applyDefaultTaskAgent({
-      sourceType: 'azure_boards',
-      azureBoardsWorkItemId: id,
-      azureBoardsUrl: itemUrl,
-      azureBoardsOrganization: organization,
-      azureBoardsProject: azureProject,
-      category: isBug ? 'bug_fix' : 'feature',
-    }, readSettingsFile());
-    // Publish the identity last, before another import can acquire the lock.
-    writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
-
-    return { kind: 'created', specId, specDir, description, metadata };
-  });
+  );
+  return 'skipped' in allocation ? allocation.skipped : allocation.created;
 }

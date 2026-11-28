@@ -14,7 +14,7 @@ vi.mock('ai', () => ({
 }));
 
 // Import after mocking
-import { runAgentSession } from '../runner';
+import { buildPromptCacheKey, runAgentSession } from '../runner';
 import type { RunnerOptions } from '../runner';
 
 // =============================================================================
@@ -425,7 +425,7 @@ describe('runAgentSession', () => {
       return mockStreamText.mock.calls[0][0].providerOptions;
     };
 
-    it('sends one key per session to OpenAI models, alongside the reasoning effort', async () => {
+    it('sends one key per task and agent type to OpenAI models, alongside the reasoning effort', async () => {
       mockStreamText.mockReturnValue(createMockStreamResult([], { text: 'done' }));
       await runAgentSession(
         createMockConfig({
@@ -434,10 +434,20 @@ describe('runAgentSession', () => {
         }),
       );
       const first = mockStreamText.mock.calls[0][0].providerOptions;
-      expect(first.openai).toEqual({ reasoningEffort: 'high', promptCacheKey: expect.any(String) });
+      expect(first.openai).toEqual({ reasoningEffort: 'high', promptCacheKey: expect.stringMatching(/^[0-9a-f]{32}$/) });
 
+      // A later session of the same agent on the same spec reuses the key.
       const second = await run({ provider: 'openai.responses', modelId: 'gpt-6.2-sol' });
-      expect(second.openai.promptCacheKey).not.toBe(first.openai.promptCacheKey);
+      expect(second.openai.promptCacheKey).toBe(first.openai.promptCacheKey);
+    });
+
+    it('keys differ across agent types and specs, and fall back to random without a spec', () => {
+      const coder = buildPromptCacheKey({ specDir: '/specs/001', agentType: 'coder' });
+      expect(buildPromptCacheKey({ specDir: '/specs/001', agentType: 'coder' })).toBe(coder);
+      expect(buildPromptCacheKey({ specDir: '/specs/001', agentType: 'qa_reviewer' })).not.toBe(coder);
+      expect(buildPromptCacheKey({ specDir: '/specs/002', agentType: 'coder' })).not.toBe(coder);
+      const a = buildPromptCacheKey({ specDir: '', agentType: 'coder' });
+      expect(a).not.toBe(buildPromptCacheKey({ specDir: '', agentType: 'coder' }));
     });
 
     it('sends no key to other providers', async () => {

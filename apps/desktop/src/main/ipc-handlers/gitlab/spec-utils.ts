@@ -6,14 +6,14 @@
  */
 
 import { mkdir, writeFile, stat } from 'fs/promises';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import path from 'path';
 import type { Project, TaskMetadata } from '../../../shared/types';
 import type { GitLabAPIIssue, GitLabAPINoteBasic, GitLabConfig } from './types';
 import { labelMatchesWholeWord } from '../shared/label-utils';
 import { sanitizeText, sanitizeStringArray } from '../shared/sanitize';
-import { buildSpecId } from '../../utils/spec-slug';
-import { withSpecNumberLock } from '../../utils/spec-number-lock';
+import { getSpecsDir } from '../../../shared/constants';
+import { allocateSpecDir } from '../../utils/spec-number-lock';
 import { applyDefaultTaskAgent } from '../../utils/default-task-agent';
 import { readSettingsFile } from '../../settings-utils';
 import { createDebugLog } from '../../../shared/utils/debug-logger';
@@ -403,40 +403,46 @@ export async function createSpecForIssue(
     const safeProject = sanitizeText(config.project, 200);
     const safeInstanceUrl = sanitizeInstanceUrl(config.instanceUrl);
 
-    const specsDir = path.join(project.path, project.autoBuildPath, 'specs');
+    // zeenha fork: getSpecsDir, the same folder the allocator creates the spec in
+    // (identical to the old `<autoBuildPath>/specs` whenever autoBuildPath is set).
+    const specsDir = path.join(project.path, getSpecsDir(project.autoBuildPath));
 
     // Ensure specs directory exists
     await mkdir(specsDir, { recursive: true });
 
     // Look up an existing spec and allocate a new number under ONE lock so
     // concurrent imports of the same issue cannot both create a spec.
-    const allocation = await withSpecNumberLock<{ existing: string } | { created: string }>(project.path, (lock) => {
-      const found = findExistingGitLabSpecs(specsDir, safeProject, safeInstanceUrl).get(safeIssue.iid);
-      if (found) return { existing: found };
-      const specNumber = lock.getNextSpecNumber(project.autoBuildPath);
-      const newSpecId = buildSpecId(specNumber, safeIssue.title);
-      mkdirSync(path.join(specsDir, newSpecId), { recursive: true });
-      // Write metadata.json inside the lock so a concurrent import of the same
-      // issue finds this spec instead of allocating a second one.
-      // CodeQL: network data validated before write - all values derived from sanitized safeIssue fields
-      const metadata = {
-        source: 'gitlab',
-        gitlab: {
-          issueId: safeIssue.id,
-          issueIid: safeIssue.iid,
-          instanceUrl: safeInstanceUrl,
-          project: safeProject,
-          webUrl: safeIssue.web_url,
-          state: safeIssue.state,
-          labels: safeIssue.labels,
-          createdAt: safeIssue.created_at
-        },
-        createdAt: new Date().toISOString(),
-        status: 'pending'
-      };
-      writeFileSync(path.join(specsDir, newSpecId, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
-      return { created: newSpecId };
+    // zeenha fork: the shared allocator; the lookup and the metadata write run under its lock.
+    const allocated = await allocateSpecDir<string, undefined>(project, safeIssue.title, {
+      beforeAllocate: () => {
+        const found = findExistingGitLabSpecs(specsDir, safeProject, safeInstanceUrl).get(safeIssue.iid);
+        return found ? { skip: found } : undefined;
+      },
+      afterCreate: ({ specDir: newSpecDir }) => {
+        // Write metadata.json inside the lock so a concurrent import of the same
+        // issue finds this spec instead of allocating a second one.
+        // CodeQL: network data validated before write - all values derived from sanitized safeIssue fields
+        const metadata = {
+          source: 'gitlab',
+          gitlab: {
+            issueId: safeIssue.id,
+            issueIid: safeIssue.iid,
+            instanceUrl: safeInstanceUrl,
+            project: safeProject,
+            webUrl: safeIssue.web_url,
+            state: safeIssue.state,
+            labels: safeIssue.labels,
+            createdAt: safeIssue.created_at
+          },
+          createdAt: new Date().toISOString(),
+          status: 'pending'
+        };
+        writeFileSync(path.join(newSpecDir, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
+        return undefined;
+      }
     });
+    const allocation: { existing: string } | { created: string } =
+      'skipped' in allocated ? { existing: allocated.skipped } : { created: allocated.specId };
 
     if ('existing' in allocation) {
       const existingName = allocation.existing;

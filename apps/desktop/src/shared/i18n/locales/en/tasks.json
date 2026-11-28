@@ -391,7 +391,7 @@
     "fastModeDescription": "Same Opus 4.6 model with faster output. Higher cost per token.",
     "fastModeNotice": "Requires \"extra usage\" enabled on your Claude subscription.",
     "tokenBudgetLabel": "Token budget",
-    "tokenBudgetDescription": "Pause this task when it has used this many input + output tokens. Leave blank to use the project default.",
+    "tokenBudgetDescription": "Pause this task when it has used this many budget tokens (input and output, with cache reads counted at a tenth). Leave blank to use the project default.",
     "tokenBudgetInherited": "Project default: {{value}} tokens",
     "tokenBudgetInheritedNone": "Project default: none",
     "tokenBudgetPlaceholder": "e.g. 500000",
@@ -544,14 +544,14 @@
       "detail": "Detail"
     },
     "tokens": {
-      "budget": "Budget tokens (input + output)",
+      "budget": "Budget tokens (input + output, cache reads at 10%)",
       "input": "Input tokens",
       "output": "Output tokens",
       "cacheRead": "Cache read tokens",
       "cacheCreation": "Cache creation tokens"
     },
     "budgetUsed": "{{used}} of {{limit}} tokens ({{percent}}%)",
-    "note": "Entries carry tokens and durations only; no monetary cost is shown. Cache reads are included in input tokens and are not added again to the budget."
+    "note": "Entries carry tokens and durations only; no monetary cost is shown. Cache reads are included in input tokens; the budget counts them at a tenth of their number."
   },
   "delivery": {
     "title": "Delivery and token usage",
@@ -657,6 +657,12 @@
       "branch_mismatch": "The task's worktree is not on the pull request's branch, so no follow-up can run here.",
       "head_changed": "The pull request changed since you loaded the feedback (a new commit was pushed). Refresh, review the new revision and select again. Nothing was started.",
       "head_unverified": "The pull request revision could not be verified, so the follow-up was not started. Refresh and try again. Nothing was started."
+    }
+  },
+  "tokenBudgetWarning": {
+    "notification": {
+      "title": "Token budget at {{percent}}%",
+      "body": "\"{{title}}\" has used {{used}} of {{limit}} budget tokens"
     }
   },
   "tokenBudgetBanner": {

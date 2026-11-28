@@ -134,7 +134,7 @@ describe('Schedules', () => {
     await renderSchedules();
     fireEvent.click(await screen.findByText('schedules:buttons.runNow'));
     expect(await screen.findByText('schedules:runNow.started')).toBeTruthy();
-    expect(api.runScheduleNow).toHaveBeenCalledWith('s1');
+    expect(api.runScheduleNow).toHaveBeenCalledWith('p1', 's1');
   });
 
   it('keeps the new project unchanged when run now finishes after switching projects', async () => {
@@ -147,7 +147,7 @@ describe('Schedules', () => {
 
     const view = await renderSchedules();
     fireEvent.click(screen.getByRole('button', { name: 'schedules:buttons.runNow' }));
-    expect(api.runScheduleNow).toHaveBeenCalledWith('s1');
+    expect(api.runScheduleNow).toHaveBeenCalledWith('p1', 's1');
 
     view.rerender(<Schedules projectId="p2" />);
     await loadSchedulesForProject('p2');
@@ -195,7 +195,7 @@ describe('Schedules', () => {
     expect(await screen.findByRole('alert')).toBeTruthy();
     fireEvent.click(screen.getByText('schedules:buttons.dismiss'));
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
-    expect(api.acknowledgeScheduleReports).toHaveBeenCalledWith('s1', ['r1']);
+    expect(api.acknowledgeScheduleReports).toHaveBeenCalledWith('p1', 's1', ['r1']);
   });
 
   const seedTasks = () =>
@@ -348,7 +348,7 @@ describe('Schedules', () => {
     const dialog = await screen.findByRole('alertdialog');
     fireEvent.click(within(dialog).getByText('schedules:buttons.delete'));
     await waitFor(() => expect(screen.queryByText('schedules:delete.title')).toBeNull());
-    expect(api.deleteSchedule).toHaveBeenCalledWith('s1');
+    expect(api.deleteSchedule).toHaveBeenCalledWith('p1', 's1');
   });
 
   it('shows an error when pausing a schedule fails', async () => {

@@ -555,9 +555,7 @@ export function WorkspaceStatus({
               </span>
             ) : totalRenames > 0 ? (
               <span className="text-warning"> {t('taskReview:merge.fileRenamesDetected', { count: totalRenames })}</span>
-            ) : (
-              <span className="text-warning"> {t('taskReview:merge.filesRenamedOrMoved')}</span>
-            )}
+            ) : null /* zeenha fork: the preview now reports commits behind without a rename analysis, so it no longer guesses that files were renamed or moved. */}
           </div>
         )}
       </div>

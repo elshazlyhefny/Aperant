@@ -489,7 +489,7 @@
       },
       "tokenBudget": {
         "label": "Token budget",
-        "description": "Pauses a task when it reaches this many tokens. Leave blank for no budget. Counts input and output tokens (cache reads are already included in input). Checked before every model request. Applies to planning, coding and QA sessions on both the Vercel AI SDK and Claude Code engines. Does not apply to spec creation, insights or other runners.",
+        "description": "Pauses a task when it reaches this many tokens. Leave blank for no budget. Counts input and output tokens; cache reads, which are part of input, count at a tenth. A warning is sent once when a task reaches 80%. Checked before every model request. Applies to planning, coding and QA sessions on both the Vercel AI SDK and Claude Code engines. Does not apply to spec creation, insights or other runners.",
         "placeholder": "No budget",
         "invalid": "Enter a whole number greater than 0, or leave blank for no budget."
       },

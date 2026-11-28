@@ -6,11 +6,9 @@
  */
 
 import { getMemoryClient } from '../../ai/memory/db';
-import { EmbeddingService } from '../../ai/memory/embedding-service';
 import type { EmbeddingConfig } from '../../ai/memory/embedding-service';
-import { RetrievalPipeline } from '../../ai/memory/retrieval/pipeline';
-import { Reranker } from '../../ai/memory/retrieval/reranker';
-import { MemoryServiceImpl } from '../../ai/memory/memory-service';
+import { createMemoryService } from '../../ai/memory/create-memory-service';
+import type { MemoryServiceImpl } from '../../ai/memory/memory-service';
 import { readSettingsFile } from '../../settings-utils';
 import { isSecretEnvelope } from '../../../shared/utils/secret-envelope';
 
@@ -55,13 +53,9 @@ export async function getMemoryService(): Promise<MemoryServiceImpl> {
 
   _initPromise = (async () => {
     const db = await getMemoryClient();
-    const embeddingService = new EmbeddingService(db, buildEmbeddingConfig());
-    await embeddingService.initialize();
-    _embeddingProvider = embeddingService.getProvider();
-    const reranker = new Reranker();
-    await reranker.initialize();
-    const pipeline = new RetrievalPipeline(db, embeddingService, reranker);
-    _instance = new MemoryServiceImpl(db, embeddingService, pipeline);
+    const created = await createMemoryService(db, buildEmbeddingConfig());
+    _embeddingProvider = created.embeddingProvider;
+    _instance = created.service;
     return _instance;
   })();
 

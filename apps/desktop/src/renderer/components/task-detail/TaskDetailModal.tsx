@@ -236,8 +236,9 @@ function TaskDetailModalContent({ open, task, onOpenChange, onSwitchToTerminals,
         }
         return result.data;
       }
-      // Propagate IPC error; let CreatePRDialog use its i18n fallback
-      return { success: false, error: result.error, prUrl: undefined, alreadyExists: false };
+      // Propagate IPC error; let CreatePRDialog use its i18n fallback.
+      // zeenha fork: keep the failure's errorCode and conflictFiles when present.
+      return { prUrl: undefined, alreadyExists: false, ...result.data, success: false, error: result.error ?? result.data?.error };
     } catch (error) {
       // Propagate actual error message; let CreatePRDialog handle i18n fallback for undefined
       return { success: false, error: error instanceof Error ? error.message : undefined, prUrl: undefined, alreadyExists: false };

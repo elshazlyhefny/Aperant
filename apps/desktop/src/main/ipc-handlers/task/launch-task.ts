@@ -105,6 +105,30 @@ export function planHasSubtasks(specDir: string): boolean {
 }
 
 /**
+ * zeenha fork: Ideation and Roadmap write a stub spec.md when they create a
+ * task, so the "spec exists" check below sent them straight to the planner and
+ * the spec pipeline (complexity assessment, requirements, research, critique)
+ * never ran for them. A stub task still needs spec creation when the pipeline
+ * has not assessed it yet (no complexity_assessment.json) and nothing has been
+ * planned (no subtasks), so a task that is already planned or partly built is
+ * never re-specced.
+ */
+const STUB_SPEC_SOURCES = new Set(['ideation', 'roadmap']);
+
+export function needsSpecFromStub(specDir: string, hasSubtasks: boolean): boolean {
+  if (hasSubtasks) return false;
+  if (existsSync(path.join(specDir, 'complexity_assessment.json'))) return false;
+  const raw = safeReadFileSync(path.join(specDir, 'task_metadata.json'));
+  if (!raw) return false;
+  try {
+    const sourceType = (JSON.parse(raw) as { sourceType?: unknown } | null)?.sourceType;
+    return typeof sourceType === 'string' && STUB_SPEC_SOURCES.has(sourceType);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Base branch for a launch. Delegates to the shared resolver (task_metadata.json,
  * then project settings, then detected trunk, then 'main'), so it is never undefined.
  */
@@ -194,12 +218,19 @@ export function launchTask(params: LaunchTaskParams): LaunchTaskResult {
 
   console.warn(`${logTag} hasSpec:`, hasSpec, 'planHasSubtasks:', hasSubtasks);
 
-  if (!hasSpec) {
-    console.warn(`${logTag} Starting spec creation for:`, task.specId, 'in:', specDir, 'baseBranch:', baseBranch);
+  const fromStub = hasSpec && needsSpecFromStub(specDir, hasSubtasks);
+
+  if (!hasSpec || fromStub) {
+    console.warn(
+      `${logTag} Starting spec creation${fromStub ? ' from stub spec' : ''} for:`,
+      task.specId, 'in:', specDir, 'baseBranch:', baseBranch
+    );
+    // zeenha fork: a stub spec holds the full idea/feature text, so it is the task description.
+    const stubSpec = fromStub ? safeReadFileSync(path.join(specDir, AUTO_BUILD_PATHS.SPEC_FILE))?.trim() : undefined;
     agentManager.startSpecCreation(
       taskId,
       project.path,
-      task.description || task.title,
+      stubSpec || task.description || task.title,
       specDir,
       task.metadata,
       baseBranch,

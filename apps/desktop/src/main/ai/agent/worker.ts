@@ -26,7 +26,7 @@ import type { ToolRegistry } from '../tools/registry';
 import { SubagentExecutorImpl } from '../orchestration/subagent-executor';
 import type { ToolContext } from '../tools/types';
 import type { SecurityProfile } from '../security/bash-validator';
-import { parseEnvPassthrough } from '../security/child-env';
+import { buildChildEnv, parseEnvPassthrough } from '../security/child-env';
 import { parseSandboxMode } from '../security/sandbox';
 import { parseWebFetchProvider } from '../tools/providers/types';
 import type {
@@ -41,6 +41,8 @@ import type { Tool as AITool } from 'ai';
 import type { SessionConfig, StreamEvent, SessionResult } from '../session/types';
 import { BuildOrchestrator } from '../orchestration/build-orchestrator';
 import { QALoop } from '../orchestration/qa-loop';
+import { runVerifyGate, type VerifyGateResult } from '../orchestration/verify-gate';
+import { readProjectRepoConfig } from '../worktree/project-repo-config';
 import { SpecOrchestrator } from '../orchestration/spec-orchestrator';
 import type { SpecPhase } from '../orchestration/spec-orchestrator';
 import type { AgentType } from '../config/agent-configs';
@@ -60,7 +62,7 @@ import { WorkerObserverProxy } from '../memory/ipc/worker-observer-proxy';
 import { createRecordMemoryTool } from '../memory/tools/record-memory';
 import { createSearchMemoryTool } from '../memory/tools/search-memory';
 import type { MemorySessionContext } from '../session/runner';
-import { buildOutcomeTaskEvents, budgetPauseMessage, budgetPauseTaskEvents } from './build-outcome-events';
+import { buildOutcomeTaskEvents, budgetPauseMessage, budgetPauseTaskEvents, budgetWarningMessage } from './build-outcome-events';
 import { budgetGateResult, budgetPauseResult } from './budget-gate';
 import { TokenBudgetGuard } from '../session/token-budget';
 import { TOKEN_BUDGET_ERROR_CODE } from '../session/types';
@@ -224,7 +226,13 @@ function readSpentTokens(session: SerializableSessionConfig): number {
 function createBudgetGuard(session: SerializableSessionConfig): TokenBudgetGuard | null {
   const limit = parseTokenBudget(session.tokenBudget);
   if (!limit) return null;
-  return new TokenBudgetGuard({ limit, readSpentTokens: () => readSpentTokens(session) });
+  return new TokenBudgetGuard({ limit, readSpentTokens: () => readSpentTokens(session), onWarning: warnBudget });
+}
+
+/** zeenha fork: early budget warning, fired once per task run by the guard. */
+function warnBudget(budget: { used: number; limit: number }): void {
+  postLog(budgetWarningMessage(budget));
+  postMessage({ type: 'budget-warning', taskId: config.taskId, projectId: config.projectId, ...budget });
 }
 
 /** Records the budget stop once, aborts the worker's work and logs the numbers. */
@@ -388,7 +396,33 @@ async function assemblePrompt(
     specDir: session.specDir,
     projectDir: session.projectDir,
     projectInstructions: cachedProjectInstructions,
+    baseBranch: session.baseBranch,
   });
+}
+
+/**
+ * zeenha fork: the QA verify gate for this task. Commands come from the main
+ * checkout's `.aperant.json`, read when the gate runs; none means "skipped".
+ */
+function createVerifyGate(
+  session: SerializableSessionConfig,
+  securityProfile: SecurityProfile,
+): (signal?: AbortSignal) => Promise<VerifyGateResult> {
+  return (signal) => {
+    const projectPath = session.mainProjectDir ?? session.projectDir;
+    const repoConfig = readProjectRepoConfig(projectPath);
+    if (repoConfig.verifyCommands) {
+      postLog(`Running the QA verify gate: ${repoConfig.verifyCommands.join(' ; ')}`);
+    }
+    return runVerifyGate({
+      worktreePath: session.projectDir,
+      projectPath,
+      baseBranch: session.baseBranch ?? repoConfig.baseBranch ?? 'main',
+      commands: repoConfig.verifyCommands,
+      signal,
+      env: buildChildEnv(process.env, { passthrough: securityProfile.envPassthrough }),
+    });
+  };
 }
 
 // =============================================================================
@@ -466,7 +500,9 @@ async function runSingleSession(
 
   const metrics = new SessionMetricsCollector();
   const startedAt = new Date();
-  const recordMetrics = (result: SessionResult | null): void => {
+  // zeenha fork: errors, provider and account go into run_metrics.json too, so
+  // a failed session can be traced without the task logs.
+  const recordMetrics = (result: SessionResult | null, thrownError?: unknown): void => {
     appendRunMetrics(
       [specDir, baseSession.sourceSpecDir],
       buildSessionEntry({
@@ -478,6 +514,9 @@ async function runSingleSession(
         thinkingLevel: phaseThinking,
         startedAt,
         result,
+        thrownError,
+        provider: connection.provider,
+        accountId: connection.accountId,
         collector: metrics,
       }),
     );
@@ -579,7 +618,7 @@ async function runSingleSession(
       contextWindowLimit,
     });
   } catch (error) {
-    recordMetrics(null);
+    recordMetrics(null, error);
     // Ensure log cleanup happens on failure
     if (logWriter && !skipPhaseLogging) {
       logWriter.endPhase(phase, false, phaseEndMessage(phase, false, error instanceof Error ? error.message : String(error)));
@@ -837,6 +876,7 @@ async function runBuildOrchestrator(
     projectDir: session.projectDir,
     sourceSpecDir: session.sourceSpecDir,
     abortSignal: abortController.signal,
+    verifyGate: createVerifyGate(session, toolContext.securityProfile),
 
     generatePrompt: async (agentType, _phase, context) => {
       const promptName = agentType === 'coder' ? 'coder' : agentType;
@@ -1025,6 +1065,7 @@ async function runQALoop(
     specDir: session.specDir,
     projectDir: session.projectDir,
     abortSignal: abortController.signal,
+    verifyGate: createVerifyGate(session, toolContext.securityProfile),
 
     generatePrompt: async (agentType, _context) => {
       const promptName = agentType === 'qa_fixer' ? 'qa_fixer' : 'qa_reviewer';

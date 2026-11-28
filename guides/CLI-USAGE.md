@@ -161,11 +161,12 @@ The command never reads the desktop app's settings. Credentials come from the en
     "envPassthrough": [],
     "bashSandbox": "off",
     "defaultTokenBudget": 1000000
-  }
+  },
+  "memory": { "enabled": true }
 }
 ```
 
-`providerAccounts` uses the same account objects as the app. `globalPriorityOrder` lists account ids in the order to try them. When both are set, the account queue is tried first, then the environment. `project` overrides the main branch, whether to push, extra environment variable names passed to Bash, and the sandbox mode. `project.defaultTokenBudget` sets an optional [token budget](#token-budget) for builds without a task value. A config file that is missing or invalid stops the run with exit code 1.
+`memory.enabled` turns agent memory on or off (default on; see [Behaviour](#behaviour)). `providerAccounts` uses the same account objects as the app. `globalPriorityOrder` lists account ids in the order to try them. When both are set, the account queue is tried first, then the environment. `project` overrides the main branch, whether to push, extra environment variable names passed to Bash, and the sandbox mode. `project.defaultTokenBudget` sets an optional [token budget](#token-budget) for builds without a task value. A config file that is missing or invalid stops the run with exit code 1.
 
 `webhook` sends a message in Slack, Microsoft Teams or Discord format when the run ends (`format` is `auto`, `slack`, `teams` or `discord`; `auto` is the default and detects it from the URL): `review_ready` on exit 0, `blocked` on exit 2, `failed` on exit 1, except `account_required` (gated by the `blocked` toggle) when the run paused because no account is usable for a phase's provider. The `APERANT_WEBHOOK_URL` environment variable overrides `webhook.url`, and `APERANT_WEBHOOK_SECRET` overrides `webhook.secret`. With a secret, requests are signed, whatever the format (see [Signing requests](notifications-and-webhooks.md#signing-requests-optional-secret)). A webhook problem never changes the exit code. See [notifications-and-webhooks.md](notifications-and-webhooks.md#headless-runs-clijs-run).
 
@@ -216,7 +217,7 @@ The CLI reports the effective budget before starting the build:
 
 The source is `task` for a task override (including `0` or an invalid value), `schedule` for a schedule's per-run budget, `config` for the headless default, or `none` when no value is set.
 
-Usage is cumulative across the task: input plus output tokens, with cache tokens not added again. The budget is not a hard real-time cap. Each planning, coding and QA session re-reads the usage recorded in `run_metrics.json` at the start of the session. A running session checks its own usage between model requests and steps. A schedule's per-run budget is also checked between sessions. A run can end above the limit.
+Usage is cumulative across the task, counted as budget tokens: input plus output, with cache reads counted at a tenth (see [What counts](token-budgets.md#what-counts)). The budget is not a hard real-time cap. Each planning, coding and QA session re-reads the usage recorded in `run_metrics.json` at the start of the session. A running session checks its own usage between model requests and steps. A schedule's per-run budget is also checked between sessions. A run can end above the limit.
 
 When the limit is reached the run stops with exit code 1 (not 0, not 2). It prints `reason: token budget reached: <used> of <limit> tokens used` on stderr and a final `RESULT error exit=1 ...` line. It is never reported as success.
 
@@ -235,7 +236,7 @@ These match the app:
 
 Differences from the app:
 
-- Memory is off (no memory service).
+- Memory is on, as in the app, but it lives in a separate file per project, `.auto-claude/memory.db` in the main checkout, not in the app's data folder. Memories recorded by the CLI are not shown in the app, and the CLI does not see the app's memories. Embeddings use a local Ollama model when one is running and an offline fallback otherwise; the app's hosted embedding settings are not read. Set `"memory": { "enabled": false }` in the `--config` file to turn memory off.
 - No desktop notifications.
 - The task's status is not shown in the Kanban board.
 

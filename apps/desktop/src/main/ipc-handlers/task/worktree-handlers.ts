@@ -8,7 +8,7 @@ import { projectStore } from '../../project-store';
 
 import { MergeOrchestrator } from '../../ai/merge/orchestrator';
 import { pruneFinishedTask } from '../../ai/merge/file-evolution';
-import { createPR, createMR, createBitbucketPR, createAzureDevOpsPR, suggestPRTitleForWorktree } from '../../ai/runners/github/pr-creator';
+import { createPR, createMR, createBitbucketPR, createAzureDevOpsPR, suggestPRTitleForWorktree, commitsBehindBase } from '../../ai/runners/github/pr-creator';
 import { capPRTitle } from '../../../shared/utils/pr-title';
 import { findTaskAndProject } from './shared';
 import { updateRoadmapFeatureOutcome } from '../../utils/roadmap-utils';
@@ -398,6 +398,24 @@ export function registerWorktreeHandlers(
           reason: String(c['reason'] ?? ''),
         }));
 
+        // zeenha fork: tell the renderer how far the base has moved since the
+        // worktree was created, so its existing "N new commits on base" notice
+        // shows. Only the count is reported: no git conflicts were checked here,
+        // so hasConflicts stays false.
+        const commitsBehind = worktreePath
+          ? await commitsBehindBase(worktreePath, getToolPath('git'), effectiveBaseBranch)
+          : null;
+        const gitConflicts = commitsBehind
+          ? {
+              hasConflicts: false,
+              conflictingFiles: [],
+              needsRebase: true,
+              commitsBehind,
+              baseBranch: effectiveBaseBranch.replace(/^origin\//, ''),
+              specBranch: `auto-claude/${task.specId}`,
+            }
+          : undefined;
+
         return {
           success: true,
           data: {
@@ -413,6 +431,7 @@ export function registerWorktreeHandlers(
                 autoMergeable: summary?.['auto_mergeable'] ?? 0,
                 hasGitConflicts: false,
               },
+              gitConflicts,
               // Include uncommitted changes info for the frontend
               uncommittedChanges: hasUncommittedChanges ? {
                 hasChanges: true,
@@ -895,10 +914,14 @@ export function registerWorktreeHandlers(
 
       // zeenha fork: top-level success/error stay as before; the code rides in
       // data so callers need not match on the message text.
-      const fail = (errorCode: WorktreeCreatePRErrorCode, error: string): IPCResult<WorktreeCreatePRResult> => ({
+      const fail = (
+        errorCode: WorktreeCreatePRErrorCode,
+        error: string,
+        conflictFiles?: string[]
+      ): IPCResult<WorktreeCreatePRResult> => ({
         success: false,
         error,
-        data: { success: false, error, errorCode }
+        data: { success: false, error, errorCode, ...(conflictFiles ? { conflictFiles } : {}) }
       });
 
       try {
@@ -1068,7 +1091,7 @@ export function registerWorktreeHandlers(
           };
         }
 
-        return fail(result.errorCode ?? 'UNKNOWN', result.error || 'Failed to create PR');
+        return fail(result.errorCode ?? 'UNKNOWN', result.error || 'Failed to create PR', result.conflictFiles);
       } catch (error) {
         console.error('[CREATE_PR] Exception in handler:', error);
         return fail('UNKNOWN', error instanceof Error ? error.message : 'Failed to create PR');

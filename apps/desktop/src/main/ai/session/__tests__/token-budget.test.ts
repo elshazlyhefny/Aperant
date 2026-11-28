@@ -68,6 +68,61 @@ describe('TokenBudgetGuard', () => {
     expect(guard.enabled).toBe(false);
     expect(guard.isExceeded(1e9)).toBe(false);
   });
+
+  it('counts committed cache reads at a tenth', () => {
+    const guard = new TokenBudgetGuard({ limit: 10_000, readSpentTokens: () => 0 });
+    guard.commitSegment({ promptTokens: 1000, completionTokens: 100, cacheReadTokens: 900 });
+    expect(guard.used()).toBe(100 + 100 + 90);
+  });
+
+  it('weights cache reads in the stop condition', () => {
+    const guard = new TokenBudgetGuard({ limit: 300, readSpentTokens: () => 0 });
+    const stop = guard.buildStopCondition();
+    const cached = { usage: { inputTokens: 1000, outputTokens: 0, inputTokenDetails: { cacheReadTokens: 1000 } } };
+    // 1000 cache reads count as 100, under the limit of 300.
+    expect(stop({ steps: [cached] } as never)).toBe(false);
+    expect(stop({ steps: [cached, cached, cached] } as never)).toBe(true);
+  });
+});
+
+describe('TokenBudgetGuard early warning', () => {
+  it('warns once when usage first reaches 80%', () => {
+    const onWarning = vi.fn();
+    const guard = new TokenBudgetGuard({ limit: 1000, readSpentTokens: () => 0, onWarning });
+    guard.commitSegment({ promptTokens: 700, completionTokens: 0 });
+    expect(onWarning).not.toHaveBeenCalled();
+    guard.commitSegment({ promptTokens: 100, completionTokens: 0 });
+    expect(onWarning).toHaveBeenCalledTimes(1);
+    expect(onWarning).toHaveBeenCalledWith({ limit: 1000, used: 800 });
+    guard.commitSegment({ promptTokens: 100, completionTokens: 0 });
+    guard.beginSession();
+    guard.checkWarning(50);
+    expect(onWarning).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns from the stop condition mid-session', () => {
+    const onWarning = vi.fn();
+    const guard = new TokenBudgetGuard({ limit: 1000, readSpentTokens: () => 500, onWarning });
+    const stop = guard.buildStopCondition();
+    expect(stop({ steps: [step(200, 0)] } as never)).toBe(false);
+    expect(onWarning).not.toHaveBeenCalled();
+    expect(stop({ steps: [step(200, 0), step(150, 0)] } as never)).toBe(false);
+    expect(onWarning).toHaveBeenCalledWith({ limit: 1000, used: 850 });
+  });
+
+  it('leaves a jump past the limit to the budget stop', () => {
+    const onWarning = vi.fn();
+    const guard = new TokenBudgetGuard({ limit: 1000, readSpentTokens: () => 0, onWarning });
+    guard.commitSegment({ promptTokens: 1200, completionTokens: 0 });
+    expect(onWarning).not.toHaveBeenCalled();
+  });
+
+  it('never warns without a limit', () => {
+    const onWarning = vi.fn();
+    const guard = new TokenBudgetGuard({ readSpentTokens: () => 1e9, onWarning });
+    guard.checkWarning(1e9);
+    expect(onWarning).not.toHaveBeenCalled();
+  });
 });
 
 describe('runAgentSession token budget', () => {
@@ -122,6 +177,48 @@ describe('runAgentSession token budget', () => {
     mockStreamText.mockReturnValueOnce(streamResult({ inputTokens: 100, outputTokens: 50 }));
     const third = await runAgentSession(config({ tokenBudget: guard }));
     expect(third.outcome).toBe('cancelled');
+  });
+
+  it('keeps the usage of a stream that failed partway, counted once', async () => {
+    const guard = new TokenBudgetGuard({ limit: 10_000, readSpentTokens: () => 0 });
+    mockStreamText.mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: 'tool-call', toolName: 'Read', toolCallId: 't1', input: {} };
+        yield { type: 'finish-step', usage: { inputTokens: 300, outputTokens: 40, inputTokenDetails: { cacheReadTokens: 200 } } };
+        throw new Error('Network error');
+      })(),
+      text: Promise.resolve(''),
+      totalUsage: Promise.resolve({ inputTokens: 0, outputTokens: 0 }),
+    });
+    const result = await runAgentSession(config({ tokenBudget: guard }));
+    expect(result.outcome).toBe('error');
+    expect(result.stepsExecuted).toBe(1);
+    expect(result.toolCallCount).toBe(1);
+    expect(result.usage).toMatchObject({ promptTokens: 300, completionTokens: 40, totalTokens: 340, cacheReadTokens: 200 });
+    // The guard committed the same segment once: (300 - 200) + 40 + 200 * 0.1.
+    expect(guard.used()).toBe(160);
+  });
+
+  it('adds a failed attempt to the result of its retry', async () => {
+    let calls = 0;
+    mockStreamText.mockImplementation(() => {
+      calls++;
+      if (calls === 1) {
+        return {
+          fullStream: (async function* () {
+            yield { type: 'finish-step', usage: { inputTokens: 100, outputTokens: 10 } };
+            throw new Error('401 Unauthorized');
+          })(),
+          text: Promise.resolve(''),
+          totalUsage: Promise.resolve({ inputTokens: 0, outputTokens: 0 }),
+        };
+      }
+      return streamResult({ inputTokens: 50, outputTokens: 5 });
+    });
+    const result = await runAgentSession(config(), { onAuthRefresh: async () => 'new-token' });
+    expect(result.outcome).toBe('completed');
+    expect(result.usage).toMatchObject({ promptTokens: 150, completionTokens: 15, totalTokens: 165 });
+    expect(result.stepsExecuted).toBe(2);
   });
 
   it('leaves behaviour unchanged without a guard or limit', async () => {

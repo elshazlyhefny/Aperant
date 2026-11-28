@@ -19,17 +19,9 @@ import type {
 import { projectStore } from '../../project-store';
 import { normalizeIdea, readIdeationFile, writeIdeationFile, updateIdeationTimestamp } from './file-utils';
 import type { RawIdea } from './types';
-import { withSpecNumberLock } from '../../utils/spec-number-lock';
-import { slugifySpecTitle } from '../../utils/spec-slug';
+import { allocateSpecDir } from '../../utils/spec-number-lock';
 import { applyDefaultTaskAgent } from '../../utils/default-task-agent';
 import { readSettingsFile } from '../../settings-utils';
-
-/**
- * Create a slugified version of a title for use in directory names
- */
-function slugifyTitle(title: string): string {
-  return slugifySpecTitle(title);
-}
 
 /**
  * zeenha fork: the sections each idea type carries into its task, in order.
@@ -271,70 +263,81 @@ export async function convertIdeaToTask(
   try {
     // Use coordinated spec numbering with lock to prevent collisions
     // CRITICAL: All state checks must happen INSIDE the lock to prevent TOCTOU race conditions
-    return await withSpecNumberLock(project.path, async (lock) => {
-      // Re-read ideation file INSIDE the lock to get fresh state
-      const ideation = readIdeationFile(ideationPath);
-      if (!ideation) {
-        return { success: false, error: 'Ideation not found' };
+    // zeenha fork: through the shared allocator; its hooks run under the same lock.
+    let ideation: ReturnType<typeof readIdeationFile> = null;
+    let idea: RawIdea | undefined;
+    const allocation = await allocateSpecDir<IPCResult<Task>, IPCResult<Task>>(
+      project,
+      () => (idea as RawIdea).title,
+      {
+        beforeAllocate: () => {
+          // Re-read ideation file INSIDE the lock to get fresh state
+          ideation = readIdeationFile(ideationPath);
+          if (!ideation) {
+            return { skip: { success: false, error: 'Ideation not found' } };
+          }
+
+          // Find the idea (inside lock for fresh state)
+          idea = ideation.ideas?.find((i) => i.id === ideaId);
+          if (!idea) {
+            return { skip: { success: false, error: 'Idea not found' } };
+          }
+
+          // Idempotency check INSIDE lock - prevents TOCTOU race condition
+          // Two concurrent requests can both pass an outside check, but only one
+          // can hold the lock at a time, so this check is authoritative
+          if (idea.linked_task_id) {
+            return {
+              skip: {
+                success: false,
+                error: `Idea has already been converted to task: ${idea.linked_task_id}`
+              }
+            };
+          }
+          return undefined;
+        },
+        afterCreate: ({ specId, specDir }) => {
+          const freshIdeation = ideation as NonNullable<typeof ideation>;
+          const freshIdea = idea as RawIdea;
+
+          // Build task description and metadata
+          const taskDescription = buildTaskDescription(freshIdea);
+          // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
+          const metadata = applyDefaultTaskAgent(buildTaskMetadata(freshIdea), readSettingsFile());
+
+          // Create spec files (inside lock to ensure atomicity)
+          createSpecFiles(specDir, freshIdea, taskDescription);
+
+          // Save metadata
+          const metadataPath = path.join(specDir, 'task_metadata.json');
+          writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
+
+          // Update idea status to archived (converted ideas are archived)
+          freshIdea.status = 'archived';
+          freshIdea.linked_task_id = specId;
+          updateIdeationTimestamp(freshIdeation);
+          writeIdeationFile(ideationPath, freshIdeation);
+
+          // Create task object to return
+          const task: Task = {
+            id: specId,
+            specId: specId,
+            projectId,
+            title: freshIdea.title,
+            description: taskDescription,
+            status: 'backlog',
+            subtasks: [],
+            logs: [],
+            metadata,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+
+          return { success: true, data: task };
+        }
       }
-
-      // Find the idea (inside lock for fresh state)
-      const idea = ideation.ideas?.find((i) => i.id === ideaId);
-      if (!idea) {
-        return { success: false, error: 'Idea not found' };
-      }
-
-      // Idempotency check INSIDE lock - prevents TOCTOU race condition
-      // Two concurrent requests can both pass an outside check, but only one
-      // can hold the lock at a time, so this check is authoritative
-      if (idea.linked_task_id) {
-        return {
-          success: false,
-          error: `Idea has already been converted to task: ${idea.linked_task_id}`
-        };
-      }
-
-      // Get next spec number from global scan (main + all worktrees)
-      const nextNum = lock.getNextSpecNumber(project.autoBuildPath);
-      const slugifiedTitle = slugifyTitle(idea.title);
-      const specId = `${String(nextNum).padStart(3, '0')}-${slugifiedTitle}`;
-      const specDir = path.join(specsDir, specId);
-
-      // Build task description and metadata
-      const taskDescription = buildTaskDescription(idea);
-      // zeenha fork: tasks created here get the Settings default task agent, like tasks created by hand.
-      const metadata = applyDefaultTaskAgent(buildTaskMetadata(idea), readSettingsFile());
-
-      // Create spec files (inside lock to ensure atomicity)
-      createSpecFiles(specDir, idea, taskDescription);
-
-      // Save metadata
-      const metadataPath = path.join(specDir, 'task_metadata.json');
-      writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), 'utf-8');
-
-      // Update idea status to archived (converted ideas are archived)
-      idea.status = 'archived';
-      idea.linked_task_id = specId;
-      updateIdeationTimestamp(ideation);
-      writeIdeationFile(ideationPath, ideation);
-
-      // Create task object to return
-      const task: Task = {
-        id: specId,
-        specId: specId,
-        projectId,
-        title: idea.title,
-        description: taskDescription,
-        status: 'backlog',
-        subtasks: [],
-        logs: [],
-        metadata,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      return { success: true, data: task };
-    });
+    );
+    return 'skipped' in allocation ? allocation.skipped : allocation.created;
   } catch (error) {
     return {
       success: false,

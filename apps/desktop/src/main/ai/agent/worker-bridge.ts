@@ -10,16 +10,14 @@
  * cannot distinguish between a Python subprocess and a TS worker thread.
  */
 
-import { MessageChannel } from 'worker_threads';
 import type { MessagePort } from 'worker_threads';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { app } from 'electron';
 
-import type { ProcessType } from '../../agent/types';
 import type { AgentExecutorConfig } from './types';
-import type { SessionType as MemorySessionType } from '../memory/types';
-import { MainMemoryHandler } from '../memory/ipc/main-memory-handler';
+import type { MainMemoryHandler } from '../memory/ipc/main-memory-handler';
+import { startWorkerMemory } from '../memory/ipc/start-worker-memory';
 import {
   getMemoryService,
   isAgentMemoryEnabled,
@@ -80,21 +78,13 @@ export class WorkerBridge extends WorkerBridgeCore {
 function startMemory(config: AgentExecutorConfig): { port: MessagePort; handler: MainMemoryHandler } | null {
   try {
     if (!isAgentMemoryEnabled()) return null;
-    const projectDir = config.session.projectDir;
-    const project = resolveProject(config.projectId, projectDir);
+    const project = resolveProject(config.projectId, config.session.projectDir);
     if (!project) return null;
-
-    const { port1, port2 } = new MessageChannel();
-    const handler = new MainMemoryHandler({
-      sessionId: `${config.taskId}:${Date.now()}`,
-      sessionType: toMemorySessionType(config.processType),
-      projectId: project.id,
-      roots: [projectDir, project.path].filter((r): r is string => !!r),
+    return startWorkerMemory(config, {
+      project,
       getService: getMemoryService,
       log: (message) => console.info(`[WorkerBridge:${config.taskId}] ${message}`),
     });
-    handler.attach(port1);
-    return { port: port2, handler };
   } catch (error) {
     console.warn('[WorkerBridge] memory disabled for this worker:', error);
     return null;
@@ -114,8 +104,3 @@ function resolveProject(projectId: string | undefined, projectDir: string): { id
     }) ?? null
   );
 }
-
-function toMemorySessionType(processType: ProcessType): MemorySessionType {
-  return processType === 'spec-creation' ? 'spec_creation' : 'build';
-}
-

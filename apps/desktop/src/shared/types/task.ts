@@ -524,6 +524,7 @@ export const WORKTREE_CREATE_PR_ERROR_CODES = [
   'COMMIT_FAILED',
   'PUSH_FAILED',
   'SECRETS_DETECTED',
+  'BASE_CONFLICT',
   'GH_TIMEOUT',
   'GH_FAILED',
   'MR_FAILED',
@@ -543,6 +544,8 @@ export interface WorktreeCreatePRResult {
   error?: string;
   message?: string;  // Human-readable message for both success and error cases
   alreadyExists?: boolean;
+  /** zeenha fork: files that conflict with the latest base (errorCode BASE_CONFLICT). */
+  conflictFiles?: string[];
 }
 
 /**

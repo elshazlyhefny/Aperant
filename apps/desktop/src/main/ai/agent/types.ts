@@ -62,6 +62,18 @@ export interface SerializableSessionConfig {
   projectDir: string;
   /** Source spec dir in main project (for worktree → main sync during execution) */
   sourceSpecDir?: string;
+  /**
+   * zeenha fork: the task's base branch, resolved on the main thread by
+   * resolveTaskBaseBranch() (it needs project settings and Electron-only modules
+   * the worker cannot load). Substituted into prompts and used by the QA verify gate.
+   */
+  baseBranch?: string;
+  /**
+   * zeenha fork: the main checkout, which projectDir is not when the task runs in
+   * a worktree. The QA verify gate reads `.aperant.json` from here, never from the
+   * worktree, so an agent's edit cannot change which commands verify its work.
+   */
+  mainProjectDir?: string;
   phase?: SessionConfig['phase'];
   modelShorthand?: SessionConfig['modelShorthand'];
   thinkingLevel?: SessionConfig['thinkingLevel'];
@@ -139,7 +151,8 @@ export type WorkerMessage =
   | WorkerProgressMessage
   | WorkerStreamEventMessage
   | WorkerResultMessage
-  | WorkerTaskEventMessage;
+  | WorkerTaskEventMessage
+  | WorkerBudgetWarningMessage;
 
 export interface WorkerLogMessage {
   type: 'log';
@@ -180,6 +193,15 @@ export interface WorkerTaskEventMessage {
   type: 'task-event';
   taskId: string;
   data: Record<string, unknown>;
+  projectId?: string;
+}
+
+/** zeenha fork: the task's budget usage first reached the warning percent this run. */
+export interface WorkerBudgetWarningMessage {
+  type: 'budget-warning';
+  taskId: string;
+  used: number;
+  limit: number;
   projectId?: string;
 }
 

@@ -2,8 +2,22 @@ import { Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import { projectStore } from './project-store';
 import { IPC_CHANNELS } from '../shared/constants';
+import { getAppLanguage } from './app-language';
+import { budgetPercent } from '../shared/utils/token-budget';
+import enTasks from '../shared/i18n/locales/en/tasks.json';
+import frTasks from '../shared/i18n/locales/fr/tasks.json';
 
-export type NotificationType = 'task-complete' | 'task-failed' | 'review-needed';
+export type NotificationType = 'task-complete' | 'task-failed' | 'review-needed' | 'budget-warning';
+
+/** zeenha fork: localized budget warning text; the main process has no i18next instance. */
+const BUDGET_WARNING_TEXT: Record<string, { title: string; body: string }> = {
+  en: enTasks.tokenBudgetWarning.notification,
+  fr: frTasks.tokenBudgetWarning.notification,
+};
+
+function interpolate(template: string, values: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => values[key] ?? match);
+}
 
 interface NotificationOptions {
   title: string;
@@ -56,6 +70,32 @@ class NotificationService {
     this.sendNotification('review-needed', {
       title: 'Review Needed',
       body: `"${taskTitle}" is ready for your review`,
+      projectId,
+      taskId
+    });
+  }
+
+  /**
+   * zeenha fork: the task has used most of its token budget. Follows the
+   * "review needed" setting, the same one that covers the budget stop.
+   */
+  notifyBudgetWarning(
+    taskTitle: string,
+    projectId: string,
+    taskId: string,
+    budget: { used: number; limit: number }
+  ): void {
+    const text = BUDGET_WARNING_TEXT[getAppLanguage()] ?? BUDGET_WARNING_TEXT.en;
+    const locale = getAppLanguage() === 'fr' ? 'fr-FR' : 'en-US';
+    const values = {
+      title: taskTitle,
+      percent: String(budgetPercent(budget.used, budget.limit)),
+      used: budget.used.toLocaleString(locale),
+      limit: budget.limit.toLocaleString(locale),
+    };
+    this.sendNotification('budget-warning', {
+      title: interpolate(text.title, values),
+      body: interpolate(text.body, values),
       projectId,
       taskId
     });
@@ -187,6 +227,7 @@ class NotificationService {
       case 'task-failed':
         return settings.onTaskFailed;
       case 'review-needed':
+      case 'budget-warning':
         return settings.onReviewNeeded;
       default:
         return false;

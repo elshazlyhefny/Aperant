@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { execFileSync } from 'child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
@@ -17,6 +17,18 @@ vi.mock('../auth', () => ({
 }));
 vi.mock('../../ai/prompts/prompt-loader', () => ({
   tryLoadPrompt: () => 'PLANNER PROMPT',
+}));
+// zeenha fork: no real memory database or embedding detection in these tests.
+const mockOpenMemoryClient = vi.fn();
+const mockMemoryStore = vi.fn();
+vi.mock('../../ai/memory/db', () => ({
+  openLocalMemoryClient: (...args: unknown[]) => mockOpenMemoryClient(...args),
+}));
+vi.mock('../../ai/memory/create-memory-service', () => ({
+  createMemoryService: async () => ({
+    service: { store: mockMemoryStore, search: vi.fn().mockResolvedValue([]) },
+    embeddingProvider: 'none',
+  }),
 }));
 
 import { readDeliveryReceipts } from '../../delivery-receipts';
@@ -314,6 +326,131 @@ describe('runHeadlessTask', () => {
     script([{ type: 'QA_PASSED' }]);
     expect(await run({ configPath: '/does/not/exist.json', config: { project: { mainBranch: 'dev' } } })).toBe(0);
     expect(mockCreateWorktree.mock.calls[0][2]).toBe('dev');
+  });
+});
+
+// zeenha fork: a spec folder without spec.md (a scheduled task) goes through spec creation first.
+describe('runHeadlessTask without spec.md', () => {
+  const dir = () => path.join(projectDir, '.auto-claude', 'specs', '001-demo');
+
+  function makePendingSpec(requirements?: Record<string, unknown>) {
+    mkdirSync(dir(), { recursive: true });
+    writeFileSync(
+      path.join(dir(), 'implementation_plan.json'),
+      JSON.stringify({ feature: 'Nightly', status: 'queue', phases: [] })
+    );
+    if (requirements) writeFileSync(path.join(dir(), 'requirements.json'), JSON.stringify(requirements));
+  }
+
+  /** One bridge per spawn; the spec bridge writes spec.md when writeSpec is true. */
+  function bridges(opts: { writeSpec?: boolean; specCode?: number; abort?: AbortController } = {}) {
+    const made: FakeBridge[] = [];
+    const createBridge = () => {
+      const b = new FakeBridge();
+      b.spawn.mockImplementation((config: { processType: string }) => {
+        setImmediate(() => {
+          if (config.processType === 'spec-creation') {
+            if (opts.abort) {
+              opts.abort.abort('daemon stop');
+              return;
+            }
+            if (opts.writeSpec) writeFileSync(path.join(dir(), 'spec.md'), '# Nightly from spec\n');
+            b.emit('exit', '001-demo', opts.specCode ?? 0, 'spec-creation');
+          } else {
+            b.emit('task-event', '001-demo', { type: 'QA_PASSED' });
+            b.emit('exit', '001-demo', 0, 'task-execution');
+          }
+        });
+      });
+      made.push(b);
+      return b;
+    };
+    return { made, createBridge };
+  }
+
+  it('runs spec creation from requirements.json, then the build', async () => {
+    makePendingSpec({ task_description: 'Run the nightly checks', workflow_type: 'feature' });
+    const { made, createBridge } = bridges({ writeSpec: true });
+    const result = await runHeadlessTaskDetailed({
+      projectPath: projectDir,
+      spec: '001-demo',
+      workerPath: '/fake/worker.js',
+      createBridge,
+      out: (t) => void out.push(t),
+      err: (t) => void err.push(t),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(made).toHaveLength(2);
+    const spec = made[0].spawn.mock.calls[0][0];
+    expect(spec.processType).toBe('spec-creation');
+    expect(spec.session.agentType).toBe('spec_orchestrator');
+    expect(spec.session.specDir).toBe(dir());
+    expect(spec.session.projectDir).toBe(projectDir);
+    expect(spec.session.initialMessages[0].content).toContain('Task: Run the nightly checks');
+    expect(made[1].spawn.mock.calls[0][0].processType).toBe('task-execution');
+    expect(mockCreateWorktree).toHaveBeenCalledOnce();
+    expect(out.join('')).not.toContain(SECRET);
+    expect(err.join('')).not.toContain(SECRET);
+  });
+
+  it('falls back to the plan description when requirements.json is missing', async () => {
+    makePendingSpec();
+    writeFileSync(
+      path.join(dir(), 'implementation_plan.json'),
+      JSON.stringify({ feature: 'Nightly', description: 'From the plan', status: 'queue', phases: [] })
+    );
+    const { made, createBridge } = bridges({ writeSpec: true });
+    expect(await run({ createBridge })).toBe(0);
+    expect(made[0].spawn.mock.calls[0][0].session.initialMessages[0].content).toContain('Task: From the plan');
+  });
+
+  it('refuses a folder with neither spec.md nor a task description, with a clear message', async () => {
+    makePendingSpec();
+    const { made, createBridge } = bridges();
+    expect(await run({ createBridge })).toBe(1);
+    expect(made).toHaveLength(0);
+    expect(mockCreateWorktree).not.toHaveBeenCalled();
+    expect(err.join('')).toContain('Spec not found');
+    expect(err.join('')).toContain('no task description (requirements.json) to create it from');
+  });
+
+  it('fails without a build when spec creation writes no spec.md, and keeps the folder', async () => {
+    makePendingSpec({ task_description: 'Run the nightly checks' });
+    const { made, createBridge } = bridges({ writeSpec: false });
+    const result = await runHeadlessTaskDetailed({
+      projectPath: projectDir,
+      spec: '001-demo',
+      workerPath: '/fake/worker.js',
+      createBridge,
+      out: (t) => void out.push(t),
+      err: (t) => void err.push(t),
+    });
+    expect(result).toMatchObject({ exitCode: 1, aborted: false });
+    expect(made).toHaveLength(1);
+    expect(mockCreateWorktree).not.toHaveBeenCalled();
+    expect(err.join('')).toContain('Spec creation failed: Spec creation finished but spec.md was not written');
+    expect(existsSync(path.join(dir(), 'requirements.json'))).toBe(true);
+  });
+
+  it('reports an aborted spec creation as an aborted run', async () => {
+    makePendingSpec({ task_description: 'Run the nightly checks' });
+    const controller = new AbortController();
+    const { made, createBridge } = bridges({ abort: controller });
+    const result = await runHeadlessTaskDetailed({
+      projectPath: projectDir,
+      spec: '001-demo',
+      workerPath: '/fake/worker.js',
+      createBridge,
+      out: (t) => void out.push(t),
+      err: (t) => void err.push(t),
+      signal: controller.signal,
+      handleProcessSignals: false,
+    });
+    expect(result).toMatchObject({ exitCode: 1, aborted: true });
+    expect(made).toHaveLength(1);
+    expect(made[0].terminate).toHaveBeenCalledOnce();
+    expect(mockCreateWorktree).not.toHaveBeenCalled();
   });
 });
 
@@ -660,6 +797,72 @@ describe('runHeadlessTask source write-back', () => {
     reportOutcome.mockRejectedValue(new Error('boom'));
     expect(await runWb()).toBe(2);
     expect(reportOutcome).toHaveBeenCalledOnce();
+  });
+});
+
+describe('runHeadlessTask agent memory', () => {
+  type StartMemory = NonNullable<WorkerBridgeCoreOptions['startMemory']>;
+  let started: ReturnType<StartMemory> | undefined;
+  let bridgeOptions: WorkerBridgeCoreOptions | undefined;
+
+  beforeEach(() => {
+    started = undefined;
+    bridgeOptions = undefined;
+    mockOpenMemoryClient.mockReset().mockResolvedValue({});
+    mockMemoryStore.mockReset().mockResolvedValue('mem-1');
+  });
+
+  /** Like WorkerBridgeCore.spawn: ask for the memory port, then finish the run. */
+  function runWithMemory(config: Parameters<typeof runHeadlessTask>[0]['config'], beforeExit?: () => Promise<void>) {
+    bridge.spawn.mockImplementation((executorConfig) => {
+      started = bridgeOptions?.startMemory?.(executorConfig) ?? null;
+      setImmediate(async () => {
+        await beforeExit?.();
+        bridge.emit('task-event', '001-demo', { type: 'QA_PASSED' });
+        bridge.emit('exit', '001-demo', 0, 'task-execution');
+      });
+    });
+    return run({
+      config,
+      createBridge: (options) => {
+        bridgeOptions = options;
+        return bridge;
+      },
+    });
+  }
+
+  it('attaches a memory port by default and stores records under the headless project id', async () => {
+    makeSpec();
+    let reply: unknown;
+    const code = await runWithMemory({}, async () => {
+      const port = started?.port;
+      if (!port) return;
+      reply = await new Promise((resolve) => {
+        port.once('message', resolve);
+        port.postMessage({
+          type: 'memory:record',
+          requestId: 'r1',
+          entry: { type: 'gotcha', content: 'Run the build before the tests in this repo.' },
+        });
+      });
+    });
+    expect(code).toBe(0);
+    expect(bridgeOptions?.startMemory).toBeTypeOf('function');
+    expect(started?.port).toBeDefined();
+    expect(reply).toEqual({ type: 'memory:stored', requestId: 'r1', id: 'mem-1' });
+    expect(mockOpenMemoryClient).toHaveBeenCalledWith(path.join(projectDir, '.auto-claude', 'memory.db'));
+    expect(mockMemoryStore).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: `headless:${projectDir}`, source: 'agent_explicit' }),
+    );
+  });
+
+  it('attaches no memory port when memory.enabled is false', async () => {
+    makeSpec();
+    expect(await runWithMemory({ memory: { enabled: false } })).toBe(0);
+    expect(bridgeOptions).toBeDefined();
+    expect(bridgeOptions?.startMemory).toBeUndefined();
+    expect(started).toBeNull();
+    expect(mockOpenMemoryClient).not.toHaveBeenCalled();
   });
 });
 

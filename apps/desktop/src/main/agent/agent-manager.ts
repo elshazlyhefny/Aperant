@@ -40,7 +40,7 @@ import { parseSandboxMode } from '../ai/security/sandbox';
 import { parseWebFetchProvider } from '../ai/tools/providers/types';
 import { createOrGetWorktree } from '../ai/worktree';
 import { findTaskWorktree } from '../worktree-paths';
-import { resolveTaskBaseBranch } from '../base-branch';
+import { resolveTaskBaseBranch, resolveTaskBaseBranchAsync } from '../base-branch';
 import { landsThroughPullRequestsOnly } from '../../shared/utils/landing-policy';
 import { readSettingsFile } from '../settings-utils';
 import { hasUsableAuth } from '../services/profile/provider-account-check';
@@ -617,13 +617,15 @@ export class AgentManager extends EventEmitter {
     let worktreePath: string | null = null;
     let worktreeSpecDir = specDir;
     const useWorktree = options.useWorktree !== false; // Default to true (matching Python backend)
+    // zeenha fork: resolved outside the worktree branch so the worker also gets it
+    // (prompt {{BASE_BRANCH}} and the QA verify gate).
+    const baseBranch = resolveTaskBaseBranch({
+      project: { path: projectPath, autoBuildPath: project?.autoBuildPath, settings: project?.settings },
+      specId,
+      override: options.baseBranch,
+    });
     if (useWorktree) {
       try {
-        const baseBranch = resolveTaskBaseBranch({
-          project: { path: projectPath, autoBuildPath: project?.autoBuildPath, settings: project?.settings },
-          specId,
-          override: options.baseBranch,
-        });
         const result = await createOrGetWorktree(
           projectPath,
           specId,
@@ -668,6 +670,8 @@ export class AgentManager extends EventEmitter {
       // When running in a worktree, sourceSpecDir points to the main project spec dir
       // so the subtask iterator can sync phase updates in real time (not just on exit).
       sourceSpecDir: worktreePath ? specDir : undefined,
+      baseBranch,
+      mainProjectDir: projectPath,
       tokenBudget: this.resolveTaskTokenBudget(specDir, project?.settings),
       provider: resolved.provider,
       modelId: resolved.modelId,
@@ -767,6 +771,12 @@ export class AgentManager extends EventEmitter {
       maxSteps: 1000,
       specDir: effectiveSpecDir,
       projectDir: effectiveProjectDir,
+      // zeenha fork: for the prompt's {{BASE_BRANCH}} and the QA verify gate.
+      baseBranch: await resolveTaskBaseBranchAsync({
+        project: { path: project?.path ?? projectPath, autoBuildPath: project?.autoBuildPath, settings: project?.settings },
+        specId,
+      }),
+      mainProjectDir: project?.path ?? projectPath,
       tokenBudget: this.resolveTaskTokenBudget(specDir, project?.settings),
       provider: resolved.provider,
       modelId: resolved.modelId,

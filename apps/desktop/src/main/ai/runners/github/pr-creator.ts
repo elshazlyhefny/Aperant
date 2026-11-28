@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { getAugmentedEnv } from '../../../env-utils';
+import { appLogPort } from '../../../log-port';
 import { createSimpleClient } from '../../client/factory';
 import { formatIssueClosingLines, readIssueRefs } from '../commit-message';
 import type { ModelShorthand, ThinkingLevel } from '../../config/types';
@@ -174,6 +175,8 @@ export function readSourceIssueLines(
 export const PUSH_TIMEOUT_MS = 120_000;
 export const GH_TIMEOUT_MS = 60_000;
 const GIT_READ_TIMEOUT_MS = 30_000;
+/** zeenha fork: bound for fetching the base branch before Create PR. */
+export const FETCH_TIMEOUT_MS = 60_000;
 
 /** The only branches Create PR may push (worktree-manager.ts names them). */
 const TASK_BRANCH_RE = /^auto-claude\/[A-Za-z0-9._\-/]+$/;
@@ -228,6 +231,8 @@ export interface CreatePRResult {
   error?: string;
   /** Machine-readable failure reason; only set on failures. */
   errorCode?: WorktreeCreatePRErrorCode;
+  /** zeenha fork: files that conflict with the latest base (errorCode BASE_CONFLICT). */
+  conflictFiles?: string[];
 }
 
 // =============================================================================
@@ -410,6 +415,120 @@ async function resolveBaseRef(
 }
 
 /**
+ * zeenha fork: update origin/<base> from the remote. Returns null on success,
+ * else a short reason (offline, no remote, timed out).
+ */
+async function fetchBase(worktreePath: string, gitPath: string, base: string, timeoutMs: number): Promise<string | null> {
+  try {
+    await run(gitPath, ['fetch', '--no-tags', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`], worktreePath, timeoutMs);
+    return null;
+  } catch (err) {
+    return describeError(err);
+  }
+}
+
+/** zeenha fork: the merge preview waits on this fetch, so it is kept short. */
+const PREVIEW_FETCH_TIMEOUT_MS = 20_000;
+
+/**
+ * zeenha fork: how many commits origin/<base> has that the task branch lacks,
+ * for the merge preview's "N new commits on base" notice. Fetches first; a
+ * failed fetch still counts against the last fetched state. Null when git
+ * cannot tell.
+ */
+export async function commitsBehindBase(
+  worktreePath: string,
+  gitPath: string,
+  baseBranch: string,
+): Promise<number | null> {
+  const base = baseBranch.replace(/^origin\//, '');
+  const fetchError = await fetchBase(worktreePath, gitPath, base, PREVIEW_FETCH_TIMEOUT_MS);
+  if (fetchError !== null) {
+    appLogPort.warn(`[MergePreview] Could not fetch origin/${base}; counting against the last fetch: ${fetchError}`);
+  }
+  try {
+    const out = await run(gitPath, ['rev-list', '--count', `HEAD..refs/remotes/origin/${base}`], worktreePath, GIT_READ_TIMEOUT_MS);
+    const count = Number.parseInt(out.trim(), 10);
+    return Number.isInteger(count) && count >= 0 ? count : null;
+  } catch {
+    return null;
+  }
+}
+
+export type RefreshBaseResult =
+  | { status: 'up-to-date' | 'merged' | 'fetch-failed' | 'merge-failed' }
+  | { status: 'conflict'; files: string[] };
+
+/**
+ * zeenha fork: bring the task branch up to date with the latest base before it
+ * is pushed. Task worktrees are created from origin/<base> once and never
+ * refreshed, so Create PR used to push a branch that could be far behind the
+ * base, and conflicts with recently merged PRs went untested. This fetches the
+ * base and merges it into the task branch (a merge, not a rebase, so the
+ * existing --force-with-lease push still applies and the task's own commits
+ * keep their hashes).
+ *
+ * - Fetch failure (offline, no remote): logged, and Create PR goes on as before.
+ * - Conflict: the merge is aborted (the worktree is left as it was) and the
+ *   conflicting files are returned.
+ * - Any other merge failure (a hook, an untracked file in the way): aborted,
+ *   logged, and Create PR goes on with the branch as it was.
+ */
+export async function refreshBranchOntoBase(
+  worktreePath: string,
+  gitPath: string,
+  baseBranch: string,
+): Promise<RefreshBaseResult> {
+  const base = baseBranch.replace(/^origin\//, '');
+  const remoteRef = `refs/remotes/origin/${base}`;
+  const fetchError = await fetchBase(worktreePath, gitPath, base, FETCH_TIMEOUT_MS);
+  if (fetchError !== null) {
+    appLogPort.warn(`[CreatePR] Could not fetch origin/${base}; the branch is pushed without merging the latest base: ${fetchError}`);
+    return { status: 'fetch-failed' };
+  }
+
+  try {
+    await run(gitPath, ['merge-base', '--is-ancestor', remoteRef, 'HEAD'], worktreePath, GIT_READ_TIMEOUT_MS);
+    return { status: 'up-to-date' };
+  } catch {
+    // Not an ancestor (or git could not tell): try the merge.
+  }
+
+  try {
+    await run(gitPath, ['merge', '--no-edit', remoteRef], worktreePath, PUSH_TIMEOUT_MS);
+    return { status: 'merged' };
+  } catch (err) {
+    let files: string[] = [];
+    try {
+      files = (await run(gitPath, ['diff', '--name-only', '--diff-filter=U'], worktreePath, GIT_READ_TIMEOUT_MS))
+        .split('\n')
+        .map((f) => f.trim())
+        .filter((f) => f !== '');
+    } catch {
+      // Could not list them; treated as a non-conflict failure below.
+    }
+    try {
+      await run(gitPath, ['merge', '--abort'], worktreePath, GIT_READ_TIMEOUT_MS);
+    } catch {
+      // No merge in progress (git refused before starting it).
+    }
+    if (files.length > 0) return { status: 'conflict', files };
+    appLogPort.warn(`[CreatePR] Could not merge origin/${base} into the task branch; pushing it as it was: ${describeError(err)}`);
+    return { status: 'merge-failed' };
+  }
+}
+
+/** zeenha fork: shown when the latest base conflicts with the task branch. */
+export function baseConflictMessage(baseBranch: string, files: string[]): string {
+  const base = baseBranch.replace(/^origin\//, '');
+  const shown = files.slice(0, 20).join(', ') + (files.length > 20 ? `, and ${files.length - 20} more` : '');
+  return (
+    `The latest ${base} conflicts with this task's changes in: ${shown}. ` +
+    `Nothing was pushed. Merge origin/${base} into the task branch and resolve the conflicts, then create the PR again.`
+  );
+}
+
+/**
  * zeenha fork: scan the files this branch changed against its base for
  * secrets, before anything is pushed. Unlike the Bash hook this fails closed:
  * if the base cannot be resolved or the scan throws, the push is refused
@@ -468,12 +587,13 @@ async function gatherPRContext(
 
   try {
     commitLog = (
-      await run(gitPath, ['log', '--oneline', `origin/${baseBranch}..HEAD`], worktreePath, GIT_READ_TIMEOUT_MS)
+      // zeenha fork: --no-merges leaves out the base merge Create PR adds.
+      await run(gitPath, ['log', '--oneline', '--no-merges', `origin/${baseBranch}..HEAD`], worktreePath, GIT_READ_TIMEOUT_MS)
     ).slice(0, 2000);
   } catch {
     try {
       commitLog = (
-        await run(gitPath, ['log', '--oneline', `${baseBranch}..HEAD`], worktreePath, GIT_READ_TIMEOUT_MS)
+        await run(gitPath, ['log', '--oneline', '--no-merges', `${baseBranch}..HEAD`], worktreePath, GIT_READ_TIMEOUT_MS)
       ).slice(0, 2000);
     } catch {
       // Not fatal — proceed without commit log
@@ -960,6 +1080,23 @@ export async function prepareBranch(config: PrepareBranchConfig): Promise<Prepar
     return {
       ok: false,
       result: { success: false, errorCode: 'COMMIT_FAILED', error: `Could not commit the task's changes: ${commitError}` },
+    };
+  }
+
+  // zeenha fork: merge the latest base into the task branch so the PR is
+  // tested against what it will land on. The counts, the secret scan and the
+  // PR context below all diff from origin/<base>, so after this merge the base
+  // commits brought in are not counted or scanned as the task's own changes.
+  const refresh = await refreshBranchOntoBase(worktreePath, gitPath, baseBranch);
+  if (refresh.status === 'conflict') {
+    return {
+      ok: false,
+      result: {
+        success: false,
+        errorCode: 'BASE_CONFLICT',
+        error: baseConflictMessage(baseBranch, refresh.files),
+        conflictFiles: refresh.files,
+      },
     };
   }
 

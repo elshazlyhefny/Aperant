@@ -392,7 +392,7 @@
     "fastModeDescription": "Même modèle Opus 4.6 avec une sortie plus rapide. Coût plus élevé par token.",
     "fastModeNotice": "Nécessite « utilisation supplémentaire » activée sur votre abonnement Claude.",
     "tokenBudgetLabel": "Budget de tokens",
-    "tokenBudgetDescription": "Met cette tâche en pause quand elle a utilisé ce nombre de tokens (entrée + sortie). Laissez vide pour utiliser la valeur par défaut du projet.",
+    "tokenBudgetDescription": "Met cette tâche en pause quand elle a utilisé ce nombre de tokens du budget (entrée et sortie, les lectures de cache comptant pour un dixième). Laissez vide pour utiliser la valeur par défaut du projet.",
     "tokenBudgetInherited": "Valeur par défaut du projet : {{value}} tokens",
     "tokenBudgetInheritedNone": "Valeur par défaut du projet : aucune",
     "tokenBudgetPlaceholder": "ex. 500000",
@@ -544,14 +544,14 @@
       "detail": "Détail"
     },
     "tokens": {
-      "budget": "Tokens du budget (entrée + sortie)",
+      "budget": "Tokens du budget (entrée + sortie, lectures de cache à 10 %)",
       "input": "Jetons d'entrée",
       "output": "Jetons de sortie",
       "cacheRead": "Jetons lus du cache",
       "cacheCreation": "Jetons de création du cache"
     },
     "budgetUsed": "{{used}} sur {{limit}} tokens ({{percent}}%)",
-    "note": "Les entrées ne contiennent que des jetons et des durées ; aucun coût monétaire n'est affiché. Les lectures de cache sont incluses dans les tokens d'entrée et ne sont pas ajoutées une seconde fois au budget."
+    "note": "Les entrées ne contiennent que des jetons et des durées ; aucun coût monétaire n'est affiché. Les lectures de cache sont incluses dans les tokens d'entrée ; le budget les compte pour un dixième de leur nombre."
   },
   "delivery": {
     "title": "Livraison et utilisation des jetons",
@@ -657,6 +657,12 @@
       "branch_mismatch": "Le worktree de la tâche n'est pas sur la branche de la pull request : aucun suivi ne peut s'exécuter ici.",
       "head_changed": "La pull request a changé depuis le chargement des retours (un nouveau commit a été poussé). Actualisez les retours, vérifiez la nouvelle révision et refaites votre sélection. Rien n’a été démarré.",
       "head_unverified": "Impossible de vérifier la révision de la pull request. Actualisez les retours, puis réessayez. Aucun suivi n’a été démarré."
+    }
+  },
+  "tokenBudgetWarning": {
+    "notification": {
+      "title": "Budget de tokens à {{percent}} %",
+      "body": "« {{title}} » a utilisé {{used}} sur {{limit}} tokens du budget"
     }
   },
   "tokenBudgetBanner": {

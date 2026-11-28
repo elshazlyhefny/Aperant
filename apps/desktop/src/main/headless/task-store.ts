@@ -38,8 +38,7 @@ import { writeFileAtomicSync } from '../utils/atomic-file';
 import { withFileLock } from '../utils/file-lock';
 import { FileParseCache } from '../utils/file-parse-cache';
 import { safeParseJson } from '../utils/json-repair';
-import { withSpecNumberLock } from '../utils/spec-number-lock';
-import { buildSpecId } from '../utils/spec-slug';
+import { allocateSpecDir } from '../utils/spec-number-lock';
 import { findAllSpecPaths } from '../utils/spec-path-helpers';
 import { getTaskWorktreeDir } from '../worktree-paths';
 
@@ -333,9 +332,9 @@ export async function resetStuckSubtasks(
 /**
  * Create the spec for one scheduled run, in status 'queue'.
  *
- * Difference from the desktop: launch-task.ts starts spec creation (an agent writes
- * spec.md) when spec.md is missing. runHeadlessTask requires spec.md up front, so a
- * minimal spec.md is generated from the template instead.
+ * zeenha fork: like the desktop's createTaskSpec, no spec.md is written. When the
+ * daemon starts the task, runHeadlessTask runs spec creation from requirements.json
+ * first (the desktop's launchTask does the same), then the build.
  */
 export async function createScheduledTaskSpec(
   project: HeadlessProject,
@@ -344,18 +343,10 @@ export async function createScheduledTaskSpec(
   scheduledFor: number,
   cache?: FileParseCache
 ): Promise<Task> {
-  const specsBaseDir = getSpecsDir(project.autoBuildPath);
-  const specsDir = path.join(project.path, specsBaseDir);
   const title = template.title.trim() || template.description.split('\n')[0].slice(0, 60) || 'Scheduled task';
 
-  const specId = await withSpecNumberLock(project.path, (lock) => {
-    const specNumber = lock.getNextSpecNumber(project.autoBuildPath);
-    const id = buildSpecId(specNumber, title);
-    // Create the directory while the lock is held so the number is taken
-    mkdirSync(path.join(specsDir, id), { recursive: true });
-    return id;
-  });
-  const specDir = path.join(specsDir, specId);
+  // zeenha fork: the shared allocator creates the directory while the lock is held.
+  const { specDir } = await allocateSpecDir(project, title);
 
   function writeScheduledFile(name: string, content: string): void {
     const file = path.join(specDir, name);
@@ -376,7 +367,6 @@ export async function createScheduledTaskSpec(
     JSON.stringify({ task_description: template.description, workflow_type: template.category || 'feature' }, null, 2)
   );
   writeScheduledFile(METADATA_FILE, JSON.stringify(metadata, null, 2));
-  writeScheduledFile(AUTO_BUILD_PATHS.SPEC_FILE, `# ${title}\n\n## Overview\n\n${template.description}\n`);
   writeScheduledFile(
     AUTO_BUILD_PATHS.IMPLEMENTATION_PLAN,
     JSON.stringify(

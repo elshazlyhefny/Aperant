@@ -31,12 +31,14 @@ import { isValidTaskId } from '../utils/spec-path-helpers';
 import { resolveHeadlessPhaseFallback, resolveHeadlessAuth, type HeadlessAuthResult } from './auth';
 import { loadHeadlessConfig, mcpOptionsForHeadless, resolveProjectSettings } from './config';
 import type { HeadlessConfig } from './config';
+import { createHeadlessMemory, isHeadlessMemoryEnabled } from './memory';
 import { collectBridgeRun } from './bridge-run';
 import type { HeadlessBridge } from './bridge-run';
 import { classifyRun, EXIT_ERROR } from './outcome';
 import type { RunOutcome } from './outcome';
 import { createProgressReporter } from './progress';
 import type { ResultInfo } from './progress';
+import { createHeadlessSpecInDir, HeadlessSpecAbortedError, readSpecTaskDescription } from './new-spec';
 import { readHeadlessRateLimits, recordHeadlessRateLimit, withHeadlessRateLimits } from './rate-limit-state';
 import {
   AUTO_BUILD_PATH,
@@ -190,8 +192,14 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     writebackProjectPath = projectPath;
     mainSpecDir = specDir;
     webhookTitle = specId;
-    if (!existsSync(specDir) || !statSync(specDir).isDirectory() || !existsSync(path.join(specDir, 'spec.md'))) {
-      throw new HeadlessSetupError(`Spec not found: ${path.join(specDir, 'spec.md')} does not exist`);
+    // zeenha fork: a spec folder without spec.md (a scheduled task) gets spec creation
+    // first, from its stored task description, like the desktop's launchTask.
+    const isSpecFolder = existsSync(specDir) && statSync(specDir).isDirectory();
+    const pendingSpecDescription =
+      isSpecFolder && !existsSync(path.join(specDir, 'spec.md')) ? readSpecTaskDescription(specDir) : undefined;
+    if (!isSpecFolder || (!existsSync(path.join(specDir, 'spec.md')) && !pendingSpecDescription)) {
+      const noDescription = isSpecFolder ? ' and there is no task description (requirements.json) to create it from' : '';
+      throw new HeadlessSetupError(`Spec not found: ${path.join(specDir, 'spec.md')} does not exist${noDescription}`);
     }
     webhookTitle = readSpecTitle(specDir, specId);
 
@@ -217,6 +225,25 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       baseBranch: options.baseBranch,
       noPush: options.noPush,
     });
+
+    // zeenha fork: spec creation for a folder without spec.md, before the build.
+    if (pendingSpecDescription) {
+      await createHeadlessSpecInDir({
+        projectPath,
+        specId,
+        specDir,
+        description: pendingSpecDescription,
+        config,
+        settings,
+        reporter,
+        secrets,
+        workerPath: options.workerPath,
+        createBridge: options.createBridge,
+        signal: options.signal,
+        handleProcessSignals: options.handleProcessSignals,
+      });
+      webhookTitle = readSpecTitle(specDir, specId);
+    }
 
     const tokenBudget = resolveHeadlessTokenBudget(specDir, config);
     reporter.tokenBudget(tokenBudget);
@@ -269,6 +296,9 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       specDir: worktreeSpecDir,
       projectDir: worktreePath,
       sourceSpecDir: specDir,
+      // zeenha fork: for the prompt's {{BASE_BRANCH}} and the QA verify gate.
+      baseBranch: settings.baseBranch,
+      mainProjectDir: projectPath,
       // zeenha fork: use task_metadata.json, then --config project.defaultTokenBudget,
       // never desktop settings.
       tokenBudget: tokenBudget.limit,
@@ -308,11 +338,21 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
 
     // (6) bridge, events, outcome collection
     const workerPath = options.workerPath;
+    // zeenha fork: headless tasks read and write memory like desktop tasks, unless
+    // the config file sets memory.enabled to false.
+    const memory = isHeadlessMemoryEnabled(config)
+      ? createHeadlessMemory({
+          projectPath,
+          log: (message) => reporter.log(message),
+          warn: (message) => rawErr(redact(`warning: ${message}\n`)),
+        })
+      : undefined;
     const bridgeOptions: WorkerBridgeCoreOptions = {
       resolveWorkerPath: () => {
         if (!workerPath) throw new Error('No worker path was supplied');
         return workerPath;
       },
+      startMemory: memory?.startMemory,
       // zeenha fork: record a rate limit where headless auth reads it back
       // (rate-limit-state.ts), so the next run or daemon task skips the account
       // until its reset. Never throws.
@@ -332,6 +372,7 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       signal: options.signal,
       handleProcessSignals: options.handleProcessSignals,
     });
+    await memory?.settle();
     const reported = classifyRun(runInput);
 
     result = {
@@ -347,7 +388,8 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
     const message = error instanceof Error ? error.message : String(error);
     reporter.error(message);
     const outcome: RunOutcome = { kind: 'error', exitCode: EXIT_ERROR, reason: message };
-    result = { exitCode: EXIT_ERROR, outcome, specId, aborted: false };
+    // zeenha fork: an aborted spec creation counts as an aborted run (the daemon requeues it).
+    result = { exitCode: EXIT_ERROR, outcome, specId, aborted: error instanceof HeadlessSpecAbortedError };
   }
 
   // Delivery runs exactly once, outside the build/setup failure path.
