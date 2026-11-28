@@ -297,8 +297,10 @@ export async function runHeadlessTaskDetailed(options: HeadlessRunOptions): Prom
       session: sessionConfig,
       // zeenha fork: lets the bridge record a rate limit on the account used.
       accountId: resolvedAuth.accountId,
-      resolvePhaseConnection: resolvePhase && (async phase => {
-        const connection = await resolvePhase(phase);
+      // zeenha fork: pass the bridge's exclusions through, so a phase retried after
+      // a rate limit moves to the next account of the same provider (as on desktop).
+      resolvePhaseConnection: resolvePhase && (async (phase, excludeAccountIds) => {
+        const connection = await resolvePhase(phase, excludeAccountIds);
         if (connection.apiKey && !secrets.includes(connection.apiKey)) secrets.push(connection.apiKey);
         return connection;
       }),

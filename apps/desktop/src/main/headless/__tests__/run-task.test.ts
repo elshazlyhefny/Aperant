@@ -13,6 +13,7 @@ vi.mock('../../ai/worktree/worktree-manager', () => ({
 }));
 vi.mock('../auth', () => ({
   resolveHeadlessAuth: (...args: unknown[]) => mockResolveAuth(...args),
+  resolveHeadlessPhaseFallback: async () => null,
 }));
 vi.mock('../../ai/prompts/prompt-loader', () => ({
   tryLoadPrompt: () => 'PLANNER PROMPT',
@@ -264,6 +265,27 @@ describe('runHeadlessTask', () => {
     const limits = readHeadlessRateLimits(projectDir);
     expect(limits.acc1).toHaveLength(1);
     expect(new Date(limits.acc1[0].resetAt).getTime()).toBe(reset);
+  });
+
+  // zeenha fork: a phase retried after a rate limit skips the accounts the bridge excludes.
+  it('passes the bridge exclusions to phase routing', async () => {
+    const specDir = makeSpec();
+    writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({
+      provider: 'anthropic', model: 'sonnet', phaseProviders: { planning: 'anthropic' },
+    }));
+    const config = {
+      providerAccounts: [
+        { id: 'acc1', provider: 'anthropic', authType: 'api-key', apiKey: 'key-one', isActive: true, name: 'a', billingModel: 'subscription' },
+        { id: 'acc2', provider: 'anthropic', authType: 'api-key', apiKey: 'key-two', isActive: true, name: 'b', billingModel: 'subscription' },
+      ],
+      globalPriorityOrder: ['acc1', 'acc2'],
+    } as never;
+    script([{ type: 'QA_PASSED' }]);
+    await run({ config });
+
+    const executorConfig = bridge.spawn.mock.calls[0][0];
+    expect((await executorConfig.resolvePhaseConnection('planning')).accountId).toBe('acc1');
+    expect((await executorConfig.resolvePhaseConnection('planning', ['acc1'])).accountId).toBe('acc2');
   });
 
   it('returns detailed result fields', async () => {
