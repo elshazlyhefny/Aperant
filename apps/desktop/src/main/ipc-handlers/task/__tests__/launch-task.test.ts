@@ -206,6 +206,64 @@ describe('launchTask', () => {
   });
 });
 
+describe('launchTask with a stub spec (ideation/roadmap)', () => {
+  const run = (task = makeTask()) =>
+    launchTask({ task, project: makeProject(), agentManager, logTag: '[TEST]' });
+  const STUB = '# Idea\n\nFull idea text\n\n---\n*This spec was created from ideation and is pending detailed specification.*\n';
+  function writeStub(sourceType: string) {
+    fs.writeFileSync(path.join(specDir, 'spec.md'), STUB);
+    fs.writeFileSync(path.join(specDir, 'task_metadata.json'), JSON.stringify({ sourceType }));
+    writePlan({ feature: 'Idea', status: 'backlog', phases: [] });
+  }
+
+  it('routes an ideation stub to spec creation with the stub as the description', () => {
+    writeStub('ideation');
+    const result = run();
+    expect(agentManager.startSpecCreation).toHaveBeenCalledWith(
+      't1', root, STUB.trim(), specDir, undefined, 'main', 'p1'
+    );
+    expect(agentManager.startTaskExecution).not.toHaveBeenCalled();
+    expect(result).toEqual({ mode: 'spec_creation', hasSpec: true, planHasSubtasks: false });
+  });
+
+  it('routes a roadmap stub to spec creation', () => {
+    writeStub('roadmap');
+    expect(run().mode).toBe('spec_creation');
+    expect(agentManager.startSpecCreation).toHaveBeenCalledTimes(1);
+    expect(agentManager.startTaskExecution).not.toHaveBeenCalled();
+  });
+
+  it('runs a manual task with spec.md straight to execution', () => {
+    writeStub('manual');
+    expect(run().mode).toBe('planning');
+    expect(agentManager.startTaskExecution).toHaveBeenCalledTimes(1);
+    expect(agentManager.startSpecCreation).not.toHaveBeenCalled();
+  });
+
+  it('runs a spec.md without task_metadata.json straight to execution', () => {
+    writeSpec();
+    expect(run().mode).toBe('planning');
+    expect(agentManager.startSpecCreation).not.toHaveBeenCalled();
+  });
+
+  it('does not re-spec an ideation task that the pipeline already assessed', () => {
+    writeStub('ideation');
+    fs.writeFileSync(path.join(specDir, 'complexity_assessment.json'), JSON.stringify({ complexity: 'simple' }));
+    expect(run().mode).toBe('planning');
+    expect(agentManager.startTaskExecution).toHaveBeenCalledTimes(1);
+    expect(agentManager.startSpecCreation).not.toHaveBeenCalled();
+  });
+
+  it('does not re-spec an ideation task whose plan already has subtasks', () => {
+    writeStub('ideation');
+    writePlan(WITH_SUBTASKS);
+    const result = run();
+    expect(result).toEqual({ mode: 'execution', hasSpec: true, planHasSubtasks: true });
+    expect(agentManager.startTaskExecution).toHaveBeenCalledTimes(1);
+    expect(agentManager.startSpecCreation).not.toHaveBeenCalled();
+  });
+});
+
 describe('preflightTaskLaunch', () => {
   const profile = (valid: boolean) => ({ hasValidAuth: () => valid });
 
