@@ -93,7 +93,9 @@ describe('runVerifyGate', { timeout: GIT_TIMEOUT_MS }, () => {
   // zeenha fork: the gate runs commands through cmd.exe on Windows, which has no
   // `;` separator or shell loops. Commands that must behave the same in sh and
   // cmd.exe are written as `node -e "..."`, with double quotes outside and no `$`.
-  const FAILING = `node -e "console.log('boom-output'); console.error('on-stderr'); process.exit(3)"`;
+  // They set process.exitCode rather than calling process.exit(), which can drop
+  // output still queued for a pipe on Linux and macOS.
+  const FAILING = `node -e "console.log('boom-output'); console.error('on-stderr'); process.exitCode = 3"`;
   const WRITE_RAN_AFTER = `node -e "require('fs').writeFileSync('ran-after', '')"`;
 
   it('stops at the first failing command and reports its output tail', async () => {
@@ -107,7 +109,7 @@ describe('runVerifyGate', { timeout: GIT_TIMEOUT_MS }, () => {
   });
 
   it('keeps only the last 4000 characters of output', async () => {
-    const result = await gate([`node -e "for (let i = 0; i < 2000; i++) console.log('line-' + i); process.exit(1)"`]);
+    const result = await gate([`node -e "for (let i = 0; i < 2000; i++) console.log('line-' + i); process.exitCode = 1"`]);
     if (result.status !== 'failed' || result.reason !== 'command_failed') throw new Error('expected command_failed');
     expect(result.outputTail.length).toBeLessThanOrEqual(4000);
     expect(result.outputTail).toContain('line-1999');
