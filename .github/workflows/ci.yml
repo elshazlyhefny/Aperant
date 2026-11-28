@@ -24,20 +24,11 @@ on:
       - 'scripts/update-integration-capabilities.test.mjs'
       - '.github/workflows/ci.yml'
       - '.github/actions/**'
+  # zeenha fork: no path filter on pull requests. The branch protection on
+  # zeenha requires this workflow's gate job, so a PR that skipped it could
+  # never merge. Pushes keep their filter.
   pull_request:
     branches: [main, develop, zeenha]
-    paths:
-      - 'apps/**'
-      - 'guides/CLI-USAGE.md'
-      - 'package*.json'
-      - 'tsconfig*.json'
-      - 'biome.jsonc'
-      - 'README.md'
-      - 'guides/**'
-      - 'scripts/update-integration-capabilities.mjs'
-      - 'scripts/update-integration-capabilities.test.mjs'
-      - '.github/workflows/ci.yml'
-      - '.github/actions/**'
   # zeenha fork: run the required gate on merge-queue commits, so each PR is
   # tested on top of the latest trunk and the PRs queued before it. merge_group
   # takes no path filters, so every queued commit runs the full gate.
