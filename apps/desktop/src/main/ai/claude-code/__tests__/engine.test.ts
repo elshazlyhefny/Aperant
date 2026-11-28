@@ -1,6 +1,7 @@
+import { spawn as nodeSpawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { tool } from 'ai';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -8,7 +9,8 @@ import { z } from 'zod/v3';
 
 import { classifyError } from '../../session/error-classifier';
 import type { ClaudeCodePart } from '../cli-events';
-import { runClaudeCode } from '../engine';
+import { runClaudeCode, type SpawnFn } from '../engine';
+import { isWindows } from '../../../platform';
 import { createProvider } from '../../providers/factory';
 import { SupportedProvider } from '../../providers/types';
 import type { ClaudeCodeLanguageModel } from '../model';
@@ -38,8 +40,8 @@ process.stdin.on('end', () => {
     configDir: process.env.CLAUDE_CONFIG_DIR ?? null,
     sysFile, system: sysFile ? fs.readFileSync(sysFile, 'utf8') : null,
     sysMode: sysFile ? (fs.statSync(sysFile).mode & 0o777) : null,
-    mcp, mcpBody: mcp && mcp.startsWith('/') ? fs.readFileSync(mcp, 'utf8') : mcp,
-    mcpMode: mcp && mcp.startsWith('/') ? (fs.statSync(mcp).mode & 0o777) : null,
+    mcp, mcpBody: mcp && !mcp.startsWith('{') ? fs.readFileSync(mcp, 'utf8') : mcp,
+    mcpMode: mcp && !mcp.startsWith('{') ? (fs.statSync(mcp).mode & 0o777) : null,
   };
   fs.writeFileSync(process.env.FAKE_RECORD, JSON.stringify(record));
   const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
@@ -79,6 +81,19 @@ process.stdin.on('end', () => {
 );
 chmodSync(fake, 0o755);
 
+/**
+ * How the tests hand the fake to the engine. On POSIX the engine spawns it
+ * itself, through its shebang line. Windows cannot run a script that way (and
+ * the real `claude.exe` is a native binary), so there the engine's spawn seam
+ * starts the same script with Node: still a real process with real pipes.
+ */
+const fakeCli: { binaryPath: string; spawn?: SpawnFn } = isWindows()
+  ? { binaryPath: fake, spawn: (command, args, opts) => nodeSpawn(process.execPath, [command, ...args], opts) }
+  : { binaryPath: fake };
+
+/** POSIX permission bits do not exist on Windows; the per-user temp folder's ACL protects the files there. */
+const checksFileModes = !isWindows();
+
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 let counter = 0;
@@ -97,7 +112,7 @@ describe('runClaudeCode', () => {
       system: 'SYSTEM PROMPT',
       prompt: 'Do the task.',
       cwd: dir,
-      binaryPath: fake,
+      ...fakeCli,
       env,
       onPart: (p) => parts.push(p),
     });
@@ -111,7 +126,7 @@ describe('runClaudeCode', () => {
     expect(rec.cwd).toBe(dir);
     expect(rec.apiKey).toBeNull();
     expect(rec.system).toBe('SYSTEM PROMPT');
-    expect(rec.sysMode).toBe(0o600);
+    if (checksFileModes) expect(rec.sysMode).toBe(0o600);
     expect(rec.mcpBody).toBe('{"mcpServers":{}}');
     expect(rec.args).toContain('--strict-mcp-config');
     expect(rec.args).not.toContain('--allowedTools');
@@ -125,7 +140,7 @@ describe('runClaudeCode', () => {
       modelId: 'claude-opus-5-5',
       prompt: 'What is this?',
       images: [{ mediaType: 'image/png', data: 'AQID' }],
-      binaryPath: fake,
+      ...fakeCli,
       env,
       onPart: () => undefined,
     });
@@ -147,7 +162,7 @@ describe('runClaudeCode', () => {
 
   it('keeps plain-text stdin and no input-format flag without images', async () => {
     const { env, read } = scenario('ok');
-    await runClaudeCode({ modelId: 'm', prompt: 'plain', images: [], binaryPath: fake, env, onPart: () => undefined });
+    await runClaudeCode({ modelId: 'm', prompt: 'plain', images: [], ...fakeCli, env, onPart: () => undefined });
     const rec = read();
     expect(rec.stdin).toBe('plain');
     expect(rec.args).not.toContain('--input-format');
@@ -158,10 +173,10 @@ describe('runClaudeCode', () => {
     const tools = {
       Read: tool({ description: 'r', inputSchema: z.object({ p: z.string() }), execute: async () => 'x' }),
     };
-    await runClaudeCode({ modelId: 'm', prompt: 'p', tools, binaryPath: fake, env, onPart: () => undefined });
+    await runClaudeCode({ modelId: 'm', prompt: 'p', tools, ...fakeCli, env, onPart: () => undefined });
 
     const rec = read();
-    expect(rec.mcpMode).toBe(0o600);
+    if (checksFileModes) expect(rec.mcpMode).toBe(0o600);
     const config = JSON.parse(rec.mcpBody);
     const server = config.mcpServers.aperant;
     expect(server.type).toBe('http');
@@ -175,13 +190,13 @@ describe('runClaudeCode', () => {
 
   it('throws a rate-limit error the session classifier recognises', async () => {
     const { env } = scenario('error429');
-    const error = await runClaudeCode({ modelId: 'm', prompt: 'p', binaryPath: fake, env, onPart: () => undefined }).catch((e) => e);
+    const error = await runClaudeCode({ modelId: 'm', prompt: 'p', ...fakeCli, env, onPart: () => undefined }).catch((e) => e);
     expect(classifyError(error).outcome).toBe('rate_limited');
   });
 
   it('reports a crash with its exit code and stderr', async () => {
     const { env } = scenario('crash');
-    await expect(runClaudeCode({ modelId: 'm', prompt: 'p', binaryPath: fake, env, onPart: () => undefined })).rejects.toThrow(
+    await expect(runClaudeCode({ modelId: 'm', prompt: 'p', ...fakeCli, env, onPart: () => undefined })).rejects.toThrow(
       /exit code 3.*segfault-ish failure/,
     );
   });
@@ -192,7 +207,7 @@ describe('runClaudeCode', () => {
     const result = await runClaudeCode({
       modelId: 'm',
       prompt: 'p',
-      binaryPath: fake,
+      ...fakeCli,
       env,
       shouldStop: (steps) => {
         seen.push(steps.length);
@@ -209,14 +224,14 @@ describe('runClaudeCode', () => {
   it('kills the CLI and throws AbortError when cancelled', async () => {
     const { env } = scenario('hang');
     const controller = new AbortController();
-    const run = runClaudeCode({ modelId: 'm', prompt: 'p', binaryPath: fake, env, abortSignal: controller.signal, onPart: () => undefined });
+    const run = runClaudeCode({ modelId: 'm', prompt: 'p', ...fakeCli, env, abortSignal: controller.signal, onPart: () => undefined });
     setTimeout(() => controller.abort(), 300);
     await expect(run).rejects.toMatchObject({ name: 'AbortError' });
   }, 15_000);
 
   it('runs the CLI as the selected account: the token goes in the environment, never the arguments', async () => {
     const { env, read } = scenario('ok');
-    await runClaudeCode({ modelId: 'm', prompt: 'p', binaryPath: fake, env, oauthToken: 'sk-ant-oat01-chosen', onPart: () => undefined });
+    await runClaudeCode({ modelId: 'm', prompt: 'p', ...fakeCli, env, oauthToken: 'sk-ant-oat01-chosen', onPart: () => undefined });
     const rec = read();
     expect(rec.oauthToken).toBe('sk-ant-oat01-chosen');
     expect(JSON.stringify(rec.args)).not.toContain('sk-ant-oat01-chosen');
@@ -228,7 +243,7 @@ describe('runClaudeCode', () => {
       config: { provider: SupportedProvider.Anthropic, apiKey: 'sk-ant-oat01-profile-b' },
       modelId: 'claude-opus-5-5',
     }) as ClaudeCodeLanguageModel;
-    await model.run({ modelId: model.modelId, prompt: 'p', binaryPath: fake, env, onPart: () => undefined });
+    await model.run({ modelId: model.modelId, prompt: 'p', ...fakeCli, env, onPart: () => undefined });
     expect(read().oauthToken).toBe('sk-ant-oat01-profile-b');
   });
 
@@ -237,7 +252,7 @@ describe('runClaudeCode', () => {
     // An inherited token would override the profile's live credentials.
     env.CLAUDE_CODE_OAUTH_TOKEN = 'sk-ant-oat01-inherited';
     await runClaudeCode({
-      modelId: 'm', prompt: 'p', binaryPath: fake, env,
+      modelId: 'm', prompt: 'p', ...fakeCli, env,
       oauthToken: 'sk-ant-oat01-stale', configDir: '/profiles/b', onPart: () => undefined,
     });
     const rec = read();
@@ -247,8 +262,9 @@ describe('runClaudeCode', () => {
 
   it('expands ~ in the profile config dir', async () => {
     const { env, read } = scenario('ok');
-    await runClaudeCode({ modelId: 'm', prompt: 'p', binaryPath: fake, env, configDir: '~/.claude-profiles/b', onPart: () => undefined });
-    expect(read().configDir).toBe(join(homedir(), '.claude-profiles/b'));
+    await runClaudeCode({ modelId: 'm', prompt: 'p', ...fakeCli, env, configDir: '~/.claude-profiles/b', onPart: () => undefined });
+    // resolve(): on Windows the expanded `~/…` keeps its forward slashes, which Windows accepts.
+    expect(resolve(read().configDir)).toBe(join(homedir(), '.claude-profiles', 'b'));
   });
 
   it('a subscription model from the provider factory carries its profile config dir to the CLI', async () => {
@@ -257,7 +273,7 @@ describe('runClaudeCode', () => {
       config: { provider: SupportedProvider.Anthropic, apiKey: 'sk-ant-oat01-profile-b', claudeConfigDir: '/profiles/b' },
       modelId: 'claude-opus-5-5',
     }) as ClaudeCodeLanguageModel;
-    await model.run({ modelId: model.modelId, prompt: 'p', binaryPath: fake, env, onPart: () => undefined });
+    await model.run({ modelId: model.modelId, prompt: 'p', ...fakeCli, env, onPart: () => undefined });
     const rec = read();
     expect(rec.configDir).toBe('/profiles/b');
     expect(rec.oauthToken).toBeNull();
@@ -268,7 +284,7 @@ describe('runClaudeCode', () => {
     const record = env.FAKE_RECORD as string;
     const controller = new AbortController();
     const tools = { Read: tool({ description: 'r', inputSchema: z.object({}), execute: async () => 'x' }) };
-    const run = runClaudeCode({ modelId: 'm', prompt: 'p', tools, binaryPath: fake, env, abortSignal: controller.signal, onPart: () => undefined });
+    const run = runClaudeCode({ modelId: 'm', prompt: 'p', tools, ...fakeCli, env, abortSignal: controller.signal, onPart: () => undefined });
     controller.abort(); // while the tool bridge is still starting
     await expect(run).rejects.toMatchObject({ name: 'AbortError' });
     expect(existsSync(record)).toBe(false);
@@ -278,7 +294,7 @@ describe('runClaudeCode', () => {
     const { env } = scenario('loop');
     const parts: ClaudeCodePart[] = [];
     const result = await runClaudeCode({
-      modelId: 'm', prompt: 'p', binaryPath: fake, env,
+      modelId: 'm', prompt: 'p', ...fakeCli, env,
       shouldStop: (steps) => steps.length >= 2,
       onPart: (p) => parts.push(p),
     });
@@ -291,7 +307,7 @@ describe('runClaudeCode', () => {
     const { env } = scenario('loop');
     await expect(
       runClaudeCode({
-        modelId: 'm', prompt: 'p', binaryPath: fake, env,
+        modelId: 'm', prompt: 'p', ...fakeCli, env,
         shouldStop: async () => { throw new Error('stop check broke'); },
         onPart: () => undefined,
       }),

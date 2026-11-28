@@ -62,9 +62,7 @@ function isValidCustomServer(s: unknown): s is CustomMcpServerDefinition {
   if (typeof o.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(o.id)) return false;
   if (o.type === 'command') {
     if (typeof o.command !== 'string' || o.command.length === 0) return false;
-    if (o.args !== undefined && !(Array.isArray(o.args) && o.args.every((a) => typeof a === 'string'))) return false;
-    // The same rule the settings page's checks apply (command-policy.ts).
-    return checkMcpCommand(o.command, o.args as string[] | undefined).ok;
+    return o.args === undefined || (Array.isArray(o.args) && o.args.every((a) => typeof a === 'string'));
   }
   if (o.type === 'http') {
     if (typeof o.url !== 'string') return false;
@@ -158,7 +156,13 @@ export function parseProjectMcpOptions(content: string): ProjectMcpOptions {
         const valid = parsed
           .filter(isValidCustomServer)
           .map((server) => expandServerVars(server, vars))
-          .filter((server): server is CustomMcpServerDefinition => server !== null);
+          .filter((server): server is CustomMcpServerDefinition => server !== null)
+          // The same rule the settings page's checks apply (command-policy.ts).
+          // zeenha fork: checked on the expanded args, the ones actually
+          // launched. Checked before expansion, every `${NAME}` reference was
+          // refused on Windows (`$` is in the shell-metacharacter list), and a
+          // variable's value was never checked at all.
+          .filter((server) => server.type !== 'command' || checkMcpCommand(server.command, server.args).ok);
         if (valid.length > 0) options.customServers = valid;
       }
     } catch {
