@@ -97,6 +97,16 @@ describe('parseProjectMcpOptions', () => {
     expect(opts.customServers?.map((s) => s.id)).toEqual(['plain']);
   });
 
+  it('applies the command policy to the expanded args, the ones launched', () => {
+    const custom = [
+      { id: 'pkg', type: 'command', command: 'npx', args: ['-y', ref('PKG')] },
+      { id: 'flag', type: 'command', command: 'node', args: [ref('FLAG'), 'x'] },
+    ];
+    const opts = parseProjectMcpOptions(`PKG=some-mcp\nFLAG=--eval\nCUSTOM_MCP_SERVERS=${JSON.stringify(custom)}`);
+    expect(opts.customServers?.map((s) => s.id)).toEqual(['pkg']);
+    expect(opts.customServers?.[0].args).toEqual(['-y', 'some-mcp']);
+  });
+
   it('never reads the process environment', () => {
     process.env.ZEENHA_TEST_SECRET = 'from-process';
     try {
